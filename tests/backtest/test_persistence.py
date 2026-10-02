@@ -230,6 +230,11 @@ async def _assert_postgres_summary_listing(
         assert row.summary == result.summary
         assert row.summary.total_spread_cost == result.summary.total_spread_cost
         assert row.published_at.tzinfo is not None
+        assert row.window is not None
+        assert row.window.evaluation_start == specification.evaluation.starts_at
+        assert row.window.evaluation_end == specification.evaluation.ends_at
+        assert row.window.warmup_bars == specification.warmup.bars
+        assert row.window.evaluation_bars == result.summary.evaluation_bars
     finally:
         await _cleanup_seeded_sources(engine, result)
         await dispose(engine)

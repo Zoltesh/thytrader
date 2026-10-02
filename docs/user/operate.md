@@ -114,7 +114,12 @@ versions, drafts, or publish steps: a strategy is one object you edit and save
 are evidence, not readiness: **Build** (the saved definition is valid), **Test** (a backtest exists),
 **Paper** and **Live** (newest deployment status per mode: running, paused, stopped, or not
 deployed). Clicking a row opens that strategy's workspace; the latest-backtest link opens that
-result on its Test stage.
+result on its Test stage. A strategy's `metadata.tags` show as chips under its name; click one to
+show only strategies with that tag (the filter chip above the table clears it). Tag strategies you
+create in bulk, then list them with `thytrader-research list-strategies --tag TAG` or remove them
+with `bulk-delete-strategies --tag TAG --dry-run` and then `--confirm`
+([ADR 0094](../decisions/0094-research-honesty-and-agent-ergonomics.md)). Cross-market variants
+are snapshots of their base strategy and never appear as separate rows.
 
 From the library you can create a strategy from a template on any **Market** (a Coinbase spot product such as `BTC-USDC` or `BTC-USD`; the field remembers your last choice and starts at `BTC-USDC`) and **Clock**. Product and timeframe stay editable later under Build → Market and data. You can also **Clone** a strategy into a new
 identity, **Import** a strategy definition JSON as a new strategy (older exports that still carry
@@ -194,7 +199,10 @@ including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the compose
 the run bar, **Results for this strategy** lists every result, each marked **Current rules** or
 **Earlier edit**; opening one shows it inline (`?result=` deep link): a compact header (rules · period · time and a
 **Simulated result (candle-based fills)** chip), a metrics row (net return, buy & hold, max
-drawdown, trades, win rate, profit factor), the equity curve, the modeled assumptions line, and a
+drawdown, trades, win rate, profit factor), the evaluated window right under it (*Evaluated
+2021-03-02 → 2026-02-28 · 1825 × 1d bars · after a 60-bar warmup*; omitted dates start after each
+strategy's own warmup, so set custom dates before comparing two strategies), the equity curve, the
+modeled assumptions line, and a
 collapsed **Evidence** row with the result, strategy, dataset, and run fingerprints. Ratio metrics,
 the buy-and-hold comparison, and the modeled trade ledger follow. Results are research evidence, not
 a promise, and there is no Deploy or Start-paper button on them.

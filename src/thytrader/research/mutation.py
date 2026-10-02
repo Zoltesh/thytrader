@@ -106,11 +106,11 @@ class ResearchMutator:
         await self._audit("import_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
         return record
 
-    async def clone_strategy(self, source_id: UUID) -> StrategyRecord:
-        """Duplicate one strategy into a new identity."""
+    async def clone_strategy(self, source_id: UUID, *, name: str | None = None) -> StrategyRecord:
+        """Duplicate one strategy into a new identity, optionally named in the same call."""
         strategy_id, created_at = new_strategy_identity()
         record = await clone_strategy(
-            self.strategies, source_id, strategy_id=strategy_id, created_at=created_at
+            self.strategies, source_id, strategy_id=strategy_id, created_at=created_at, name=name
         )
         await self._audit("clone_strategy", AuditEventOutcome.SUCCESS, _record_detail(record))
         return record

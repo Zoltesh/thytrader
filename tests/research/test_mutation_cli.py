@@ -7,8 +7,9 @@ from datetime import UTC, datetime
 import io
 import json
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 from unittest.mock import patch
+from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
 import pytest
@@ -147,6 +148,162 @@ def test_bulk_delete_dry_run_needs_no_confirm_and_reports_per_strategy(
     assert [item["outcome"] for item in payload["results"]] == ["would_delete", "blocked"]
 
 
+def test_bulk_delete_by_tag_pages_the_library_and_batches_by_100(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--tag`` resolves every tagged strategy, then previews them in server batches."""
+    identities = [str(UUID(int=index + 1)) for index in range(150)]
+    pages = {
+        None: {
+            "strategies": [
+                {"strategy_id": item, "tags": ["per-market"]} for item in identities[:100]
+            ],
+            "has_more": True,
+            "next_cursor": "c100",
+        },
+        "c100": {
+            "strategies": [
+                {"strategy_id": item, "tags": ["per-market"]} for item in identities[100:]
+            ],
+            "has_more": False,
+            "next_cursor": None,
+        },
+    }
+    reads: list[str] = []
+    batches: list[list[str]] = []
+
+    def fake_read(*, method: str, url: str, **_kw: object) -> object:
+        assert method == "GET"
+        reads.append(url)
+        query = parse_qs(urlparse(url).query)
+        assert query["tag"] == ["per-market"]
+        return pages[query.get("cursor", [None])[0]]
+
+    def fake_mutation(
+        *, method: str, url: str, payload: dict[str, object], **_kw: object
+    ) -> object:
+        assert method == "POST"
+        assert url.endswith("/api/v1/strategies/bulk-delete")
+        assert payload["dry_run"] is True
+        sent = cast("list[str]", payload["strategy_ids"])
+        batches.append(sent)
+        return {
+            "dry_run": True,
+            "results": [{"strategy_id": item, "outcome": "would_delete"} for item in sent],
+            "deleted": 0,
+            "would_delete": len(sent),
+            "blocked": 0,
+            "not_found": 0,
+            "failed": 0,
+        }
+
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_json", side_effect=fake_read),
+        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["bulk-delete-strategies", "--tag", "per-market", "--dry-run"])
+    assert raised.value.code == EXIT_HEALTHY
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["tag"] == "per-market"
+    assert payload["matched"] == 150
+    assert payload["would_delete"] == 150
+    assert [len(batch) for batch in batches] == [100, 50]
+    assert len(reads) == 2
+
+
+def test_bulk_delete_by_tag_fails_closed_when_the_api_ignores_the_tag() -> None:
+    """A stale API that lists untagged strategies deletes nothing."""
+
+    def fake_read(*, method: str, url: str, **_kw: object) -> object:
+        del method, url
+        return {"strategies": [{"strategy_id": _STRATEGY_ID}], "has_more": False}
+
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_json", side_effect=fake_read),
+        patch("thytrader.research.http.request_mutation_json") as mutation,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["bulk-delete-strategies", "--tag", "per-market", "--confirm"])
+    assert "nothing was deleted" in str(raised.value)
+    mutation.assert_not_called()
+
+
+def test_bulk_delete_takes_ids_or_a_tag_not_both() -> None:
+    """The two target forms are mutually exclusive."""
+    with pytest.raises(SystemExit) as raised:
+        main(["bulk-delete-strategies", "--tag", "x", "--strategy-id", _STRATEGY_ID, "--dry-run"])
+    assert raised.value.code != EXIT_HEALTHY
+
+
+def test_clone_strategy_name_is_sent_in_the_same_call(capsys: pytest.CaptureFixture[str]) -> None:
+    """``clone-strategy --name`` names the copy without a follow-up save."""
+    sent: list[object] = []
+
+    def fake_mutation(*, method: str, url: str, payload: object = None, **_kw: object) -> object:
+        assert method == "POST"
+        assert url.endswith(f"/api/v1/strategies/{_STRATEGY_ID}/clone")
+        sent.append(payload)
+        return _strategy_response(name="EMA ETH-USDC 1h")
+
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "clone-strategy",
+                "--strategy-id",
+                _STRATEGY_ID,
+                "--name",
+                "EMA ETH-USDC 1h",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == EXIT_HEALTHY
+    assert sent == [{"name": "EMA ETH-USDC 1h"}]
+    assert json.loads(capsys.readouterr().out)["name"] == "EMA ETH-USDC 1h"
+
+
+def test_list_strategies_tag_filters_on_the_server(capsys: pytest.CaptureFixture[str]) -> None:
+    """``list-strategies --tag`` sends ``tag`` and prints each row's tags."""
+    urls: list[str] = []
+
+    def fake_read(*, method: str, url: str, **_kw: object) -> object:
+        del method
+        urls.append(url)
+        return {
+            "strategies": [{"strategy_id": _STRATEGY_ID, "name": "a", "tags": ["majors"]}],
+            "total": 1,
+            "has_more": False,
+        }
+
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_json", side_effect=fake_read),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["list-strategies", "--tag", "majors"])
+    assert raised.value.code == EXIT_HEALTHY
+    assert parse_qs(urlparse(urls[0]).query)["tag"] == ["majors"]
+    assert json.loads(capsys.readouterr().out)["strategies"][0]["tags"] == ["majors"]
+
+
 def test_bulk_delete_without_dry_run_requires_confirm() -> None:
     """A real bulk delete is a mutation and needs --confirm."""
     handlers = {
@@ -258,9 +415,78 @@ def test_save_strategy_puts_the_document_with_its_revision(
     assert raised.value.code == EXIT_HEALTHY
     assert sent[0]["revision"] == 3
     assert sent[0]["document"] == payload
-    output = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
     assert output["valid"] is False
+    assert output["validation"] == {
+        "valid": False,
+        "issues": [{"loc": "entry", "message": "bad"}],
+        "warnings": [],
+    }
     assert output["revision"] == 4
+    assert "saved as an INVALID draft (1 issue): entry: bad" in captured.err
+
+
+def test_import_strategy_reports_validation_like_show_strategy(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """import-strategy nests validation exactly as show-strategy does and flags invalid drafts."""
+    imported = {
+        **_strategy_response(),
+        "validation": {
+            "valid": False,
+            "issues": [
+                {"loc": "entry.when.all[0].left.input", "message": 'unknown field "input"'},
+                {"loc": "entry.when.all[0].left", "message": "must be an indicator operand"},
+            ],
+            "warnings": [],
+        },
+        "current_fingerprint": None,
+    }
+
+    def fake_mutation(*, method: str, url: str, **_kw: object) -> object:
+        assert method == "POST"
+        assert url.endswith("/api/v1/strategies/import")
+        return imported
+
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["import-strategy", "--file", str(_REFERENCE_STRATEGY), "--confirm"])
+    assert raised.value.code == EXIT_HEALTHY
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+    assert output["validation"] == imported["validation"]
+    assert output["valid"] is False
+    assert captured.err.startswith(
+        "thytrader-research: imported as an INVALID draft (2 issues): "
+        'entry.when.all[0].left.input: unknown field "input".'
+    )
+
+
+def test_valid_import_prints_no_invalid_notice(capsys: pytest.CaptureFixture[str]) -> None:
+    """A valid result keeps stderr quiet."""
+    with (
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch(
+            "thytrader.research.http.request_mutation_json",
+            return_value=_strategy_response(),
+        ),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["import-strategy", "--file", str(_REFERENCE_STRATEGY), "--confirm"])
+    assert raised.value.code == EXIT_HEALTHY
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["validation"]["valid"] is True
+    assert captured.err == ""
 
 
 class _HasFullUrl(Protocol):

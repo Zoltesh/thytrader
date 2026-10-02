@@ -104,7 +104,7 @@ SleeveIssueCode = Literal["strategy_invalid", "quote_currency_mismatch", "produc
 
 PORTFOLIO_BACKTEST_CONTRACT: Final = "thytrader-portfolio-backtest-v1"
 PORTFOLIO_BRIEFING_CONTRACT: Final = "thytrader-portfolio-briefing-v1"
-MAX_SLEEVES: Final = 20
+MAX_SLEEVES: Final = 32
 MAX_NAME_LENGTH: Final = 120
 MAX_NOTE_LENGTH: Final = 280
 MAX_MANDATE_LENGTH: Final = 2000
@@ -478,6 +478,29 @@ class SleeveAddRequest(_FrozenModel):
     strategy_id: UUID
     weight_fraction: WeightFractionText
     note: SleeveNoteText | None = None
+
+
+class SleeveBatchItem(_FrozenModel):
+    """One sleeve of a batch add: a strategy and its capital weight."""
+
+    strategy_id: UUID
+    weight_fraction: WeightFractionText
+    note: SleeveNoteText | None = None
+
+
+class SleevesAddRequest(_FrozenModel):
+    """Add several strategies as sleeves atomically, in one revision (ADR 0094)."""
+
+    revision: RevisionNumber
+    sleeves: tuple[SleeveBatchItem, ...] = Field(min_length=1, max_length=MAX_SLEEVES)
+
+    @model_validator(mode="after")
+    def require_distinct_strategies(self) -> Self:
+        """One sleeve per strategy, within the batch as in the portfolio."""
+        identities = [item.strategy_id for item in self.sleeves]
+        if len(set(identities)) != len(identities):
+            raise ValueError("Each strategy may appear once in sleeves.")
+        return self
 
 
 class SleeveUpdateRequest(_FrozenModel):

@@ -101,6 +101,8 @@ export type StrategyLibraryEntry = {
 	timeframe: string | null;
 	revision: number;
 	valid: boolean;
+	/** The document's `metadata.tags` (ADR 0094); filter the library with one. */
+	tags?: string[];
 	current_fingerprint: string | null;
 	summary: string | null;
 	created_at: string;
@@ -918,10 +920,12 @@ export async function fetchStrategySnapshot(fingerprint: string): Promise<Strate
 
 export async function fetchStrategyPage(
 	limit: 10 | 25 | 50 | 100,
-	cursor?: string
+	cursor?: string,
+	tag?: string | null
 ): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null; total: number | null }> {
 	const params = new URLSearchParams({ limit: String(limit) });
 	if (cursor !== undefined) params.set('cursor', cursor);
+	if (tag) params.set('tag', tag);
 	const body = await request<StrategyLibraryResponse>(`/api/v1/strategies?${params.toString()}`);
 	const hasMore = body.has_more === true;
 	if (hasMore && body.strategies.length === 0) {

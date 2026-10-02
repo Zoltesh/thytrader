@@ -120,7 +120,12 @@ logs ([ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)). It re
 bar first. Each row is one completed bar of one covered product: `outcome` (`entry_signal`,
 `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), a one-line `summary` such as
 `No trade: RSI(14) 47.21 needs ≥ 50`, the evaluated `rule` tree with leaf values versus thresholds
-(a lagged indicator reads `Highest(3, high) (1 bar ago)` with the lagged value), the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
+(a lagged indicator reads `Highest(3, high) (1 bar ago)` with the lagged value). Leaf operand
+`value` / `previous_value` are rounded to 12 significant digits for reading; the exact values the
+runtime compared are in `rule.signal.indicator_values` ([ADR 0094](../../docs/decisions/0094-research-honesty-and-agent-ergonomics.md)).
+A false crossover says where the lines are: `EMA(9) is above EMA(21); no new cross this bar (…)`
+when fast already sits above slow, `EMA(9) is below EMA(21); no cross above yet (…)` when it has
+not reached it. Then come the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
 close price, and the end-of-bar position. A matched signal whose stop/target geometry or
 sizing rested no order is `outcome: skipped` with `skip_reason` `entry_geometry` or `entry_sizing`
 and a precise `reason_code` such as `TARGET_NOT_POSITIVE` (a short's target would be at or below
@@ -199,8 +204,10 @@ one with `--sleeve-id` (sleeve id or strategy id), with the same semantics as si
 no new entries, exits and protection continue; managed stop by default, flatten exits at market).
 `portfolio-start --sleeve-id` starts one sleeve (for example a newly added one). Nothing to act on
 is HTTP 409 `portfolio_not_deployed` / `portfolio_sleeve_not_deployed`. `portfolio-status` (read-only)
-returns `state` (`not_deployed`, `running`, `partially_running`, `paused`, `stopped`), each sleeve's
-bot, the breaker, and exposure against the caps.
+returns `state` (`not_deployed`, `running`, `partially_running`, `paused`, `stopped`), one
+`sleeves[]` row per sleeve whose `deployment` field is that sleeve's bot (`deployment_id`, `status`,
+`phase`, `lifecycle_command`, `net_pnl`, `exposure_quote`, `open_books`, …) or `null` before the
+sleeve starts, the breaker, and exposure against the caps.
 
 Portfolio limits bind every sleeve: new entries must fit `max_total_exposure_fraction` and
 `max_per_asset_fraction` of the portfolio's capital across its bots (decision reason codes
@@ -219,7 +226,7 @@ single bots; `--i-understand-live` is never skipped.
 
 | Need | Command |
 |---|---|
-| Portfolio deployment state (read-only) | `uv run thytrader-runtime portfolio-status --portfolio-id ID` |
+| Portfolio deployment state (read-only; each `sleeves[]` row's `deployment` is its bot or `null`) | `uv run thytrader-runtime portfolio-status --portfolio-id ID` |
 | Start a paper portfolio (one bot per sleeve) | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N [--maker-fee-rate 0.001 --taker-fee-rate 0.002] --confirm` |
 | Start a live portfolio | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N --confirm --i-understand-live` |
 | Start one sleeve | `uv run thytrader-runtime portfolio-start --portfolio-id ID --revision N --sleeve-id ID --confirm [--i-understand-live]` |

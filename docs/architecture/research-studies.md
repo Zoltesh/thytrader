@@ -27,7 +27,10 @@ uv run thytrader-research create-strategy --template rsi-mean-reversion --confir
 
 `plan-study`, `backtest-model`, `list-templates`, `list-studies`, `show-study`, `show-evidence`,
 `list-results`, and `list-strategies` are read-only. Default `show-study` includes `window_pnl`
-headlines without child equity curves. `show-evidence` separates in-sample, genuine out-of-sample,
+rows without child equity curves; each row carries `product_id`, `evaluation_start`,
+`evaluation_end`, and its candidate's `axis_values` (recovered from the candidate snapshots), and
+`candidates[]` sums every window per candidate, so one call explains a sweep or WFO
+([ADR 0094](../decisions/0094-research-honesty-and-agent-ergonomics.md)). `show-evidence` separates in-sample, genuine out-of-sample,
 parameter-sweep candidates, paper, and live — sweep means are never labeled OOS.
 `list-results` / `list-strategies` pages are at most 100 rows with `has_more` / `next_cursor`.
 `submit-study` requires `--confirm`. Repeating an identical submit reuses child backtests and is
@@ -143,8 +146,9 @@ study includes, so `GET /api/v1/research/studies?strategy_id=` (CLI `list-studie
 lists every study that touches a strategy, and deleting any included strategy deletes the study.
 `list-studies` returns newest-first summaries without child
 equity. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
-(`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
-`windows`. `show-study` uses the default summary. `thytrader-operator studies` is the same catalog
+(`window_count`, aggregates, per-row axis values and bounds, `candidates[]`, and the stitched OOS
+path thinned to at most 200 marks with the full `point_count` and
+`stitched_oos_points_downsampled`). Pass `?detail=full` for child `windows` and every mark. `show-study` uses the default summary. `thytrader-operator studies` is the same catalog
 without trading authority.
 
 ## Aggregate honesty

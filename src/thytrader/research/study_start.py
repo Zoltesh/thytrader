@@ -36,6 +36,7 @@ from thytrader.research.dataset_binding import (
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
 from thytrader.research.models import (
+    DecimalInputText,
     IndicatorTimeframeDataset,
     reject_removed_engine_selection,
 )
@@ -102,16 +103,16 @@ class ResearchStudyStartRequest(_FrozenStartModel):
     kind: StudyKind
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
-    initial_quote_balance: str
-    maker_fee_rate: str
-    taker_fee_rate: str
-    fixed_slippage_bps: str
-    spread_bps: str | None = None
+    initial_quote_balance: DecimalInputText
+    maker_fee_rate: DecimalInputText
+    taker_fee_rate: DecimalInputText
+    fixed_slippage_bps: DecimalInputText
+    spread_bps: DecimalInputText | None = None
     strategy_id: UUID | None = None
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
-    oos_fraction: str | None = None
+    oos_fraction: DecimalInputText | None = None
     embargo_bars: int = Field(default=0, ge=0, le=10_000)
     in_sample_bars: int | None = Field(default=None, ge=1, le=100_000)
     out_of_sample_bars: int | None = Field(default=None, ge=1, le=100_000)

@@ -2,6 +2,7 @@
 
 import asyncio
 from decimal import Decimal
+import logging
 from typing import Any
 
 import pytest
@@ -121,10 +122,59 @@ def test_coinbase_adapter_reports_all_permissions_without_gating() -> None:
 
 def test_coinbase_adapter_returns_direct_usd_price_or_none() -> None:
     """Unavailable direct USD markets should remain explicitly unvalued."""
-    adapter = CoinbaseAccount(StubCoinbaseClient())
+    adapter = CoinbaseAccount(StubCoinbaseClient(), unsupported_products=set())
 
     assert asyncio.run(adapter.get_usd_price("BTC")) == Decimal("60000.25")
     assert asyncio.run(adapter.get_usd_price("OBSCURE")) is None
+
+
+def test_unsupported_usd_products_are_asked_once_and_logged_once_at_info(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A dust asset's 404 is cached per process: one INFO line, no SDK ERROR (ADR 0094)."""
+
+    class LoggingClient(StubCoinbaseClient):
+        """Log like the official SDK does before raising its 404."""
+
+        def __init__(self) -> None:
+            """Count product lookups."""
+            super().__init__()
+            self.product_calls: list[str] = []
+
+        def get_product(self, product_id: str) -> Any:
+            """Emit the SDK's ERROR line, then raise the not-found failure."""
+            self.product_calls.append(product_id)
+            if product_id != "BTC-USD":
+                logging.getLogger("coinbase.RESTClient").error(
+                    'HTTP Error: 404 Client Error: Not Found {"error":"NOT_FOUND"}'
+                )
+            return super().get_product(product_id)
+
+    client = LoggingClient()
+    cache: set[str] = set()
+    adapter = CoinbaseAccount(client, unsupported_products=cache)
+    with caplog.at_level(logging.INFO):
+        assert asyncio.run(adapter.get_usd_price("IOTX")) is None
+        assert asyncio.run(adapter.get_usd_price("IOTX")) is None
+        assert (
+            asyncio.run(CoinbaseAccount(client, unsupported_products=cache).get_usd_price("IOTX"))
+            is None
+        )
+    assert client.product_calls == ["IOTX-USD"]
+    assert cache == {"IOTX-USD"}
+    assert not [record for record in caplog.records if record.levelno >= logging.ERROR]
+    infos = [record for record in caplog.records if "IOTX-USD" in record.getMessage()]
+    assert len(infos) == 1
+    assert infos[0].levelno == logging.INFO
+
+
+def test_unexpected_sdk_errors_are_still_logged(caplog: pytest.LogCaptureFixture) -> None:
+    """Only the expected product 404 is muted; other SDK errors keep their ERROR line."""
+    CoinbaseAccount(StubCoinbaseClient(), unsupported_products=set())
+    with caplog.at_level(logging.ERROR):
+        logging.getLogger("coinbase.RESTClient").error("HTTP Error: 404 Client Error: orders")
+        logging.getLogger("coinbase.RESTClient").error("HTTP Error: 503 Server Error")
+    assert len([record for record in caplog.records if record.levelno == logging.ERROR]) == 2
 
 
 def test_coinbase_adapter_propagates_non_not_found_price_failures() -> None:

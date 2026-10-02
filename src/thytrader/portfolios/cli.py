@@ -36,6 +36,7 @@ from thytrader.portfolios.manager_cli import (
     add_manager_commands,
 )
 from thytrader.portfolios.models import (
+    MAX_SLEEVES,
     ManagerPermissions,
     ManagerSettings,
     PortfolioCreateRequest,
@@ -43,6 +44,7 @@ from thytrader.portfolios.models import (
     PortfolioUpdateRequest,
     SetWeightsRequest,
     SleeveAddRequest,
+    SleevesAddRequest,
     WeightAssignment,
 )
 from thytrader.portfolios.views import PortfolioResponse
@@ -60,9 +62,21 @@ _CONFIRM_MESSAGE = (
     "backtest. This command never places orders."
 )
 _MUTATIONS = frozenset(
-    {"create", "update", "add-sleeve", "remove-sleeve", "set-weights", "backtest"}
+    {
+        "create",
+        "update",
+        "delete",
+        "add-sleeve",
+        "add-sleeves",
+        "remove-sleeve",
+        "set-weights",
+        "backtest",
+    }
     | MANAGER_MUTATIONS
 )
+_SLEEVE_CAP_HELP = f"A portfolio holds at most {MAX_SLEEVES} sleeves, one per strategy."
+_DEPLOYED_STATES = frozenset({"running", "partially_running", "paused"})
+"""Deployment states in which the API refuses to delete a portfolio."""
 _TERMINAL = frozenset(
     {
         ResearchJobStatus.COMPLETED,
@@ -144,20 +158,32 @@ def _add_create_update(
     trailing: argparse.ArgumentParser,
 ) -> None:
     """Register create and update."""
+    create_help = (
+        "Create a paper or live portfolio (one revision), with optional limits, mandate, "
+        "and manager permissions. Mode and quote currency are then fixed. Add sleeves "
+        f"next with add-sleeves --file. {_SLEEVE_CAP_HELP}"
+    )
     create = commands.add_parser(
-        "create",
-        parents=[trailing],
-        help="Create a paper or live portfolio. Mode and quote currency are then fixed.",
+        "create", parents=[trailing], help=create_help, description=create_help
     )
-    create.add_argument("--name", required=True)
-    create.add_argument("--mode", required=True, choices=("paper", "live"))
     create.add_argument(
-        "--quote-currency", default="USDC", choices=SPOT_QUOTE_CURRENCIES, help="Default USDC."
+        "--file",
+        default=None,
+        help=(
+            "Portfolio JSON: name, mode, quote_currency, capital_quote, cash_reserve_fraction, "
+            "limits, manager (the POST /api/v1/portfolios body). Flags override its fields."
+        ),
     )
-    create.add_argument("--capital-quote", required=True, help="Portfolio capital, e.g. 1000.")
+    create.add_argument("--name", default=None, help="Required unless --file names it.")
+    create.add_argument("--mode", default=None, choices=("paper", "live"))
     create.add_argument(
-        "--cash-reserve-fraction", default="0", help="Cash never allocated, 0-<1. Default 0."
+        "--quote-currency", default=None, choices=SPOT_QUOTE_CURRENCIES, help="Default USDC."
     )
+    create.add_argument("--capital-quote", default=None, help="Portfolio capital, e.g. 1000.")
+    create.add_argument(
+        "--cash-reserve-fraction", default=None, help="Cash never allocated, 0-<1. Default 0."
+    )
+    _add_settings_flags(create)
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     update = commands.add_parser(
         "update",
@@ -169,23 +195,41 @@ def _add_create_update(
     update.add_argument("--name", default=None)
     update.add_argument("--capital-quote", default=None)
     update.add_argument("--cash-reserve-fraction", default=None)
-    update.add_argument("--max-total-exposure-fraction", default=None)
-    update.add_argument("--max-per-asset-fraction", default=None)
-    daily = update.add_mutually_exclusive_group()
+    _add_settings_flags(update)
+    update.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    delete = commands.add_parser(
+        "delete",
+        parents=[trailing],
+        help=(
+            "Delete one portfolio with its sleeves, journal, and backtests (revision-guarded). "
+            "Refused while any sleeve is running or paused: stop the portfolio first. Its "
+            "strategies are kept. Use --dry-run to preview."
+        ),
+    )
+    delete.add_argument("--portfolio-id", required=True)
+    delete.add_argument("--revision", type=int, required=True, help="Current revision (show).")
+    delete.add_argument("--dry-run", action="store_true", help="Preview; changes nothing.")
+    delete.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+
+
+def _add_settings_flags(command: argparse.ArgumentParser) -> None:
+    """Register limit, mandate, and manager-permission flags shared by create and update."""
+    command.add_argument("--max-total-exposure-fraction", default=None)
+    command.add_argument("--max-per-asset-fraction", default=None)
+    daily = command.add_mutually_exclusive_group()
     daily.add_argument("--daily-loss-quote", default=None, help="UTC-day loss stop in quote.")
     daily.add_argument("--clear-daily-loss", action="store_true")
-    drawdown = update.add_mutually_exclusive_group()
+    drawdown = command.add_mutually_exclusive_group()
     drawdown.add_argument("--max-drawdown-fraction", default=None)
     drawdown.add_argument("--clear-max-drawdown", action="store_true")
-    mandate = update.add_mutually_exclusive_group()
+    mandate = command.add_mutually_exclusive_group()
     mandate.add_argument("--mandate", default=None, help="Manager mandate text.")
     mandate.add_argument("--mandate-file", default=None, help="UTF-8 file with the mandate.")
     for flag in ("--may-rebalance", "--may-pause-sleeves", "--may-propose-sleeves"):
-        update.add_argument(flag, choices=("yes", "no"), default=None)
-    update.add_argument(
+        command.add_argument(flag, choices=("yes", "no"), default=None)
+    command.add_argument(
         "--max-weight-change-per-week", default=None, help="Rebalance budget fraction, e.g. 0.1."
     )
-    update.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
 
 
 def _add_sleeve_commands(
@@ -193,17 +237,35 @@ def _add_sleeve_commands(
     trailing: argparse.ArgumentParser,
 ) -> None:
     """Register add-sleeve, remove-sleeve, and set-weights."""
-    add = commands.add_parser(
-        "add-sleeve",
-        parents=[trailing],
-        help="Add a strategy as a sleeve (same quote currency; weights + reserve <= 1).",
+    add_help = (
+        "Add a strategy as a sleeve (same quote currency; weights + reserve <= 1). "
+        f"{_SLEEVE_CAP_HELP}"
     )
+    add = commands.add_parser("add-sleeve", parents=[trailing], help=add_help, description=add_help)
     add.add_argument("--portfolio-id", required=True)
     add.add_argument("--revision", type=int, required=True)
     add.add_argument("--strategy-id", required=True)
     add.add_argument("--weight-fraction", required=True, help="e.g. 0.5 for 50%%.")
     add.add_argument("--note", default=None)
     add.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    batch_help = (
+        "Add several strategies as sleeves atomically, in one revision (all or none). "
+        f"{_SLEEVE_CAP_HELP}"
+    )
+    batch = commands.add_parser(
+        "add-sleeves", parents=[trailing], help=batch_help, description=batch_help
+    )
+    batch.add_argument("--portfolio-id", required=True)
+    batch.add_argument("--revision", type=int, required=True)
+    batch.add_argument(
+        "--file",
+        required=True,
+        help=(
+            'JSON list of {"strategy_id", "weight_fraction", "note"?} objects, or an object '
+            'with a "sleeves" list. Weights plus the cash reserve must stay <= 1.'
+        ),
+    )
+    batch.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     remove = commands.add_parser(
         "remove-sleeve",
         parents=[trailing],
@@ -303,15 +365,66 @@ def _portfolio(base_url: str, portfolio_id: UUID) -> PortfolioResponse:
 
 
 def _create(base_url: str, args: argparse.Namespace) -> object:
-    """Create one portfolio."""
-    request = PortfolioCreateRequest(
-        name=args.name,
-        mode=args.mode,
-        quote_currency=args.quote_currency,
-        capital_quote=args.capital_quote,
-        cash_reserve_fraction=args.cash_reserve_fraction,
+    """Create one portfolio from --file and/or flags, with limits and manager settings."""
+    document: dict[str, object] = {}
+    if args.file is not None:
+        loaded = json.loads(Path(args.file).read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise PortfolioCliError("--file must hold one JSON object (a portfolio document).")
+        if "sleeves" in loaded:
+            raise PortfolioCliError(
+                "create --file takes no sleeves: create the portfolio, then add them all in one "
+                "revision with add-sleeves --file."
+            )
+        document = {str(key): value for key, value in loaded.items()}
+    for field, value in (
+        ("name", args.name),
+        ("mode", args.mode),
+        ("quote_currency", args.quote_currency),
+        ("capital_quote", args.capital_quote),
+        ("cash_reserve_fraction", args.cash_reserve_fraction),
+    ):
+        if value is not None:
+            document[field] = value
+    base = PortfolioCreateRequest.model_validate(document)
+    limits = _merged_limits(args, base.limits) or base.limits
+    manager = _merged_manager(args, base.manager) or base.manager
+    request = PortfolioCreateRequest.model_validate(
+        {**base.model_dump(mode="python"), "limits": limits, "manager": manager}
     )
     return client.create_portfolio(base_url, request)
+
+
+def _delete(base_url: str, args: argparse.Namespace) -> object:
+    """Delete one portfolio, or preview what --dry-run would delete."""
+    portfolio_id = _uuid(args.portfolio_id, "--portfolio-id")
+    if not args.dry_run:
+        return client.delete_portfolio(base_url, portfolio_id, revision=args.revision)
+    current = _portfolio(base_url, portfolio_id)
+    deployed = current.deployment_state in _DEPLOYED_STATES
+    stale = current.revision != args.revision
+    return {
+        "dry_run": True,
+        "portfolio_id": str(portfolio_id),
+        "name": current.name,
+        "revision": current.revision,
+        "sleeves": len(current.sleeves),
+        "deployment_state": current.deployment_state,
+        "would_delete": not deployed and not stale,
+        "blocked_reason": (
+            "deployed: stop the portfolio with thytrader-runtime portfolio-stop first"
+            if deployed
+            else (f"stale revision: current is {current.revision}" if stale else None)
+        ),
+    }
+
+
+def _add_sleeves(base_url: str, args: argparse.Namespace) -> object:
+    """Add every sleeve listed in --file in one revision."""
+    loaded = json.loads(Path(args.file).read_text(encoding="utf-8"))
+    items = loaded.get("sleeves") if isinstance(loaded, dict) else loaded
+    request = SleevesAddRequest.model_validate({"revision": args.revision, "sleeves": items})
+    return client.add_sleeves(base_url, _uuid(args.portfolio_id, "--portfolio-id"), request)
 
 
 def _update(base_url: str, args: argparse.Namespace) -> object:
@@ -504,7 +617,9 @@ _HANDLERS: dict[str, Callable[[str, argparse.Namespace], object]] = {
     ),
     "create": _create,
     "update": _update,
+    "delete": _delete,
     "add-sleeve": _add_sleeve,
+    "add-sleeves": _add_sleeves,
     "remove-sleeve": _remove_sleeve,
     "set-weights": _set_weights,
     "backtest": _backtest,
@@ -516,10 +631,17 @@ _HANDLERS: dict[str, Callable[[str, argparse.Namespace], object]] = {
 }
 
 
+def _is_mutation(args: argparse.Namespace) -> bool:
+    """True when the command changes state (a delete --dry-run only reads)."""
+    if args.command == "delete" and args.dry_run:
+        return False
+    return args.command in _MUTATIONS
+
+
 def _dispatch(args: argparse.Namespace) -> object:
     """Confirm mutations, check the ops contract, and run one command."""
     base_url = resolve_api_base_url(explicit=args.base_url, settings=Settings())
-    if args.command in _MUTATIONS:
+    if _is_mutation(args):
         require_mutation_confirmation(
             confirmed=bool(args.confirm),
             missing_message=_CONFIRM_MESSAGE,

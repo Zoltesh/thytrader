@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v53`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v54`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -46,9 +46,12 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 |---|---|
 | List portfolios | `uv run thytrader-portfolio list [--limit 50] [--cursor C]` |
 | Show one (sleeves, issues, allocation, limits, manager, revision, `deployment_state`) | `uv run thytrader-portfolio show --portfolio-id ID` |
-| Create | `uv run thytrader-portfolio create --name Core --mode paper\|live --capital-quote 1000 [--quote-currency USDC] [--cash-reserve-fraction 0.1] --confirm` |
+| Create (one revision, limits and manager included) | `uv run thytrader-portfolio create --name Core --mode paper\|live --capital-quote 1000 [--quote-currency USDC] [--cash-reserve-fraction 0.1] [--max-total-exposure-fraction F] [--max-per-asset-fraction F] [--daily-loss-quote Q] [--max-drawdown-fraction F] [--mandate TEXT \| --mandate-file PATH] [--may-rebalance yes\|no] [--max-weight-change-per-week 0.1] [--may-pause-sleeves yes\|no] [--may-propose-sleeves yes\|no] --confirm` |
+| Create from a document | `uv run thytrader-portfolio create --file portfolio.json [flags override fields] --confirm` (the `POST /api/v1/portfolios` body: `name`, `mode`, `quote_currency`, `capital_quote`, `cash_reserve_fraction`, `limits`, `manager`; no `sleeves` — add them next with `add-sleeves`) |
+| Delete a portfolio (sleeves, journal, backtests; strategies are kept) | `uv run thytrader-portfolio delete --portfolio-id ID --revision N [--dry-run] --confirm` (`--dry-run` previews without `--confirm`) |
 | Change settings, limits, manager | `uv run thytrader-portfolio update --portfolio-id ID --revision N [--name] [--capital-quote] [--cash-reserve-fraction] [--max-total-exposure-fraction] [--max-per-asset-fraction] [--daily-loss-quote Q \| --clear-daily-loss] [--max-drawdown-fraction F \| --clear-max-drawdown] [--mandate TEXT \| --mandate-file PATH] [--may-rebalance yes\|no] [--max-weight-change-per-week 0.1] [--may-pause-sleeves yes\|no] [--may-propose-sleeves yes\|no] --confirm` |
 | Add a sleeve | `uv run thytrader-portfolio add-sleeve --portfolio-id ID --revision N --strategy-id SID --weight-fraction 0.25 [--note TEXT] --confirm` |
+| Add many sleeves in one revision (all or none) | `uv run thytrader-portfolio add-sleeves --portfolio-id ID --revision N --file sleeves.json --confirm` (a JSON list of `{"strategy_id", "weight_fraction", "note"?}`, or `{"sleeves": [...]}`) |
 | Remove a sleeve | `uv run thytrader-portfolio remove-sleeve --portfolio-id ID --revision N (--sleeve-id X \| --strategy-id SID) --confirm` |
 | Replace every weight | `uv run thytrader-portfolio set-weights --portfolio-id ID --revision N --weight ID=0.4 --weight ID=0.3 [--cash-reserve-fraction 0.2] --confirm` (ID is a sleeve id or its strategy id; name every sleeve once) |
 | Run a portfolio backtest | `uv run thytrader-portfolio backtest --portfolio-id ID --maker-fee-rate 0.004 --taker-fee-rate 0.006 --fixed-slippage-bps 5 [--spread-bps 10] [--revision N] [--evaluation-start ISO --evaluation-end ISO] [--datasets-file PATH] [--wait] --confirm` |
@@ -137,7 +140,10 @@ and your auto-applied changes, `operator` for a person) and your rationale.
 ## Rules the API enforces
 
 - Sleeve weights plus `cash_reserve_fraction` never exceed 1 (`portfolio_allocation_exceeded`).
-- One sleeve per strategy (`portfolio_sleeve_exists`, 409); at most 20 sleeves (`portfolio_sleeve_limit`).
+- One sleeve per strategy (`portfolio_sleeve_exists`, 409); at most 32 sleeves (`portfolio_sleeve_limit`,
+  422; for example 11 majors on two clocks is 22). `add-sleeves` applies the same checks to the
+  whole batch and adds every sleeve or none, in one revision with one `sleeve_added` journal entry
+  per sleeve.
 - A sleeve's strategy must trade in the portfolio's quote currency (`portfolio_sleeve_quote_mismatch`)
   and have a readable market (`portfolio_sleeve_product_unknown`).
 - `set-weights` must name every sleeve exactly once (`portfolio_weights_incomplete`).
@@ -206,7 +212,9 @@ and cross-sleeve interactions are **not simulated**. Fills are simulated from ca
 ## HTTP
 
 `GET/POST /api/v1/portfolios`, `GET/PATCH/DELETE /api/v1/portfolios/{id}` (`DELETE ?revision=N`),
-`POST /api/v1/portfolios/{id}/sleeves`, `PATCH/DELETE /api/v1/portfolios/{id}/sleeves/{sleeve_id}`,
+`POST /api/v1/portfolios/{id}/sleeves`, `POST /api/v1/portfolios/{id}/sleeves/batch` (body
+`{revision, sleeves: [{strategy_id, weight_fraction, note?}]}`, ADR 0094),
+`PATCH/DELETE /api/v1/portfolios/{id}/sleeves/{sleeve_id}`,
 `PUT /api/v1/portfolios/{id}/weights`, `GET /api/v1/portfolios/{id}/journal`,
 `POST/GET /api/v1/portfolios/{id}/backtests`, `GET /api/v1/portfolios/{id}/backtests/jobs[/{job_id}]`,
 `GET /api/v1/portfolios/{id}/backtests/{result_fingerprint}?max_points=`,
@@ -215,6 +223,13 @@ and cross-sleeve interactions are **not simulated**. Fills are simulated from ca
 `GET /api/v1/portfolios/{id}/proposals/{proposal_id}`, and
 `POST /api/v1/portfolios/{id}/proposals/{proposal_id}/approve|decline` (body `{note?,
 i_understand_live?}`). Browser mutations also need CSRF; the Portfolio page (`/deployments`) uses
-the same routes and its Manager tab shows proposals with Approve / Decline / Ask why. Deleting a
-portfolio has no CLI command on purpose; it needs the browser or an explicit HTTP call with the
-current revision.
+the same routes and its Manager tab shows proposals with Approve / Decline / Ask why.
+`thytrader-portfolio delete` sends `DELETE ?revision=N` (ADR 0094); it is refused with
+`portfolio_deployed` (409) while any sleeve runs or is paused, so stop the portfolio with
+`thytrader-runtime portfolio-stop` first. Delete only a portfolio the user named.
+
+`thytrader-portfolio deployment` and `thytrader-runtime portfolio-status` return `state` plus one
+`sleeves[]` row per sleeve; each row's `deployment` field is that sleeve's bot
+(`deployment_id`, `status`, `phase`, `lifecycle_command`, `allocated_capital`, `net_pnl`,
+`return_fraction`, `drawdown_fraction`, `exposure_quote`, `open_books`, `strategy_fingerprint`,
+`running_current_rules`) or `null` before the sleeve is started.

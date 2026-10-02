@@ -16,8 +16,10 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.backtest.models import (
     BacktestDiagnostics,
+    BacktestEvaluationWindow,
     BacktestResult,
     BacktestSummary,
+    backtest_evaluation_window,
     backtest_result_fingerprint,
     canonical_backtest_diagnostics_bytes,
     canonical_backtest_result_bytes,
@@ -29,7 +31,8 @@ from thytrader.persistence.backtest_results import (
     BacktestResultUnavailableError,
 )
 from thytrader.persistence.postgres_strategies import snapshot_owner
-from thytrader.persistence.schema import published_backtest_results
+from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
+from thytrader.research.models import ResearchRunSpecification
 from thytrader.research.publication import ResearchRunPublicationError
 from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
@@ -39,7 +42,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.research.models import ResearchRunSpecification
     from thytrader.research.publication import PublishedResearchRunSpecification
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -256,7 +258,8 @@ class PostgresBacktestResultStore:
 
         Summary metrics are extracted from the canonical document's immutable
         ``summary`` block server-side; identity columns come from the indexed
-        row. At most one source filter is accepted per query.
+        row. The source run is joined so each row states its evaluated window
+        (ADR 0094). At most one source filter is accepted per query.
         """
         filters = [
             value
@@ -273,6 +276,7 @@ class PostgresBacktestResultStore:
             raise BacktestPublicationError("Summary discovery offset must not be negative.")
 
         table = published_backtest_results
+        runs = published_research_run_specs
         summary_json = sql_cast(table.c.canonical_result, JSON)["summary"].label("summary")
         statement = (
             select(
@@ -283,7 +287,9 @@ class PostgresBacktestResultStore:
                 table.c.dataset_fingerprint,
                 table.c.published_at,
                 summary_json,
+                runs.c.canonical_specification,
             )
+            .select_from(table.outerjoin(runs, runs.c.run_fingerprint == table.c.run_fingerprint))
             .order_by(table.c.published_at.desc(), table.c.result_fingerprint.asc())
             .limit(limit)
             .offset(offset)
@@ -424,7 +430,26 @@ def _to_summary_view(row: object) -> BacktestResultSummaryView:
         published_at=published_at,
         summary=summary,
         strategy_id=cast("str | None", mapping.get("strategy_id")),
+        window=_summary_window(mapping.get("canonical_specification"), summary),
     )
+
+
+def _summary_window(
+    canonical_specification: object, summary: BacktestSummary
+) -> BacktestEvaluationWindow | None:
+    """Derive one listed result's evaluated window from its joined run (display only).
+
+    Detail reads reverify the run; a listing only explains which bars a row covers, so
+    an unreadable run reports no window instead of failing the whole page.
+    """
+    if not isinstance(canonical_specification, str):
+        return None
+    try:
+        specification = ResearchRunSpecification.model_validate_json(canonical_specification)
+        return backtest_evaluation_window(specification, summary.evaluation_bars)
+    except TypeError, ValueError, ValidationError:
+        _logger.warning("Backtest summary window could not be derived from its run")
+        return None
 
 
 def _validate_fingerprint(value: str) -> None:

@@ -261,3 +261,95 @@ def test_backtest_rejections_list_each_sleeve_problem(harness: Harness) -> None:
         f"/api/v1/portfolios/{empty['portfolio_id']}/backtests", json=_COSTS
     )
     assert response.json()["detail"]["code"] == "portfolio_backtest_rejected"
+
+
+def test_batch_sleeve_add_is_one_revision_and_all_or_nothing(harness: Harness) -> None:
+    """``POST .../sleeves/batch`` adds every sleeve in one revision, or none (ADR 0094)."""
+    records = [strategy(harness.strategies, f"{base}-USDC") for base in ("BTC", "ETH", "SOL")]
+    created = harness.create(cash_reserve_fraction="0.1")
+    url = f"/api/v1/portfolios/{created['portfolio_id']}/sleeves/batch"
+    too_heavy = harness.client.post(
+        url,
+        json={
+            "revision": 1,
+            "sleeves": [
+                {"strategy_id": str(item.strategy_id), "weight_fraction": "0.4"} for item in records
+            ],
+        },
+    )
+    assert too_heavy.status_code == 422, too_heavy.text
+    unchanged = harness.client.get(f"/api/v1/portfolios/{created['portfolio_id']}").json()
+    assert (unchanged["revision"], unchanged["sleeves"]) == (1, [])
+    duplicate = harness.client.post(
+        url,
+        json={
+            "revision": 1,
+            "sleeves": [
+                {"strategy_id": str(records[0].strategy_id), "weight_fraction": "0.1"},
+                {"strategy_id": str(records[0].strategy_id), "weight_fraction": "0.1"},
+            ],
+        },
+    )
+    assert duplicate.status_code == 422
+    added = harness.client.post(
+        url,
+        json={
+            "revision": 1,
+            "sleeves": [
+                {"strategy_id": str(item.strategy_id), "weight_fraction": "0.3", "note": "major"}
+                for item in records
+            ],
+        },
+    )
+    assert added.status_code == 201, added.text
+    body = added.json()
+    assert body["revision"] == 2
+    assert [sleeve["strategy_id"] for sleeve in body["sleeves"]] == [
+        str(item.strategy_id) for item in records
+    ]
+    journal = harness.client.get(f"/api/v1/portfolios/{created['portfolio_id']}/journal").json()
+    added_entries = [entry for entry in journal["entries"] if entry["kind"] == "sleeve_added"]
+    assert len(added_entries) == 3
+    assert {entry["revision"] for entry in added_entries} == {2}
+    again = harness.client.post(
+        url,
+        json={
+            "revision": 2,
+            "sleeves": [{"strategy_id": str(records[0].strategy_id), "weight_fraction": "0.01"}],
+        },
+    )
+    assert again.status_code == 409
+
+
+def test_portfolios_hold_up_to_32_sleeves(harness: Harness) -> None:
+    """Eleven majors on two clocks (22 sleeves) fit; the cap is 32."""
+    created = harness.create(cash_reserve_fraction="0")
+    records = [
+        strategy(harness.strategies, f"COIN{index}-USDC", timeframe=clock)
+        for index in range(11)
+        for clock in ("1h", "1d")
+    ]
+    response = harness.client.post(
+        f"/api/v1/portfolios/{created['portfolio_id']}/sleeves/batch",
+        json={
+            "revision": 1,
+            "sleeves": [
+                {"strategy_id": str(item.strategy_id), "weight_fraction": "0.04"}
+                for item in records
+            ],
+        },
+    )
+    assert response.status_code == 201, response.text
+    assert len(response.json()["sleeves"]) == 22
+    extra = [strategy(harness.strategies, f"MORE{index}-USDC") for index in range(11)]
+    over = harness.client.post(
+        f"/api/v1/portfolios/{created['portfolio_id']}/sleeves/batch",
+        json={
+            "revision": 2,
+            "sleeves": [
+                {"strategy_id": str(item.strategy_id), "weight_fraction": "0.001"} for item in extra
+            ],
+        },
+    )
+    assert over.status_code == 422
+    assert over.json()["detail"]["code"] == "portfolio_sleeve_limit"

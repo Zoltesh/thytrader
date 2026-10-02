@@ -13,6 +13,11 @@ from sqlalchemy import text
 
 from thytrader import __version__
 from thytrader.backtest.metrics import compute_performance_metrics
+from thytrader.backtest.models import (
+    BacktestEvaluationWindow,
+    BacktestResult,
+    backtest_evaluation_window,
+)
 from thytrader.config import Settings
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
@@ -121,6 +126,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultNotFoundError,
     BacktestResultReader,
     BacktestResultUnavailableError,
+    BacktestSourceSpecificationReader,
 )
 from thytrader.persistence.database import ping
 from thytrader.persistence.portfolio_history import (
@@ -1558,6 +1564,7 @@ class OperatorDiagnostics:
             total_spread_cost=summary.total_spread_cost,
             evaluation_bars=summary.evaluation_bars,
             metrics=metrics,
+            window=await self._backtest_window(result),
         )
         return PerformanceReport(
             application_version=__version__,
@@ -1568,6 +1575,17 @@ class OperatorDiagnostics:
             recommended_next_action=recommend_next_action((component,)),
             payload=payload,
         )
+
+    async def _backtest_window(self, result: BacktestResult) -> BacktestEvaluationWindow | None:
+        """Best-effort evaluated window from the result's run; never hides the result."""
+        store = self.backtests
+        if not isinstance(store, BacktestSourceSpecificationReader):
+            return None
+        try:
+            specification = await store.load_source_specification(result)
+            return backtest_evaluation_window(specification, result.summary.evaluation_bars)
+        except Exception:  # noqa: BLE001 - the window is advisory; the summary stands alone.
+            return None
 
     async def _deployment_performance(
         self,

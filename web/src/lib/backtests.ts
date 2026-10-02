@@ -50,6 +50,7 @@ export type BacktestSummaryEntry = {
 	dataset_fingerprint: string;
 	published_at: string;
 	summary: BacktestSummary;
+	window?: BacktestEvaluationWindow | null;
 };
 
 export type BacktestList = {
@@ -133,12 +134,47 @@ export type BacktestDiagnostics = {
 	exit_reasons?: BacktestExitCount[] | null;
 };
 
+/**
+ * The bars one result evaluated, derived from its run outside the result bytes (ADR 0094).
+ * Omitted bounds start after each strategy's own warmup, so two strategies on one dataset
+ * can cover different bars: compare them only on matching evaluation_start/evaluation_end.
+ */
+export type BacktestEvaluationWindow = {
+	timeframe: string;
+	evaluation_start: string;
+	/** Exclusive bound: its bar's open liquidates any position still held. */
+	evaluation_end: string;
+	first_evaluated_bar: string;
+	last_evaluated_bar: string;
+	evaluation_bars: number;
+	warmup_bars: number;
+	warmup_start: string;
+};
+
 export type BacktestDetail = {
 	result: BacktestResult;
 	result_fingerprint: string;
 	costs?: CostAssumptions | null;
 	diagnostics?: BacktestDiagnostics | null;
+	window?: BacktestEvaluationWindow | null;
 };
+
+/** `2026-03-01` for midnight bars, else `2026-03-01 14:00 UTC`. */
+function barStamp(value: string): string {
+	const iso = new Date(value).toISOString();
+	return iso.slice(11, 16) === '00:00'
+		? iso.slice(0, 10)
+		: `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+}
+
+/** `Evaluated 2021-03-02 → 2026-02-28 · 1825 × 1d bars · after a 60-bar warmup from 2021-01-01`. */
+export function formatEvaluationWindow(window: BacktestEvaluationWindow): string {
+	return (
+		`Evaluated ${barStamp(window.first_evaluated_bar)} → ${barStamp(window.last_evaluated_bar)}` +
+		` · ${window.evaluation_bars} × ${window.timeframe} bars` +
+		` · after a ${window.warmup_bars}-bar warmup from ${barStamp(window.warmup_start)}`
+	);
+}
 
 const SKIP_REASON_LABELS: Record<string, string> = {
 	pending_entry: 'An entry was already resting',

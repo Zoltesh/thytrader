@@ -12,7 +12,7 @@ Current checkout (Alembic `0058`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v53` |
+| `id` | `thytrader-ops-contract-v54` |
 | `expected_schema_revision` | `0058` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
@@ -59,11 +59,15 @@ Current checkout (Alembic `0058`):
 | `live_protection_kinds` | `trigger_bracket`, `stop_limit` — a no-take-profit live book rests a venue stop-limit (ADR 0090) |
 | `backtest_diagnostics` | `thytrader-backtest-diagnostics-v1` — entry funnel stored beside results (ADR 0090) |
 | `fee_suggestion_source` | `coinbase_account` — fee prefills are the account's reported rates (ADR 0090) |
+| `research_honesty` | `result_window`, `study_axis_values`, `study_candidate_aggregates`, `study_stitched_points`, `document_issue_paths`, `json_number_decimals` ([ADR 0094](../../decisions/0094-research-honesty-and-agent-ergonomics.md)) |
+| `strategy_library` | `tag_filter`, `bulk_delete_by_tag`, `clone_name` (ADR 0094) |
+| `portfolio_max_sleeves` | `32` (ADR 0094) |
+| `portfolio_sleeve_operations` | `batch_add` — `POST /api/v1/portfolios/{id}/sleeves/batch`, one revision (ADR 0094) |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v53
+    id thytrader-ops-contract-v54
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -91,6 +95,10 @@ classDiagram
     live_protection_kinds
     backtest_diagnostics
     fee_suggestion_source
+    research_honesty
+    strategy_library
+    portfolio_max_sleeves
+    portfolio_sleeve_operations
     strategy_model
     portfolio_model
     portfolio_modes

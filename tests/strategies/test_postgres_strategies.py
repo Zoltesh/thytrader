@@ -840,3 +840,44 @@ def test_legacy_marketable_limit_row_cannot_run_but_its_snapshot_still_verifies(
             await dispose(engine)
 
     asyncio.run(exercise())
+
+
+def test_library_tag_filter_uses_document_metadata_tags() -> None:
+    """``list_page(tag=)`` matches valid and draft documents by ``metadata.tags`` (ADR 0094)."""
+    tag = f"batch-{uuid4().hex[:8]}"
+
+    async def exercise() -> None:
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        created: list[StrategyRecord] = []
+        try:
+
+            def tagged() -> StrategyDefinition:
+                """A fresh template identity carrying the test tag."""
+                payload = create_template_strategy().model_dump(mode="python")
+                payload["metadata"] = {"tags": (tag, "majors"), "notes": ()}
+                return StrategyDefinition.model_validate(payload)
+
+            created.append(await create_strategy_from_definition(store, tagged()))
+            created.append(await create_strategy_from_definition(store, tagged()))
+            created.append(await _template(store))
+            draft = await create_strategy_from_definition(store, tagged())
+            created.append(draft)
+            document = dict(draft.document)
+            document["entry"] = {"when": {"alll": []}}
+            saved = await store.save(draft.strategy_id, document, expected_revision=1)
+            assert saved.validation.valid is False
+            first = await store.list_page(limit=2, offset=0, tag=tag)
+            second = await store.list_page(limit=2, offset=2, tag=tag)
+            assert first.total == 3
+            matched = {record.strategy_id for record in first.records + second.records}
+            assert matched == {created[0].strategy_id, created[1].strategy_id, draft.strategy_id}
+            assert (await store.list_page(limit=10, offset=0, tag=f"{tag}-absent")).total == 0
+            everything = await store.list_page(limit=100, offset=0)
+            assert everything.total >= 4
+        finally:
+            for record in created:
+                await store.delete(record.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())

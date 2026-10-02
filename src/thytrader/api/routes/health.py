@@ -66,6 +66,10 @@ class HealthOpsContract(BaseModel):
     portfolio_breakers: list[str]
     portfolio_proposal_kinds: list[str]
     portfolio_briefing_contract: str
+    research_honesty: list[str]
+    strategy_library: list[str]
+    portfolio_max_sleeves: int
+    portfolio_sleeve_operations: list[str]
     expected_schema_revision: str
 
 

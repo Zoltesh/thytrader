@@ -6,6 +6,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 import json
+import math
 import re
 from typing import Annotated, Final, Literal, Self
 from uuid import UUID
@@ -13,6 +14,7 @@ from uuid import UUID
 from pydantic import (
     AfterValidator,
     BaseModel,
+    BeforeValidator,
     ConfigDict,
     Field,
     field_serializer,
@@ -88,6 +90,43 @@ def _decimal_text(value: str) -> str:
 
 
 DecimalText = Annotated[str, Field(strict=True), AfterValidator(_decimal_text)]
+
+
+def json_number_as_decimal_text(value: object) -> object:
+    """Accept a JSON number in a decimal request field as its canonical decimal string.
+
+    Strings pass through unchanged, so every existing request keeps its exact bytes and
+    fingerprints. Integers and finite floats become the canonical plain decimal string
+    (``5`` -> ``"5"``, ``0.006`` -> ``"0.006"``, ``1e-05`` -> ``"0.00001"``), so ``5`` and
+    ``"5"`` produce the same request, execution, and run fingerprints. A float is read
+    through its shortest round-trip text; send a string when more than 15 significant
+    digits matter. Booleans and non-finite numbers are rejected.
+    """
+    if isinstance(value, bool):
+        # Pydantic turns only ValueError/AssertionError into a 422 validation error.
+        message = "decimal fields take a number or a decimal string, not a boolean"
+        raise ValueError(message)  # noqa: TRY004
+    if isinstance(value, int):
+        return _plain_decimal(Decimal(value))
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("decimal fields must be finite numbers")
+        return _plain_decimal(Decimal(repr(value)))
+    return value
+
+
+def _plain_decimal(value: Decimal) -> str:
+    """Render a finite Decimal without exponent or trailing fractional zeros."""
+    text = format(value, "f")
+    if "." in text:
+        text = text.rstrip("0").rstrip(".")
+    return "0" if text in {"", "-0"} else text
+
+
+DecimalInputText = Annotated[str, BeforeValidator(json_number_as_decimal_text)]
+"""A request-side decimal string that also accepts a JSON number (ADR 0094)."""
+StrictDecimalInputText = Annotated[DecimalText, BeforeValidator(json_number_as_decimal_text)]
+"""``DecimalText`` for request bodies: JSON numbers become canonical decimal strings."""
 UtcDateTime = Annotated[datetime, Field(strict=True)]
 FingerprintText = Annotated[str, Field(strict=True, pattern=_FINGERPRINT_PATTERN)]
 StrictUuid = Annotated[UUID, Field(strict=True)]

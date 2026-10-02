@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, JsonValue, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictInt
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -50,6 +50,7 @@ from thytrader.strategies.library import (
     bulk_delete_strategies,
     clone_strategy,
     create_strategy_from_definition,
+    document_tags,
     import_strategy,
     parse_document,
 )
@@ -133,7 +134,7 @@ class StrategyLibraryPaperLiveResponse(BaseModel):
 
 
 class StrategyLibraryEntryResponse(BaseModel):
-    """One library row: identity, validity, and Build/Test/Paper/Live evidence."""
+    """One library row: identity, validity, tags, and Build/Test/Paper/Live evidence."""
 
     strategy_id: UUID
     name: str
@@ -141,6 +142,7 @@ class StrategyLibraryEntryResponse(BaseModel):
     timeframe: str | None
     revision: int
     valid: bool
+    tags: tuple[str, ...] = ()
     current_fingerprint: str | None
     summary: str | None
     created_at: str
@@ -172,6 +174,13 @@ class StrategyImportRequest(BaseModel):
     """One strategy JSON document to import as a new strategy."""
 
     document: dict[str, JsonValue]
+
+
+class StrategyCloneRequest(BaseModel):
+    """Optional clone body: the new strategy's name (default ``<name> (copy)``)."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=120, pattern=r"\S")
 
 
 class StrategyDeletionCountsResponse(BaseModel):
@@ -252,11 +261,16 @@ async def list_strategies(
     execution_store: Annotated[ExecutionStore, Depends(get_execution_store)],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     cursor: Annotated[str | None, Query()] = None,
+    tag: Annotated[str | None, Query(min_length=1, max_length=500)] = None,
 ) -> StrategyListResponse:
-    """Return one newest-updated-first library page with batched evidence reads."""
+    """Return one newest-updated-first library page with batched evidence reads.
+
+    ``tag`` keeps only strategies whose ``metadata.tags`` include it; ``total`` and the
+    cursor then cover the matches only (ADR 0094).
+    """
     start = _cursor_offset(cursor)
     try:
-        page = await store.list_page(limit=limit, offset=start)
+        page = await store.list_page(limit=limit, offset=start, tag=tag)
     except StrategyLibraryError as error:
         raise strategy_http_error(error) from None
     identities = [record.strategy_id for record in page.records]
@@ -412,11 +426,21 @@ async def save_strategy(
 async def clone_strategy_route(
     strategy_id: UUID,
     store: Annotated[StrategyStore, Depends(get_strategy_store)],
+    body: StrategyCloneRequest | None = None,
 ) -> StrategyResponse:
-    """Duplicate one strategy into a new identity (no history is copied)."""
+    """Duplicate one strategy into a new identity (no history is copied).
+
+    An optional ``{"name": ...}`` body names the copy in the same call (ADR 0094).
+    """
     new_id, created_at = new_strategy_identity()
     try:
-        record = await clone_strategy(store, strategy_id, strategy_id=new_id, created_at=created_at)
+        record = await clone_strategy(
+            store,
+            strategy_id,
+            strategy_id=new_id,
+            created_at=created_at,
+            name=None if body is None else body.name,
+        )
     except StrategyLibraryError as error:
         raise strategy_http_error(error) from None
     return strategy_response(record)
@@ -516,6 +540,7 @@ def _library_entry(
         timeframe=record.timeframe,
         revision=record.revision,
         valid=record.validation.valid,
+        tags=document_tags(record.document),
         current_fingerprint=record.current_fingerprint,
         summary=None if record.definition is None else strategy_summary(record.definition),
         created_at=_iso(record.created_at),

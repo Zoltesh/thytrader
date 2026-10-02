@@ -52,6 +52,18 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   `validation: {valid, issues:[{loc, message}]}` and `current_fingerprint: null`. Backtest,
   study, and deployment starts require a currently valid definition and fail closed with HTTP
   422 `strategy_invalid` (the `issues` list says what to fix).
+- **Read `validation.valid` after every write.** `create-strategy`, `save-strategy`,
+  `import-strategy`, `clone-strategy`, and `show-strategy` all nest the result the same way:
+  `validation: {valid, issues, warnings}` ([ADR 0094](../../docs/decisions/0094-research-honesty-and-agent-ergonomics.md)).
+  The top-level `valid` / `issues` / `warnings` copies on write commands are deprecated and kept
+  for one release only. When the result is invalid the CLI also prints one line on stderr, for
+  example `thytrader-research: imported as an INVALID draft (2 issues):
+  entry.when.all[0].left.input: unknown field "input". …`; an invalid import is not usable.
+- Issue `loc` values are **document paths** (`entry.when.all[0].left.input`,
+  `exits.take_profit.multiple`), never validator internals, and messages are plain
+  (`unknown field "input"`, `"multiple" is required`, `must be an indicator operand (needs
+  "indicator") or a literal operand (needs "literal")`). Fix the field at that path. Drafts saved
+  before ADR 0094 keep their old paths until they are saved again.
 - Valid documents may also carry advisory `validation.warnings:[{code, loc, message}]`
   ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
   `short_target_may_be_non_positive` means a short's reward/risk target
@@ -152,16 +164,18 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 
 | Need | Command |
 |---|---|
-| List the strategy library | `uv run thytrader-research list-strategies [--limit 50] [--cursor CURSOR]` |
+| List the strategy library | `uv run thytrader-research list-strategies [--tag TAG] [--limit 50] [--cursor CURSOR]` |
 | Show one strategy (document, validation, revision, current fingerprint) | `uv run thytrader-research show-strategy --strategy-id UUID` |
 | Show one snapshot a result or bot used | `uv run thytrader-research show-snapshot --strategy-fingerprint sha256:…` |
 | Create a strategy from a template | `uv run thytrader-research create-strategy [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
 | Save (edit) a strategy in place | `uv run thytrader-research save-strategy --strategy-id UUID --file document.json --revision N --confirm` |
 | Import a JSON document as a new strategy | `uv run thytrader-research import-strategy --file document.json --confirm` |
-| Clone a strategy into a new identity | `uv run thytrader-research clone-strategy --strategy-id UUID --confirm` |
+| Clone a strategy into a new identity (optionally named) | `uv run thytrader-research clone-strategy --strategy-id UUID [--name "EMA ETH-USDC 1d"] --confirm` |
 | Delete one strategy (hard delete) | `uv run thytrader-research delete-strategy --strategy-id UUID --confirm` |
 | Preview a bulk delete | `uv run thytrader-research bulk-delete-strategies --strategy-id UUID [--strategy-id UUID …] --dry-run` |
 | Bulk delete strategies | `uv run thytrader-research bulk-delete-strategies --strategy-id UUID [--strategy-id UUID …] --confirm` |
+| Preview deleting every strategy with one tag | `uv run thytrader-research bulk-delete-strategies --tag TAG --dry-run` |
+| Delete every strategy with one tag | `uv run thytrader-research bulk-delete-strategies --tag TAG --confirm` |
 | List strategy templates | `uv run thytrader-research list-templates` |
 | Show one template's defaults and sweepable axes | `uv run thytrader-research show-template --template macd-trend` |
 | Describe the backtest model's fill and cost assumptions | `uv run thytrader-research backtest-model` |
@@ -186,8 +200,22 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 `list-studies`, `list-strategies`, `list-research-jobs`, `show-research-job`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
-`next_cursor`). Default `show-study` includes `window_pnl` headlines (label, role, PnL, trades)
-without child equity curves; `?detail=full` still returns `windows[]`. Queued research jobs report
+`next_cursor`). One `show-study` call explains a whole study
+([ADR 0094](../../docs/decisions/0094-research-honesty-and-agent-ergonomics.md)): every
+`window_pnl` row carries `label`, `role`, `fold_index`, `product_id`, `evaluation_start`,
+`evaluation_end`, `strategy_fingerprint`, its candidate's `axis_values` (for example
+`{"fast.period": 20, "slow.period": 200}`; `{}` when the study has one candidate),
+`total_net_pnl`, `total_return_fraction`, `trade_count`, and `selected`. `candidates[]` sums every
+window per candidate: `axis_values`, `selected_window_count`, `in_sample_window_count` /
+`in_sample_total_net_pnl`, `oos_window_count` / `oos_total_net_pnl` / `oos_positive_window_count` /
+`oos_trade_count` (every WFO fold scores every candidate out of sample, so robustness across the
+grid is visible, not only the selected path), and `full_window_count` /
+`full_window_total_net_pnl` (sweep candidates and cross-market legs: full-range windows, not an
+out-of-sample claim). `stitched_oos_equity.points` holds the stitched path thinned to at most 200
+marks (first, last, and each bucket's low and high); `point_count` is the full count and
+`stitched_oos_points_downsampled` says whether marks were dropped. `?detail=full` still returns
+`windows[]` and every stitched mark. No `show-snapshot` or `plan-study` calls are needed to read a
+WFO. Queued research jobs report
 `progress_total >= 1` (0/1 means not started, not 0/0). Sequential `create-strategy` loops
 can exceed a 180s agent timeout after HTTP 201 — list-strategies before retrying; the mutation is
 already persisted. `submit-study` requires `--confirm`. Studies compose ordinary
@@ -226,8 +254,8 @@ names the `request_fingerprint` and a readback command. Re-run
 `thytrader-research find-study-by-request --request-fingerprint sha256:…` before retrying the
 submission; resubmission is idempotent. `list-studies` is newest-first
 summaries. `GET /api/v1/research/studies/{study_fingerprint}` defaults to the same bounded summary
-(`window_count`, aggregates, stitch metadata without `points`). Pass `?detail=full` for child
-`windows`. `show-study` uses the default summary. Operator
+(`window_count`, aggregates, per-row axis values and bounds, `candidates[]`, and a thinned
+stitched path). Pass `?detail=full` for child `windows`. `show-study` uses the default summary. Operator
 `thytrader-operator studies` is the same catalog. Durable storage is PostgreSQL; `--local` without
 a database is unavailable, not empty. Stitched OOS equity compounds non-overlapping window
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
@@ -379,8 +407,26 @@ of the result (see "Where research runs"); poll it, do not resubmit. If the CLI 
 ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)).
 Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate`,
 `fixed_slippage_bps`; optional `spread_bps` stress. Never send `engine_contract_version`.
+Decimal fields (these costs, study `oos_fraction`, and `parameter_axes[].values`) accept JSON
+numbers as well as strings: `"fixed_slippage_bps": 5` is the same request, the same request and
+execution fingerprints, and the same run as `"5"`. Numbers are read through their shortest decimal
+text, so send a string when more than 15 significant digits matter. Booleans, `NaN`, and
+infinities are rejected (HTTP 422).
 
-`show-result` returns the result summary, derived `metrics`, the published `costs`
+**Every result states its window** ([ADR 0094](../../docs/decisions/0094-research-honesty-and-agent-ergonomics.md)).
+`show-result` (and `GET /api/v1/backtests/{fp}`, summary and full, and operator `performance`)
+returns `window`: `{timeframe, evaluation_start, evaluation_end, first_evaluated_bar,
+last_evaluated_bar, evaluation_bars, warmup_bars, warmup_start}`; `list-results` rows carry
+`evaluation_start`, `evaluation_end`, `warmup_bars`, `evaluation_bars`, and
+`total_return_fraction`. `evaluation_end` is exclusive (its bar's open liquidates what is held).
+The window is derived from the run, outside the fingerprinted result bytes, so fingerprints are
+unchanged; it is `null` when the run cannot be read. **When you compare strategies, pin
+`evaluation_start` and `evaluation_end`.** Omitted bounds start after each strategy's own warmup:
+on the same BTC-USDC 1d dataset, buy-and-hold read 48% for a strategy with a 60-bar warmup and 129%
+for one with 110, only because the windows differed. Results whose `evaluation_start` /
+`evaluation_end` differ are not comparable.
+
+`show-result` returns the result summary, `window`, derived `metrics`, the published `costs`
 (including `spread_bps`), and `diagnostics` — the entry funnel
 `thytrader-backtest-diagnostics-v1` (`signals_matched`, `entries_rested`, `entries_filled`,
 `entries_expired`, `entries_repriced`, `entries_refused_at_fill`, `entries_unfilled_at_end`,
@@ -474,7 +520,17 @@ first, so heavy research no longer slows other API calls.
 ## Library and deletion
 
 - `list-strategies` lists every strategy, newest-updated first, with `revision`, `valid`,
-  `current_fingerprint`, newest `backtest`, `paper_live` status, and `active_deployment_count`.
+  `tags` (the document's `metadata.tags`), `current_fingerprint`, newest `backtest`, `paper_live`
+  status, and `active_deployment_count`. `--tag TAG` (HTTP `GET /api/v1/strategies?tag=`) keeps
+  only strategies whose `metadata.tags` include `TAG`; `total` and `next_cursor` then cover the
+  matches, so pass the same `--tag` with `--cursor`. Tag the strategies you create in bulk (for
+  example `per-market`) so you can list and clean them up later. Cross-market and sweep variants
+  are snapshots of their base strategy, never library rows: they do not appear in
+  `list-strategies` (not even under `--tag research-market-variant`).
+- `clone-strategy --strategy-id UUID --name "…" --confirm` (HTTP `POST
+  /api/v1/strategies/{id}/clone` with `{"name": "…"}`) names the copy in the same call; without
+  `--name` it is `<name> (copy)`. To mirror one strategy across markets for a study, prefer
+  `markets[].product_id` (no clones at all).
   The browser workspace is `/strategies/{strategy_id}` (Build · Test · Run · Why). Old `?version=`
   and fingerprint deep links resolve to the owning strategy through
   `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`.
@@ -495,6 +551,11 @@ first, so heavy research no longer slows other API calls.
   `counts`, `blocked`, or `not_found`) without writing; run it first and show the user the list.
   `--confirm` executes and returns one result per id (`deleted`, `blocked`, `not_found`, `failed`);
   partial success is normal — report each id's outcome. At most 100 ids per call.
+- `bulk-delete-strategies --tag TAG --dry-run` previews every strategy tagged `TAG` (the CLI pages
+  the tagged library, then sends batches of 100 to the same bulk route); `--tag TAG --confirm`
+  deletes them. The output adds `tag` and `matched` and sums the per-batch counts. Safety is the
+  same as by id: running or paused bots block their strategy (`blocked`) and stopped live books are
+  kept. `--tag` and `--strategy-id` cannot be combined.
 - Deletion cannot be undone. Only delete when the user explicitly named the strategies.
 
 ## Confirmation

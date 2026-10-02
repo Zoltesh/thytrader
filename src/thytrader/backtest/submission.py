@@ -25,6 +25,7 @@ from thytrader.research.models import (
     AdditionalInstrumentDataset,
     CapitalAssumptions,
     CostAssumptions,
+    DecimalInputText,
     EvaluationWindow,
     IndicatorTimeframeDataset,
     ResearchRunSpecification,
@@ -70,7 +71,9 @@ class BacktestAssumptions(BaseModel):
     exact internal submission, optional on the agent start (ADR 0089 binds the
     newest complete catalog dataset when it is omitted). There is no engine
     selector: every run uses the single ``thytrader-backtest`` model (ADR 0083).
-    ``spread_bps`` is the optional constant spread stress (omitted means 0).
+    ``spread_bps`` is the optional constant spread stress (omitted means 0). Decimal
+    fields accept JSON numbers as well as strings; numbers become canonical decimal
+    strings before any fingerprint is computed (ADR 0094).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -79,11 +82,11 @@ class BacktestAssumptions(BaseModel):
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = ()
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
-    initial_quote_balance: str
-    maker_fee_rate: str
-    taker_fee_rate: str
-    fixed_slippage_bps: str
-    spread_bps: str | None = None
+    initial_quote_balance: DecimalInputText
+    maker_fee_rate: DecimalInputText
+    taker_fee_rate: DecimalInputText
+    fixed_slippage_bps: DecimalInputText
+    spread_bps: DecimalInputText | None = None
 
     @model_validator(mode="before")
     @classmethod

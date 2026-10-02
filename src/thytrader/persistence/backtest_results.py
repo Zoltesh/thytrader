@@ -8,7 +8,13 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.backtest.models import BacktestDiagnostics, BacktestResult, BacktestSummary
+    from thytrader.backtest.models import (
+        BacktestDiagnostics,
+        BacktestEvaluationWindow,
+        BacktestResult,
+        BacktestSummary,
+    )
+    from thytrader.research.models import ResearchRunSpecification
 
 
 class BacktestResultUnavailableError(RuntimeError):
@@ -29,6 +35,7 @@ class BacktestResultSummaryView:
     The summary metrics are read from the canonical document's immutable
     ``summary`` block. Identity fields come from the indexed row columns so a
     list query never materializes a complete trade ledger or equity curve.
+    ``window`` is derived from the source run when the store can join it (ADR 0094).
     """
 
     __slots__ = (
@@ -39,6 +46,7 @@ class BacktestResultSummaryView:
         "strategy_fingerprint",
         "strategy_id",
         "summary",
+        "window",
     )
 
     def __init__(
@@ -51,6 +59,7 @@ class BacktestResultSummaryView:
         published_at: datetime,
         summary: BacktestSummary,
         strategy_id: str | None = None,
+        window: BacktestEvaluationWindow | None = None,
     ) -> None:
         """Bind one verified identity row to its immutable summary block."""
         self.result_fingerprint = result_fingerprint
@@ -60,6 +69,7 @@ class BacktestResultSummaryView:
         self.published_at = published_at
         self.summary = summary
         self.strategy_id = strategy_id
+        self.window = window
 
 
 @runtime_checkable
@@ -81,6 +91,15 @@ class BacktestResultReader(Protocol):
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
         """Load and fully reverify one immutable result by its content identity."""
+        ...
+
+
+@runtime_checkable
+class BacktestSourceSpecificationReader(Protocol):
+    """Optional store capability: the verified research run behind one result."""
+
+    async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
+        """Return the verified source run for one loaded result."""
         ...
 
 

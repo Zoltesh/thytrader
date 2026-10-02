@@ -19,6 +19,7 @@ from pydantic import JsonValue, TypeAdapter, ValidationError
 
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.strategies.issue_paths import document_issues
 from thytrader.strategies.models import (
     LEGACY_LIFECYCLE_KEYS,
     StrategyDefinition,
@@ -244,8 +245,12 @@ class StrategyStore(Protocol):
         """Load one strategy or raise :class:`StrategyNotFoundError`."""
         ...
 
-    async def list_page(self, *, limit: int, offset: int) -> StrategyPage:
-        """Return one newest-updated-first page and the total count."""
+    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+        """Return one newest-updated-first page and the total count.
+
+        ``tag`` keeps only strategies whose document lists it in ``metadata.tags``;
+        ``total`` then counts the matches (ADR 0094).
+        """
         ...
 
     async def save(
@@ -286,9 +291,9 @@ class DisabledStrategyStore:
         del strategy_id
         raise StrategyStorageUnavailableError("Strategy storage is unavailable.")
 
-    async def list_page(self, *, limit: int, offset: int) -> StrategyPage:
+    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
         """Refuse listing without durable storage."""
-        del limit, offset
+        del limit, offset, tag
         raise StrategyStorageUnavailableError("Strategy storage is unavailable.")
 
     async def save(
@@ -394,13 +399,14 @@ def authoring_issues(definition: StrategyDefinition) -> tuple[ValidationIssue, .
 def _invalid_evaluation(
     document: StrategyDocument, error: ValidationError, fallback_name: str
 ) -> EvaluatedDocument:
-    """Describe one invalid document without trusting any of its fields."""
+    """Describe one invalid document without trusting any of its fields.
+
+    Issue locations are document paths (``entry.when.all[0].left.input``), never
+    Pydantic union-member tags, and messages are plain language (ADR 0094).
+    """
     issues = tuple(
-        ValidationIssue(
-            loc=".".join(str(part) for part in item["loc"]) or "(document)",
-            message=str(item["msg"])[:500],
-        )
-        for item in error.errors(include_url=False)[:MAX_VALIDATION_ISSUES]
+        ValidationIssue(loc=item.loc, message=item.message)
+        for item in document_issues(error, document, limit=MAX_VALIDATION_ISSUES)
     )
     return _issue_evaluation(document, issues, fallback_name)
 
@@ -421,10 +427,26 @@ def _issue_evaluation(
     )
 
 
-def clone_document(record: StrategyRecord) -> StrategyDocument:
-    """Copy one strategy's document for a new identity, marking the name as a copy."""
+def document_tags(document: StrategyDocument) -> tuple[str, ...]:
+    """Return a stored document's ``metadata.tags`` (valid or work in progress).
+
+    Malformed metadata in an invalid draft yields no tags rather than an error.
+    """
+    metadata = document.get("metadata")
+    tags = metadata.get("tags") if isinstance(metadata, dict) else None
+    if not isinstance(tags, list):
+        return ()
+    return tuple(item for item in tags if isinstance(item, str))
+
+
+def clone_document(record: StrategyRecord, *, name: str | None = None) -> StrategyDocument:
+    """Copy one strategy's document for a new identity.
+
+    ``name`` becomes the copy's name (ADR 0094); without it the copy is marked
+    ``<name> (copy)``.
+    """
     copied: StrategyDocument = dict(record.document)
-    copied["name"] = f"{record.name} (copy)"[:120]
+    copied["name"] = (name if name is not None else f"{record.name} (copy)")[:120]
     return copied
 
 
@@ -521,11 +543,12 @@ async def clone_strategy(
     *,
     strategy_id: UUID,
     created_at: datetime,
+    name: str | None = None,
 ) -> StrategyRecord:
-    """Duplicate one strategy's current document into a new identity."""
+    """Duplicate one strategy's current document into a new identity, optionally renamed."""
     source = await store.get(source_id)
     return await store.create(
-        clone_document(source), strategy_id=strategy_id, created_at=created_at
+        clone_document(source, name=name), strategy_id=strategy_id, created_at=created_at
     )
 
 

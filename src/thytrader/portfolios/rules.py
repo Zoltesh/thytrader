@@ -36,6 +36,7 @@ from thytrader.portfolios.models import (
     SetWeightsRequest,
     Sleeve,
     SleeveAddRequest,
+    SleevesAddRequest,
     SleeveStrategy,
     SleeveUpdateRequest,
     SleeveView,
@@ -44,7 +45,7 @@ from thytrader.portfolios.models import (
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
     from uuid import UUID
 
     from thytrader.portfolios.models import ManagerSettings
@@ -475,6 +476,104 @@ def plan_add_sleeve(
         portfolio=replace(portfolio, revision=revision, updated_at=now),
         sleeves=(*(view.sleeve for view in current.sleeves), sleeve),
         journal=(entry,),
+    )
+
+
+def plan_add_sleeves(
+    current: PortfolioAggregate,
+    strategies: Sequence[SleeveStrategy],
+    request: SleevesAddRequest,
+    *,
+    sleeve_ids: Sequence[UUID],
+    context: MutationContext,
+) -> MutationPlan:
+    """Plan several new sleeves as one revision, with one ``sleeve_added`` entry each.
+
+    Every check of :func:`plan_add_sleeve` applies to the whole batch (one sleeve per
+    strategy, the sleeve cap, the quote currency, and weights plus reserve at most 1), so
+    the batch is applied completely or not at all.
+    """
+    portfolio = current.portfolio
+    require_revision(portfolio, request.revision)
+    existing = {view.sleeve.strategy_id: view.sleeve.sleeve_id for view in current.sleeves}
+    for strategy in strategies:
+        if strategy.strategy_id in existing:
+            raise PortfolioSleeveExistsError(existing[strategy.strategy_id])
+    if len(current.sleeves) + len(request.sleeves) > MAX_SLEEVES:
+        raise PortfolioValidationError(
+            "portfolio_sleeve_limit",
+            f"A portfolio holds at most {MAX_SLEEVES} sleeves; it has "
+            f"{len(current.sleeves)} and the batch adds {len(request.sleeves)}.",
+        )
+    for strategy in strategies:
+        _require_strategy_quote(strategy, portfolio)
+    require_allocation(
+        (
+            *(view.sleeve.weight_fraction for view in current.sleeves),
+            *(item.weight_fraction for item in request.sleeves),
+        ),
+        portfolio.cash_reserve_fraction,
+    )
+    now = context.occurred_at
+    revision = portfolio.revision + 1
+    added: list[Sleeve] = []
+    entries: list[JournalEntry] = []
+    for strategy, item, sleeve_id in zip(strategies, request.sleeves, sleeve_ids, strict=True):
+        added.append(
+            Sleeve(
+                sleeve_id=sleeve_id,
+                portfolio_id=portfolio.portfolio_id,
+                strategy_id=strategy.strategy_id,
+                weight_fraction=item.weight_fraction,
+                note=item.note or None,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        entries.append(
+            _sleeve_added_entry(
+                portfolio,
+                strategy,
+                item.weight_fraction,
+                sleeve_id,
+                revision=revision,
+                context=context,
+            )
+        )
+    return MutationPlan(
+        portfolio=replace(portfolio, revision=revision, updated_at=now),
+        sleeves=(*(view.sleeve for view in current.sleeves), *added),
+        journal=tuple(entries),
+    )
+
+
+def _sleeve_added_entry(
+    portfolio: Portfolio,
+    strategy: SleeveStrategy,
+    weight_fraction: str,
+    sleeve_id: UUID,
+    *,
+    revision: int,
+    context: MutationContext,
+) -> JournalEntry:
+    """The ``sleeve_added`` journal entry for one new sleeve."""
+    market = strategy.product_id or "unknown market"
+    clock = f" · {strategy.timeframe}" if strategy.timeframe else ""
+    return journal_entry(
+        portfolio.portfolio_id,
+        kind="sleeve_added",
+        context=context,
+        summary=(
+            f"Added sleeve “{strategy.name}” ({market}{clock}) at {percent_text(weight_fraction)}."
+        ),
+        revision=revision,
+        detail=JournalDetail(
+            sleeve_id=sleeve_id,
+            strategy_id=strategy.strategy_id,
+            strategy_name=strategy.name,
+            reason="operator",
+            changes=(JournalChange(field="weight", after=percent_text(weight_fraction)),),
+        ),
     )
 
 

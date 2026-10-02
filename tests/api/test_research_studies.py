@@ -337,6 +337,16 @@ def test_submit_study_composes_child_backtests() -> None:
         assert {row["role"] for row in headlines} == {"in_sample", "out_of_sample"}
         assert all("total_net_pnl" in row for row in headlines)
         assert all("result_fingerprint" in row for row in headlines)
+        windows = {window["label"]: window for window in body["windows"]}
+        for row in headlines:
+            assert row["evaluation_start"] == windows[row["label"]]["evaluation_start"]
+            assert row["evaluation_end"] == windows[row["label"]]["evaluation_end"]
+            assert row["product_id"] == windows[row["label"]]["product_id"]
+            assert row["axis_values"] == {}
+        (candidate,) = summary["candidates"]
+        assert candidate["axis_values"] == {}
+        assert candidate["oos_window_count"] == 1
+        assert candidate["in_sample_window_count"] == 1
         full = client.get(f"/api/v1/research/studies/{body['study_fingerprint']}?detail=full")
         assert full.status_code == 200, full.text
         assert len(full.json()["windows"]) == len(body["windows"])

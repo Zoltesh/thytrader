@@ -1,10 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { INDICATOR_KINDS } from './indicator-catalog';
 import {
 	applyIndicatorKindDefaults,
 	builderModelFromRecord,
 	bulkOutcomeText,
 	deletionCountsText,
+	fetchStrategyPage,
 	latestDatasets,
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
@@ -740,5 +741,28 @@ describe('catalog-driven indicator drafts', () => {
 			])
 		);
 		expect(STRATEGY_TEMPLATE_OPTIONS.every((template) => template.description !== '')).toBe(true);
+	});
+});
+
+describe('fetchStrategyPage tag filter (ADR 0094)', () => {
+	it('sends the tag with the page request and returns rows with their tags', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					strategies: [{ strategy_id: 'a', name: 'A', tags: ['per-market'] }],
+					limit: 10,
+					returned: 1,
+					total: 1,
+					has_more: false
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const page = await fetchStrategyPage(10, undefined, 'per-market');
+		expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v1/strategies?limit=10&tag=per-market');
+		expect(page.entries[0].tags).toEqual(['per-market']);
+		expect(page.total).toBe(1);
+		vi.unstubAllGlobals();
 	});
 });

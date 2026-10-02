@@ -8,6 +8,7 @@ from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation
 from enum import StrEnum
 from hashlib import sha256
 import json
+import logging
 from typing import TYPE_CHECKING, Literal, Self
 
 from pydantic import (
@@ -42,11 +43,14 @@ from thytrader.research.models import (
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
     MAX_SYNC_CANDIDATES,
+    AxisValue,
     ParameterAxis,
     SelectionMetric,
     StitchedOosEquity,
     StitchSourceWindow,
+    candidate_axis_values,
     derive_parameter_candidates,
+    downsample_stitched_points,
     metric_value,
     parameter_axes_candidate_count,
     select_candidate_fingerprint,
@@ -58,14 +62,20 @@ from thytrader.research.publication import explain_evaluation_window_rejection
 from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
 
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.persistence.backtest_results import BacktestResultReader
-    from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotStore
+    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.strategies.snapshots import (
+        StrategySnapshot,
+        StrategySnapshotReader,
+        StrategySnapshotStore,
+    )
 
 STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
+_logger = logging.getLogger(__name__)
 _FINGERPRINT_PREFIX = "sha256:"
 _MAX_FOLDS = 24
 _MAX_MARKETS = 8
@@ -371,16 +381,56 @@ class ResearchStudy(_FrozenStudyModel):
 
 
 class StudyWindowPnl(_FrozenStudyModel):
-    """One child-window PnL headline without equity curves or trades."""
+    """One child-window PnL headline without equity curves or trades.
+
+    ``axis_values`` is the candidate's sweep assignment (``{"fast.period": 20}``; ``{}``
+    when the study has one candidate) and ``evaluation_start`` / ``evaluation_end`` are
+    the child's bounds, so one ``show-study`` call explains every row (ADR 0094).
+    """
 
     label: str
     role: WindowRole
     fold_index: int = Field(ge=0)
+    product_id: str
+    evaluation_start: datetime
+    evaluation_end: datetime
     result_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    axis_values: dict[str, AxisValue] = Field(default_factory=dict)
     total_net_pnl: str
+    total_return_fraction: str
     trade_count: int = Field(ge=0)
     selected: bool = Field(default=False, exclude_if=lambda value: value is False)
+
+    @field_serializer("evaluation_start", "evaluation_end", when_used="json")
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Serialize window bounds with a canonical Z suffix."""
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+
+
+class StudyCandidateAggregate(_FrozenStudyModel):
+    """Every window of one candidate summed, so robustness across the grid is visible.
+
+    ``oos_*`` counts genuine out-of-sample windows only (every WFO fold scores every
+    candidate out of sample, not just the selected path). ``full_window_*`` covers sweep
+    candidates and cross-market legs: full-range windows that are not an out-of-sample
+    claim (ADR 0044). ``selected_window_count`` counts this candidate's windows the study
+    selected in-sample.
+    """
+
+    strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
+    product_id: str
+    axis_values: dict[str, AxisValue] = Field(default_factory=dict)
+    window_count: int = Field(ge=1)
+    selected_window_count: int = Field(ge=0)
+    in_sample_window_count: int = Field(ge=0)
+    in_sample_total_net_pnl: str | None = None
+    oos_window_count: int = Field(ge=0)
+    oos_total_net_pnl: str | None = None
+    oos_positive_window_count: int = Field(ge=0)
+    oos_trade_count: int = Field(ge=0)
+    full_window_count: int = Field(ge=0)
+    full_window_total_net_pnl: str | None = None
 
 
 class ResearchStudySummary(_FrozenStudyModel):
@@ -400,15 +450,36 @@ class ResearchStudySummary(_FrozenStudyModel):
         default=None,
         exclude_if=lambda value: value is None,
     )
+    stitched_oos_points_downsampled: bool = False
     window_count: int = Field(ge=1)
     window_pnl: tuple[StudyWindowPnl, ...] = ()
+    candidates: tuple[StudyCandidateAggregate, ...] = ()
 
 
-def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
-    """Project one persisted study into a bounded summary document."""
+def summarize_research_study(
+    study: ResearchStudy,
+    *,
+    definitions: Mapping[str, StrategyDefinition] | None = None,
+) -> ResearchStudySummary:
+    """Project one persisted study into a bounded summary document.
+
+    Args:
+        study: The canonical study.
+        definitions: Candidate definitions by strategy fingerprint. When given, every
+            row and candidate names its sweep ``axis_values`` (recovered from the
+            definitions, ADR 0094); a missing definition leaves that candidate's ``{}``.
+
+    The stitched OOS path is thinned for display (``point_count`` stays the full count
+    and ``stitched_oos_points_downsampled`` says whether marks were dropped); the full
+    study (``detail=full``) keeps every mark.
+    """
     stitched = study.stitched_oos_equity
+    downsampled = False
     if stitched is not None and stitched.points:
-        stitched = stitched.model_copy(update={"points": ()})
+        points = downsample_stitched_points(stitched.points)
+        downsampled = len(points) != len(stitched.points)
+        stitched = stitched.model_copy(update={"points": points})
+    axes = _study_axis_values(study, definitions or {})
     return ResearchStudySummary(
         study_fingerprint=study.study_fingerprint,
         request_fingerprint=study.request_fingerprint,
@@ -417,21 +488,108 @@ def summarize_research_study(study: ResearchStudy) -> ResearchStudySummary:
         warnings=study.warnings,
         selection_metric=study.selection_metric,
         stitched_oos_equity=stitched,
+        stitched_oos_points_downsampled=downsampled,
         window_count=len(study.windows),
         window_pnl=tuple(
             StudyWindowPnl(
                 label=window.label,
                 role=window.role,
                 fold_index=window.fold_index,
+                product_id=window.product_id,
+                evaluation_start=window.evaluation_start,
+                evaluation_end=window.evaluation_end,
                 result_fingerprint=window.result_fingerprint,
                 strategy_fingerprint=window.strategy_fingerprint,
+                axis_values=axes.get(window.strategy_fingerprint, {}),
                 total_net_pnl=window.summary.total_net_pnl,
+                total_return_fraction=window.summary.total_return_fraction,
                 trade_count=window.summary.trade_count,
                 selected=window.selected,
             )
             for window in study.windows
         ),
+        candidates=study_candidate_aggregates(study, axes),
     )
+
+
+async def load_candidate_definitions(
+    publications: StrategySnapshotReader, study: ResearchStudy
+) -> dict[str, StrategyDefinition]:
+    """Load every candidate snapshot a study names, skipping ones that cannot be read.
+
+    Axis values are explanatory, so an unreadable snapshot leaves that candidate's
+    ``axis_values`` empty instead of failing the summary.
+    """
+    definitions: dict[str, StrategyDefinition] = {}
+    for fingerprint in study_candidate_fingerprints(study):
+        try:
+            definitions[fingerprint] = (await publications.load(fingerprint)).definition
+        except Exception as error:  # noqa: BLE001 - advisory enrichment only.
+            _logger.warning(
+                "study_candidate_snapshot_unavailable error_class=%s", type(error).__name__
+            )
+    return definitions
+
+
+def study_candidate_fingerprints(study: ResearchStudy) -> tuple[str, ...]:
+    """Distinct child strategy fingerprints in first-appearance order."""
+    return tuple(dict.fromkeys(window.strategy_fingerprint for window in study.windows))
+
+
+def _study_axis_values(
+    study: ResearchStudy, definitions: Mapping[str, StrategyDefinition]
+) -> dict[str, dict[str, AxisValue]]:
+    """Axis assignments for the study's candidates whose definitions are known."""
+    known = {
+        fingerprint: definitions[fingerprint]
+        for fingerprint in study_candidate_fingerprints(study)
+        if fingerprint in definitions
+    }
+    return candidate_axis_values(known)
+
+
+def study_candidate_aggregates(
+    study: ResearchStudy, axes: Mapping[str, dict[str, AxisValue]]
+) -> tuple[StudyCandidateAggregate, ...]:
+    """Sum every window per candidate, in first-appearance order."""
+    aggregates: list[StudyCandidateAggregate] = []
+    for fingerprint in study_candidate_fingerprints(study):
+        windows = tuple(item for item in study.windows if item.strategy_fingerprint == fingerprint)
+        insample = tuple(item for item in windows if item.role is WindowRole.IN_SAMPLE)
+        oos = tuple(item for item in windows if item.role is WindowRole.OUT_OF_SAMPLE)
+        full = tuple(
+            item
+            for item in windows
+            if item.role in {WindowRole.FULL_WINDOW, WindowRole.SWEEP_CANDIDATE}
+        )
+        aggregates.append(
+            StudyCandidateAggregate(
+                strategy_fingerprint=fingerprint,
+                product_id=windows[0].product_id,
+                axis_values=axes.get(fingerprint, {}),
+                window_count=len(windows),
+                selected_window_count=sum(1 for item in windows if item.selected),
+                in_sample_window_count=len(insample),
+                in_sample_total_net_pnl=_pnl_sum(insample),
+                oos_window_count=len(oos),
+                oos_total_net_pnl=_pnl_sum(oos),
+                oos_positive_window_count=sum(
+                    1 for item in oos if Decimal(item.summary.total_net_pnl) > 0
+                ),
+                oos_trade_count=sum(item.summary.trade_count for item in oos),
+                full_window_count=len(full),
+                full_window_total_net_pnl=_pnl_sum(full),
+            )
+        )
+    return tuple(aggregates)
+
+
+def _pnl_sum(windows: tuple[StudyWindowResult, ...]) -> str | None:
+    """Exact sum of the windows' net PnL, or None when there are none."""
+    if not windows:
+        return None
+    total = sum((Decimal(item.summary.total_net_pnl) for item in windows), start=Decimal(0))
+    return _canonical_decimal(total)
 
 
 def summarize_research_study_plan(plan: ResearchStudyPlan) -> ResearchStudyPlanSummary:

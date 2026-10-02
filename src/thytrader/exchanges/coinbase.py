@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+import logging
+import threading
 from typing import Any, Protocol
 
 from requests import HTTPError
@@ -14,6 +16,28 @@ from thytrader.exchanges.models import ExchangeBalance
 
 _ACCOUNT_PAGE_SIZE = 250
 _MAX_ACCOUNT_PAGES = 100
+_SDK_LOGGER_NAME = "coinbase.RESTClient"
+_logger = logging.getLogger(__name__)
+
+UNSUPPORTED_USD_PRODUCTS: set[str] = set()
+"""Products Coinbase answered 404 for in this process (a dust asset with no USD market).
+
+Valuation asks Coinbase once per product per process; later portfolio reads skip the
+call and report the asset in ``unvalued_assets`` without another 404.
+"""
+_EXPECTED_NOT_FOUND = threading.local()
+
+
+class _ExpectedNotFoundFilter(logging.Filter):
+    """Drop the SDK's own ERROR line for a product 404 this adapter expects and handles."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Keep every record except an expected product-lookup 404."""
+        expected = bool(getattr(_EXPECTED_NOT_FOUND, "active", False))
+        return not (expected and record.getMessage().startswith("HTTP Error: 404"))
+
+
+_SDK_NOT_FOUND_FILTER = _ExpectedNotFoundFilter()
 
 
 class CoinbasePaginationError(RuntimeError):
@@ -51,9 +75,21 @@ class CoinbaseClient(Protocol):
 class CoinbaseAccount:
     """Expose Coinbase account data through the provider-neutral contract."""
 
-    def __init__(self, client: CoinbaseClient) -> None:
-        """Initialize the adapter around an authenticated official SDK client."""
+    def __init__(
+        self, client: CoinbaseClient, *, unsupported_products: set[str] | None = None
+    ) -> None:
+        """Initialize the adapter around an authenticated official SDK client.
+
+        ``unsupported_products`` defaults to the process-wide cache of products that have
+        no USD market (:data:`UNSUPPORTED_USD_PRODUCTS`).
+        """
         self._client = client
+        self._unsupported = (
+            UNSUPPORTED_USD_PRODUCTS if unsupported_products is None else unsupported_products
+        )
+        sdk_logger = logging.getLogger(_SDK_LOGGER_NAME)
+        if _SDK_NOT_FOUND_FILTER not in sdk_logger.filters:
+            sdk_logger.addFilter(_SDK_NOT_FOUND_FILTER)
 
     async def list_balances(self) -> tuple[ExchangeBalance, ...]:
         """Fetch every account page and return active, non-empty balances."""
@@ -97,11 +133,26 @@ class CoinbaseAccount:
         return tuple(label for field, label in permission_fields if payload.get(field) is True)
 
     async def get_usd_price(self, currency: str) -> Decimal | None:
-        """Return the latest direct USD product price when Coinbase exposes one."""
+        """Return the latest direct USD product price when Coinbase exposes one.
+
+        A 404 (no ``<currency>-USD`` market, e.g. a dust asset) is cached for the process
+        and logged once at INFO; the asset is then reported as unvalued without asking
+        Coinbase again. Every other failure propagates.
+        """
+        product_id = f"{currency}-USD"
+        if product_id in self._unsupported:
+            return None
         try:
-            response = await asyncio.to_thread(self._client.get_product, f"{currency}-USD")
+            response = await asyncio.to_thread(self._get_product_expecting_404, product_id)
         except HTTPError as error:
             if error.response is not None and error.response.status_code == 404:
+                self._unsupported.add(product_id)
+                _logger.info(
+                    "Coinbase has no %s market; %s is reported in unvalued_assets "
+                    "(not requested again by this process).",
+                    product_id,
+                    currency,
+                )
                 return None
             raise
         price = response.to_dict().get("price")
@@ -111,6 +162,14 @@ class CoinbaseAccount:
             return Decimal(price)
         except InvalidOperation:
             return None
+
+    def _get_product_expecting_404(self, product_id: str) -> CoinbaseResponse:
+        """Fetch one product while the SDK's ERROR line for a 404 is suppressed."""
+        _EXPECTED_NOT_FOUND.active = True
+        try:
+            return self._client.get_product(product_id)
+        finally:
+            _EXPECTED_NOT_FOUND.active = False
 
     async def get_fee_profile(self) -> FeeProfile:
         """Fetch 30-day volume and fee tier details from Coinbase."""

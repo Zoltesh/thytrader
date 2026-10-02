@@ -9,7 +9,10 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from thytrader.backtest.models import BacktestPerformanceMetrics  # noqa: TC001
+from thytrader.backtest.models import (  # noqa: TC001 - Pydantic field types.
+    BacktestEvaluationWindow,
+    BacktestPerformanceMetrics,
+)
 from thytrader.execution.decisions import (  # noqa: TC001 - Pydantic field types.
     BarDecision,
     DecisionOutcome,
@@ -192,6 +195,20 @@ class OpsContractPayload(_FrozenModel):
         Literal["rebalance", "pause_sleeve", "resume_sleeve", "add_sleeve"], ...
     ]
     portfolio_briefing_contract: str = Field(min_length=1, max_length=64)
+    research_honesty: tuple[
+        Literal[
+            "result_window",
+            "study_axis_values",
+            "study_candidate_aggregates",
+            "study_stitched_points",
+            "document_issue_paths",
+            "json_number_decimals",
+        ],
+        ...,
+    ]
+    strategy_library: tuple[Literal["tag_filter", "bulk_delete_by_tag", "clone_name"], ...]
+    portfolio_max_sleeves: int = Field(ge=1)
+    portfolio_sleeve_operations: tuple[Literal["batch_add"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -584,7 +601,11 @@ class StrategiesReport(OperatorEnvelope):
 
 
 class PerformancePayload(_FrozenModel):
-    """One backtest, paper, or live performance slice with explicit provenance."""
+    """One backtest, paper, or live performance slice with explicit provenance.
+
+    ``window`` (backtests only, ADR 0094) names the evaluated bars: evaluation_start,
+    evaluation_end, warmup_bars, and the first and last evaluated bar.
+    """
 
     mode: Literal["backtest", "paper", "live"]
     timeframe: SupportedTimeframe
@@ -604,6 +625,7 @@ class PerformancePayload(_FrozenModel):
     marked_exposure: str | None = None
     books: tuple[PerformanceBookPayload, ...] = ()
     metrics: BacktestPerformanceMetrics | None = None
+    window: BacktestEvaluationWindow | None = None
 
 
 class PerformanceReport(OperatorEnvelope):
