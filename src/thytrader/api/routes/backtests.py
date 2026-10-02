@@ -23,6 +23,7 @@ from thytrader.api.dependencies import (
     get_dataset_store,
     get_research_job_store,
     get_runtime_state,
+    get_strategy_snapshot_store,
     get_strategy_store,
 )
 from thytrader.api.research_binding import dataset_resolver, datasets_missing_http_error
@@ -30,6 +31,7 @@ from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
+    BacktestDiagnostics,
     BacktestPerformanceMetrics,
     BacktestResult,
     BacktestSummary,
@@ -50,6 +52,7 @@ from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkUnavailableError,
 )
 from thytrader.persistence.backtest_results import (
+    BacktestDiagnosticsReader,
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
     BacktestResultReader,
@@ -68,8 +71,20 @@ from thytrader.research.jobs import (
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
+from thytrader.research.trace_service import (
+    SIGNAL_TRACE_PAGE_DEFAULT_LIMIT,
+    SIGNAL_TRACE_PAGE_MAX_LIMIT,
+    SignalTraceMismatchError,
+    SignalTracePage,
+    TraceOutcomeFilter,
+    evaluate_result_signal_trace,
+    signal_trace_page,
+)
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.strategies.snapshots import (  # noqa: TC001 - FastAPI Depends.
+    StrategySnapshotStore,
+)
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
@@ -118,13 +133,18 @@ class BacktestSubmissionResponse(BaseModel):
 
 
 class BacktestDetailResponse(BaseModel):
-    """One fully reverified immutable simulation result plus published run costs."""
+    """One fully reverified immutable simulation result plus published run costs.
+
+    ``diagnostics`` (ADR 0090) is the entry funnel recorded beside the result, or null
+    for results published before it was recorded.
+    """
 
     model_config = ConfigDict(from_attributes=True)
     result: BacktestResult
     result_fingerprint: str
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
+    diagnostics: BacktestDiagnostics | None = None
 
 
 class BacktestSummaryDetailResponse(BaseModel):
@@ -138,6 +158,7 @@ class BacktestSummaryDetailResponse(BaseModel):
     summary: BacktestSummary
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
+    diagnostics: BacktestDiagnostics | None = None
 
 
 class BacktestMetricsResponse(BaseModel):
@@ -157,7 +178,12 @@ class BacktestBenchmarkResponse(BaseModel):
 class BacktestErrorDetail(BaseModel):
     """Stable redacted response for backtest-result read failures."""
 
-    code: Literal["backtests_unavailable", "backtest_not_found", "backtest_invalid"]
+    code: Literal[
+        "backtests_unavailable",
+        "backtest_not_found",
+        "backtest_invalid",
+        "signal_trace_unavailable",
+    ]
     message: str
 
 
@@ -174,6 +200,19 @@ class _BacktestSourceRunLoader(Protocol):
     async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
         """Return the verified source run for one loaded result."""
         ...
+
+
+async def _stored_diagnostics(
+    store: BacktestResultReader, result_fingerprint: str
+) -> BacktestDiagnostics | None:
+    """Best-effort diagnostics: they explain a result and must never hide it."""
+    if not isinstance(store, BacktestDiagnosticsReader):
+        return None
+    try:
+        return await store.load_diagnostics(result_fingerprint)
+    except Exception as error:  # noqa: BLE001 - diagnostics are advisory evidence only.
+        _logger.warning("Backtest diagnostics unavailable: %s", type(error).__name__)
+        return None
 
 
 async def _published_costs_projection(
@@ -570,6 +609,7 @@ async def get_backtest(
             },
         )
     metrics = _derived_metrics(result)
+    diagnostics = await _stored_diagnostics(store, result_fingerprint)
     if detail == "summary":
         return BacktestSummaryDetailResponse(
             result_fingerprint=result_fingerprint,
@@ -579,12 +619,88 @@ async def get_backtest(
             summary=result.summary,
             costs=costs,
             metrics=metrics,
+            diagnostics=diagnostics,
         )
     return BacktestDetailResponse(
         result=result,
         result_fingerprint=result_fingerprint,
         costs=costs,
         metrics=metrics,
+        diagnostics=diagnostics,
+    )
+
+
+@router.get(
+    "/{result_fingerprint}/signal-trace",
+    response_model=SignalTracePage,
+    responses={
+        status.HTTP_400_BAD_REQUEST: {"model": BacktestErrorResponse},
+        status.HTTP_404_NOT_FOUND: {"model": BacktestErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": BacktestErrorResponse},
+    },
+)
+async def get_backtest_signal_trace(
+    store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    snapshots: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
+    datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
+    result_fingerprint: str,
+    outcome: Annotated[TraceOutcomeFilter, Query()] = "all",
+    limit: Annotated[
+        int, Query(ge=1, le=SIGNAL_TRACE_PAGE_MAX_LIMIT)
+    ] = SIGNAL_TRACE_PAGE_DEFAULT_LIMIT,
+    cursor: Annotated[str | None, Query()] = None,
+) -> SignalTracePage:
+    """Re-evaluate the entry-condition trace of one result's run, one bounded page at a time.
+
+    Read-only (ADR 0090): the API evaluates the exact published run against its verified
+    datasets and fails closed unless the trace reproduces the result's
+    ``signal_trace_fingerprint``. Multi-instrument documents trace the primary product.
+    """
+    if _FINGERPRINT_PATTERN.fullmatch(result_fingerprint) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "backtest_invalid", "message": "Result fingerprint is malformed."},
+        )
+    offset = _list_offset(offset=0, cursor=cursor)
+    if not isinstance(store, _BacktestSourceRunLoader):
+        raise _trace_unavailable("Published research runs are unavailable.")
+    try:
+        result = await store.load(result_fingerprint)
+        specification = await store.load_source_specification(result)
+        evaluated = await evaluate_result_signal_trace(
+            result,
+            specification=specification,
+            strategy_store=snapshots,
+            dataset_store=datasets,
+        )
+    except BacktestResultNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={"code": "backtest_not_found", "message": "Backtest result was not found."},
+        ) from None
+    except SignalTraceMismatchError as error:
+        raise _trace_unavailable(str(error)) from None
+    except Exception as error:  # noqa: BLE001 - redacted boundary for store/dataset faults.
+        _logger.warning("Backtest signal trace failed: %s", type(error).__name__)
+        raise _trace_unavailable(
+            "The run's strategy snapshot or verified datasets could not be loaded."
+        ) from None
+    return signal_trace_page(
+        evaluated.trace,
+        result_fingerprint=result_fingerprint,
+        product_id=evaluated.product_id,
+        outcome=outcome,
+        limit=limit,
+        offset=offset,
+        next_cursor_for=encode_offset_cursor,
+    )
+
+
+def _trace_unavailable(message: str) -> HTTPException:
+    """Build the 503 envelope for a trace that could not be re-evaluated or verified."""
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={"code": "signal_trace_unavailable", "message": message},
     )
 
 

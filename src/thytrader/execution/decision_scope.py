@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from thytrader.execution.decisions import DecisionSkipReason
+    from thytrader.execution.geometry import EntrySkipReason
     from thytrader.execution.signals import LatestEntryEvaluation
     from thytrader.risk.models import RiskVerdict
 
@@ -34,6 +35,7 @@ class DecisionObservations:
     breaker: RiskVerdict | None = None
     entry_block_code: str | None = None
     entry_block_detail: str | None = None
+    entry_skip: EntrySkipReason | None = None
 
 
 _SCOPE: ContextVar[DecisionObservations | None] = ContextVar(
@@ -106,6 +108,14 @@ def note_breaker(verdict: RiskVerdict) -> None:
     if observations is None:
         return
     observations.breaker = verdict
+
+
+def note_entry_skip(reason: EntrySkipReason) -> None:
+    """Record why sizing or stop/target geometry rested no entry for a matched signal."""
+    observations = _SCOPE.get()
+    if observations is None:
+        return
+    observations.entry_skip = reason
 
 
 def note_entry_block(code: str, detail: str) -> None:

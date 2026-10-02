@@ -103,7 +103,9 @@ class PositionResponse(BaseModel):
     quantity: str
     entry_price: str
     stop_price: str
-    target_price: str
+    target_price: str | None = Field(
+        default=None, description="Take-profit price; null when the strategy declares none."
+    )
     entered_bar: str
     side: str = "long"
     trail_extreme: str | None = None
@@ -904,7 +906,7 @@ def _position_response(
         quantity=format(position.quantity, "f"),
         entry_price=format(position.entry_price, "f"),
         stop_price=format(position.stop_price, "f"),
-        target_price=format(position.target_price, "f"),
+        target_price=_optional_decimal(position.target_price),
         entered_bar=position.entered_bar.isoformat(),
         side=position.side.value,
         trail_extreme=(

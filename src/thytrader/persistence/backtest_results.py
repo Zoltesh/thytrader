@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.backtest.models import BacktestResult, BacktestSummary
+    from thytrader.backtest.models import BacktestDiagnostics, BacktestResult, BacktestSummary
 
 
 class BacktestResultUnavailableError(RuntimeError):
@@ -81,6 +81,15 @@ class BacktestResultReader(Protocol):
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
         """Load and fully reverify one immutable result by its content identity."""
+        ...
+
+
+@runtime_checkable
+class BacktestDiagnosticsReader(Protocol):
+    """Optional store capability: entry-funnel counters stored beside a result (ADR 0090)."""
+
+    async def load_diagnostics(self, result_fingerprint: str) -> BacktestDiagnostics | None:
+        """Return stored diagnostics, or None when the result never recorded them."""
         ...
 
 

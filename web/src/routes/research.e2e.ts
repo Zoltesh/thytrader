@@ -182,6 +182,16 @@ test('a ?result= deep link opens inline, and a foreign result is refused', async
 	await expect(
 		page.getByTestId('workspace-result').getByText('Simulated result (candle-based fills)')
 	).toBeVisible();
+	// ADR 0090: the entry funnel explains why few signals became trades.
+	const diagnostics = page.getByTestId('result-diagnostics');
+	await diagnostics.locator('summary').click();
+	await expect(diagnostics.getByTestId('diagnostics-funnel')).toHaveText(
+		'40 signals matched → 9 entries rested → 7 filled'
+	);
+	await expect(diagnostics.getByTestId('diagnostics-skipped')).toContainText(
+		'Short take-profit would be at or below zero'
+	);
+	await expect(diagnostics).toContainText('2 expired unfilled and canceled');
 	await expect(page.getByRole('link', { name: /Inspect result/ })).toHaveAttribute(
 		'aria-current',
 		'true'
@@ -282,7 +292,7 @@ test('maker/taker prefill from the fee tier and keep a custom override', async (
 	await mockBacktestList(page);
 	await page.goto(testStage);
 	await expect(page.getByTestId('research-fee-source')).toContainText(
-		'Suggested from Coinbase fee tier'
+		'Suggested from your Coinbase account rates'
 	);
 	await page.getByLabel('Maker fee rate').fill('0.001');
 	await expect(page.getByTestId('research-fee-source')).toHaveText('Custom');
@@ -297,7 +307,7 @@ test('fees stay blank when the Coinbase fee tier cannot be suggested', async ({ 
 	await mockBacktestList(page);
 	await page.goto(testStage);
 	await expect(page.getByTestId('research-fee-source')).toHaveText(
-		'Coinbase fee-tier suggestion unavailable. Enter modeled rates.'
+		'Coinbase account fee rates unavailable. Enter modeled rates.'
 	);
 	await expect(page.getByLabel('Maker fee rate')).toHaveValue('');
 	await expect(page.getByLabel('Taker fee rate')).toHaveValue('');

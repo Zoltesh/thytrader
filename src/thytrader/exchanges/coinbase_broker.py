@@ -84,7 +84,9 @@ class CoinbaseRestBroker:
             "client_order_id": client_order_id,
             "product_id": product_id,
             "side": side.value.upper(),
-            "order_configuration": _order_configuration(kind, quantity, price, stop_trigger_price),
+            "order_configuration": _order_configuration(
+                kind, side, quantity, price, stop_trigger_price
+            ),
         }
         attached = _attached_order_configuration(kind, take_profit_price, stop_trigger_price)
         if attached is not None:
@@ -427,14 +429,33 @@ def _cancel_failure_reason(payload: Mapping[str, Any], venue_order_id: str) -> s
 
 def _order_configuration(
     kind: OrderKind,
+    side: OrderSide,
     quantity: Decimal,
     price: Decimal | None,
     stop_trigger_price: Decimal | None,
 ) -> dict[str, object]:
-    """Build the Advanced Trade order_configuration object."""
+    """Build the Advanced Trade order_configuration object.
+
+    ``STOP_LIMIT`` is the stop-only protective exit (ADR 0090): a sell stop triggers on
+    a fall (``STOP_DIRECTION_STOP_DOWN``), a buy-to-cover stop on a rise (``STOP_UP``).
+    """
     size = format(quantity, "f")
     if kind is OrderKind.MARKETABLE:
         return {"market_market_ioc": {"base_size": size}}
+    if kind is OrderKind.STOP_LIMIT:
+        if price is None or stop_trigger_price is None:
+            raise BrokerError("Stop-limit orders require a limit and a stop price.")
+        direction = (
+            "STOP_DIRECTION_STOP_DOWN" if side is OrderSide.SELL else "STOP_DIRECTION_STOP_UP"
+        )
+        return {
+            "stop_limit_stop_limit_gtc": {
+                "base_size": size,
+                "limit_price": format(price, "f"),
+                "stop_price": format(stop_trigger_price, "f"),
+                "stop_direction": direction,
+            }
+        }
     if kind is OrderKind.TRIGGER_BRACKET:
         if price is None or stop_trigger_price is None:
             raise BrokerError("Trigger bracket orders require a limit and stop trigger.")

@@ -490,13 +490,21 @@ typed trace before emitting bytes so unchecked model copies cannot acquire finge
 
 ## Read-only operator command
 
-An operator with an existing published research run can evaluate its signal trace with:
+An operator can trace the run behind any backtest result with:
 
 ```bash
-uv run thytrader-research-evaluate <run_fingerprint> --pretty
+uv run thytrader-research-evaluate <result_fingerprint> [--outcome matched] [--limit 200] [--cursor C] --pretty
 ```
 
-The command reads `THYTRADER_DATABASE_URL` and `THYTRADER_MARKET_DATA_DATASET_ROOT`, prints trace JSON
-to standard output, and prints `trace_fingerprint=...` to standard error. It cannot publish or mutate
-runs, strategies, datasets, results, or trading state. Failure output is deliberately generic and does
-not expose database URLs, artifact content, or credentials.
+Since [ADR 0090](../decisions/0090-research-correctness-optional-take-profit-diagnostics.md) the
+command is an HTTP client of `GET /api/v1/backtests/{result_fingerprint}/signal-trace` (a
+`run_fingerprint` is resolved to its newest result). The API loads the result, its verified run
+and strategy snapshot, re-evaluates the primary product's trace on its read-only dataset volume
+off the event loop, and fails closed with HTTP 503 `signal_trace_unavailable` unless
+`signal_trace_fingerprint(trace)` equals the result's. The response is one bounded page
+(`limit` ≤ 1000) of `SignalTraceRecord`s filtered by `outcome`, plus outcome `counts`,
+`total_records`, and `next_cursor`. Earlier versions read PostgreSQL and the Parquet root
+directly from the operator's shell, which Compose installs cannot reach, and reported every
+failure as one generic message. It still cannot publish or mutate runs, strategies, datasets,
+results, or trading state, and it reports the API's redacted reason without database URLs,
+artifact content, or credentials.

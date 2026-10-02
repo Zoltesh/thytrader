@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,
-    OrderKind,
     OrderSide,
     OrderStatus,
     RuntimePhase,
+    is_venue_protection,
     resolved_product_id,
     snapshot_positions,
 )
@@ -37,7 +37,7 @@ def working_entry_notional(snapshot: DeploymentSnapshot, product_id: str) -> Dec
         remaining = order.quantity - order.filled_quantity
         if remaining <= 0:
             continue
-        if order.kind is OrderKind.TRIGGER_BRACKET:
+        if is_venue_protection(order.kind):
             continue
         if order.side is OrderSide.BUY or order.side is OrderSide.SELL:
             total += remaining * order.price

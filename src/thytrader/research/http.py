@@ -559,6 +559,7 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "summary": summary,
             "costs": body.get("costs"),
             "metrics": body.get("metrics"),
+            "diagnostics": body.get("diagnostics"),
         }
     )
 
@@ -591,6 +592,7 @@ def _strategy_digest(body: dict[str, object]) -> dict[str, object]:
         "revision": body.get("revision"),
         "valid": validation.get("valid"),
         "issues": validation.get("issues"),
+        "warnings": validation.get("warnings", []),
         "current_fingerprint": body.get("current_fingerprint"),
         "summary": body.get("summary"),
     }

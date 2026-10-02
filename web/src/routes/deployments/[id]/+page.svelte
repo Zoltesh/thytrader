@@ -862,7 +862,7 @@
 									<td class="num">{position.quantity}</td>
 									<td class="num">{position.entry_price}</td>
 									<td class="num">{position.stop_price}</td>
-									<td class="num">{position.target_price}</td>
+									<td class="num">{position.target_price ?? 'none'}</td>
 									<td>{position.protection_status ?? 'unknown'}</td>
 								</tr>
 							{/each}

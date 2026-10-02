@@ -122,7 +122,7 @@ def bracket_rejection(snapshot: DeploymentSnapshot, position: Position) -> Submi
     """
     return _rejection_run(
         snapshot,
-        label="live bracket",
+        label="live bracket" if position.target_price is not None else "live stop-limit",
         purposes=frozenset({IntentPurpose.BRACKET}),
         matches=lambda order: _same_geometry(order, position),
     )
@@ -217,9 +217,13 @@ def stale_position_fault(detail: str | None) -> bool:
 
 
 def _same_geometry(order: Order, position: Position) -> bool:
-    """Whether one bracket order covers exactly this position's quantity, target, and stop."""
-    return (
-        order.quantity == position.quantity
-        and order.price == position.target_price
-        and order.stop_trigger_price == position.stop_price
-    )
+    """Whether one protective order covers exactly this position's quantity, target, and stop.
+
+    A position without a take-profit (ADR 0090) is covered by a stop-limit, whose limit
+    price is derived from the stop rather than being a target.
+    """
+    if order.quantity != position.quantity or order.stop_trigger_price != position.stop_price:
+        return False
+    if position.target_price is None:
+        return order.kind is OrderKind.STOP_LIMIT
+    return order.price == position.target_price

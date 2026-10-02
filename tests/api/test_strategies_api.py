@@ -113,7 +113,7 @@ def test_create_returns_a_valid_template_strategy_without_lifecycle_fields(
     assert response.status_code == 201
     body = response.json()
     assert body["revision"] == 1
-    assert body["validation"] == {"valid": True, "issues": []}
+    assert body["validation"] == {"valid": True, "issues": [], "warnings": []}
     strategy = body["strategy"]
     assert "version" not in strategy
     assert "status" not in strategy

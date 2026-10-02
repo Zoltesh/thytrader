@@ -69,7 +69,10 @@ decision clock — ingest extras explicitly with `thytrader-data`.
       definition and returns `strategy_fingerprint`).
     - Copy `dataset_fingerprint` (and `htf_filter.dataset_fingerprint` / `indicator_dataset_fingerprints`
       / `additional_instrument_datasets` when present) from `data-catalog` rows — do not invent windows.
-    - Optional fee prefill: `GET /api/v1/fees` when credentials exist; demo mode leaves fees blank.
+    - Optional fee prefill: `GET /api/v1/fees` `suggested_*` when credentials exist — the
+      account's reported Coinbase rates (`suggestion_source: coinbase_account`); the `schedule_*`
+      band is context only ([ADR 0090](../decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
+      Demo mode leaves fees blank.
 12. Strategy path (no publish step; [ADR 0082](../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)):
     - Quick template: `uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm`
     - Full JSON (HTF, multi-instrument, per-indicator TF):

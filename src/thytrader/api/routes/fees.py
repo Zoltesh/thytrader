@@ -28,11 +28,12 @@ class _FrozenResponseModel(BaseModel):
 
 
 class FeeProfileResponse(_FrozenResponseModel):
-    """Exact fee tier snapshot plus research-only suggested maker/taker rates.
+    """Exact fee tier snapshot plus the research/paper maker/taker prefill.
 
-    Dashboard ``maker_fee_rate`` / ``taker_fee_rate`` remain the Coinbase snapshot.
-    ``suggested_*`` fields are modeled research defaults mapped through the pinned
-    schedule, or null when demo/missing credentials cannot supply a real tier.
+    ``maker_fee_rate`` / ``taker_fee_rate`` are the account's Coinbase snapshot. With
+    credentials, ``suggested_*`` equal those account rates (``suggestion_source`` is
+    ``coinbase_account``, ADR 0090); ``schedule_*`` report the pinned public band for the
+    same volume as context only. Demo or missing credentials suggest nothing (null).
     """
 
     taker_fee_rate: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
@@ -43,12 +44,14 @@ class FeeProfileResponse(_FrozenResponseModel):
     source: Literal["coinbase"]
     suggested_maker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
     suggested_taker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
-    suggestion_source: Literal["coinbase_fee_schedule", "unavailable"]
+    suggestion_source: Literal["coinbase_account", "unavailable"]
     suggestion_unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
     suggestion_fee_tier: str | None = Field(default=None, min_length=1, max_length=64)
     suggestion_schedule_tier_id: str | None = Field(default=None, min_length=1, max_length=32)
     suggestion_schedule_version: str | None = Field(default=None, min_length=1, max_length=64)
     suggestion_schedule_as_of: date | None = None
+    schedule_maker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
+    schedule_taker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
     suggestion_fetched_at: datetime | None = None
 
     @field_validator("as_of")
@@ -144,5 +147,7 @@ def _fee_profile_response(profile: FeeProfile, *, demo: bool) -> FeeProfileRespo
         suggestion_schedule_tier_id=suggestion.schedule_tier_id,
         suggestion_schedule_version=suggestion.schedule_version,
         suggestion_schedule_as_of=suggestion.schedule_as_of,
+        schedule_maker_fee_rate=suggestion.schedule_maker_fee_rate,
+        schedule_taker_fee_rate=suggestion.schedule_taker_fee_rate,
         suggestion_fetched_at=suggestion.fetched_at,
     )

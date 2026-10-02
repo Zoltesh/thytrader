@@ -3,11 +3,14 @@
 		backtestEquityChartModel,
 		compareDecimalStrings,
 		SAME_BAR_POLICY_LABEL,
+		formatDiagnosticsFunnel,
 		formatFillFee,
 		formatPercent,
+		formatSkipReason,
 		formatPublishedCosts,
 		formatSpreadCostNote,
 		shortFingerprint,
+		unfilledEntryLines,
 		type BacktestBenchmark,
 		type BacktestDetail,
 		type BacktestPerformanceMetrics
@@ -70,6 +73,7 @@
 	/** Spread columns and notes appear only on spread-stressed runs. */
 	const spreadStressed = $derived(spreadCostNote !== null);
 	const validityLimits = $derived(result?.summary.validity_limits ?? []);
+	const diagnostics = $derived(detail?.diagnostics ?? null);
 </script>
 
 <section class="detail" aria-label="Backtest result detail">
@@ -184,6 +188,48 @@
 			{/if}
 			<BacktestModelDisclosure />
 		</div>
+		<details
+			class="evidence diagnostics"
+			data-testid="result-diagnostics"
+			open={result.summary.trade_count === 0}
+		>
+			<summary>Why so few trades? <span class="faint">entry funnel</span></summary>
+			<div class="diagnostics-body">
+				{#if diagnostics === null}
+					<p>
+						Entry diagnostics were not recorded for this result (published before ADR 0090). Run the
+						backtest again to record them.
+					</p>
+				{:else}
+					<p data-testid="diagnostics-funnel">
+						<strong>{formatDiagnosticsFunnel(diagnostics)}</strong>
+					</p>
+					{#if unfilledEntryLines(diagnostics).length > 0}
+						<ul>
+							{#each unfilledEntryLines(diagnostics) as line (line)}<li>{line}</li>{/each}
+						</ul>
+					{/if}
+					{#if diagnostics.skipped.length > 0}
+						<p class="faint">Matched signals that rested no entry:</p>
+						<ul data-testid="diagnostics-skipped">
+							{#each diagnostics.skipped as item (item.reason)}
+								<li>
+									<strong>{item.count}</strong> · {formatSkipReason(item.reason)}
+									<code>{item.reason}</code>
+								</li>
+							{/each}
+						</ul>
+					{:else if diagnostics.signals_matched > 0}
+						<p class="faint">Every matched signal rested an entry.</p>
+					{/if}
+					{#if diagnostics.warmup_bars > 0}
+						<p class="faint">
+							{diagnostics.warmup_bars} evaluation bars could not evaluate the rule yet (indicator warmup).
+						</p>
+					{/if}
+				{/if}
+			</div>
+		</details>
 		<details class="evidence" data-testid="result-evidence">
 			<summary>Evidence <span class="faint">fingerprints</span></summary>
 			<div class="provenance">
@@ -423,6 +469,19 @@
 		margin-left: 6px;
 		font-weight: 400;
 		font-size: var(--fs-sm);
+	}
+	.diagnostics-body {
+		padding: 4px 18px 14px;
+		border-top: 1px solid var(--line);
+	}
+	.diagnostics-body ul {
+		margin: 6px 0 10px;
+		padding-left: 18px;
+	}
+	.diagnostics-body code {
+		margin-left: 6px;
+		font-size: var(--fs-sm);
+		color: var(--faint);
 	}
 	.evidence .provenance {
 		border: 0;

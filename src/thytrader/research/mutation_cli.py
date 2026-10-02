@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
 from thytrader.agent_orchestration.models import YoloTier
-from thytrader.backtest.models import backtest_result_fingerprint
+from thytrader.backtest.models import BacktestDiagnostics, backtest_result_fingerprint
 from thytrader.backtest.submission import (
     BacktestStartRequest,
     BacktestSubmissionError,
@@ -36,6 +36,7 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, published_execution_timeframe
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
+from thytrader.persistence.backtest_results import BacktestDiagnosticsReader
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
@@ -59,6 +60,7 @@ from thytrader.research.studies import (
     summarize_research_study_plan,
 )
 from thytrader.research.study_start import BoundStudyStart, ResearchStudyStartRequest
+from thytrader.strategies.advisories import strategy_warnings
 from thytrader.strategies.library import (
     BulkDeletionItem,
     BulkDeletionReport,
@@ -692,6 +694,7 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
         currency = snapshot.definition.instrument.quote_currency
     except StrategySnapshotError:
         timeframe, currency = "1h", "USD"
+    diagnostics = await _local_diagnostics(mutator, backtest_result_fingerprint(result))
     return _encode(
         {
             "result_fingerprint": backtest_result_fingerprint(result),
@@ -702,8 +705,19 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
             "timeframe": timeframe,
             "currency": currency,
             "summary": result.summary.model_dump(mode="json"),
+            "diagnostics": None if diagnostics is None else diagnostics.model_dump(mode="json"),
         }
     )
+
+
+async def _local_diagnostics(
+    mutator: ResearchMutator, result_fingerprint: str
+) -> BacktestDiagnostics | None:
+    """Read the entry funnel stored beside one result when the local store records it."""
+    store = mutator.results
+    if not isinstance(store, BacktestDiagnosticsReader):
+        return None
+    return await store.load_diagnostics(result_fingerprint)
 
 
 async def _local_list_studies(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
@@ -783,6 +797,12 @@ def _record_digest(record: StrategyRecord) -> dict[str, object]:
         "valid": record.validation.valid,
         "issues": [
             {"loc": issue.loc, "message": issue.message} for issue in record.validation.issues
+        ],
+        "warnings": []
+        if record.definition is None
+        else [
+            {"code": item.code.value, "loc": ".".join(item.loc), "message": item.message}
+            for item in strategy_warnings(record.definition)
         ],
         "current_fingerprint": record.current_fingerprint,
     }

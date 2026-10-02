@@ -67,7 +67,7 @@ classDiagram
   }
   class ExitDefinition {
     initial_stop atr_multiple
-    take_profit reward_risk
+    take_profit reward_risk|none
     trailing_stop
     time_exit
   }

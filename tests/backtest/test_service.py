@@ -17,7 +17,7 @@ from thytrader.strategies.snapshots import StrategySnapshot
 from .test_kernel import _candles, _run, _strategy
 
 if TYPE_CHECKING:
-    from thytrader.backtest.models import BacktestResult
+    from thytrader.backtest.models import BacktestDiagnostics, BacktestResult
     from thytrader.market_data.models import Candle
     from thytrader.research.trace import SignalTrace
 
@@ -96,11 +96,19 @@ class _ResultStore:
     def __init__(self) -> None:
         """Initialize an empty immutable publication capture."""
         self.published: list[BacktestResult] = []
+        self.diagnostics: list[BacktestDiagnostics | None] = []
 
-    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
-        """Record and return exactly the canonical candidate result."""
+    async def publish(
+        self,
+        result: BacktestResult,
+        *,
+        trace: SignalTrace,
+        diagnostics: BacktestDiagnostics | None = None,
+    ) -> BacktestResult:
+        """Record and return exactly the canonical candidate result and its diagnostics."""
         assert trace.run_fingerprint == result.run_fingerprint
         self.published.append(result)
+        self.diagnostics.append(diagnostics)
         return result
 
 
@@ -128,6 +136,9 @@ def test_service_loads_exact_artifacts_simulates_and_publishes_one_result() -> N
     assert dataset_store.loaded == [specification.dataset_fingerprint]
     assert result_store.published == [result]
     assert result.run_fingerprint == research_run_fingerprint(specification)
+    published_diagnostics = result_store.diagnostics[0]
+    assert published_diagnostics is not None
+    assert published_diagnostics.entries_filled >= result.summary.trade_count
 
 
 @pytest.mark.anyio

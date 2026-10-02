@@ -4,8 +4,12 @@ This table pins the public 30-day USD volume maker-taker bands as captured 2026-
 from Coinbase's published Exchange / Advanced Trade fee pages. The bps match the in-repo
 Coinbase adapter fixtures (Tier 1 = 40/60, Tier 2 = 25/40).
 
-Research forms may prefill from this table. Live Coinbase billing is unchanged. Demo and
-missing credentials must not map through it.
+The table is **context only** (ADR 0090): research and paper prefills suggest the
+account's own reported ``maker_fee_rate`` / ``taker_fee_rate`` from the Coinbase
+``transaction_summary``, which is what live fills are billed at. The published band for
+the same 30-day volume is reported beside it so a reader can see when the account pays
+more than the public schedule (for example a 0.5% / 0.9% Intro tier versus the
+0.40% / 0.60% band). Demo and missing credentials suggest nothing.
 """
 
 from __future__ import annotations
@@ -61,19 +65,23 @@ class CoinbaseSpotFeeBand(_FrozenModel):
 
 
 class ResearchFeeSuggestion(_FrozenModel):
-    """Research-only maker/taker suggestion derived from a fee-tier snapshot.
+    """Research/paper maker/taker prefill derived from a live fee-tier snapshot.
 
-    Suggested rates are modeled CostAssumptions defaults, not observed Coinbase fills.
+    ``suggested_*`` are the account's reported Coinbase rates (``source`` is
+    ``coinbase_account``). ``schedule_*`` name the pinned public band for the same 30-day
+    volume as context only. Suggested rates are modeled CostAssumptions defaults.
     """
 
     suggested_maker_fee_rate: Decimal | None = None
     suggested_taker_fee_rate: Decimal | None = None
-    source: Literal["coinbase_fee_schedule", "unavailable"]
+    source: Literal["coinbase_account", "unavailable"]
     unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
     fee_tier: str | None = Field(default=None, min_length=1, max_length=64)
     schedule_tier_id: str | None = Field(default=None, min_length=1, max_length=32)
     schedule_version: str | None = Field(default=None, min_length=1, max_length=64)
     schedule_as_of: date | None = None
+    schedule_maker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
+    schedule_taker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
     fetched_at: datetime | None = None
 
     @model_validator(mode="after")
@@ -91,6 +99,8 @@ class ResearchFeeSuggestion(_FrozenModel):
                     self.schedule_tier_id,
                     self.schedule_version,
                     self.schedule_as_of,
+                    self.schedule_maker_fee_rate,
+                    self.schedule_taker_fee_rate,
                     self.fetched_at,
                 )
             ):
@@ -105,9 +115,11 @@ class ResearchFeeSuggestion(_FrozenModel):
             or self.schedule_tier_id is None
             or self.schedule_version is None
             or self.schedule_as_of is None
+            or self.schedule_maker_fee_rate is None
+            or self.schedule_taker_fee_rate is None
             or self.fetched_at is None
         ):
-            raise ValueError("schedule suggestions require rates and source metadata")
+            raise ValueError("account suggestions require rates and schedule context")
         return self
 
 
@@ -223,7 +235,12 @@ def lookup_coinbase_spot_fee_band(*, fee_tier: str, usd_volume_30d: Decimal) -> 
 
 
 def suggest_research_fee_rates(*, profile: FeeProfile, demo: bool) -> ResearchFeeSuggestion:
-    """Map a live fee-tier snapshot through the pinned schedule, or fail closed in demo."""
+    """Suggest the account's reported rates with the schedule band as context, or none in demo.
+
+    The account's ``transaction_summary`` rates are what Coinbase bills live fills at, so
+    they are the honest research and paper default; the pinned schedule can understate
+    them (ADR 0090).
+    """
     if demo:
         return ResearchFeeSuggestion(
             source="unavailable",
@@ -234,12 +251,14 @@ def suggest_research_fee_rates(*, profile: FeeProfile, demo: bool) -> ResearchFe
         usd_volume_30d=profile.usd_volume_30d,
     )
     return ResearchFeeSuggestion(
-        suggested_maker_fee_rate=band.maker_fee_rate,
-        suggested_taker_fee_rate=band.taker_fee_rate,
-        source="coinbase_fee_schedule",
+        suggested_maker_fee_rate=profile.maker_fee_rate,
+        suggested_taker_fee_rate=profile.taker_fee_rate,
+        source="coinbase_account",
         fee_tier=profile.fee_tier,
         schedule_tier_id=band.tier_id,
         schedule_version=COINBASE_SPOT_FEE_SCHEDULE_VERSION,
         schedule_as_of=COINBASE_SPOT_FEE_SCHEDULE_AS_OF,
+        schedule_maker_fee_rate=band.maker_fee_rate,
+        schedule_taker_fee_rate=band.taker_fee_rate,
         fetched_at=profile.as_of,
     )

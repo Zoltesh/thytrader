@@ -63,11 +63,26 @@ class PositionSide(StrEnum):
 
 
 class OrderKind(StrEnum):
-    """Maker, marketable, or venue-native OCO execution style used by the runtime."""
+    """Maker, marketable, venue-native OCO, or venue stop-limit execution style.
+
+    ``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit
+    (ADR 0090); paper never submits it.
+    """
 
     POST_ONLY_LIMIT = "post_only_limit"
     MARKETABLE = "marketable"
     TRIGGER_BRACKET = "trigger_bracket"
+    STOP_LIMIT = "stop_limit"
+
+
+VENUE_PROTECTION_KINDS: frozenset[OrderKind] = frozenset(
+    {OrderKind.TRIGGER_BRACKET, OrderKind.STOP_LIMIT}
+)
+
+
+def is_venue_protection(kind: OrderKind) -> bool:
+    """True for venue-resting protective exits (TP/SL bracket or stop-only stop-limit)."""
+    return kind in VENUE_PROTECTION_KINDS
 
 
 class OrderStatus(StrEnum):
@@ -181,13 +196,16 @@ class Fill:
 
 @dataclass(frozen=True, slots=True)
 class Position:
-    """One long or short product book held by a deployment."""
+    """One long or short product book held by a deployment.
+
+    ``target_price`` is None when the strategy declares no take-profit (ADR 0090).
+    """
 
     deployment_id: UUID
     quantity: Decimal
     entry_price: Decimal
     stop_price: Decimal
-    target_price: Decimal
+    target_price: Decimal | None
     entered_bar: datetime
     updated_at: datetime
     trail_extreme: Decimal | None = None

@@ -108,7 +108,12 @@ bar first. Each row is one completed bar of one covered product: `outcome` (`ent
 `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), a one-line `summary` such as
 `No trade: RSI(14) 47.21 needs ≥ 50`, the evaluated `rule` tree with leaf values versus thresholds
 (a lagged indicator reads `Highest(3, high) (1 bar ago)` with the lagged value), the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
-close price, and the end-of-bar position. Repeat `--outcome` to filter (trades are
+close price, and the end-of-bar position. A matched signal whose stop/target geometry or
+sizing rested no order is `outcome: skipped` with `skip_reason` `entry_geometry` or `entry_sizing`
+and a precise `reason_code` such as `TARGET_NOT_POSITIVE` (a short's target would be at or below
+zero), `STOP_NOT_POSITIVE`, `NOTIONAL_BELOW_MINIMUM`, `QUANTITY_BELOW_VENUE_MINIMUM`, or
+`INSUFFICIENT_CASH` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
+A position without a take-profit shows `target_price: null`. Repeat `--outcome` to filter (trades are
 `--outcome entry_signal --outcome exit`; blocked entries are `--outcome entry_blocked`). Pass the
 response's `next_cursor` as `--cursor` for older bars. `storage: "unavailable"` means the API runs
 without a database. The journal keeps the newest 20,000 decisions per bot (at most 180 days); it never
@@ -226,10 +231,19 @@ Optional `--note` is frozen onto the why-trade record at persist. Later review n
 `thytrader-memory add-trade-reason-note --confirm` (YOLO never covers that lane).
 `--side` defaults to `long`; pass `short` for a spot sell-to-open. Live shorts fail closed without
 available base and never borrow. When SL/TP are known and trailing is off, live uses an
-attached bracket on the entry; paper still uses synthetic exits. `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
+attached bracket on the entry; paper still uses synthetic exits. A strategy with
+`take_profit: {"kind": "none"}` never attaches a bracket: paper rests no take-profit (its stop is
+synthetic on closed bars), and live rests one Coinbase **stop-limit** after the fill
+(`kind: stop_limit`, intent purpose `bracket`) triggered at the working stop with its limit 5%
+through it — the same offset as a bracket's stop leg. Trailing ratchets replace it; time exits and
+flatten cancel it first. A stop-limit can rest unfilled if price gaps through its limit, exactly
+like a bracket stop leg ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
 another book clock. Paper `start` and paper `place-order` accept optional `--maker-fee-rate` and
 `--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted paper rates
-use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. Live
+use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. To model
+what the account actually pays, pass `suggested_maker_fee_rate` / `suggested_taker_fee_rate` from
+`thytrader-operator fees` (the account's reported Coinbase rates, `suggestion_source:
+coinbase_account`); the `schedule_*` rates there are context only. Live
 rejects those flags; live fills stay venue-recorded through cursor-terminated List Fills
 ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md)). Incomplete or
 unparseable Coinbase fill pages fail closed (`BrokerError`); do not treat them as a complete
@@ -250,7 +264,7 @@ The worker never re-submits an order automatically
   `coinbase_http_400:INVALID_ARGUMENT` (audit `order_submit_rejected`). The book returns to flat
   and keeps running; fix the cause (size, permissions, product) before the next entry. A rejected
   protective bracket still pauses the book because the position is unprotected.
-- **Repeated protective rejections are latched.** A live bracket or marketable exit that Coinbase
+- **Repeated protective rejections are latched.** A live bracket, stop-limit, or marketable exit that Coinbase
   rejects (for example `INSUFFICIENT_FUND`) pauses once with `mismatch_detail` starting
   `PROTECTIVE_SUBMIT_REJECTED:` (audit `protective_submit_latched`, one per real rejection).
   Identical re-submits back off 1, 2, 4 … minutes (capped at 30); after 5 identical rejections the

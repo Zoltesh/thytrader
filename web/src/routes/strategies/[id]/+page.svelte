@@ -50,6 +50,7 @@
 	const initialSection = $derived(parseBuildSection(page.url.searchParams.get('section')));
 	const savedIssues = $derived(record?.validation.issues ?? []);
 	const savedValid = $derived(record?.validation.valid === true);
+	const savedWarnings = $derived(record?.validation.warnings ?? []);
 
 	$effect(() => {
 		const current = record;
@@ -197,6 +198,13 @@
 	<div class="saved-validation" data-testid="saved-validation" data-valid={savedValid}>
 		{#if savedValid}
 			<p class="ok-text">Saved definition is valid. Test and Run use these rules.</p>
+			{#if savedWarnings.length > 0}
+				<ul class="issues warnings" data-testid="saved-warnings">
+					{#each savedWarnings as warning (warning.code + warning.loc)}
+						<li><code>{warning.loc}</code> {warning.message}</li>
+					{/each}
+				</ul>
+			{/if}
 		{:else}
 			<p class="warn-text">
 				Saved definition has {savedIssues.length || 1} problem{savedIssues.length === 1 ? '' : 's'}.
@@ -337,6 +345,9 @@
 		padding-left: 18px;
 		color: var(--muted);
 		font-size: var(--fs-sm);
+	}
+	.warnings {
+		color: var(--warn, var(--muted));
 	}
 	.buttons {
 		display: flex;

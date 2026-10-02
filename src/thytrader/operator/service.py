@@ -436,6 +436,8 @@ class OperatorDiagnostics:
                     if suggestion.schedule_as_of is not None
                     else None
                 ),
+                schedule_maker_fee_rate=_optional_rate(suggestion.schedule_maker_fee_rate),
+                schedule_taker_fee_rate=_optional_rate(suggestion.schedule_taker_fee_rate),
                 suggestion_fetched_at=suggestion.fetched_at,
             ),
         )
@@ -2577,3 +2579,8 @@ def _operator_portfolio_asset(asset: PortfolioAsset) -> OperatorPortfolioAssetPa
         total=format(asset.total, "f"),
         value=money,
     )
+
+
+def _optional_rate(value: Decimal | None) -> str | None:
+    """Render one optional fee rate as plain decimal text."""
+    return None if value is None else format(value, "f")

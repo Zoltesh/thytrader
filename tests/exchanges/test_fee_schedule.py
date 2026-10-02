@@ -137,8 +137,8 @@ def test_demo_does_not_map_a_fake_tier() -> None:
     assert suggestion.schedule_version is None
 
 
-def test_live_snapshot_suggests_schedule_rates_and_source_metadata() -> None:
-    """Live credentials prefill from the pinned schedule and record what was mapped."""
+def test_live_snapshot_suggests_account_rates_with_schedule_context() -> None:
+    """Live credentials prefill the account's own rates; the schedule band is context only."""
     profile = _profile(
         fee_tier="Tier 2 ($10k-$50k)",
         usd_volume_30d="25000",
@@ -146,12 +146,31 @@ def test_live_snapshot_suggests_schedule_rates_and_source_metadata() -> None:
         taker_fee_rate="0.0040",
     )
     suggestion = suggest_research_fee_rates(profile=profile, demo=False)
-    assert suggestion.source == "coinbase_fee_schedule"
+    assert suggestion.source == "coinbase_account"
     assert suggestion.suggested_maker_fee_rate == Decimal("0.0025")
     assert suggestion.suggested_taker_fee_rate == Decimal("0.0040")
     assert suggestion.fee_tier == "Tier 2 ($10k-$50k)"
     assert suggestion.schedule_tier_id == "usd-10k-50k"
+    assert suggestion.schedule_maker_fee_rate == Decimal("0.0025")
+    assert suggestion.schedule_taker_fee_rate == Decimal("0.0040")
     assert suggestion.schedule_version == COINBASE_SPOT_FEE_SCHEDULE_VERSION
     assert suggestion.schedule_as_of == COINBASE_SPOT_FEE_SCHEDULE_AS_OF
     assert suggestion.fetched_at == profile.as_of
     assert suggestion.unavailable_reason is None
+
+
+def test_intro_tier_account_rates_win_over_the_cheaper_schedule_band() -> None:
+    """ADR 0090: a $24-volume Intro account billed 0.5% / 0.9% must not be modeled at 0.4/0.6."""
+    profile = _profile(
+        fee_tier="Intro 1",
+        usd_volume_30d="24",
+        maker_fee_rate="0.005",
+        taker_fee_rate="0.009",
+    )
+    suggestion = suggest_research_fee_rates(profile=profile, demo=False)
+    assert suggestion.source == "coinbase_account"
+    assert suggestion.suggested_maker_fee_rate == Decimal("0.005")
+    assert suggestion.suggested_taker_fee_rate == Decimal("0.009")
+    assert suggestion.schedule_tier_id == "usd-0-10k"
+    assert suggestion.schedule_maker_fee_rate == Decimal("0.0040")
+    assert suggestion.schedule_taker_fee_rate == Decimal("0.0060")

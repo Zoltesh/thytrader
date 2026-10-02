@@ -36,7 +36,9 @@ export type DecisionSkipReason =
 	| 'data_gap'
 	| 'user_feed_gate'
 	| 'catch_up'
-	| 'entries_disabled';
+	| 'entries_disabled'
+	| 'entry_geometry'
+	| 'entry_sizing';
 
 export type DecisionExitReason = 'stop' | 'trail' | 'target' | 'time' | 'flatten';
 
@@ -128,7 +130,8 @@ export type DecisionPosition = {
 	quantity: string;
 	entry_price: string;
 	stop_price: string;
-	target_price: string;
+	/** Null when the strategy declares no take-profit (ADR 0090). */
+	target_price?: string | null;
 };
 
 /** Why the runtime created an order intent. */
@@ -588,6 +591,10 @@ export function skipReasonLabel(reason: DecisionSkipReason): string {
 			return 'catching up on missed bars';
 		case 'entries_disabled':
 			return 'new entries disabled';
+		case 'entry_geometry':
+			return 'signal matched but the stop/target geometry was illegal';
+		case 'entry_sizing':
+			return 'signal matched but sizing rested no order';
 		default: {
 			const unknown: never = reason;
 			return String(unknown).replaceAll('_', ' ');
@@ -746,7 +753,11 @@ export function riskVerdictText(risk: DecisionRisk): string {
 }
 
 export function positionSnapshotText(position: DecisionPosition): string {
-	return `${position.side} ${position.quantity} @ ${position.entry_price} · stop ${position.stop_price} · target ${position.target_price}`;
+	const target =
+		position.target_price === null || position.target_price === undefined
+			? 'no take-profit'
+			: `target ${position.target_price}`;
+	return `${position.side} ${position.quantity} @ ${position.entry_price} · stop ${position.stop_price} · ${target}`;
 }
 
 /** Empty-history sentence per filter; the clock is named when known. */

@@ -209,6 +209,7 @@ async def test_exit_on_a_filled_take_profit_names_the_target() -> None:
     )
     assert held.position is not None
     target = held.position.target_price
+    assert target is not None
     target_bar = next_candle(fill_bar, close=str(target), high=str(target + 1), low="159")
     exited, decision = await journaled_bar(
         held,

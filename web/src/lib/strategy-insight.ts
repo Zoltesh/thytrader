@@ -10,6 +10,8 @@ import {
 	INDICATOR_OUTPUT_SERIES,
 	extraIndicatorTimeframes,
 	quoteLabelFor,
+	takeProfitMultiple,
+	takeProfitPhrase,
 	resolvedIndicatorTimeframe,
 	validHtfTimeframes,
 	type BuilderModel,
@@ -87,7 +89,7 @@ export function plainEnglishSummary(model: BuilderModel): string {
 	return [
 		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.${htf}`,
 		`Risk ${model.sizing.risk_fraction} of equity per trade between ${model.sizing.min_quote_notional} ${quote} and ${model.sizing.max_quote_notional} ${quote}.`,
-		`Initial stop ${model.exits.initial_stop.multiple}× ATR, take profit at ${model.exits.take_profit.multiple}× risk, time exit after ${model.exits.time_exit.max_bars_held} bars.`
+		`Initial stop ${model.exits.initial_stop.multiple}× ATR, ${takeProfitPhrase(model.exits.take_profit)}, time exit after ${model.exits.time_exit.max_bars_held} bars.`
 	].join(' ');
 }
 
@@ -236,13 +238,10 @@ export function validateDefinition(model: BuilderModel): string[] {
 		10,
 		problems
 	);
-	validateMultiple(
-		model.exits.take_profit.multiple,
-		'Take profit reward/risk multiple',
-		0.5,
-		10,
-		problems
-	);
+	const rewardMultiple = takeProfitMultiple(model.exits.take_profit);
+	if (rewardMultiple !== null) {
+		validateMultiple(rewardMultiple, 'Take profit reward/risk multiple', 0.5, 10, problems);
+	}
 	if (
 		!Number.isInteger(model.exits.time_exit.max_bars_held) ||
 		model.exits.time_exit.max_bars_held < 1

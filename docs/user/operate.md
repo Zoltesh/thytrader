@@ -179,8 +179,14 @@ custom evaluation dates; its summary line always shows the current slippage, spr
 period. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
-from fee-tier suggested defaults and stay editable; demo or missing credentials leave those fields
-blank rather than inventing a tier. Dataset and result-list failures remain visible without hiding
+from your account's reported Coinbase rates (what live fills are billed at) and stay editable; the
+public fee-schedule band for the same volume is shown only as context on hover. Demo or missing
+credentials leave those fields blank rather than inventing a tier. An opened result has a **Why so
+few trades?** disclosure (open by default when a result has no trades): signals matched → entries
+rested → filled, entries that expired or were still resting at the end, and how many matched
+signals were skipped and why — for example *Short take-profit would be at or below zero*
+(`target_not_positive`) or *Already in a position*. Results saved before this was recorded say so;
+re-run the backtest to record it. Dataset and result-list failures remain visible without hiding
 strategy evidence. Result summaries report the snapshot's strategy clock,
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
 (OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same strategy. Below
@@ -278,7 +284,12 @@ reports include redacted `books[]` (product, phase, side, protection — no quan
 On-demand trades and strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
 available base and never borrows. When stop and take-profit are known and trailing is off, live
-attaches those exits to the entry; paper still uses synthetic exits. Command examples live in
+attaches those exits to the entry; paper still uses synthetic exits. A strategy whose **Take
+profit** is set to **None** (Build → Exit conditions) exits only on its stop, ATR trail, or time
+exit: paper rests no take-profit, and live protects the position with one Coinbase stop-limit at
+the stop (limit 5% through it, like a bracket's stop leg). The Build stage also lists advisory
+warnings under the saved definition, such as a short whose take-profit can fall to zero at normal
+volatility; they never block saving or running. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
 ### Portfolio and bot detail
@@ -485,14 +496,17 @@ inventory, fingerprint copy, backtests), see
 
 ### Read-only signal evaluation
 
-An existing published research run (`engine: "thytrader-backtest"`) can be replayed
-against its exact verified strategy and Parquet dataset:
+The entry rule of any backtest result can be traced bar by bar through the API, which owns the
+verified datasets:
 
 ```bash
-uv run thytrader-research-evaluate <run_fingerprint> --pretty
+uv run thytrader-research-evaluate <result_fingerprint> --outcome matched --pretty
 ```
 
-The command prints a deterministic completed-candle entry-condition trace and its SHA-256
-fingerprint. It does not publish a run, create an order intent, apply cooldown, simulate entries or
-exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
+A `run_fingerprint` of a completed backtest also works. The command prints one bounded page of
+the completed-candle entry-condition trace (each bar's indicator values and `matched` /
+`not_matched` / `undefined`), outcome counts, and a `next_cursor` for `--cursor`. The API
+re-evaluates the exact run and refuses to answer unless the trace reproduces the result's
+recorded trace fingerprint. It does not publish a run, create an order intent, apply cooldown,
+simulate entries or exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
 separate runtime (the workspace Run stage or `thytrader-runtime`), not this CLI.

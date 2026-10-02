@@ -103,11 +103,74 @@ export type BacktestResult = {
 	summary: BacktestSummary;
 };
 
+/** One reason a matched signal rested no entry, with how many signals it stopped. */
+export type BacktestSkipCount = { reason: string; count: number };
+
+/**
+ * Entry-funnel counters stored beside (never inside) a result (ADR 0090). Null on
+ * results published before they were recorded.
+ */
+export type BacktestDiagnostics = {
+	diagnostics_version: 'thytrader-backtest-diagnostics-v1';
+	signals_matched: number;
+	entries_rested: number;
+	entries_filled: number;
+	entries_expired: number;
+	entries_repriced: number;
+	entries_refused_at_fill: number;
+	entries_unfilled_at_end: number;
+	entries_size_capped: number;
+	warmup_bars: number;
+	skipped: BacktestSkipCount[];
+};
+
 export type BacktestDetail = {
 	result: BacktestResult;
 	result_fingerprint: string;
 	costs?: CostAssumptions | null;
+	diagnostics?: BacktestDiagnostics | null;
 };
+
+const SKIP_REASON_LABELS: Record<string, string> = {
+	pending_entry: 'An entry was already resting',
+	cooldown: 'Cooling down after an exit',
+	max_positions: 'Max concurrent positions reached',
+	in_position: 'Already in a position (no pyramiding add allowed)',
+	entry_price_not_positive: 'Entry price not positive',
+	stop_distance_not_positive: 'ATR stop distance was zero',
+	stop_not_positive: 'Long stop would be at or below zero',
+	target_not_positive: 'Short take-profit would be at or below zero',
+	stop_within_price_increment: 'Stop rounds onto the entry price',
+	target_within_price_increment: 'Take-profit rounds onto the entry price',
+	sizing_cash_unavailable: 'Sizing cash unknown',
+	no_open_position: 'No open position to add to',
+	insufficient_cash: 'Not enough cash to fund the order',
+	notional_below_minimum: 'Risk-sized order below min_quote_notional',
+	quantity_below_venue_minimum: 'Quantity below the venue minimum',
+	notional_below_venue_minimum: 'Notional below the venue minimum'
+};
+
+/** Human label for one skip reason code; unknown codes are shown verbatim. */
+export function formatSkipReason(reason: string): string {
+	return SKIP_REASON_LABELS[reason] ?? reason;
+}
+
+/** `12 matched → 9 rested → 7 filled`: the funnel headline of one result. */
+export function formatDiagnosticsFunnel(diagnostics: BacktestDiagnostics): string {
+	return `${diagnostics.signals_matched} signals matched → ${diagnostics.entries_rested} entries rested → ${diagnostics.entries_filled} filled`;
+}
+
+/** Non-zero reasons an entry rested but never became a trade, in a stable order. */
+export function unfilledEntryLines(diagnostics: BacktestDiagnostics): string[] {
+	const lines: [number, string][] = [
+		[diagnostics.entries_expired, 'expired unfilled and canceled'],
+		[diagnostics.entries_unfilled_at_end, 'still resting when the window ended'],
+		[diagnostics.entries_refused_at_fill, 'refused at fill (cash no longer sufficient)'],
+		[diagnostics.entries_repriced, 'reprices of unfilled entries'],
+		[diagnostics.entries_size_capped, 'entries clamped by a max notional cap']
+	];
+	return lines.filter(([count]) => count > 0).map(([count, text]) => `${count} ${text}`);
+}
 
 export type BacktestBenchmark = {
 	benchmark_contract_version: 'thytrader-buy-and-hold-v1';

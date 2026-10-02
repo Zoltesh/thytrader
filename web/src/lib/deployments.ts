@@ -5,7 +5,8 @@ export type DeploymentPosition = {
 	quantity: string;
 	entry_price: string;
 	stop_price: string;
-	target_price: string;
+	/** Null when the strategy declares no take-profit (ADR 0090). */
+	target_price: string | null;
 	entered_bar: string;
 	side?: 'long' | 'short' | string;
 	trail_extreme?: string | null;
