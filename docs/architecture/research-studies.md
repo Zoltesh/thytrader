@@ -45,13 +45,53 @@ out-of-sample windows and disclose stitched vs equal-weight aggregates.
 |---|---|
 | `oos_holdout` | One in-sample window and one out-of-sample window, optional `embargo_bars` unused between them. `oos_fraction` is the last share of the evaluation bars assigned to OOS. |
 | `walk_forward` | For each fold, one IS window and one OOS window. `fold_mode` is `rolling` (IS start advances by `step_bars`) or `anchored` (IS start fixed; IS length grows by `step_bars`). Every window uses the snapshot of the request's `strategy_id` taken at submit. |
-| `cross_market` | One full-window backtest per market binding. Products must be unique. Timeframes must match. |
-| `parameter_sweep` | One full-window child per candidate on the shared evaluation bounds. Candidates come from **exactly one** of `candidate_strategy_ids` (2–8 valid strategies, each snapshotted at submit) or `parameter_axes` (1–4 axes, Cartesian product ≤ 8). |
+| `cross_market` | One full-window backtest per market binding. Products must be unique. Timeframes must match. Markets name `markets[].strategy_id`, or one top-level `strategy_id` plus `markets[].product_id` (server-derived per-market variants, below). |
+| `parameter_sweep` | One full-window child per candidate on the shared evaluation bounds. Candidates come from **exactly one** of `candidate_strategy_ids` (2–64 valid strategies, each snapshotted at submit) or `parameter_axes` (1–4 axes, Cartesian product ≤ 64). More than 8 candidates run only as an async job (see Budgets). |
 | `walk_forward_optimization` | Same fold geometry as `walk_forward`, but every candidate is simulated on every IS and OOS window. Selection uses only in-sample `selection_metric`. The matching OOS child is the fold claim. |
 
 Evaluation bounds are half-open UTC candle boundaries, the same contract as a single backtest.
 Walk-forward and WFO require at least one complete fold inside `[evaluation_start, evaluation_end)`.
-At most 24 folds and 128 child windows. Cross-market accepts 2–8 markets.
+At most 24 folds. Cross-market accepts 2–8 markets.
+
+### Budgets
+
+A study runs one of two ways ([ADR 0089](../decisions/0089-agent-research-ergonomics.md)):
+
+| Mode | Candidates (sweep / WFO) | Child windows | How |
+|---|---|---|---|
+| Synchronous | ≤ 8 | ≤ 128 | `submit-study --confirm` (HTTP 201) runs every child inside the request |
+| Async job | ≤ 64 | ≤ 512 | `submit-study --async --confirm` (HTTP 202) runs in the research worker |
+
+A synchronous submit over budget is HTTP 422 `study_budget_exceeded` naming `--async`. An async
+submit is planned (snapshots, derived candidates, dataset bounds, window budget) before it is
+queued, so it fails with the same 422s instead of failing later in the worker. `plan-study` plans
+against the async budget. Plans for studies above the synchronous budget carry a warning that they
+run only as async jobs, and grids above 8 candidates also carry a data-snooping warning: searching
+more candidates makes it likelier that the best in-sample result is luck, so honest claims stay on
+selected out-of-sample windows. The ops contract advertises both budgets as `study_budgets`.
+
+### Omitted datasets and bounds
+
+Study starts may omit dataset fingerprints and both evaluation bounds. Each omitted fingerprint
+binds the newest complete catalog dataset for that product and clock (decision clock, HTF filter,
+extra indicator clocks) from the configured ingestion provider, exactly as `POST /api/v1/backtests`
+does; a clock with no dataset is HTTP 422 `datasets_missing`. Omitted bounds become the common
+covered window: the intersection of every child's default backtest window, taken over every market
+of a cross-market study and every sweep/WFO candidate (derived candidates may need more warmup).
+Plan, submit, and async 202 responses echo `bound_datasets` and the exact `evaluation_start` /
+`evaluation_end`. These echo fields are outside the canonical plan and study documents and change no
+fingerprint; the internal request carries the bound values, so `request_fingerprint` stays exact.
+
+### Per-market variants
+
+A cross-market start may name one top-level `strategy_id` plus `markets[].product_id` (2–8
+distinct products) instead of one authored strategy per market. The server re-targets the base
+definition's instrument at each product (rules, sizing, exits, and execution copied exactly; name
+suffixed with the product; tag `research-market-variant`) and records each as a content-addressed
+snapshot that keeps the base `strategy_id`, as sweep variants do, so variants are deleted with their
+strategy. The base's own product reuses its snapshot. Multi-instrument strategies cannot be
+re-targeted. Plan and submit both record variants (idempotently), and child windows name each
+variant's `strategy_fingerprint`.
 
 `walk_forward` validation does **not** retune parameters. WFO selects among candidate snapshots or
 derived variant snapshots (which keep the base `strategy_id`); it does not peek at OOS to choose the winner.
@@ -69,10 +109,10 @@ parameters depend on the target:
 | `execution` | none | `max_entry_wait_bars` |
 | `entry_literal` / `htf_literal` | `indicator_id`, optional `condition_operator` | `literal` |
 
-Values are 2–8 unique strings per axis. The **Cartesian product** across axes is at most 8 total
-candidates (not 8 per axis). Product id and decision timeframe are not sweepable. Axes substitute the named field; they do not rewrite operators or
+Values are 2–8 unique strings per axis. The **Cartesian product** across axes is at most 64 total
+candidates, and at most 8 for a synchronous submit (not 8 per axis). Product id and decision timeframe are not sweepable. Axes substitute the named field; they do not rewrite operators or
 invent trailing stops. Derived definitions copy the base document, raise `warmup_bars` when new
-periods require it, and take a deterministic UUIDv7 `strategy_id`. Indicator-only cells keep the
+periods require it, and keep the base `strategy_id` so their snapshots belong to that strategy. Indicator-only cells keep the
 ADR 0044 fingerprint 3-tuple.
 
 `plan-study` derives in memory and does not persist. It loads dataset manifests and

@@ -18,6 +18,7 @@ from thytrader.agent_orchestration.confirmation import (
     require_paper_runtime_confirmation,
 )
 from thytrader.agent_orchestration.models import YoloTier
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
@@ -865,7 +866,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     except AgentHttpError as error:
         raise SystemExit(str(error)) from error
     except Exception as error:
-        message = "Runtime command failed safely; inspect deployments before retrying."
+        message = describe_unexpected_failure(
+            error,
+            lane="Runtime command",
+            safety="Inspect deployments (`uv run thytrader-runtime list`) before retrying.",
+        )
         raise SystemExit(message) from error
     sys.stdout.write(f"{output}\n")
     raise SystemExit(EXIT_HEALTHY)

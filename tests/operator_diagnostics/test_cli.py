@@ -548,3 +548,51 @@ def test_operator_local_portfolios_degrades_without_a_database(
     assert payload["payload"]["portfolio_storage"] == "unavailable"
     assert payload["payload"]["portfolio_backtest_contract"] == "thytrader-portfolio-backtest-v1"
     assert payload["components"][0]["reason_code"] == "PORTFOLIO_STORAGE_UNAVAILABLE"
+
+
+def test_operator_data_catalog_dropped_connection_names_the_call(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A connection the API drops mid-read is reported as such, with a retry instruction."""
+    ready = matching_ready_payload()
+
+    def dropping_catalog(request: object, timeout: object = None) -> object:
+        del timeout
+        url = request if isinstance(request, str) else getattr(request, "full_url", "")
+        if str(url).endswith("/health/ready"):
+            return json_urlopen_response(ready)
+        raise ConnectionResetError(104, "Connection reset by peer")
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=dropping_catalog),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["data-catalog"])
+    message = str(raised.value)
+    assert "closed the connection before answering GET /api/v1/operator/data-catalog" in message
+    assert "retry the read" in message
+    assert "failed safely" not in message
+    assert capsys.readouterr().out == ""
+
+
+def test_operator_report_schema_mismatch_names_the_field() -> None:
+    """A report the CLI cannot validate names the failing field instead of "failed safely"."""
+    ready = matching_ready_payload()
+
+    def drifted_catalog(request: object, timeout: object = None) -> object:
+        del timeout
+        url = request if isinstance(request, str) else getattr(request, "full_url", "")
+        if str(url).endswith("/health/ready"):
+            return json_urlopen_response(ready)
+        return json_urlopen_response({"schema_version": "thytrader-operator-report-v1"})
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=drifted_catalog),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["data-catalog"])
+    message = str(raised.value)
+    assert message.startswith("Operator diagnostics failed: a payload did not match")
+    assert "Trading state was not changed." in message
+    assert "make run" in message
+    assert "failed safely" not in message

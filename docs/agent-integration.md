@@ -204,6 +204,31 @@ Strategy HTTP surface ([ADR 0082](decisions/0082-strategy-root-mutable-strategie
 backtest list entries and job records carry `strategy_id` (backtest detail responses carry only the
 snapshot `strategy_fingerprint`; resolve it with `GET /api/v1/strategies/snapshots/{fingerprint}`).
 Start responses (201 and async 202) return `strategy_id` and the snapshot `strategy_fingerprint`.
+
+Research starts may omit what the server can bind exactly
+([ADR 0089](decisions/0089-agent-research-ergonomics.md)). Omitted dataset fingerprints (primary,
+HTF, extra indicator clocks, additional instruments, and per-market study datasets) bind the newest
+complete catalog dataset per product and clock from the configured ingestion provider; a clock with
+no dataset is HTTP 422 `datasets_missing` with `detail.missing[]` and the `thytrader-data` commands
+that create it. Study plan/submit bodies may omit both `evaluation_start` and `evaluation_end` to use
+the common covered window of every child. Every start response echoes `bound_datasets`
+(`product_id`, `timeframe`, `role`, `dataset_fingerprint`, `source: request|latest_catalog`), and
+study responses echo the exact `evaluation_start` / `evaluation_end`; the bound values are part of
+the run and request fingerprints. A cross-market study may name one `strategy_id` plus
+`markets[].product_id`: the server records a per-market variant snapshot of that strategy for each
+product (keeping its `strategy_id`, like sweep variants). Sweeps and WFO allow 64 candidates and 512
+child windows as async jobs (`?async=true`, planned before queuing) and 8 candidates and 128 child
+windows synchronously (422 `study_budget_exceeded` otherwise). The operator `products` report
+carries each product's `price_increment`, `base_increment`, `quote_increment`, `base_min_size`,
+`quote_min_size`, `status`, and `alias`, and `watch-add` answers an unverifiable product catalog with
+a retryable HTTP 503 instead of a false "not enabled" 400.
+
+Agent CLIs resolve the API base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
+`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (default `127.0.0.1:8200`; installs may override
+the port), so scripts and raw `curl` calls should use `"$THYTRADER_API_BASE_URL"` rather than a
+hard-coded port. CLI failures name the HTTP status and API `detail.code` with its message, or the
+transport failure (timeout, unreachable origin, dropped connection), plus the next step; there is no
+generic "failed safely" line.
 Deployment responses carry `strategy_name` and `strategy_deleted`. Deleting a strategy is refused while any of
 its bots is running or paused; stopped live books are kept and detached, never destroyed.
 
@@ -218,15 +243,17 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v48` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v49` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
 [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md),
 [ADR 0087](decisions/0087-per-bar-decision-timeline.md),
-[ADR 0088](decisions/0088-portfolio-model-and-portfolio-backtest.md); `backtest_engine:
+[ADR 0088](decisions/0088-portfolio-model-and-portfolio-backtest.md),
+[ADR 0089](decisions/0089-agent-research-ergonomics.md); `backtest_engine:
 "thytrader-backtest"`; `indicator_kinds` and `indicator_offset_runtimes`;
-`decision_journals: ["paper", "live"]`; `portfolio_model`; expected Alembic revision `0054`).
+`decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
+`study_budgets`; expected Alembic revision `0054`).
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

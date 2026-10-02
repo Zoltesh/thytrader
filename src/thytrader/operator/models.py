@@ -159,6 +159,8 @@ class OpsContractPayload(_FrozenModel):
     portfolio_modes: tuple[Literal["paper", "live"], ...]
     portfolio_backtest_contract: str = Field(min_length=1, max_length=64)
     max_concurrent_portfolio_backtests: int = Field(ge=1)
+    research_dataset_autobind: tuple[Literal["backtest", "study"], ...]
+    study_budgets: dict[Literal["sync", "async"], dict[Literal["candidates", "windows"], int]]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -679,12 +681,27 @@ class SupportBundleReport(OperatorEnvelope):
 
 
 class ProductSummary(_FrozenModel):
-    """One enabled USD spot product from the current catalog."""
+    """One enabled spot product from the current catalog, with its order constraints.
+
+    Increments and minimum sizes are exact decimal strings straight from the venue
+    catalog: an order quantity must be a multiple of ``base_increment`` and at least
+    ``base_min_size``, a limit price a multiple of ``price_increment``, and a quote
+    notional at least ``quote_min_size``. ``status`` is the venue status text
+    (``online`` when trading normally; ``null`` when not reported) and ``alias`` names
+    the product whose order book this one shares (``null`` for a standalone book).
+    """
 
     product_id: str
     base_currency: str
     quote_currency: str
     trading_enabled: bool
+    status: str | None
+    alias: str | None
+    price_increment: str
+    base_increment: str
+    quote_increment: str
+    base_min_size: str
+    quote_min_size: str
 
 
 class ProductsPayload(_FrozenModel):

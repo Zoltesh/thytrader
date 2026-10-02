@@ -16,10 +16,13 @@ from thytrader.market_data.datasets import DatasetManifest
 from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
+    ASYNC_STUDY_BUDGET,
+    SYNC_STUDY_BUDGET,
     FoldMode,
     MarketBinding,
     ResearchStudyRequest,
     ResearchStudyService,
+    StudyBudgetError,
     StudyKind,
     StudyPlanningError,
     StudyWindowResult,
@@ -674,3 +677,88 @@ def test_plan_service_rejects_warmup_infeasible_evaluation_start() -> None:
     with pytest.raises(StudyPlanningError, match="evaluation_start") as raised:
         asyncio.run(service.plan(request))
     assert "Suggested range:" in str(raised.value)
+
+
+def _grid_sweep(
+    published: StrategySnapshot, *, fast: int, slow: int, kind: StudyKind
+) -> ResearchStudyRequest:
+    """Return a sweep or WFO over a fast x slow EMA period grid."""
+    fold_fields: dict[str, object] = (
+        {"in_sample_bars": 24, "out_of_sample_bars": 24, "step_bars": 24}
+        if kind is StudyKind.WALK_FORWARD_OPTIMIZATION
+        else {}
+    )
+    return ResearchStudyRequest.model_validate(
+        {
+            "kind": kind,
+            "evaluation_start": datetime(2026, 1, 1, tzinfo=UTC),
+            "evaluation_end": datetime(2026, 1, 21, tzinfo=UTC),
+            "initial_quote_balance": "10000",
+            "maker_fee_rate": "0.001",
+            "taker_fee_rate": "0.002",
+            "fixed_slippage_bps": "10",
+            "strategy_fingerprint": published.strategy_fingerprint,
+            "dataset_fingerprint": "sha256:" + "b" * 64,
+            "parameter_axes": (
+                ParameterAxis(
+                    indicator_id="ema_fast",
+                    parameter="period",
+                    values=tuple(str(5 + value) for value in range(fast)),
+                ),
+                ParameterAxis(
+                    indicator_id="ema_slow",
+                    parameter="period",
+                    values=tuple(str(30 + value) for value in range(slow)),
+                ),
+            ),
+            **fold_fields,
+        }
+    )
+
+
+def test_async_budget_plans_a_64_candidate_sweep_with_overfitting_warnings() -> None:
+    """An 8 x 8 grid plans under the async budget and says why it is async-only and risky."""
+    published = _reference_publication()
+    request = _grid_sweep(published, fast=8, slow=8, kind=StudyKind.PARAMETER_SWEEP)
+    plan = plan_study(
+        request,
+        publications={published.strategy_fingerprint: published},
+        budget=ASYNC_STUDY_BUDGET,
+    )
+    assert len(plan.windows) == 64
+    assert any("not an out-of-sample claim" in warning for warning in plan.warnings)
+    assert any("runs only as an async job" in warning for warning in plan.warnings)
+    assert any("data snooping" in warning for warning in plan.warnings)
+
+
+def test_sync_budget_refuses_more_than_eight_candidates_and_names_async() -> None:
+    """A 3 x 3 grid is too large to run inside one synchronous request."""
+    published = _reference_publication()
+    request = _grid_sweep(published, fast=3, slow=3, kind=StudyKind.PARAMETER_SWEEP)
+    with pytest.raises(StudyBudgetError, match="synchronous submit allows at most 8") as raised:
+        plan_study(
+            request,
+            publications={published.strategy_fingerprint: published},
+            budget=SYNC_STUDY_BUDGET,
+        )
+    assert "--async" in str(raised.value)
+
+
+def test_sync_sized_sweep_keeps_its_plan_and_warnings_unchanged() -> None:
+    """Small grids get no async-only warning, so existing plans keep their warnings."""
+    published = _reference_publication()
+    request = _grid_sweep(published, fast=2, slow=2, kind=StudyKind.PARAMETER_SWEEP)
+    sync_plan = plan_study(
+        request, publications={published.strategy_fingerprint: published}, budget=SYNC_STUDY_BUDGET
+    )
+    async_plan = plan_study(request, publications={published.strategy_fingerprint: published})
+    assert sync_plan == async_plan
+    assert not any("async" in warning for warning in sync_plan.warnings)
+
+
+def test_async_budget_bounds_child_windows() -> None:
+    """64 candidates on 19 one-day folds would be 2432 children; the async budget refuses."""
+    published = _reference_publication()
+    request = _grid_sweep(published, fast=8, slow=8, kind=StudyKind.WALK_FORWARD_OPTIMIZATION)
+    with pytest.raises(StudyBudgetError, match="an async job allows at most 512"):
+        plan_study(request, publications={published.strategy_fingerprint: published})

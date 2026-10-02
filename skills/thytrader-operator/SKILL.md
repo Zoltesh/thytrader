@@ -15,7 +15,14 @@ Read-only diagnostics for a running instance. Do not scrape logs, query PostgreS
 
 Schema version: `thytrader-operator-report-v1` (`schema_version` on every JSON report).
 
-Default transport is the loopback HTTP API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). Pass `--local` only when you intentionally want process stores instead of HTTP. Do not fall back from HTTP to PostgreSQL if the API is down.
+Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
+`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
+port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
+`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. Pass `--local` only when you intentionally want process stores instead of HTTP. Do not
+fall back from HTTP to PostgreSQL if the API is down. Failures say what failed: a timeout
+names the call, an unreachable API names the resolved origin, a dropped connection says to
+retry the read, and a report the CLI cannot validate names the field (compare ops contracts
+and rebuild with `make run`).
 
 Production installs advertise trust-boundary status at `GET /api/v1/security/status` (no secrets).
 Read-only operator routes stay unauthenticated; mutations use installation auth per
@@ -148,7 +155,9 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v48`,
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v49`
+   (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
+   windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0054`, `decision_journals` `paper`/`live` (per-bar decision timeline;
    [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `portfolio_model` (sleeves, shared limits, manager settings, journal,
    portfolio backtest; [ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
@@ -169,7 +178,11 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
-4. Gather only the extra report needed (market-data, strategies, runtime, decisions, performance, reconciliation, studies).
+4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
+   `products` lists each enabled spot product's order constraints: `price_increment`,
+   `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
+   strings), venue `status` (`online` when trading normally), and `alias` (the product whose
+   order book it shares, such as `BTC-USD` for `BTC-USDC`). Check them before sizing an order.
    In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
    current contiguous island. Each row also carries a `watch_status` noun
    (`complete` / `backfilling` / `unknown`) so `worker_status=succeeded` — which describes the

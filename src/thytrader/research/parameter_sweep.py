@@ -39,7 +39,10 @@ if TYPE_CHECKING:
 
 _MAX_AXES = 4
 _MAX_VALUES_PER_AXIS = 8
-MAX_CANDIDATES = 8
+MAX_SYNC_CANDIDATES = 8
+"""Candidate cap for a synchronous (HTTP 201) sweep or WFO submit."""
+MAX_CANDIDATES = 64
+"""Absolute candidate cap; grids above ``MAX_SYNC_CANDIDATES`` run only as async jobs."""
 MAX_STITCHED_POINTS = 4096
 _INDICATOR_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 _INTEGER_INDICATOR_PARAMETERS = frozenset(
@@ -133,7 +136,8 @@ class ParameterAxis(BaseModel):
         max_length=_MAX_VALUES_PER_AXIS,
         description=(
             "2-8 unique values on this axis. Combined with other axes, the Cartesian product "
-            f"must be at most {MAX_CANDIDATES} candidates."
+            f"must be at most {MAX_CANDIDATES} candidates ({MAX_SYNC_CANDIDATES} for a "
+            "synchronous submit; larger grids run as async jobs)."
         ),
     )
     condition_operator: str | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -250,7 +254,11 @@ def parameter_axes_candidate_count(axes: tuple[ParameterAxis, ...]) -> int:
 
 
 def validate_parameter_axes_candidate_budget(axes: tuple[ParameterAxis, ...]) -> None:
-    """Reject grids whose Cartesian product exceeds the global candidate cap."""
+    """Reject grids whose Cartesian product exceeds the absolute (async) candidate cap.
+
+    The tighter synchronous cap is a property of how the study runs, not of the
+    request, so :func:`thytrader.research.studies.plan_study` enforces it.
+    """
     if not axes:
         raise ValueError("parameter_axes is required")
     if len(axes) > _MAX_AXES:
@@ -265,8 +273,8 @@ def validate_parameter_axes_candidate_budget(axes: tuple[ParameterAxis, ...]) ->
     if count > MAX_CANDIDATES:
         raise ValueError(
             f"parameter_axes Cartesian product yields {count} candidates; "
-            f"at most {MAX_CANDIDATES} are allowed "
-            "(≤8 values per axis does not imply ≤8 total candidates)"
+            f"at most {MAX_CANDIDATES} are allowed, and at most {MAX_SYNC_CANDIDATES} "
+            "without --async (≤8 values per axis does not imply a small total)"
         )
 
 

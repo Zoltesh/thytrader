@@ -32,7 +32,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v48"
+    assert expected["id"] == "thytrader-ops-contract-v49"
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]
     assert isinstance(kinds, list)
@@ -53,6 +53,11 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["portfolio_modes"] == ["paper", "live"]
     assert expected["portfolio_backtest_contract"] == "thytrader-portfolio-backtest-v1"
     assert expected["max_concurrent_portfolio_backtests"] == 1
+    assert expected["research_dataset_autobind"] == ["backtest", "study"]
+    assert expected["study_budgets"] == {
+        "sync": {"candidates": 8, "windows": 128},
+        "async": {"candidates": 64, "windows": 512},
+    }
     assert expected["spot_quote_currencies"] == ["USD", "USDC", "USDT"]
     assert expected["catalog_health"] == [
         "bounded_gap_inspection",

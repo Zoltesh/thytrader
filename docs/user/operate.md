@@ -433,7 +433,11 @@ LLM keys stay in the Agent panel / `/chat`.
 ## With an agent (or the CLIs yourself)
 
 Run every `uv run thytrader-*` command from the **repository root**. JSON is the default CLI
-output. HTTP talks to loopback (`http://127.0.0.1:8200`) unless you pass `--local` on purpose.
+output. HTTP talks to the loopback API unless you pass `--local` on purpose. The CLIs resolve its
+base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` /
+`THYTRADER_API_PORT` settings (default `127.0.0.1:8200`; installs may override the port). Use
+`"$THYTRADER_API_BASE_URL"` for raw `curl`. When a command fails it says what failed (HTTP status and
+API error code, timeout, unreachable origin, or a dropped connection) and what to do next.
 
 ```bash
 uv run thytrader-operator health

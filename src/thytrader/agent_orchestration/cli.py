@@ -18,6 +18,7 @@ from thytrader.agent_orchestration.models import (
     PlaybookRun,
     PlaybookStep,
 )
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.data_control.cli import main as data_main
@@ -456,7 +457,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     except AgentHttpError as error:
         raise SystemExit(str(error)) from error
     except Exception as error:
-        message = "Playbook failed safely; live trading was not started."
+        message = describe_unexpected_failure(
+            error, lane="Playbook", safety="Live trading was not started."
+        )
         raise SystemExit(message) from error
     sys.stdout.write(f"{output}\n")
     raise SystemExit(EXIT_HEALTHY)

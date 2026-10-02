@@ -2,7 +2,10 @@
 
 All routes are `GET` under `/api/v1/operator`. They share application services with `thytrader-operator` and do not mutate orders, strategies, or deployments.
 
-Base URL for the supported local stack: `http://127.0.0.1:8200`. The CLI defaults to that origin (`THYTRADER_API_BASE_URL` or settings). `--local` is an explicit store-backed alternative, not an automatic fallback.
+Base URL: the loopback API origin of this install. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
+`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
+port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
+`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. `--local` is an explicit store-backed alternative, not an automatic fallback.
 
 | Method | Path | Report kind |
 |---|---|---|

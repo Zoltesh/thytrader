@@ -11,6 +11,7 @@ from uuid import UUID
 
 from thytrader import __version__
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
@@ -453,7 +454,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     except AgentHttpError as error:
         raise SystemExit(str(error)) from error
     except Exception as error:
-        message = "Operator diagnostics failed safely; trading state was not changed."
+        message = describe_unexpected_failure(
+            error, lane="Operator diagnostics", safety="Trading state was not changed."
+        )
         raise SystemExit(message) from error
     raise SystemExit(code)
 

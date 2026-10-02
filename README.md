@@ -72,6 +72,10 @@ make run
 |---|---|---|
 | http://127.0.0.1:5175 | http://127.0.0.1:8200/health/ready | `127.0.0.1:5439` (loopback only) |
 
+The API port is `THYTRADER_API_PORT` (default `8200`). The `thytrader-*` CLIs resolve the base URL
+from settings (`--base-url`, then `THYTRADER_API_BASE_URL`, then `THYTRADER_API_HOST` /
+`THYTRADER_API_PORT`); for raw `curl`, use `"$THYTRADER_API_BASE_URL"`.
+
 `make run` does **not** print secrets or connection URLs.
 
 ```bash

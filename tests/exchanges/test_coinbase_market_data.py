@@ -895,3 +895,102 @@ def test_coinbase_market_data_keeps_other_http_errors_unchanged() -> None:
 def test_coinbase_candle_page_limit_matches_the_worker_request_size() -> None:
     """The worker plans one request per Coinbase page, so both limits must agree."""
     assert coinbase_market_data_module._CANDLE_PAGE_LIMIT == HISTORICAL_REQUEST_MAX_CANDLES == 350
+
+
+def _catalog_row(product_id: str, **extra: object) -> dict[str, object]:
+    """Return one Coinbase-shaped spot product row."""
+    base, quote = product_id.split("-")
+    return {
+        "product_id": product_id,
+        "base_currency_id": base,
+        "quote_currency_id": quote,
+        "price_increment": "0.01",
+        "base_increment": "0.00000001",
+        "quote_increment": "0.01",
+        "base_min_size": "0.00001",
+        "quote_min_size": "1",
+        "is_disabled": False,
+        "trading_disabled": False,
+        **extra,
+    }
+
+
+class CatalogCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """Return one fixed list-products payload, such as a degraded or complete catalog."""
+
+    def __init__(self, payload: dict[str, Any]) -> None:
+        """Store the payload served by every get_products call."""
+        super().__init__()
+        self._catalog = payload
+
+    def get_products(
+        self,
+        limit: int | None = None,
+        offset: int | None = None,
+        product_type: str | None = None,
+        product_ids: list[str] | None = None,
+        contract_expiry_type: str | None = None,
+        expiring_contract_status: str | None = None,
+        get_tradability_status: bool | None = False,
+        get_all_products: bool | None = False,
+    ) -> StubResponse:
+        """Serve the configured catalog payload."""
+        del limit, offset, product_ids, contract_expiry_type, expiring_contract_status
+        self.product_catalog_calls.append((product_type, get_tradability_status, get_all_products))
+        return StubResponse(self._catalog)
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ({"products": [], "num_products": 0}, "empty product catalog"),
+        (
+            {
+                "products": [_catalog_row("BTC-USD")],
+                "num_products": 921,
+            },
+            "1 of 921 catalog products",
+        ),
+        (
+            {
+                "products": [_catalog_row("BTC-USD")],
+                "pagination": {"has_next": True, "next_cursor": "abc"},
+            },
+            "one page of a paginated product catalog",
+        ),
+    ],
+)
+def test_coinbase_market_data_refuses_an_incomplete_catalog(
+    payload: dict[str, Any], reason: str
+) -> None:
+    """A degraded listing fails closed instead of making missing products look disabled."""
+    client = CatalogCoinbaseMarketClient(payload)
+
+    with pytest.raises(CoinbaseMarketDataError, match=reason):
+        asyncio.run(CoinbaseMarketData(client).list_products())
+
+
+def test_coinbase_market_data_keeps_status_and_alias() -> None:
+    """Status text and the shared-book alias survive normalization; "" means no alias."""
+    client = CatalogCoinbaseMarketClient(
+        {
+            "products": [
+                _catalog_row("BTC-USDC", status="online", alias="BTC-USD", alias_to=[]),
+                _catalog_row("BTC-USD", status="online", alias="", alias_to=["BTC-USDC"]),
+                _catalog_row("ETH-USD", status="online", alias="", alias_to=["ETH-USDC"]),
+            ],
+            "num_products": 3,
+            "pagination": {"has_next": False, "next_cursor": ""},
+        }
+    )
+
+    products = {
+        product.product_id: product
+        for product in asyncio.run(CoinbaseMarketData(client).list_products())
+    }
+
+    assert products["BTC-USDC"].alias == "BTC-USD"
+    assert products["BTC-USDC"].status == "online"
+    assert products["BTC-USD"].alias is None
+    assert products["ETH-USDC"].alias == "ETH-USD"
+    assert products["ETH-USDC"].status == "online"

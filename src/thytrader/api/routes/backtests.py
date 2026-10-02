@@ -20,9 +20,12 @@ from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
     get_backtest_result_store,
     get_backtest_submitter,
+    get_dataset_store,
     get_research_job_store,
+    get_runtime_state,
     get_strategy_store,
 )
+from thytrader.api.research_binding import dataset_resolver, datasets_missing_http_error
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
@@ -39,6 +42,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmitter,
 )
+from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
     BacktestBenchmarkNotFoundError,
@@ -52,6 +56,11 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
+from thytrader.research.dataset_binding import (
+    BoundDataset,
+    DatasetsMissingError,
+    bind_backtest_datasets,
+)
 from thytrader.research.jobs import (
     ResearchJobAcceptedResponse,
     ResearchJobRecord,
@@ -59,6 +68,7 @@ from thytrader.research.jobs import (
 )
 from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
+from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
 from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
@@ -94,12 +104,17 @@ class BacktestListResponse(BaseModel):
 
 
 class BacktestSubmissionResponse(BaseModel):
-    """Evidence identities of one completed run plus the strategy snapshot it used."""
+    """Evidence identities of one completed run plus the snapshot and datasets it used.
+
+    ``bound_datasets`` echoes every dataset the run bound, including those the server
+    chose from the catalog because the request omitted them (ADR 0089).
+    """
 
     run_fingerprint: str
     result_fingerprint: str
     strategy_id: UUID
     strategy_fingerprint: str
+    bound_datasets: tuple[BoundDataset, ...] = ()
 
 
 class BacktestDetailResponse(BaseModel):
@@ -219,16 +234,24 @@ async def submit_backtest(
     submitter: Annotated[BacktestSubmitter, Depends(get_backtest_submitter)],
     job_store: Annotated[ResearchJobStore, Depends(get_research_job_store)],
     strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
+    datasets: Annotated[DatasetStore, Depends(get_dataset_store)],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> BacktestSubmissionResponse | Response:
     """Snapshot the strategy's current rules and run one historical simulation.
 
-    The strategy must currently validate (422 ``strategy_invalid`` otherwise). No
-    paper or live authority is granted.
+    The strategy must currently validate (422 ``strategy_invalid`` otherwise). Omitted
+    datasets bind to the newest complete catalog dataset per clock (422
+    ``datasets_missing`` when none is cataloged). No paper or live authority is granted.
     """
     snapshot = await snapshot_for_start(strategies, start.strategy_id)
+    resolver = dataset_resolver(datasets, runtime)
     try:
-        request = start.submission(snapshot.strategy_fingerprint)
+        bound = bind_backtest_datasets(start, snapshot.definition, resolver)
+    except DatasetsMissingError as missing:
+        raise datasets_missing_http_error(missing) from None
+    try:
+        request = bound.submission(snapshot.strategy_fingerprint)
     except ValidationError as error:
         raise RequestValidationError(error.errors()) from None
     if async_submission:
@@ -239,6 +262,7 @@ async def submit_backtest(
             status=record.status,
             strategy_id=start.strategy_id,
             strategy_fingerprint=snapshot.strategy_fingerprint,
+            bound_datasets=resolver.bindings(),
         )
         return Response(
             content=body.model_dump_json(),
@@ -266,6 +290,7 @@ async def submit_backtest(
         result_fingerprint=result.result_fingerprint,
         strategy_id=start.strategy_id,
         strategy_fingerprint=snapshot.strategy_fingerprint,
+        bound_datasets=resolver.bindings(),
     )
 
 

@@ -174,7 +174,13 @@ class Candle:
 
 @dataclass(frozen=True, slots=True)
 class MarketProduct:
-    """One tradable spot product with exact venue constraints."""
+    """One tradable spot product with exact venue constraints.
+
+    ``status`` is the venue's product status text (Coinbase reports ``online``
+    for a normally trading market) or ``None`` when the venue omitted it.
+    ``alias`` names the product whose order book this one shares (Coinbase lists
+    ``BTC-USDC`` with alias ``BTC-USD``), or ``None`` for a standalone book.
+    """
 
     product_id: str
     base_currency: str
@@ -185,6 +191,8 @@ class MarketProduct:
     base_min_size: Decimal
     quote_min_size: Decimal
     trading_enabled: bool
+    status: str | None = None
+    alias: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

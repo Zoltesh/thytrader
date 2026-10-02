@@ -6,7 +6,8 @@ theme.
 ## Local-first
 
 - Application services bind to `127.0.0.1` by default.
-- Clone-and-run host ports are loopback only (dashboard `5175`, API `8200`, PostgreSQL `5439`).
+- Clone-and-run host ports are loopback only (defaults: dashboard `5175`, API `8200` or your
+  `THYTRADER_API_PORT`, PostgreSQL `5439`).
 - Remote exposure is never the silent default. Do not weaken startup safety to make LAN access
   convenient.
 - A loopback-only first install does not require a login.

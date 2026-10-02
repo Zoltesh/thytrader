@@ -21,7 +21,10 @@ Confirmation-gated paper and live **control**, including the risk-policy registr
 Coinbase Advanced Trade credentials. This skill is not an extension of `thytrader-operator` or
 `thytrader-research`.
 
-HTTP-only against the loopback API (`THYTRADER_API_BASE_URL` or `http://127.0.0.1:8200`). There is no `--local` database mode.
+HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
+`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
+port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
+`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. There is no `--local` database mode.
 
 Production installs enforce the application trust boundary
 ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need

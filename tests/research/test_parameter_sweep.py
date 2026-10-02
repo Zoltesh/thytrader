@@ -10,6 +10,7 @@ import pytest
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
+    MAX_SYNC_CANDIDATES,
     ParameterAxis,
     SelectionMetric,
     StitchSourceWindow,
@@ -91,13 +92,26 @@ def _result(equity: tuple[tuple[datetime, str], ...], summary: BacktestSummary) 
 
 
 def test_validate_parameter_axes_candidate_budget_rejects_oversized_cartesian_product() -> None:
-    """Per-axis limits do not imply an eight-candidate total cap."""
+    """Per-axis limits do not imply a small total: 8 x 8 x 2 = 128 exceeds the 64 cap."""
+    eight = tuple(str(value) for value in range(10, 18))
+    axes = (
+        ParameterAxis(indicator_id="ema_fast", parameter="period", values=eight),
+        ParameterAxis(indicator_id="ema_slow", parameter="period", values=eight),
+        ParameterAxis(target=SweepAxisTarget.EXITS, parameter="max_bars_held", values=("5", "9")),
+    )
+    with pytest.raises(ValueError, match=f"at most {MAX_CANDIDATES} are allowed"):
+        validate_parameter_axes_candidate_budget(axes)
+
+
+def test_validate_parameter_axes_candidate_budget_accepts_an_async_sized_grid() -> None:
+    """A 3 x 3 grid (9 candidates) is above the sync cap but inside the async budget."""
     axes = (
         ParameterAxis(indicator_id="ema_fast", parameter="period", values=("12", "20", "26")),
         ParameterAxis(indicator_id="ema_slow", parameter="period", values=("50", "80", "100")),
     )
-    with pytest.raises(ValueError, match=f"at most {MAX_CANDIDATES}"):
-        validate_parameter_axes_candidate_budget(axes)
+    validate_parameter_axes_candidate_budget(axes)
+    assert MAX_SYNC_CANDIDATES == 8
+    assert MAX_CANDIDATES == 64
 
 
 def test_expand_parameter_grid_is_cartesian_in_axis_order() -> None:

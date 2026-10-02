@@ -199,9 +199,21 @@ def submit_backtest(
         "submit-backtest response",
     )
     if async_submission:
-        keys: tuple[str, ...] = ("job_id", "status", "strategy_id", "strategy_fingerprint")
+        keys: tuple[str, ...] = (
+            "job_id",
+            "status",
+            "strategy_id",
+            "strategy_fingerprint",
+            "bound_datasets",
+        )
     else:
-        keys = ("run_fingerprint", "result_fingerprint", "strategy_id", "strategy_fingerprint")
+        keys = (
+            "run_fingerprint",
+            "result_fingerprint",
+            "strategy_id",
+            "strategy_fingerprint",
+            "bound_datasets",
+        )
     return _encode({key: body.get(key) for key in keys})
 
 
@@ -285,7 +297,16 @@ def submit_study(
         return _encode(
             {
                 key: body.get(key)
-                for key in ("job_id", "kind", "status", "strategy_id", "strategy_fingerprint")
+                for key in (
+                    "job_id",
+                    "kind",
+                    "status",
+                    "strategy_id",
+                    "strategy_fingerprint",
+                    "bound_datasets",
+                    "evaluation_start",
+                    "evaluation_end",
+                )
             }
         )
     return _encode(body)
@@ -299,9 +320,9 @@ def _ambiguous_study_error(
 
     A definitive rejection — a 4xx status other than 408 — proves the server
     saw and refused the request, so nothing was persisted. Ambiguous failures
-    (client timeout, unreachable transport, 408, or any 5xx after this
-    write-risk POST) name the readback command, because the study may already
-    be persisted under the strategy the server snapshotted.
+    (client timeout, a dropped connection, unreachable transport, 408, or any
+    5xx after this write-risk POST) name the readback command, because the
+    study may already be persisted under the strategy the server snapshotted.
     """
     message = str(error)
     status = error.status
@@ -309,7 +330,9 @@ def _ambiguous_study_error(
         ambiguous = status == 408 or status >= 500
     else:
         lowered = message.lower()
-        ambiguous = error.timed_out or "timed out" in lowered or "unreachable" in lowered
+        ambiguous = (
+            error.timed_out or error.dropped or "timed out" in lowered or "unreachable" in lowered
+        )
     identities = request.strategy_ids()
     primary = identities[0] if identities else None
     readback = (
@@ -323,9 +346,15 @@ def _ambiguous_study_error(
             f"persisted. Read back before retrying: {readback}",
             status=status,
             timed_out=error.timed_out,
+            dropped=error.dropped,
+            code=error.code,
         )
     return AgentHttpError(
-        f"{message} (Verify with: {readback})", status=status, timed_out=error.timed_out
+        f"{message} (Verify with: {readback})",
+        status=status,
+        timed_out=error.timed_out,
+        dropped=error.dropped,
+        code=error.code,
     )
 
 

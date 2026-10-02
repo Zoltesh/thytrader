@@ -11,6 +11,7 @@ from thytrader.data_control.models import (
     GapCause,
     GapInspection,
     GapObservation,
+    ProductCatalogUnavailableError,
     UnwatchedTargetError,
     classify_gap,
     require_interval,
@@ -284,13 +285,24 @@ async def inspect_gaps(
 
 
 async def _require_spot_product(market_data: MarketDataService, product_id: str) -> None:
-    """Reject products that are not enabled USD or USDC spot in the current catalog."""
+    """Reject products that are not enabled spot markets in a complete current catalog.
+
+    A catalog that fails to load, times out, or comes back empty or partial is a
+    retryable 503 (:class:`ProductCatalogUnavailableError`), never a "not enabled"
+    400: only a complete listing can prove a product is absent or disabled.
+    """
     try:
         products = await market_data.list_enabled_spot_products()
     except Exception as error:
-        raise DataControlError("The spot product catalog could not be loaded.") from error
+        raise ProductCatalogUnavailableError(
+            "Could not verify the spot product list (the venue catalog did not load or came "
+            "back incomplete). Nothing was changed; retry the same command."
+        ) from error
     if not any(product.product_id == product_id for product in products):
-        raise DataControlError(f"{product_id} is not an enabled USD or USDC spot product.")
+        raise DataControlError(
+            f"{product_id} is not an enabled USD or USDC spot product. "
+            "List enabled products with `uv run thytrader-operator products`."
+        )
 
 
 async def _watched_lookback_hours(

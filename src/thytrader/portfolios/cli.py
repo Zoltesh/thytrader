@@ -20,6 +20,7 @@ from pydantic import ValidationError
 
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
+from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
@@ -545,7 +546,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     except (OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"Could not read an input file: {error}") from error
     except Exception as error:
-        message = "Portfolio command failed safely; paper and live state were not changed."
+        message = describe_unexpected_failure(
+            error, lane="Portfolio command", safety="Paper and live state were not changed."
+        )
         raise SystemExit(message) from error
     sys.stdout.write(f"{json.dumps(payload, ensure_ascii=False, separators=(',', ':'))}\n")
     raise SystemExit(EXIT_HEALTHY)
