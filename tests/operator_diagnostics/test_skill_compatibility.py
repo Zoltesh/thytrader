@@ -74,7 +74,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v55" in skill
+    assert "thytrader-ops-contract-v56" in skill
     assert "0059" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
@@ -434,3 +434,37 @@ def test_skills_document_sparse_market_coverage() -> None:
     assert "synthetic_no_trade_bars" in research
     assert "no_trade_bar" in runtime
     assert "data_gap" in runtime
+
+
+def test_skills_teach_reference_instruments_end_to_end() -> None:
+    """Operator agents can author, research, run, and read reference instruments (ADR 0096)."""
+    research = _RESEARCH_SKILL.read_text(encoding="utf-8")
+    runtime = _RUNTIME_SKILL.read_text(encoding="utf-8")
+    operator = _OPERATOR_SKILL.read_text(encoding="utf-8")
+    schemas = _SCHEMAS.read_text(encoding="utf-8")
+    for needle in (
+        "data_requirements.reference_instruments",
+        '"source": "btc"',
+        "btc-regime-gate",
+        "reference_dataset_fingerprints",
+        "role: decision|filter|indicator|reference",
+        "--reference-dataset-fingerprint",
+        "BTC stays BTC",
+        "0096-reference-instruments",
+    ):
+        assert needle in research, needle
+    for needle in (
+        "reference_data_stale",
+        "reference_data_missing",
+        "REFERENCE_DATA_STALE",
+        "thytrader-data watch-add --product-id BTC-USDC --timeframe 1d",
+        "BTC · EMA(100) [1d]",
+    ):
+        assert needle in runtime, needle
+    for needle in (
+        "reference_instrument_runtimes",
+        "max_reference_instruments",
+        "reference_data_stale",
+    ):
+        assert needle in operator, needle
+    assert "reference_data_missing" in schemas

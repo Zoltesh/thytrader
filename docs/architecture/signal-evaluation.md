@@ -243,6 +243,19 @@ declaration on bar `t` is the unlagged value from bar `t - offset` of the indica
 `offset` bars are undefined and nothing later than bar `t` is read. Warmup is the base warmup plus
 `offset`. `offset: 0` normalizes to omitted and canonical JSON omits it. Trace keys do not change.
 
+### Reference-instrument indicators (`source`)
+
+An indicator with `source: <id>` ([ADR 0096](../decisions/0096-reference-instruments.md)) is
+computed on that reference instrument's bars and clock, never on the traded instrument's. Reference
+bars are first filtered to those whose exclusive close is at or before the decision close, and only
+then are indicator rows computed. At decision close `T` the rule reads the row of the last reference
+bar closed by `T`, like an extra-clock indicator. `offset` lags on the reference clock. Research
+traces list reference indicator values beside the decision-clock values under the same trace keys.
+Paper and live evaluate leniently: a reference without coverage leaves its values undefined (so a
+rule cannot match). The entry gate then records `reference_data_stale` /
+`reference_data_missing` before any entry is considered. Backtests are strict: a reference strategy
+without reference bars is rejected.
+
 ### Wider catalog (ADR 0086)
 
 Shared rules for the kinds below: every window includes the current completed bar unless stated;

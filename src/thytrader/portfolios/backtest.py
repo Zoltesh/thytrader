@@ -46,6 +46,7 @@ from thytrader.research.models import (
     CostAssumptions,
     FingerprintText,
     IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
     StrictDecimalInputText,
     reject_removed_engine_selection,
 )
@@ -97,8 +98,8 @@ class SleeveDatasetOverride(_FrozenModel):
     """Exact dataset fingerprints for one sleeve's strategy, replacing the latest datasets.
 
     Supply every clock the strategy declares: the decision dataset, the HTF dataset when it
-    has an HTF filter, extra indicator clocks, and additional instruments, exactly as a
-    single backtest request would.
+    has an HTF filter, extra indicator clocks, additional instruments, and reference
+    instruments (ADR 0096), exactly as a single backtest request would.
     """
 
     strategy_id: UUID
@@ -106,6 +107,9 @@ class SleeveDatasetOverride(_FrozenModel):
     htf_dataset_fingerprint: FingerprintText | None = None
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = ()
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
 
 
 class PortfolioBacktestRequest(_FrozenModel):

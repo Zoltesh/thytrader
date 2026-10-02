@@ -20,6 +20,7 @@ from thytrader.execution.decision_journal import (
     record_bar_decision,
     record_gate_skip,
 )
+from thytrader.execution.decision_scope import note_reference_gate
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.freshness import signal_still_valid
@@ -42,6 +43,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.references import ReferenceGate, reference_gate
 from thytrader.execution.trade_reason_scope import (
     discretionary_trade_reason_scope,
     strategy_trade_reason_scope,
@@ -57,6 +59,7 @@ from thytrader.market_data.no_trade import (
 )
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
+from thytrader.research.multi_timeframe import ltf_close
 from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
@@ -65,6 +68,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     extra_indicator_timeframes,
     lockstep_product_ids,
+    reference_data_requirements,
     signal_exit_condition,
 )
 
@@ -345,6 +349,13 @@ async def _process_stopped(
         htf_candles, extra_candles = await _signal_exit_windows(
             market_data, strategy, deploy_anchor=snapshot.deployment.created_at
         )
+        reference_candles = (
+            {}
+            if signal_exit_condition(strategy.exits) is None
+            else await _closed_reference_windows(
+                market_data, strategy, deploy_anchor=snapshot.deployment.created_at
+            )
+        )
         await _journaled_bar(
             snapshot,
             strategy=strategy,
@@ -361,6 +372,7 @@ async def _process_stopped(
                 store=store,
                 htf_candles=htf_candles,
                 indicator_timeframe_candles=extra_candles,
+                reference_candles=reference_candles,
             ),
         )
 
@@ -694,6 +706,9 @@ async def _advance_multi_instrument(
         )
         return
     htf_by_product, extra_by_product = overlays
+    reference_candles = await _closed_reference_windows(
+        market_data, strategy, deploy_anchor=deployment.created_at
+    )
     broker: Broker = paper_broker
     fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:
@@ -729,6 +744,7 @@ async def _advance_multi_instrument(
             windows=windows,
             htf_by_product=htf_by_product,
             extra_by_product=extra_by_product,
+            reference_candles=reference_candles,
             deployment_id=deployment.id,
             strategy=strategy,
             store=store,
@@ -846,6 +862,7 @@ async def _evaluate_lockstep_bar(
     windows: dict[str, tuple[MarketProduct, tuple[Candle, ...]]],
     htf_by_product: dict[str, tuple[Candle, ...]],
     extra_by_product: dict[str, dict[str, tuple[Candle, ...]]],
+    reference_candles: dict[str, tuple[Candle, ...]],
     deployment_id: UUID,
     strategy: StrategyDefinition,
     store: ExecutionStore,
@@ -858,10 +875,18 @@ async def _evaluate_lockstep_bar(
     fee_profile: FeeProfile | None = None,
     allow_new_entries: bool = True,
 ) -> bool:
-    """Evaluate every covered product on one shared closed bar. True if the loop should stop."""
+    """Evaluate every covered product on one shared closed bar. True if the loop should stop.
+
+    One reference-instrument gate applies to every covered product on the shared bar.
+    """
     current = await store.get_deployment(deployment_id)
     if current.deployment.status is DeploymentStatus.STOPPED:
         return True
+    gate = _bar_reference_gate(
+        strategy, reference_candles, candle, allow_new_entries=allow_new_entries
+    )
+    if gate is not None:
+        allow_new_entries = False
     marks: dict[str, Decimal] = {}
     product_bars: dict[str, tuple[MarketProduct, tuple[Candle, ...], Candle]] = {}
     for product_id in covered:
@@ -904,6 +929,7 @@ async def _evaluate_lockstep_bar(
                 product_id=product_id,
                 candle=bar,
                 allow_new_entries=allow_new_entries,
+                reference_gate=gate,
                 advance=partial(
                     process_closed_bar,
                     focused,
@@ -916,6 +942,7 @@ async def _evaluate_lockstep_bar(
                     portfolio=portfolio,
                     htf_candles=htf_by_product[product_id],
                     indicator_timeframe_candles=extra_by_product[product_id],
+                    reference_candles=reference_candles,
                     live_base_available=live_base_available,
                     marks=marks,
                     fee_profile=fee_profile,
@@ -999,6 +1026,9 @@ async def _evaluate_strategy_due_bars(
             candles=candles,
         )
         return
+    reference_candles = await _closed_reference_windows(
+        market_data, strategy, deploy_anchor=deployment.created_at
+    )
     broker: Broker = paper_broker
     fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:
@@ -1038,6 +1068,11 @@ async def _evaluate_strategy_due_bars(
             timeframe=strategy.timeframe,
             is_latest=index == last_index,
         )
+        gate = _bar_reference_gate(
+            strategy, reference_candles, candle, allow_new_entries=allow_new_entries
+        )
+        if gate is not None:
+            allow_new_entries = False
         with trade_reason_scope(
             strategy_trade_reason_scope(
                 memory_store,
@@ -1052,6 +1087,7 @@ async def _evaluate_strategy_due_bars(
                 product_id=product.product_id,
                 candle=candle,
                 allow_new_entries=allow_new_entries,
+                reference_gate=gate,
                 advance=partial(
                     process_closed_bar,
                     current,
@@ -1064,6 +1100,7 @@ async def _evaluate_strategy_due_bars(
                     portfolio=portfolio,
                     htf_candles=htf_candles,
                     indicator_timeframe_candles=extra_candles,
+                    reference_candles=reference_candles,
                     live_base_available=live_base_available,
                     marks=marks,
                     fee_profile=fee_profile,
@@ -1081,6 +1118,7 @@ async def _journaled_bar(
     allow_new_entries: bool,
     advance: Callable[[], Awaitable[DeploymentSnapshot]],
     require_activity: bool = False,
+    reference_gate: ReferenceGate | None = None,
 ) -> DeploymentSnapshot:
     """Run one closed-bar call and journal what it decided (ADR 0087).
 
@@ -1088,11 +1126,14 @@ async def _journaled_bar(
     (between-bar protection) is not journaled again. ``require_activity`` (flatten
     passes, priced on the latest closed bar) journals only when the call created
     intents or fills, even on an already evaluated bar. A raised call is journaled
-    as an error and re-raised unchanged.
+    as an error and re-raised unchanged. ``reference_gate`` records why a stale or
+    missing reference instrument blocked entries on this bar (ADR 0096).
     """
     if not require_activity and before.deployment.last_evaluated_bar == candle.starts_at:
         return await advance()
     with observe_bar() as observations:
+        if reference_gate is not None:
+            note_reference_gate(reference_gate)
         try:
             after = await advance()
         except Exception as error:
@@ -1593,6 +1634,57 @@ async def _closed_indicator_timeframe_windows(
             return None
         windows[timeframe] = candles
     return windows
+
+
+async def _closed_reference_windows(
+    market_data: MarketDataService,
+    strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+) -> dict[str, tuple[Candle, ...]]:
+    """Fetch each reference instrument's deploy-anchored closed bars (ADR 0096).
+
+    Best effort: a reference whose fetch fails is returned empty, so the per-bar
+    reference gate skips new entries with ``REFERENCE_DATA_MISSING`` while stops,
+    targets, and exits keep running. Strategies without references fetch nothing.
+    """
+    windows: dict[str, tuple[Candle, ...]] = {}
+    for requirement in reference_data_requirements(strategy):
+        try:
+            _product, candles, _expected = await _closed_window_for(
+                market_data,
+                product_id=requirement.product_id,
+                timeframe=requirement.timeframe,
+                warmup_bars=requirement.warmup_bars + 1,
+                deploy_anchor=deploy_anchor,
+            )
+        except RuntimeError, ValueError, TypeError, OSError:
+            _logger.warning(
+                "reference_window_unavailable reference_id=%s product_id=%s timeframe=%s",
+                requirement.reference_id,
+                requirement.product_id,
+                requirement.timeframe,
+            )
+            candles = ()
+        windows[requirement.reference_id] = candles
+    return windows
+
+
+def _bar_reference_gate(
+    strategy: StrategyDefinition,
+    reference_candles: dict[str, tuple[Candle, ...]],
+    candle: Candle,
+    *,
+    allow_new_entries: bool,
+) -> ReferenceGate | None:
+    """Gate one entry-eligible decision bar on reference readiness; None when it may enter."""
+    if not allow_new_entries or not reference_data_requirements(strategy):
+        return None
+    return reference_gate(
+        strategy,
+        reference_candles,
+        decision_close=ltf_close(candle.starts_at, strategy.timeframe),
+    )
 
 
 async def _closed_window(

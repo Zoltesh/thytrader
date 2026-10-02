@@ -1,9 +1,10 @@
 """Bind omitted research datasets to the newest complete catalog revision (ADR 0089).
 
 Backtest and study starts may omit dataset fingerprints. For every product and
-clock the strategy needs (decision clock, HTF filter, extra indicator clocks, and
-each additional instrument), the server binds the newest catalog-verified complete
-dataset from the configured ingestion provider. Explicit fingerprints are used
+clock the strategy needs (decision clock, HTF filter, extra indicator clocks, each
+additional instrument, and each read-only reference instrument of ADR 0096), the
+server binds the newest catalog-verified complete dataset from the configured
+ingestion provider. Explicit fingerprints are used
 unchanged. Every binding is echoed back as a :class:`BoundDataset`, and the bound
 fingerprints become part of the run's identity, so results stay exactly
 reproducible. A clock with no cataloged dataset fails closed with
@@ -16,10 +17,18 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.research.models import AdditionalInstrumentDataset, IndicatorTimeframeDataset
-from thytrader.strategies.models import lockstep_product_ids, unbound_indicator_timeframes
+from thytrader.research.models import (
+    AdditionalInstrumentDataset,
+    IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
+)
+from thytrader.strategies.models import (
+    lockstep_product_ids,
+    reference_instruments,
+    unbound_indicator_timeframes,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -28,11 +37,12 @@ if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetManifest, DatasetStore
     from thytrader.strategies.models import StrategyDefinition
 
-DatasetRole = Literal["decision", "filter", "indicator"]
+DatasetRole = Literal["decision", "filter", "indicator", "reference"]
 _ROLE_LABELS: dict[DatasetRole, str] = {
     "decision": "decision clock",
     "filter": "HTF filter",
     "indicator": "indicator clock",
+    "reference": "reference instrument",
 }
 
 
@@ -41,6 +51,8 @@ class BoundDataset(BaseModel):
 
     ``source`` is ``request`` for a fingerprint the caller sent and
     ``latest_catalog`` for one the server bound because the caller omitted it.
+    ``reference_id`` names the reference instrument a ``reference`` row binds
+    (ADR 0096); it is omitted for every other role.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -50,15 +62,17 @@ class BoundDataset(BaseModel):
     role: DatasetRole
     dataset_fingerprint: str
     source: Literal["request", "latest_catalog"]
+    reference_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 @dataclass(frozen=True, slots=True)
 class DatasetNeed:
-    """One product clock a strategy needs a dataset for."""
+    """One product clock a strategy needs a dataset for (``reference_id`` for references)."""
 
     product_id: str
     timeframe: str
     role: DatasetRole
+    reference_id: str | None = None
 
 
 class DatasetsMissingError(ValueError):
@@ -154,6 +168,7 @@ class DatasetResolver:
             role=need.role,
             dataset_fingerprint=fingerprint,
             source=source,
+            reference_id=need.reference_id,
         )
         if binding not in self.bound:
             self.bound.append(binding)
@@ -256,6 +271,9 @@ def bind_backtest_datasets(
         indicator_dataset_fingerprints=start.indicator_dataset_fingerprints,
     )
     additional = _bind_additional_instruments(start, definition, resolver)
+    references = bind_reference_datasets(
+        definition, resolver, explicit=start.reference_dataset_fingerprints
+    )
     resolver.require_complete()
     return start.model_copy(
         update={
@@ -263,8 +281,60 @@ def bind_backtest_datasets(
             "htf_dataset_fingerprint": clocks.htf_dataset_fingerprint,
             "indicator_dataset_fingerprints": clocks.indicator_dataset_fingerprints,
             "additional_instrument_datasets": additional,
+            "reference_dataset_fingerprints": references,
         }
     )
+
+
+def bind_reference_datasets(
+    definition: StrategyDefinition,
+    resolver: DatasetResolver,
+    *,
+    explicit: tuple[ReferenceInstrumentDataset, ...] = (),
+) -> tuple[ReferenceInstrumentDataset, ...]:
+    """Bind every declared reference instrument (ADR 0096), keeping explicit fingerprints.
+
+    References are shared by every covered product and every study leg, so they bind
+    once per strategy. A cross-market variant keeps the base document's references
+    (BTC stays BTC), so each leg binds the same reference series. An explicit list that
+    names undeclared ids, repeats an id, or disagrees with a declared product or
+    timeframe is kept as sent so the submission's own validation rejects it.
+    """
+    declared = reference_instruments(definition)
+    given = {item.reference_id: item for item in explicit}
+    by_id = {reference.id: reference for reference in declared}
+    consistent = len(given) == len(explicit) and all(
+        item.reference_id in by_id
+        and (item.product_id, item.timeframe)
+        == (by_id[item.reference_id].product_id, by_id[item.reference_id].timeframe)
+        for item in explicit
+    )
+    if not consistent:
+        for item in explicit:
+            resolver.resolve(
+                DatasetNeed(item.product_id, item.timeframe, "reference", item.reference_id),
+                item.dataset_fingerprint,
+            )
+        return explicit
+    bound: list[ReferenceInstrumentDataset] = []
+    for reference in declared:
+        sent = given.get(reference.id)
+        fingerprint = resolver.resolve(
+            DatasetNeed(reference.product_id, reference.timeframe, "reference", reference.id),
+            None if sent is None else sent.dataset_fingerprint,
+        )
+        if fingerprint is not None:
+            bound.append(
+                ReferenceInstrumentDataset.model_validate(
+                    {
+                        "reference_id": reference.id,
+                        "product_id": reference.product_id,
+                        "timeframe": reference.timeframe,
+                        "dataset_fingerprint": fingerprint,
+                    }
+                )
+            )
+    return tuple(bound)
 
 
 def _bind_additional_instruments(

@@ -38,6 +38,7 @@ from thytrader.research.catalog import (
 from thytrader.research.models import (
     EvaluationWindow,
     IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
     reject_removed_engine_selection,
 )
 from thytrader.research.parameter_sweep import (
@@ -165,12 +166,20 @@ class _FrozenStudyModel(BaseModel):
 
 
 class MarketBinding(_FrozenStudyModel):
-    """One published single-instrument strategy bound to a verified dataset."""
+    """One published single-instrument strategy bound to a verified dataset.
+
+    ``reference_dataset_fingerprints`` binds the strategy's read-only reference
+    instruments (ADR 0096); a re-targeted market variant keeps the same references.
+    """
 
     strategy_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     dataset_fingerprint: str = Field(pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
     )
@@ -192,6 +201,10 @@ class ResearchStudyRequest(_FrozenStudyModel):
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
     )
@@ -277,6 +290,10 @@ class PlannedStudyWindow(_FrozenStudyModel):
     dataset_fingerprint: str
     htf_dataset_fingerprint: str | None = None
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
     )
@@ -767,6 +784,7 @@ def window_submission_request(
         dataset_fingerprint=window.dataset_fingerprint,
         htf_dataset_fingerprint=window.htf_dataset_fingerprint,
         indicator_dataset_fingerprints=window.indicator_dataset_fingerprints,
+        reference_dataset_fingerprints=window.reference_dataset_fingerprints,
         evaluation_start=window.evaluation_start,
         evaluation_end=window.evaluation_end,
         initial_quote_balance=request.initial_quote_balance,
@@ -1268,6 +1286,7 @@ def _plan_cross_market(
                 dataset_fingerprint=market.dataset_fingerprint,
                 htf_dataset_fingerprint=market.htf_dataset_fingerprint,
                 indicator_dataset_fingerprints=market.indicator_dataset_fingerprints,
+                reference_dataset_fingerprints=market.reference_dataset_fingerprints,
                 evaluation_start=request.evaluation_start,
                 evaluation_end=request.evaluation_end,
             )
@@ -1309,6 +1328,7 @@ def _plan_single_market(
                 dataset_fingerprint=request.dataset_fingerprint,
                 htf_dataset_fingerprint=request.htf_dataset_fingerprint,
                 indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
+                reference_dataset_fingerprints=request.reference_dataset_fingerprints,
                 evaluation_start=start,
                 evaluation_end=end,
             )
@@ -1341,6 +1361,7 @@ def _plan_parameter_sweep(
                 dataset_fingerprint=dataset_fingerprint,
                 htf_dataset_fingerprint=request.htf_dataset_fingerprint,
                 indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
+                reference_dataset_fingerprints=request.reference_dataset_fingerprints,
                 evaluation_start=request.evaluation_start,
                 evaluation_end=request.evaluation_end,
             )
@@ -1373,6 +1394,7 @@ def _plan_walk_forward_optimization(
                     dataset_fingerprint=dataset_fingerprint,
                     htf_dataset_fingerprint=request.htf_dataset_fingerprint,
                     indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
+                    reference_dataset_fingerprints=request.reference_dataset_fingerprints,
                     evaluation_start=start,
                     evaluation_end=end,
                 )

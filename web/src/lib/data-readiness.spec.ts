@@ -17,6 +17,7 @@ function model(overrides: Partial<BuilderModel> = {}): BuilderModel {
 		additional_instruments: [],
 		timeframe: '1h',
 		warmup_bars: 50,
+		reference_instruments: [],
 		indicators: [{ id: 'fast', kind: 'ema', input: 'close', parameters: { period: 12 } }],
 		htf_filter: null,
 		entry: { when: { all: [] } },

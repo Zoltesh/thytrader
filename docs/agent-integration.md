@@ -258,7 +258,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v55` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v56` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -271,8 +271,10 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0092](decisions/0092-research-worker-pool.md),
 [ADR 0093](decisions/0093-signal-based-exits.md),
 [ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md),
-[ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md); `backtest_engine:
-"thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, and `signal_exit_runtimes`;
+[ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md),
+[ADR 0096](decisions/0096-reference-instruments.md); `backtest_engine:
+"thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, `signal_exit_runtimes`,
+`reference_instrument_runtimes`, and `max_reference_instruments`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
 `study_budgets`; `take_profit_kinds`, `live_protection_kinds`,
 `backtest_diagnostics`, `fee_suggestion_source`; `portfolio_deployment`, `portfolio_breakers`,
@@ -301,6 +303,20 @@ tie. Backtest trades report exit reason `signal`, diagnostics add `exit_reasons`
 marketable cover and keeps exiting through a pending cancel (`signal_exit_bar` on the position);
 decision rows carry `exit_reason: signal` and the evaluated `exit_rule`. Template
 `ema-trend-hold` holds a trend until EMA(20) crosses back below EMA(100).
+
+Reference instruments ([ADR 0096](decisions/0096-reference-instruments.md)): an optional
+`data_requirements.reference_instruments: [{"id": "btc", "product_id": "BTC-USDC", "timeframe":
+"1d"}]` (at most 3, same quote currency, timeframe equal to or a coarser integer multiple of the
+strategy's) lets indicators declare `"source": "btc"` and read that series' closed bars, so a rule
+can gate on another market ("alts only while BTC 1d close > EMA(100)"). Only the last reference bar
+closed by each decision close is visible; reference warmup is derived from its indicators. Backtests
+and studies bind reference datasets automatically (`bound_datasets` rows with `role: "reference"`
+and `reference_id`; pin with `reference_dataset_fingerprints`), and cross-market studies keep the
+reference fixed. Paper and live load reference bars every cycle and skip entries fail closed with
+`skip_reason` `reference_data_stale` / `reference_data_missing`; `POST /api/v1/deployments` (and
+portfolio sleeves) return 409 naming the `thytrader-data watch-add` command until each reference
+series is on the enabled watchlist. References are never traded: no cross-instrument orders, one
+traded instrument per strategy. Template `btc-regime-gate`.
 
 Research honesty and ergonomics ([ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md)):
 every backtest result carries `window` (`evaluation_start`, `evaluation_end`, `warmup_bars`, first

@@ -28,6 +28,7 @@ from thytrader.research.models import (
     DecimalInputText,
     EvaluationWindow,
     IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
     ResearchRunSpecification,
     WarmupWindow,
     reject_removed_engine_selection,
@@ -49,6 +50,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
     lockstep_product_ids,
+    reference_data_requirements,
     unbound_indicator_timeframes,
 )
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError
@@ -73,13 +75,18 @@ class BacktestAssumptions(BaseModel):
     selector: every run uses the single ``thytrader-backtest`` model (ADR 0083).
     ``spread_bps`` is the optional constant spread stress (omitted means 0). Decimal
     fields accept JSON numbers as well as strings; numbers become canonical decimal
-    strings before any fingerprint is computed (ADR 0094).
+    strings before any fingerprint is computed (ADR 0094). ``reference_dataset_fingerprints``
+    binds each declared reference instrument (ADR 0096); omitted ones bind the newest
+    complete catalog dataset like every other clock.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = ()
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     initial_quote_balance: DecimalInputText
@@ -194,6 +201,7 @@ class PostgresBacktestSubmitter:
             _require_htf_request(request, strategy.definition)
             _require_indicator_dataset_request(request, strategy.definition)
             _require_additional_instrument_request(request, strategy.definition)
+            _require_reference_dataset_request(request, strategy.definition)
         except BacktestSubmissionRejectedError:
             raise
         except Exception as error:
@@ -275,6 +283,13 @@ class PostgresBacktestSubmitter:
                     dataset_store=self._dataset_store,
                     bound_at=bound_at,
                 )
+        for reference in request.reference_dataset_fingerprints:
+            await self._strategy_store.bind_dataset(
+                request.strategy_fingerprint,
+                reference.dataset_fingerprint,
+                dataset_store=self._dataset_store,
+                bound_at=bound_at,
+            )
 
     async def _publish_run(
         self,
@@ -294,6 +309,7 @@ class PostgresBacktestSubmitter:
             htf_dataset_fingerprint=request.htf_dataset_fingerprint,
             indicator_dataset_fingerprints=request.indicator_dataset_fingerprints,
             additional_instrument_datasets=request.additional_instrument_datasets,
+            reference_dataset_fingerprints=request.reference_dataset_fingerprints,
             evaluation=EvaluationWindow(
                 starts_at=evaluation_start,
                 ends_at=evaluation_end,
@@ -361,6 +377,7 @@ def resolve_backtest_window(
     _require_htf_request(filled, strategy.definition)
     _require_indicator_dataset_request(filled, strategy.definition)
     _require_additional_instrument_request(filled, strategy.definition)
+    _require_reference_dataset_request(filled, strategy.definition)
     return _filled_window(filled)
 
 
@@ -447,10 +464,11 @@ def _require_coverage_windows(
     strategy: StrategySnapshot,
     dataset_store: DatasetStore,
 ) -> None:
-    """Reject a filled window that extra-clock or extra-product datasets cannot cover."""
+    """Reject a filled window that extra-clock, extra-product, or reference data cannot cover."""
     _require_htf_window(request, strategy, dataset_store)
     _require_indicator_timeframe_window(request, strategy, dataset_store)
     _require_additional_instrument_window(request, strategy, dataset_store)
+    _require_reference_window(request, strategy, dataset_store)
 
 
 def _intersect_omitted_evaluation_window(
@@ -465,7 +483,135 @@ def _intersect_omitted_evaluation_window(
     start, end = suggested_start, suggested_end
     start, end = _intersect_htf_omitted_window(start, end, request, strategy, dataset_store)
     start, end = _intersect_indicator_omitted_window(start, end, request, strategy, dataset_store)
+    start, end = _intersect_reference_omitted_window(start, end, request, strategy, dataset_store)
     return _intersect_additional_omitted_window(start, end, request, strategy, dataset_store)
+
+
+def _intersect_reference_omitted_window(
+    start: datetime,
+    end: datetime,
+    request: BacktestSubmissionRequest,
+    strategy: StrategySnapshot,
+    dataset_store: DatasetStore,
+) -> tuple[datetime, datetime]:
+    """Clip omitted bounds to each reference instrument's last-completed coverage.
+
+    A binding list that does not match the strategy is left for the request check to
+    reject with its own message.
+    """
+    requirements = reference_data_requirements(strategy.definition)
+    if not _reference_bindings_match(request, strategy.definition):
+        return start, end
+    clipped_start, clipped_end = start, end
+    for binding, requirement in zip(
+        request.reference_dataset_fingerprints, requirements, strict=True
+    ):
+        manifest = _load_bound_manifest(
+            dataset_store,
+            binding.dataset_fingerprint,
+            missing_message=_reference_missing_message(binding),
+        )
+        clip_start, clip_end = _closed_bar_clip_from_manifest(
+            manifest,
+            clock_timeframe=requirement.timeframe,
+            warmup_bars=requirement.warmup_bars,
+            decision_timeframe=strategy.definition.timeframe,
+        )
+        clipped_start, clipped_end = _clip_evaluation_window(
+            clipped_start, clipped_end, clip_start, clip_end
+        )
+    return clipped_start, clipped_end
+
+
+def _reference_missing_message(binding: ReferenceInstrumentDataset) -> str:
+    """Name one reference binding whose dataset artifact is absent or unverified."""
+    return (
+        f"The reference-instrument dataset for {binding.reference_id} ({binding.product_id} "
+        f"{binding.timeframe}) was not found or is not a verified complete artifact."
+    )
+
+
+def _reference_bindings_match(
+    request: BacktestSubmissionRequest, definition: StrategyDefinition
+) -> bool:
+    """Whether the request binds exactly the strategy's references, in declaration order."""
+    declared = tuple(
+        (item.reference_id, item.product_id, item.timeframe)
+        for item in request.reference_dataset_fingerprints
+    )
+    required = tuple(
+        (item.reference_id, item.product_id, item.timeframe)
+        for item in reference_data_requirements(definition)
+    )
+    return declared == required
+
+
+def _require_reference_dataset_request(
+    request: BacktestSubmissionRequest,
+    definition: StrategyDefinition,
+) -> None:
+    """Reject reference bindings that do not match the strategy's reference instruments."""
+    if _reference_bindings_match(request, definition):
+        return
+    expected = ", ".join(
+        f"{item.reference_id}={item.product_id} {item.timeframe}"
+        for item in reference_data_requirements(definition)
+    )
+    raise BacktestSubmissionRejectedError(
+        "reference_dataset_fingerprints must bind exactly the strategy's "
+        "data_requirements.reference_instruments (reference_id, product_id, timeframe) in "
+        f"declaration order: {expected or 'none declared'}."
+    )
+
+
+def _require_reference_window(
+    request: BacktestSubmissionRequest,
+    strategy: StrategySnapshot,
+    dataset_store: DatasetStore,
+) -> None:
+    """Confirm each reference dataset covers its last-completed bars for the window."""
+    definition = strategy.definition
+    _require_reference_dataset_request(request, definition)
+    evaluation_start, evaluation_end = _filled_window(request)
+    for binding, requirement in zip(
+        request.reference_dataset_fingerprints,
+        reference_data_requirements(definition),
+        strict=True,
+    ):
+        manifest = _load_bound_manifest(
+            dataset_store,
+            binding.dataset_fingerprint,
+            missing_message=_reference_missing_message(binding),
+        )
+        label = f"{binding.reference_id} ({requirement.product_id} {requirement.timeframe})"
+        if (
+            manifest.provider != "coinbase"
+            or manifest.product_id != requirement.product_id
+            or manifest.timeframe != requirement.timeframe
+        ):
+            raise BacktestSubmissionRejectedError(
+                f"The reference-instrument dataset for {label} is {manifest.product_id} "
+                f"{manifest.timeframe} ({manifest.provider}); it must match the declared "
+                "reference product and timeframe."
+            )
+        if not manifest.complete:
+            raise BacktestSubmissionRejectedError(
+                f"The reference-instrument dataset for {label} must be complete."
+            )
+        required_start, required_end = closed_bar_required_coverage(
+            evaluation_starts_at=evaluation_start,
+            evaluation_ends_at=evaluation_end,
+            timeframe=requirement.timeframe,
+            warmup_bars=requirement.warmup_bars,
+        )
+        starts_at = _manifest_instant(manifest.starts_at)
+        ends_at = _manifest_instant(manifest.ends_at)
+        if starts_at > required_start or ends_at < required_end:
+            raise BacktestSubmissionRejectedError(
+                f"Requested evaluation window is not fully covered by the reference-instrument "
+                f"dataset for {label}: it needs closed bars from {required_start.isoformat()} "
+                f"to {required_end.isoformat()} ({requirement.warmup_bars} warmup bars)."
+            )
 
 
 def _clip_evaluation_window(
@@ -741,6 +887,10 @@ def _execution_fingerprint(
     if request.additional_instrument_datasets:
         payload["additional_instrument_datasets"] = [
             item.model_dump(mode="json") for item in request.additional_instrument_datasets
+        ]
+    if request.reference_dataset_fingerprints:
+        payload["reference_dataset_fingerprints"] = [
+            item.model_dump(mode="json") for item in request.reference_dataset_fingerprints
         ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"

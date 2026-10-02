@@ -600,6 +600,9 @@ def _skipped(context: BarContext) -> _Classified:
         return _skip(DecisionSkipReason.PENDING_ENTRY)
     if deployment.lifecycle_command is LifecycleCommand.STOP_NEW_ENTRIES:
         return _skip(DecisionSkipReason.ENTRIES_DISABLED)
+    if observations is not None and observations.reference_gate is not None:
+        gate = observations.reference_gate
+        return _skip(gate.reason, detail=gate.detail)
     if not context.allow_new_entries:
         return _skip(DecisionSkipReason.CATCH_UP)
     return _Classified(outcome=DecisionOutcome.SKIPPED, reason_code="NOT_EVALUATED")
@@ -864,6 +867,10 @@ def _status_skip_summary(deployment: Deployment, classified: _Classified) -> str
         return f"Skipped: market data gapped or missing — {classified.detail}".rstrip(" —")
     if reason is DecisionSkipReason.USER_FEED_GATE:
         return "Skipped: the live user-order feed is not connected"
+    if reason is DecisionSkipReason.REFERENCE_DATA_STALE:
+        return f"Skipped: reference data stale — {classified.detail}".rstrip(" —")
+    if reason is DecisionSkipReason.REFERENCE_DATA_MISSING:
+        return f"Skipped: reference data missing — {classified.detail}".rstrip(" —")
     return "Skipped: entry rule not evaluated on this bar"
 
 

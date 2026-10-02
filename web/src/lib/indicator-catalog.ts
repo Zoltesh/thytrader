@@ -166,6 +166,8 @@ export type IndicatorCatalogEntry = {
 	default_warmup_bars: number;
 	supports_timeframe: boolean;
 	supports_offset: boolean;
+	/** Whether the kind may read a reference instrument with `source` (ADR 0096). */
+	supports_source: boolean;
 };
 
 /** Largest bar lag one declaration may request (`offset`). */
@@ -277,7 +279,8 @@ function parseEntry(raw: unknown, where: string): IndicatorCatalogEntry {
 		warmup: asText(item.warmup, `${where}.warmup`),
 		default_warmup_bars: asInteger(item.default_warmup_bars, `${where}.default_warmup_bars`),
 		supports_timeframe: asBoolean(item.supports_timeframe, `${where}.supports_timeframe`),
-		supports_offset: asBoolean(item.supports_offset, `${where}.supports_offset`)
+		supports_offset: asBoolean(item.supports_offset, `${where}.supports_offset`),
+		supports_source: asBoolean(item.supports_source, `${where}.supports_source`)
 	};
 }
 

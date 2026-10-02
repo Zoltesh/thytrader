@@ -123,6 +123,8 @@ class OpsContractPayload(_FrozenModel):
     indicator_timeframe_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_offset_runtimes: tuple[Literal["research", "paper", "live"], ...]
     signal_exit_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    reference_instrument_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    max_reference_instruments: int = Field(ge=1)
     indicator_kinds: tuple[str, ...]
     position_sides: tuple[Literal["long", "short"], ...]
     attached_entry_brackets: tuple[Literal["paper", "live"], ...]
@@ -930,6 +932,12 @@ class IndicatorCatalogEntry(_FrozenModel):
     default_warmup_bars: int = Field(ge=1)
     supports_timeframe: bool
     supports_offset: bool
+    supports_source: bool = Field(
+        description=(
+            "Whether the kind may read a reference instrument with `source` (ADR 0096); "
+            "false only for constant."
+        )
+    )
 
 
 class IndicatorsPayload(_FrozenModel):

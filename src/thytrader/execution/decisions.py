@@ -74,6 +74,8 @@ class DecisionSkipReason(StrEnum):
     ``entry_geometry`` and ``entry_sizing`` (ADR 0090) mark a matched signal whose
     stop/target geometry or cash/venue-minimum sizing refused the order; the row's
     ``reason_code`` names the exact cause (for example ``TARGET_NOT_POSITIVE``).
+    ``reference_data_stale`` and ``reference_data_missing`` (ADR 0096) mark a bar whose
+    read-only reference instrument had no usable closed bar, so no entry was attempted.
     """
 
     COOLDOWN = "cooldown"
@@ -88,6 +90,8 @@ class DecisionSkipReason(StrEnum):
     ENTRIES_DISABLED = "entries_disabled"
     ENTRY_GEOMETRY = "entry_geometry"
     ENTRY_SIZING = "entry_sizing"
+    REFERENCE_DATA_STALE = "reference_data_stale"
+    REFERENCE_DATA_MISSING = "reference_data_missing"
 
 
 class DecisionExitReason(StrEnum):

@@ -217,7 +217,12 @@ re-queue continuation after a durable hole or failure.
    `1d`). `ingest` refuses an unwatched target with HTTP 409. Wait for the CLI poll or pass
    `--no-wait`; do not treat 202 as published Parquet. When a strategy uses `htf_filter` or a
    per-indicator `timeframe`, watch and ingest those extra clocks the same way before research or
-   deploy. Paper and live pause on extra-TF or HTF gaps.
+   deploy. Paper and live pause on extra-TF or HTF gaps. A strategy with
+   `data_requirements.reference_instruments` (ADR 0096) reads each reference `product_id` +
+   `timeframe` too: a bot start is refused (409) until that series is on the enabled watchlist,
+   and the refusal names the exact `watch-add … --confirm` command to run here (with the user's
+   confirmation). A lagging reference does not pause bots; they skip entries as
+   `reference_data_stale`.
 3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate. No-trade bars are
    published bars, not gaps. If `truncated` is true, report the partial `gap_summary` and do not
    claim the full watch was scanned.

@@ -151,12 +151,19 @@
 								class="btn"
 								href={resolve(
 									workspaceHref(strategyId, 'build', {
-										section: item.role === 'htf' ? 'entry' : 'indicators'
+										section:
+											item.role === 'htf'
+												? 'entry'
+												: item.role === 'reference'
+													? 'market'
+													: 'indicators'
 									})
 								)}
 								>{item.role === 'htf'
 									? 'Change or remove the HTF filter in Build'
-									: 'Change or remove this indicator clock in Build'}</a
+									: item.role === 'reference'
+										? 'Change or remove this reference instrument in Build'
+										: 'Change or remove this indicator clock in Build'}</a
 							>
 						{/if}
 					</div>

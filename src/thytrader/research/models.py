@@ -270,6 +270,20 @@ class IndicatorTimeframeDataset(_FrozenModel):
     dataset_fingerprint: FingerprintText
 
 
+class ReferenceInstrumentDataset(_FrozenModel):
+    """One read-only reference series bound to a verified complete-only dataset (ADR 0096).
+
+    ``reference_id``, ``product_id``, and ``timeframe`` must equal the strategy's declared
+    ``data_requirements.reference_instruments`` entry; the binding is self-describing so a
+    run specification names the exact series it read.
+    """
+
+    reference_id: str = Field(pattern=r"^[a-z][a-z0-9_]{0,31}$")
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    timeframe: DatasetTimeframe
+    dataset_fingerprint: FingerprintText
+
+
 class AdditionalInstrumentDataset(_FrozenModel):
     """One extra covered product bound to verified complete-only datasets."""
 
@@ -296,6 +310,10 @@ class ResearchRunSpecification(_FrozenModel):
         exclude_if=lambda value: not value,
     )
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...] = Field(
+        default=(),
+        exclude_if=lambda value: not value,
+    )
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = Field(
         default=(),
         exclude_if=lambda value: not value,
     )
@@ -390,6 +408,21 @@ class ResearchRunSpecification(_FrozenModel):
         return self
 
     @model_validator(mode="after")
+    def require_unique_reference_datasets(self) -> Self:
+        """Reference bindings name distinct reference ids and distinct series.
+
+        A reference dataset may share a fingerprint with another role (for example a
+        reference on a covered product's decision clock), because it is read-only input.
+        """
+        identifiers = [item.reference_id for item in self.reference_dataset_fingerprints]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("reference_dataset_fingerprints reference_id values must be unique")
+        series = [(item.product_id, item.timeframe) for item in self.reference_dataset_fingerprints]
+        if len(series) != len(set(series)):
+            raise ValueError("reference_dataset_fingerprints must not repeat one series")
+        return self
+
+    @model_validator(mode="after")
     def require_ordered_additional_instrument_datasets(self) -> Self:
         """Keep extra product bindings unique, lex-ordered, and distinct from the primary."""
         if not self.additional_instrument_datasets:
@@ -461,6 +494,8 @@ def canonical_research_run_bytes(specification: ResearchRunSpecification) -> byt
     payload = validated.model_dump(mode="json", exclude_none=True)
     if not payload.get("additional_instrument_datasets"):
         payload.pop("additional_instrument_datasets", None)
+    if not payload.get("reference_dataset_fingerprints"):
+        payload.pop("reference_dataset_fingerprints", None)
     return json.dumps(
         payload,
         sort_keys=True,

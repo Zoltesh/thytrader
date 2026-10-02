@@ -593,3 +593,49 @@ test('exit when mirrors the entry cross, saves exits.signal_exit, and can be rem
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect.poll(() => saved !== null && !('signal_exit' in saved.document.exits)).toBe(true);
 });
+
+test('a reference instrument feeds an indicator, labels its operand, and saves (ADR 0096)', async ({
+	page
+}) => {
+	let saved = null as {
+		document: {
+			data_requirements: Record<string, unknown>;
+			indicators: Record<string, unknown>[];
+		};
+	} | null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			saved = (await route.request().postDataJSON()) as typeof saved;
+			await route.fulfill({ json: record(draft, 2) });
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Market and data' }).click();
+	const references = page.getByTestId('reference-instruments');
+	await references.getByRole('button', { name: 'Add reference instrument' }).click();
+	const reference = references.getByTestId('reference-row');
+	await expect(reference.getByLabel('Reference id')).toHaveValue('btc');
+	await expect(reference.getByLabel('Reference timeframe')).toHaveValue('1d');
+	await reference.getByLabel('Reference product').fill('eth-usd');
+	await expect(reference.getByLabel('Reference product')).toHaveValue('ETH-USD');
+	await page.getByRole('button', { name: 'Indicators', exact: true }).click();
+	const slow = page.getByTestId('indicator-row').nth(1);
+	await slow.getByLabel('Instrument').selectOption('btc');
+	await expect(slow.getByLabel('Timeframe')).toHaveCount(0);
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	await expect(page.getByLabel('Right operand').first().locator('option:checked')).toContainText(
+		'ETH · EMA(50)'
+	);
+	await expect(page.getByTestId('plain-english')).toContainText(
+		'Gated on ETH-USD 1d (btc: slow) as read-only reference instruments'
+	);
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect
+		.poll(() => saved?.document.data_requirements.reference_instruments)
+		.toEqual([{ id: 'btc', product_id: 'ETH-USD', timeframe: '1d' }]);
+	const slowSaved = saved?.document.indicators.find((indicator) => indicator.id === 'slow');
+	expect(slowSaved).toMatchObject({ source: 'btc' });
+	expect(slowSaved).not.toHaveProperty('timeframe');
+});

@@ -27,7 +27,11 @@ from thytrader.market_data.models import (
     DatasetTimeframe,
     parse_candle_interval,
 )
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
+from thytrader.market_data.products import (
+    SPOT_PRODUCT_ID_PATTERN,
+    SpotQuoteCurrency,
+    parse_spot_product_id,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -107,13 +111,59 @@ class Instrument(_FrozenModel):
         return self
 
 
+MAX_REFERENCE_INSTRUMENTS = 3
+"""Most read-only reference series one strategy document may declare (ADR 0096)."""
+
+REFERENCE_ID_PATTERN = r"^[a-z][a-z0-9_]{0,31}$"
+
+
+class ReferenceInstrument(_FrozenModel):
+    """One read-only cross-instrument series that indicators may declare as their ``source``.
+
+    A reference is never traded and never receives orders: it only feeds indicator values
+    (for example a BTC-USDC 1d regime gate on an alt strategy; ADR 0096). Its bars align like
+    an HTF clock: at each decision close only the last reference bar that has already closed
+    is visible, so a reference bar is used only after it closes.
+    """
+
+    id: str = Field(pattern=REFERENCE_ID_PATTERN)
+    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    timeframe: DatasetTimeframe
+
+    @property
+    def base_currency(self) -> str:
+        """Base currency of the reference product (``BTC`` for ``BTC-USDC``)."""
+        return parse_spot_product_id(self.product_id)[0]
+
+    @property
+    def quote_currency(self) -> SpotQuoteCurrency:
+        """Quote currency of the reference product (``USDC`` for ``BTC-USDC``)."""
+        return parse_spot_product_id(self.product_id)[1]
+
+
 class DataRequirements(_FrozenModel):
-    """Historical inputs required before strategy evaluation can begin."""
+    """Historical inputs required before strategy evaluation can begin.
+
+    ``reference_instruments`` (ADR 0096) declares read-only cross-instrument series. It is
+    omitted from canonical JSON when empty, so documents without references keep their
+    canonical bytes and fingerprints. Each reference's warmup and OHLCV fields are derived
+    from the indicators whose ``source`` names it; ``warmup_bars`` and ``required_fields``
+    describe the traded instrument's decision clock only.
+    """
 
     warmup_bars: int = Field(ge=1, le=10_000)
     required_fields: tuple[Literal["open", "high", "low", "close", "volume"], ...] = Field(
         min_length=1,
         max_length=5,
+    )
+    reference_instruments: tuple[ReferenceInstrument, ...] = Field(
+        default=(),
+        max_length=MAX_REFERENCE_INSTRUMENTS,
+        exclude_if=lambda value: not value,
+        description=(
+            "Optional read-only reference series (1-3) that indicators may read with "
+            "`source: <id>`. Never traded. Omitted when empty."
+        ),
     )
 
     @field_validator("required_fields")
@@ -123,6 +173,21 @@ class DataRequirements(_FrozenModel):
         if len(value) != len(set(value)):
             raise ValueError("required_fields must be unique")
         return value
+
+    @model_validator(mode="after")
+    def require_unique_references(self) -> Self:
+        """Reject duplicate reference ids and duplicate product/timeframe series."""
+        identifiers = [reference.id for reference in self.reference_instruments]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("reference_instruments ids must be unique")
+        series = [
+            (reference.product_id, reference.timeframe) for reference in self.reference_instruments
+        ]
+        if len(series) != len(set(series)):
+            raise ValueError(
+                "reference_instruments must not repeat one product_id and timeframe pair"
+            )
+        return self
 
 
 class IndicatorParameters(_FrozenModel):
@@ -570,6 +635,16 @@ class IndicatorDefinition(_FrozenModel):
             "completed bars earlier. Omitted (or 0) means the current completed bar."
         ),
     )
+    source: str | None = Field(
+        default=None,
+        pattern=REFERENCE_ID_PATTERN,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Reference instrument id (data_requirements.reference_instruments[].id) whose "
+            "closed bars this indicator reads, on that reference's timeframe. Omitted means "
+            "the traded instrument (ADR 0096)."
+        ),
+    )
 
     @field_validator("offset")
     @classmethod
@@ -580,6 +655,11 @@ class IndicatorDefinition(_FrozenModel):
     @model_validator(mode="after")
     def validate_kind_period(self) -> Self:
         """Apply conservative V1 period bounds and locked inputs by indicator kind."""
+        if self.source is not None and self.timeframe is not None:
+            raise ValueError(
+                "an indicator with source must omit timeframe: it reads the reference "
+                "instrument's timeframe"
+            )
         if self.kind is IndicatorKind.IDENTITY:
             _require_identity_indicator(self)
             return self
@@ -830,6 +910,8 @@ def _require_constant_indicator(indicator: IndicatorDefinition) -> None:
         raise ValueError("constant must omit timeframe")
     if indicator.offset is not None:
         raise ValueError("constant must omit offset")
+    if indicator.source is not None:
+        raise ValueError("constant must omit source")
 
 
 def _require_period_indicator(indicator: IndicatorDefinition) -> None:
@@ -1065,6 +1147,14 @@ def _omit_absent_indicator_inputs(indicators: object) -> None:
             item.pop("timeframe", None)
         if not item.get("offset"):
             item.pop("offset", None)
+        if item.get("source") is None:
+            item.pop("source", None)
+
+
+def _omit_empty_references(data_requirements: object) -> None:
+    """Drop empty ``reference_instruments`` so reference-free documents keep their bytes."""
+    if isinstance(data_requirements, dict) and not data_requirements.get("reference_instruments"):
+        data_requirements.pop("reference_instruments", None)
 
 
 def _omit_absent_operand_series(node: object) -> None:
@@ -1136,6 +1226,13 @@ def timeframe_seconds(timeframe: str) -> int:
         raise ValueError(f"unsupported strategy timeframe: {timeframe}") from error
 
 
+def is_valid_reference_pair(decision_timeframe: str, reference_timeframe: str) -> bool:
+    """Return whether a reference clock is the decision clock or a coarser integer multiple."""
+    if reference_timeframe == decision_timeframe:
+        return True
+    return is_valid_htf_pair(decision_timeframe, reference_timeframe)
+
+
 def is_valid_htf_pair(decision_timeframe: str, htf_timeframe: str) -> bool:
     """Return whether HTF is strictly coarser and an integer multiple of the LTF clock."""
     try:
@@ -1204,6 +1301,16 @@ class HigherTimeframeFilter(_FrozenModel):
             raise ValueError(f"unknown HTF indicator references: {sorted(unknown)}")
         if any(indicator.timeframe is not None for indicator in self.indicators):
             raise ValueError("HTF indicators must omit timeframe")
+        if any(indicator.source is not None for indicator in self.indicators):
+            raise ValueError(
+                "HTF indicators must omit source: the HTF filter reads the traded instrument; "
+                "gate on a reference instrument in entry.when instead"
+            )
+        if self.data_requirements.reference_instruments:
+            raise ValueError(
+                "htf_filter.data_requirements must not declare reference_instruments; declare "
+                "them in the top-level data_requirements"
+            )
         _require_condition_series(self.when, self.indicators)
         required_fields = {
             field for indicator in self.indicators for field in _indicator_input_fields(indicator)
@@ -1491,6 +1598,7 @@ class StrategyDefinition(_FrozenModel):
         """Resolve indicator references and enforce warmup sufficiency."""
         _validate_covered_instruments(self)
         _validate_decision_indicators(self)
+        _validate_reference_instruments(self)
         _validate_signal_exit(self)
         _validate_htf_filter(self)
         return self
@@ -1588,9 +1696,51 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     }
     if not required_fields.issubset(definition.data_requirements.required_fields):
         raise ValueError("required_fields must include every indicator input")
-    required_warmup = max(_indicator_min_warmup(indicator) for indicator in decision_indicators)
+    required_warmup = max(
+        (_indicator_min_warmup(indicator) for indicator in decision_indicators), default=1
+    )
     if definition.data_requirements.warmup_bars < required_warmup:
         raise ValueError("warmup_bars must cover the longest indicator period")
+
+
+def _validate_reference_instruments(definition: StrategyDefinition) -> None:
+    """Resolve indicator sources against declared references (ADR 0096).
+
+    Every ``source`` must name a declared reference, every reference must be read by at
+    least one indicator, share the traded instrument's quote currency, and use the
+    decision timeframe or a coarser integer multiple of it (the HTF alignment rule, with
+    the decision clock itself allowed). Warmup per reference is derived from its
+    indicators, so it can never be under-declared.
+    """
+    references = definition.data_requirements.reference_instruments
+    declared = {reference.id for reference in references}
+    sources = {
+        indicator.source for indicator in definition.indicators if indicator.source is not None
+    }
+    unknown = sorted(sources - declared)
+    if unknown:
+        raise ValueError(
+            "indicator source must name a declared data_requirements.reference_instruments "
+            f"id: {unknown}"
+        )
+    quote = definition.instrument.quote_currency
+    for reference in references:
+        if reference.quote_currency != quote:
+            raise ValueError(
+                f"reference instrument {reference.id} ({reference.product_id}) must use the "
+                f"strategy quote currency {quote}"
+            )
+        if not is_valid_reference_pair(definition.timeframe, reference.timeframe):
+            raise ValueError(
+                f"reference instrument {reference.id} timeframe {reference.timeframe} must "
+                f"equal the strategy timeframe {definition.timeframe} or be a coarser integer "
+                "multiple of it"
+            )
+    unused = sorted(declared - sources)
+    if unused:
+        raise ValueError(
+            f"every reference instrument must be read by at least one indicator source: {unused}"
+        )
 
 
 def _validate_signal_exit(definition: StrategyDefinition) -> None:
@@ -1627,6 +1777,8 @@ def _require_atr_indicator(
     atr = next((item for item in indicators if item.id == indicator_id), None)
     if atr is None or atr.kind is not IndicatorKind.ATR:
         raise ValueError(f"{role} indicator must reference an ATR")
+    if atr.source is not None:
+        raise ValueError(f"{role} ATR must read the traded instrument, not a reference instrument")
     if resolved_indicator_timeframe(atr, decision_timeframe) != decision_timeframe:
         raise ValueError(f"{role} ATR must use the strategy decision timeframe")
 
@@ -1656,11 +1808,74 @@ def resolved_indicator_timeframe(indicator: IndicatorDefinition, decision_timefr
 
 
 def decision_clock_indicators(definition: StrategyDefinition) -> tuple[IndicatorDefinition, ...]:
-    """Return LTF-list indicators that evaluate on the strategy decision clock."""
+    """Return LTF-list indicators that evaluate on the traded instrument's decision clock.
+
+    Indicators with a reference ``source`` read another instrument's bars and are
+    excluded (see :func:`reference_indicator_groups`).
+    """
     return tuple(
         indicator
         for indicator in definition.indicators
-        if resolved_indicator_timeframe(indicator, definition.timeframe) == definition.timeframe
+        if indicator.source is None
+        and resolved_indicator_timeframe(indicator, definition.timeframe) == definition.timeframe
+    )
+
+
+class ReferenceDataRequirement(_FrozenModel):
+    """One reference series a strategy reads, with the warmup and fields its indicators need."""
+
+    reference_id: str
+    product_id: str
+    timeframe: DatasetTimeframe
+    warmup_bars: int
+    required_fields: tuple[Literal["open", "high", "low", "close", "volume"], ...]
+
+
+def reference_instruments(definition: StrategyDefinition) -> tuple[ReferenceInstrument, ...]:
+    """Return the declared read-only reference series in declaration order (ADR 0096)."""
+    return definition.data_requirements.reference_instruments
+
+
+def reference_indicator_groups(
+    definition: StrategyDefinition,
+) -> tuple[tuple[ReferenceInstrument, tuple[IndicatorDefinition, ...]], ...]:
+    """Group indicators by the reference they read, in reference declaration order.
+
+    Validation guarantees every reference has at least one indicator.
+    """
+    return tuple(
+        (
+            reference,
+            tuple(
+                indicator for indicator in definition.indicators if indicator.source == reference.id
+            ),
+        )
+        for reference in reference_instruments(definition)
+    )
+
+
+def reference_data_requirements(
+    definition: StrategyDefinition,
+) -> tuple[ReferenceDataRequirement, ...]:
+    """Return every reference series a run or deployment must load, with derived warmup."""
+    return tuple(
+        ReferenceDataRequirement(
+            reference_id=reference.id,
+            product_id=reference.product_id,
+            timeframe=reference.timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            required_fields=extra_indicator_required_fields(indicators),
+        )
+        for reference, indicators in reference_indicator_groups(definition)
+        if indicators
+    )
+
+
+def reference_series(definition: StrategyDefinition) -> frozenset[tuple[str, str]]:
+    """Return the ``(product_id, timeframe)`` pairs the document reads as references."""
+    return frozenset(
+        (reference.product_id, reference.timeframe)
+        for reference in reference_instruments(definition)
     )
 
 
@@ -1803,6 +2018,7 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
         definition.model_dump(mode="python", by_alias=True)
     )
     payload = validated.model_dump(mode="json", by_alias=True)
+    _omit_empty_references(payload.get("data_requirements"))
     if payload.get("htf_filter") is None:
         payload.pop("htf_filter", None)
     if not payload.get("additional_instruments"):
@@ -1817,6 +2033,7 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     _omit_absent_signal_exit(payload.get("exits"))
     htf_filter = payload.get("htf_filter")
     if isinstance(htf_filter, dict):
+        _omit_empty_references(htf_filter.get("data_requirements"))
         _omit_absent_indicator_inputs(htf_filter.get("indicators"))
         _omit_absent_operand_series(htf_filter.get("when"))
     return json.dumps(

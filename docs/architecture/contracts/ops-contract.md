@@ -12,7 +12,7 @@ Current checkout (Alembic `0059`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v55` |
+| `id` | `thytrader-ops-contract-v56` |
 | `expected_schema_revision` | `0059` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
@@ -38,6 +38,8 @@ Current checkout (Alembic `0059`):
 | `indicator_timeframe_runtimes` | `research`, `paper`, `live` |
 | `indicator_offset_runtimes` | `research`, `paper`, `live` — per-declaration bar lag ([ADR 0086](../../decisions/0086-indicator-catalog-expansion-and-offset.md)) |
 | `signal_exit_runtimes` | `research`, `paper`, `live` — optional `exits.signal_exit` rule ([ADR 0093](../../decisions/0093-signal-based-exits.md)) |
+| `reference_instrument_runtimes` | `research`, `paper`, `live` — read-only `data_requirements.reference_instruments` read by indicator `source` ([ADR 0096](../../decisions/0096-reference-instruments.md)) |
+| `max_reference_instruments` | `3` |
 | `indicator_kinds` | the 53 implemented kinds in operator `indicators` order (`ema` … `constant`, then `dema` … `percent_rank`, ADR 0086) |
 | `position_sides` | `long`, `short` |
 | `attached_entry_brackets` | `paper`, `live` |
@@ -67,7 +69,7 @@ Current checkout (Alembic `0059`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v55
+    id thytrader-ops-contract-v56
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -76,6 +78,8 @@ classDiagram
     indicator_timeframe_runtimes
     indicator_offset_runtimes
     signal_exit_runtimes
+    reference_instrument_runtimes
+    max_reference_instruments
     indicator_kinds
     position_sides
     attached_entry_brackets

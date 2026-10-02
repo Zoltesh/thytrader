@@ -30,6 +30,7 @@ from thytrader.strategies.models import (
     MacdIndicatorParameters,
     NoTakeProfit,
     PortfolioLimits,
+    ReferenceInstrument,
     RewardRiskTakeProfit,
     RiskFractionSizing,
     SignalExit,
@@ -69,6 +70,7 @@ class StrategyTemplateId(StrEnum):
     SQUEEZE_BREAKOUT = "squeeze-breakout"
     ZSCORE_MEAN_REVERSION = "zscore-mean-reversion"
     EMA_TREND_HOLD = "ema-trend-hold"
+    BTC_REGIME_GATE = "btc-regime-gate"
 
 
 def template_catalog() -> tuple[dict[str, str], ...]:
@@ -134,6 +136,15 @@ def template_catalog() -> tuple[dict[str, str], ...]:
             "description": (
                 "Long when EMA(20) crosses above EMA(100); hold until it crosses back below "
                 "(signal exit). 3x ATR initial stop, no take-profit, wide 5x ATR trail."
+            ),
+        },
+        {
+            "id": StrategyTemplateId.BTC_REGIME_GATE.value,
+            "name": "BTC regime gate",
+            "description": (
+                "Long when EMA(20) crosses above EMA(50), only while BTC's last closed daily "
+                "close is above its EMA(100) (BTC is a read-only reference instrument). "
+                "ATR stop and target."
             ),
         },
     )
@@ -367,7 +378,33 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
                 *_SHARED_AXES,
             ),
         },
+        StrategyTemplateId.BTC_REGIME_GATE: _BTC_REGIME_BLUEPRINT,
     }
+
+
+_BTC_REGIME_BLUEPRINT: dict[str, Any] = {
+    "warmup_bars": 50,
+    "indicator_ids": ("fast", "slow", "atr", "btc_close", "btc_ema"),
+    "reference_instruments": (
+        {"id": "btc", "product_id": "BTC-<instrument quote>", "timeframe": "1d"},
+    ),
+    "defaults": {
+        "fast.period": "20",
+        "slow.period": "50",
+        "atr.period": "14",
+        "btc_ema.period": "100",
+        "entry.reference_gate": "btc_close > btc_ema (BTC 1d, last closed bar)",
+        **_SHARED_DEFAULTS,
+    },
+    # btc_close and btc_ema read the BTC reference instrument (source "btc"); their warmup
+    # is derived on the reference's 1d clock, so a btc_ema period axis needs no warmup edit.
+    "sweepable_axes": (
+        {"indicator_id": "fast", "parameter": "period", "range": [2, 500]},
+        {"indicator_id": "slow", "parameter": "period", "range": [2, 500]},
+        {"indicator_id": "btc_ema", "parameter": "period", "range": [2, 500]},
+        *_SHARED_AXES,
+    ),
+}
 
 
 def build_template_definition(
@@ -503,6 +540,81 @@ def _ema_trend_hold(
                 )
             ),
         ),
+    )
+
+
+def _btc_regime_gate(
+    strategy_id: UUID,
+    created_at: datetime,
+    instrument: Instrument,
+    timeframe: DatasetTimeframe,
+) -> StrategyDefinition:
+    """EMA(20/50) crossover gated by BTC's last closed daily close above its EMA(100).
+
+    BTC is a read-only reference instrument (ADR 0096) in the instrument's quote
+    currency: ``btc_close`` and ``btc_ema`` read ``BTC-<quote>`` 1d bars, and at each
+    decision close only the last daily bar that has already closed is used. Orders are
+    only ever placed on the traded instrument.
+    """
+    reference = ReferenceInstrument(
+        id="btc", product_id=f"BTC-{instrument.quote_currency}", timeframe="1d"
+    )
+    return _draft(
+        strategy_id=strategy_id,
+        created_at=created_at,
+        instrument=instrument,
+        timeframe=timeframe,
+        name=_template_name(instrument.product_id, timeframe, "BTC regime gate"),
+        description=(
+            "EMA(20/50) trend entries only while BTC's daily close is above its EMA(100). "
+            "Research template; not trading authority."
+        ),
+        warmup_bars=50,
+        indicators=(
+            IndicatorDefinition(
+                id="fast",
+                kind=IndicatorKind.EMA,
+                input="close",
+                parameters=IndicatorParameters(period=20),
+            ),
+            IndicatorDefinition(
+                id="slow",
+                kind=IndicatorKind.EMA,
+                input="close",
+                parameters=IndicatorParameters(period=50),
+            ),
+            _atr(),
+            IndicatorDefinition(
+                id="btc_close",
+                kind=IndicatorKind.IDENTITY,
+                input="close",
+                parameters=EmptyIndicatorParameters(),
+                source=reference.id,
+            ),
+            IndicatorDefinition(
+                id="btc_ema",
+                kind=IndicatorKind.EMA,
+                input="close",
+                parameters=IndicatorParameters(period=100),
+                source=reference.id,
+            ),
+        ),
+        when=AllCondition(
+            all=(
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="fast"),
+                    operator=ComparisonOperator.CROSSES_ABOVE,
+                    right=IndicatorOperand(indicator="slow"),
+                ),
+                ComparisonCondition(
+                    left=IndicatorOperand(indicator="btc_close"),
+                    operator=ComparisonOperator.GT,
+                    right=IndicatorOperand(indicator="btc_ema"),
+                ),
+            )
+        ),
+        tags=("template", StrategyTemplateId.BTC_REGIME_GATE.value),
+        reference_instruments=(reference,),
     )
 
 
@@ -879,10 +991,12 @@ def _draft(
     when: AllCondition,
     tags: tuple[str, ...],
     exits: ExitDefinition | None = None,
+    reference_instruments: tuple[ReferenceInstrument, ...] = (),
 ) -> StrategyDefinition:
     """Assemble shared long-only sizing, exits, and execution for one template.
 
     ``exits`` replaces the shared 2x ATR stop / 2R target / 96-bar exits when given.
+    ``reference_instruments`` declares read-only reference series (ADR 0096).
     """
     created = created_at.astimezone(UTC)
     return StrategyDefinition(
@@ -896,6 +1010,7 @@ def _draft(
         data_requirements=DataRequirements(
             warmup_bars=warmup_bars,
             required_fields=_OHLCV,
+            reference_instruments=reference_instruments,
         ),
         indicators=indicators,
         entry=EntryDefinition(
@@ -940,6 +1055,7 @@ _TEMPLATE_BUILDERS: dict[
     StrategyTemplateId.SQUEEZE_BREAKOUT: _squeeze_breakout,
     StrategyTemplateId.ZSCORE_MEAN_REVERSION: _zscore_mean_reversion,
     StrategyTemplateId.EMA_TREND_HOLD: _ema_trend_hold,
+    StrategyTemplateId.BTC_REGIME_GATE: _btc_regime_gate,
 }
 
 

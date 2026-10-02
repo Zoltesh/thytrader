@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 
 from thytrader.strategies.indicator_catalog import indicator_kind_spec
@@ -19,11 +20,29 @@ from thytrader.strategies.models import (
     LiteralOperand,
     MacdIndicatorParameters,
     NotCondition,
+    ReferenceInstrument,
     StochasticIndicatorParameters,
     StrategyDefinition,
     indicator_offset,
+    reference_instruments,
     signal_exit_condition,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _Operands:
+    """Declared indicators and reference instruments an operand summary may name."""
+
+    indicators: dict[str, IndicatorDefinition]
+    references: dict[str, ReferenceInstrument]
+
+
+def _operands(definition: StrategyDefinition) -> _Operands:
+    """Index one definition's indicators and reference instruments by id."""
+    return _Operands(
+        indicators={indicator.id: indicator for indicator in definition.indicators},
+        references={reference.id: reference for reference in reference_instruments(definition)},
+    )
 
 
 def strategy_summary(definition: StrategyDefinition) -> str:
@@ -31,14 +50,16 @@ def strategy_summary(definition: StrategyDefinition) -> str:
 
     A declared ``exits.signal_exit`` rule follows the entry rule as ``exit when …``.
     The notional range is labeled with the instrument's quote currency (USD, USDC,
-    USDT) rather than a dollar sign, so stablecoin strategies read correctly.
+    USDT) rather than a dollar sign, so stablecoin strategies read correctly. A
+    reference-instrument operand reads ``BTC · EMA(100) [1d]`` and the outline names
+    each read-only reference series (``reads BTC-USDC 1d``; ADR 0096).
     """
     entry_summary = _entry_rule_summary(definition)
     exit_summary = _exit_rule_summary(definition)
     risk_text = _shift_decimal_text(definition.sizing.risk_fraction, places=2)
     return (
         f"{definition.instrument.product_id} · {definition.timeframe} · {entry_summary} · "
-        f"{exit_summary}{risk_text}% risk · "
+        f"{exit_summary}{_reference_summary(definition)}{risk_text}% risk · "
         f"{definition.sizing.min_quote_notional}-{definition.sizing.max_quote_notional} "
         f"{definition.instrument.quote_currency}"
     )
@@ -46,8 +67,16 @@ def strategy_summary(definition: StrategyDefinition) -> str:
 
 def _entry_rule_summary(definition: StrategyDefinition) -> str:
     """Describe the validated entry rule tree without EMA-only assumptions."""
-    indicators = {indicator.id: indicator for indicator in definition.indicators}
-    return _condition_summary(definition.entry.when, indicators)
+    return _condition_summary(definition.entry.when, _operands(definition))
+
+
+def _reference_summary(definition: StrategyDefinition) -> str:
+    """``reads BTC-USDC 1d · `` for reference instruments, or nothing without any."""
+    references = reference_instruments(definition)
+    if not references:
+        return ""
+    series = ", ".join(f"{item.product_id} {item.timeframe}" for item in references)
+    return f"reads {series} · "
 
 
 def _exit_rule_summary(definition: StrategyDefinition) -> str:
@@ -55,31 +84,30 @@ def _exit_rule_summary(definition: StrategyDefinition) -> str:
     condition = signal_exit_condition(definition.exits)
     if condition is None:
         return ""
-    indicators = {indicator.id: indicator for indicator in definition.indicators}
-    return f"exit when {_condition_summary(condition, indicators)} · "
+    return f"exit when {_condition_summary(condition, _operands(definition))} · "
 
 
 def _condition_summary(
     condition: ComparisonCondition | AllCondition | AnyCondition | NotCondition,
-    indicators: dict[str, IndicatorDefinition],
+    operands: _Operands,
 ) -> str:
     """Flatten one validated condition tree into bounded operator-readable text."""
     if isinstance(condition, ComparisonCondition):
-        return _comparison_summary(condition, indicators)
+        return _comparison_summary(condition, operands)
     if isinstance(condition, NotCondition):
-        return f"NOT ({_condition_summary(condition.not_, indicators)})"
+        return f"NOT ({_condition_summary(condition.not_, operands)})"
     children = condition.all if isinstance(condition, AllCondition) else condition.any
     joiner = " AND " if isinstance(condition, AllCondition) else " OR "
-    return joiner.join(_child_summary(child, joiner, indicators) for child in children)
+    return joiner.join(_child_summary(child, joiner, operands) for child in children)
 
 
 def _child_summary(
     child: ComparisonCondition | AllCondition | AnyCondition | NotCondition,
     parent_joiner: str,
-    indicators: dict[str, IndicatorDefinition],
+    operands: _Operands,
 ) -> str:
     """Parenthesize a nested group whose joiner differs, so A AND (B OR C) stays exact."""
-    text = _condition_summary(child, indicators)
+    text = _condition_summary(child, operands)
     if isinstance(child, AllCondition) and parent_joiner != " AND ":
         return f"({text})"
     if isinstance(child, AnyCondition) and parent_joiner != " OR ":
@@ -89,11 +117,11 @@ def _child_summary(
 
 def _comparison_summary(
     condition: ComparisonCondition,
-    indicators: dict[str, IndicatorDefinition],
+    operands: _Operands,
 ) -> str:
     """Render one comparison or crossover from its validated operands."""
-    left = _operand_summary(condition.left, indicators)
-    right = _operand_summary(condition.right, indicators)
+    left = _operand_summary(condition.left, operands)
+    right = _operand_summary(condition.right, operands)
     if condition.operator is ComparisonOperator.CROSSES_ABOVE:
         return f"{left} crosses above {right}"
     if condition.operator is ComparisonOperator.CROSSES_BELOW:
@@ -111,11 +139,20 @@ _COMPARISON_SYMBOLS = {
 }
 
 
-def _operand_summary(operand: ConditionOperand, indicators: dict[str, IndicatorDefinition]) -> str:
-    """Render one indicator or literal operand for summary text."""
+def _operand_summary(operand: ConditionOperand, operands: _Operands) -> str:
+    """Render one indicator or literal operand for summary text.
+
+    A reference-instrument indicator is prefixed with that instrument's base currency
+    and suffixed with its clock: ``BTC · EMA(100) [1d]``.
+    """
     if isinstance(operand, LiteralOperand):
         return operand.literal
-    return _indicator_operand_summary(operand, indicators[operand.indicator])
+    indicator = operands.indicators[operand.indicator]
+    text = _indicator_operand_summary(operand, indicator)
+    reference = None if indicator.source is None else operands.references.get(indicator.source)
+    if reference is None:
+        return text
+    return f"{reference.base_currency} · {text} [{reference.timeframe}]"
 
 
 _PERIOD_KIND_LABELS: dict[IndicatorKind, str] = {

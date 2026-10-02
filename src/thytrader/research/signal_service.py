@@ -64,10 +64,15 @@ async def evaluate_published_signal_run(  # noqa: UP047 - tooling parses legacy 
         item.timeframe: dataset_store.load_candles(item.dataset_fingerprint)
         for item in specification.indicator_dataset_fingerprints
     }
+    reference_candles: dict[str, tuple[Candle, ...]] = {
+        item.reference_id: dataset_store.load_candles(item.dataset_fingerprint)
+        for item in specification.reference_dataset_fingerprints
+    }
     return evaluate_signal_trace(
         specification,
         published_strategy.definition,
         candles,
         htf_candles,
         extra_candles,
+        reference_candles=reference_candles,
     )

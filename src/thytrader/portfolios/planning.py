@@ -37,11 +37,16 @@ from thytrader.portfolios.backtest import (
 )
 from thytrader.portfolios.models import PortfolioError, sleeve_issues, utc_text
 from thytrader.portfolios.rules import require_revision, sleeve_capital
-from thytrader.research.models import AdditionalInstrumentDataset, IndicatorTimeframeDataset
+from thytrader.research.models import (
+    AdditionalInstrumentDataset,
+    IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
+)
 from thytrader.strategies.library import StrategyInvalidError, StrategyNotFoundError
 from thytrader.strategies.models import (
     covered_product_ids,
     lockstep_product_ids,
+    reference_instruments,
     unbound_indicator_timeframes,
 )
 
@@ -86,6 +91,7 @@ class _Bindings:
     htf_dataset_fingerprint: str | None
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...]
     additional_instrument_datasets: tuple[AdditionalInstrumentDataset, ...]
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +249,7 @@ def _children(
             htf_dataset_fingerprint=bindings.htf_dataset_fingerprint,
             indicator_dataset_fingerprints=bindings.indicator_dataset_fingerprints,
             additional_instrument_datasets=bindings.additional_instrument_datasets,
+            reference_dataset_fingerprints=bindings.reference_dataset_fingerprints,
             evaluation_start=request.evaluation_start,
             evaluation_end=request.evaluation_end,
             initial_quote_balance=sleeve_capital(
@@ -281,6 +288,7 @@ def _override_bindings(override: SleeveDatasetOverride) -> _Bindings:
         htf_dataset_fingerprint=override.htf_dataset_fingerprint,
         indicator_dataset_fingerprints=override.indicator_dataset_fingerprints,
         additional_instrument_datasets=override.additional_instrument_datasets,
+        reference_dataset_fingerprints=override.reference_dataset_fingerprints,
     )
 
 
@@ -318,6 +326,13 @@ def _latest_bindings(
         for product_id in lockstep_product_ids(definition)
         if product_id != primary
     )
+    references = tuple(
+        (
+            reference,
+            pick(reference.product_id, reference.timeframe, f"reference instrument {reference.id}"),
+        )
+        for reference in reference_instruments(definition)
+    )
     if missing:
         raise _MissingDatasetsError(
             "No verified complete dataset for " + ", ".join(missing) + ". Ingest it with "
@@ -335,6 +350,15 @@ def _latest_bindings(
                 indicator_dataset_fingerprints=_clock_bindings(extra_clocks),
             )
             for product_id, fingerprint, htf_value, extra_clocks in additional
+        ),
+        reference_dataset_fingerprints=tuple(
+            ReferenceInstrumentDataset(
+                reference_id=reference.id,
+                product_id=reference.product_id,
+                timeframe=reference.timeframe,
+                dataset_fingerprint=fingerprint,
+            )
+            for reference, fingerprint in references
         ),
     )
 

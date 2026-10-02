@@ -252,6 +252,7 @@ class PostgresResearchRunStore:
                     clocks[clock.timeframe] = dataset_store.load_manifest(clock.dataset_fingerprint)
                 if clocks:
                     additional_indicator_manifests[extra.product_id] = clocks
+            reference_manifests = await self._reference_manifests(specification, dataset_store)
         except (DatasetStoreError, OSError, StrategySnapshotError, ValueError) as error:
             raise ResearchRunPublicationError(
                 "Research run artifact binding could not be verified."
@@ -265,7 +266,26 @@ class PostgresResearchRunStore:
             additional_manifests=additional_manifests,
             additional_htf_manifests=additional_htf_manifests,
             additional_indicator_manifests=additional_indicator_manifests,
+            reference_manifests=reference_manifests,
         )
+
+    async def _reference_manifests(
+        self,
+        specification: ResearchRunSpecification,
+        dataset_store: DatasetStore,
+    ) -> dict[str, DatasetManifest]:
+        """Re-verify each reference-instrument binding and load its manifest (ADR 0096)."""
+        manifests: dict[str, DatasetManifest] = {}
+        for binding in specification.reference_dataset_fingerprints:
+            await self._strategy_store.load_binding(
+                specification.strategy_fingerprint,
+                binding.dataset_fingerprint,
+                dataset_store=dataset_store,
+            )
+            manifests[binding.reference_id] = dataset_store.load_manifest(
+                binding.dataset_fingerprint
+            )
+        return manifests
 
 
 def _validated_specification(

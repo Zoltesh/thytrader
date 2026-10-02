@@ -45,6 +45,11 @@
       "id": "ema-trend-hold",
       "name": "EMA trend hold",
       "description": "Long when EMA(20) crosses above EMA(100); hold until it crosses back below (signal exit). 3x ATR initial stop, no take-profit, wide 5x ATR trail."
+    },
+    {
+      "id": "btc-regime-gate",
+      "name": "BTC regime gate",
+      "description": "Long when EMA(20) crosses above EMA(50), only while BTC's last closed daily close is above its EMA(100) (BTC is a read-only reference instrument). ATR stop and target."
     }
   ]
 }

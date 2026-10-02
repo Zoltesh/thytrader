@@ -153,11 +153,13 @@ async def maintain_open_inventory(
     store: ExecutionStore,
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Reconcile resting orders and ensure protection between closed bars.
 
-    ``htf_candles`` / ``indicator_timeframe_candles`` are only needed when a newly closed
-    bar is processed here and the ``exits.signal_exit`` rule reads extra-TF indicators.
+    ``htf_candles`` / ``indicator_timeframe_candles`` / ``reference_candles`` are only
+    needed when a newly closed bar is processed here and the ``exits.signal_exit`` rule
+    reads extra-TF or reference-instrument indicators (ADR 0093, ADR 0096).
     """
     if not candles:
         return snapshot
@@ -170,6 +172,7 @@ async def maintain_open_inventory(
         store=store,
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
+        reference_candles=reference_candles,
         allow_new_entries=False,
     )
 
@@ -236,6 +239,7 @@ async def process_closed_bar(
     portfolio: Sequence[DeploymentSnapshot] = (),
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
     fee_profile: FeeProfile | None = None,
@@ -306,6 +310,7 @@ async def process_closed_bar(
         portfolio=portfolio,
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
+        reference_candles=reference_candles,
     )
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _apply_circuit_breakers(
@@ -334,6 +339,7 @@ async def process_closed_bar(
             portfolio=portfolio,
             htf_candles=htf_candles,
             indicator_timeframe_candles=indicator_timeframe_candles,
+            reference_candles=reference_candles,
             live_base_available=live_base_available,
             marks=marks,
             fee_profile=fee_profile,
@@ -603,6 +609,7 @@ async def _manage_position(
     portfolio: Sequence[DeploymentSnapshot] = (),
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Exit on stop, take-profit, signal, or time, and expire working entry remainders."""
     if _active_entry(snapshot) is not None:
@@ -636,6 +643,7 @@ async def _manage_position(
         store=store,
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
+        reference_candles=reference_candles,
     )
 
 
@@ -698,6 +706,7 @@ async def _manage_open_position(
     store: ExecutionStore,
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> DeploymentSnapshot:
     """Trail and protect an open book after pending-entry handling.
 
@@ -736,6 +745,7 @@ async def _manage_open_position(
         store=store,
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
+        reference_candles=reference_candles,
     )
 
 
@@ -750,6 +760,7 @@ async def _exit_trail_and_protect(
     store: ExecutionStore,
     htf_candles: Sequence[Candle],
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None,
 ) -> DeploymentSnapshot:
     """Evaluate the exit rule, apply the paper stop first, then mark or trail, and protect."""
     live = snapshot.deployment.mode is DeploymentMode.LIVE
@@ -762,6 +773,7 @@ async def _exit_trail_and_protect(
         store=store,
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
+        reference_candles=reference_candles,
     )
     position = snapshot.position
     if position is None:
@@ -809,6 +821,7 @@ async def _evaluate_signal_exit(
     store: ExecutionStore,
     htf_candles: Sequence[Candle],
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None,
 ) -> tuple[DeploymentSnapshot, bool]:
     """Evaluate ``exits.signal_exit`` on this closed bar; True when it matched (ADR 0093).
 
@@ -826,7 +839,11 @@ async def _evaluate_signal_exit(
         return snapshot, False
     try:
         evaluation = evaluate_latest_signal_exit(
-            strategy, candles, htf_candles, indicator_timeframe_candles
+            strategy,
+            candles,
+            htf_candles,
+            indicator_timeframe_candles,
+            reference_candles=reference_candles,
         )
     except SignalEvaluationError as error:
         note_evaluation_error(str(error))
@@ -1810,6 +1827,7 @@ async def _maybe_enter(
     portfolio: Sequence[DeploymentSnapshot],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
     live_base_available: Decimal | None = None,
     marks: Mapping[str, Decimal] | None = None,
     fee_profile: FeeProfile | None = None,
@@ -1834,7 +1852,11 @@ async def _maybe_enter(
         )
     try:
         evaluation = evaluate_latest_entry_evidence(
-            strategy, candles, visible_htf, indicator_timeframe_candles
+            strategy,
+            candles,
+            visible_htf,
+            indicator_timeframe_candles,
+            reference_candles=reference_candles,
         )
     except SignalEvaluationError as error:
         note_evaluation_error(str(error))

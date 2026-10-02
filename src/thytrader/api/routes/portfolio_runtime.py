@@ -23,6 +23,7 @@ from thytrader.api.dependencies import (
     get_audit_event_store,
     get_decision_journal_store,
     get_execution_store,
+    get_market_data_watchlist_store,
     get_portfolio_storage,
     get_risk_policy_store,
     get_runtime_state,
@@ -30,12 +31,16 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.routes.portfolios import mutation_context, portfolio_http_error
+from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.decision_store import (
     DecisionJournalStore,  # noqa: TC001 - FastAPI Depends.
 )
 from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
-from thytrader.execution.service import parse_decimal
+from thytrader.execution.service import ReferenceWatchlist, parse_decimal
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.watchlist import (
+    MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
+)
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.portfolios.briefing import (
     DEFAULT_DECISIONS_PER_SLEEVE,
@@ -107,6 +112,7 @@ def runtime_service(
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
 ) -> PortfolioRuntimeService:
     """The portfolio runtime service over this request's stores."""
     return PortfolioRuntimeService(
@@ -117,6 +123,9 @@ def runtime_service(
         risk_store=risk_store,
         live_allowed=runtime.settings.coinbase_api_key_name is not None,
         audit=audit,
+        reference_watches=ReferenceWatchlist(
+            store=watchlist, provider=ingestion_provider(runtime.settings)
+        ),
     )
 
 

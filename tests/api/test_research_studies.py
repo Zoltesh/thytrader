@@ -240,6 +240,7 @@ def test_templates_catalog_lists_fail_closed_ids() -> None:
         "squeeze-breakout",
         "zscore-mean-reversion",
         "ema-trend-hold",
+        "btc-regime-gate",
     }
 
 

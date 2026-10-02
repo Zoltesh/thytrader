@@ -108,7 +108,15 @@ def _load_and_simulate(
     additional_candles = _additional_instrument_candles(dataset_store, specification)
     additional_htf = _additional_htf_candles(dataset_store, specification)
     additional_indicator = _additional_indicator_candles(dataset_store, specification)
-    trace = evaluate_signal_trace(specification, definition, candles, htf_candles, extra_candles)
+    references = reference_instrument_candles(dataset_store, specification)
+    trace = evaluate_signal_trace(
+        specification,
+        definition,
+        candles,
+        htf_candles,
+        extra_candles,
+        reference_candles=references,
+    )
     for product_id in lockstep_product_ids(definition):
         if product_id == definition.instrument.product_id:
             continue
@@ -118,6 +126,7 @@ def _load_and_simulate(
             additional_candles[product_id],
             additional_htf.get(product_id, ()),
             additional_indicator.get(product_id),
+            reference_candles=references,
         )
     result, diagnostics = simulate_backtest_with_diagnostics(
         specification,
@@ -128,6 +137,7 @@ def _load_and_simulate(
         additional_candles,
         additional_htf,
         additional_indicator,
+        reference_candles=references,
     )
     return result, diagnostics, trace
 
@@ -149,6 +159,16 @@ def _indicator_timeframe_candles(
     return {
         item.timeframe: dataset_store.load_candles(item.dataset_fingerprint)
         for item in specification.indicator_dataset_fingerprints
+    }
+
+
+def reference_instrument_candles(
+    dataset_store: VerifiedCandleReader, specification: ResearchRunSpecification
+) -> dict[str, tuple[Candle, ...]]:
+    """Load each bound reference-instrument dataset by reference id (ADR 0096)."""
+    return {
+        item.reference_id: dataset_store.load_candles(item.dataset_fingerprint)
+        for item in specification.reference_dataset_fingerprints
     }
 
 

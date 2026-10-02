@@ -433,3 +433,47 @@ def test_large_sweeps_run_async_while_sync_stays_small() -> None:
     assert queued.json()["evaluation_start"] is not None
     assert oversized.status_code == 202, oversized.text
     assert all(len(request.dataset_fingerprint) == 71 for request in submitter.requests)
+
+
+def test_reference_template_backtest_binds_and_echoes_the_reference_dataset() -> None:
+    """btc-regime-gate on ETH-USD binds BTC-USD 1d as a reference row (ADR 0096)."""
+    store = _CatalogStore(_manifest("ETH-USD"), _manifest("BTC-USD", "1d"))
+    client, _, submitter = _client(store)
+    with client:
+        created = client.post(
+            "/api/v1/strategies?product_id=ETH-USD&timeframe=1h&template=btc-regime-gate"
+        )
+        assert created.status_code == 201, created.text
+        strategy_id = created.json()["strategy_id"]
+        response = client.post("/api/v1/backtests", json={"strategy_id": strategy_id, **_COSTS})
+    assert response.status_code == 201, response.text
+    rows = response.json()["bound_datasets"]
+    assert {
+        "product_id": "BTC-USD",
+        "timeframe": "1d",
+        "role": "reference",
+        "dataset_fingerprint": _fingerprint("BTC-USD", "1d"),
+        "source": "latest_catalog",
+        "reference_id": "btc",
+    } in rows
+    assert all("reference_id" not in row for row in rows if row["role"] != "reference")
+    [request] = submitter.requests
+    (reference,) = request.reference_dataset_fingerprints
+    assert (reference.reference_id, reference.product_id, reference.timeframe) == (
+        "btc",
+        "BTC-USD",
+        "1d",
+    )
+
+
+def test_reference_backtest_without_a_cataloged_reference_names_the_series() -> None:
+    """A missing BTC-USD 1d dataset is a 422 naming the reference instrument."""
+    client, _, _ = _client(_CatalogStore(_manifest("ETH-USD")))
+    with client:
+        created = client.post(
+            "/api/v1/strategies?product_id=ETH-USD&timeframe=1h&template=btc-regime-gate"
+        )
+        strategy_id = created.json()["strategy_id"]
+        response = client.post("/api/v1/backtests", json={"strategy_id": strategy_id, **_COSTS})
+    assert response.status_code == 422, response.text
+    assert "BTC-USD 1d (reference instrument)" in response.text

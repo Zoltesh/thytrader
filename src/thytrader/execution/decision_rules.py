@@ -37,6 +37,7 @@ from thytrader.strategies.models import (
     indicator_offset,
     indicator_value_keys,
     operand_value_key,
+    reference_instruments,
     signal_exit_condition,
 )
 
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
         ConditionNode,
         ConditionOperand,
         IndicatorDefinition,
+        ReferenceInstrument,
         StrategyDefinition,
     )
 
@@ -126,12 +128,22 @@ _LABEL_LIMIT = 120
 
 
 class OperandLabeler:
-    """Resolve operand keys to human labels such as ``RSI(14)`` or ``BB(20,2) upper``."""
+    """Resolve operand keys to human labels such as ``RSI(14)`` or ``BB(20,2) upper``.
 
-    def __init__(self, indicators: tuple[IndicatorDefinition, ...], timeframe: str) -> None:
-        """Index declared indicators by id for one decision clock."""
+    An indicator that reads a reference instrument (ADR 0096) is prefixed with that
+    instrument's base currency and shows the reference clock: ``BTC · EMA(100) [1d]``.
+    """
+
+    def __init__(
+        self,
+        indicators: tuple[IndicatorDefinition, ...],
+        timeframe: str,
+        references: tuple[ReferenceInstrument, ...] = (),
+    ) -> None:
+        """Index declared indicators and reference instruments by id for one decision clock."""
         self._by_id = {indicator.id: indicator for indicator in indicators}
         self._timeframe = timeframe
+        self._references = {reference.id: reference for reference in references}
 
     def label(self, operand: IndicatorOperand, *, clock: str | None = None) -> str:
         """Return a compact label with a non-decision clock (``[4h]``) and any bar lag.
@@ -143,6 +155,10 @@ class OperandLabeler:
         if indicator is None:
             return operand_value_key(operand)[:_LABEL_LIMIT]
         text = indicator_label(indicator, series=operand.series)
+        reference = None if indicator.source is None else self._references.get(indicator.source)
+        if reference is not None:
+            text = f"{reference.base_currency} · {text}"
+            clock = reference.timeframe
         indicator_clock = indicator.timeframe or clock
         if indicator_clock is not None and indicator_clock != self._timeframe:
             text = f"{text} [{indicator_clock}]"
@@ -196,7 +212,9 @@ def entry_rule_trace(
     """
     if evaluation.candle_starts_at is None:
         return None
-    labeler = OperandLabeler(strategy.indicators, strategy.timeframe)
+    labeler = OperandLabeler(
+        strategy.indicators, strategy.timeframe, reference_instruments(strategy)
+    )
     entry = condition_trace(
         strategy.entry.when, evaluation.current, evaluation.previous, labeler=labeler
     )
@@ -233,7 +251,9 @@ def exit_rule_trace(
     condition = signal_exit_condition(strategy.exits)
     if condition is None or evaluation.candle_starts_at is None:
         return None
-    labeler = OperandLabeler(strategy.indicators, strategy.timeframe)
+    labeler = OperandLabeler(
+        strategy.indicators, strategy.timeframe, reference_instruments(strategy)
+    )
     return ExitRuleTrace(
         outcome=evaluation.outcome,
         condition=condition_trace(

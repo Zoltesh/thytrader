@@ -265,6 +265,8 @@ def simulate_backtest(
     additional_instrument_candles: Mapping[str, Sequence[Candle]] | None = None,
     additional_htf_candles: Mapping[str, Sequence[Candle]] | None = None,
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> BacktestResult:
     """Simulate under a private Decimal64 context that ignores ambient process settings."""
     result, _diagnostics = simulate_backtest_with_diagnostics(
@@ -276,6 +278,7 @@ def simulate_backtest(
         additional_instrument_candles,
         additional_htf_candles,
         additional_indicator_candles,
+        reference_candles=reference_candles,
     )
     return result
 
@@ -289,8 +292,14 @@ def simulate_backtest_with_diagnostics(
     additional_instrument_candles: Mapping[str, Sequence[Candle]] | None = None,
     additional_htf_candles: Mapping[str, Sequence[Candle]] | None = None,
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> tuple[BacktestResult, BacktestDiagnostics]:
-    """Simulate and also return the entry-funnel counters kept outside the canonical result."""
+    """Simulate and also return the entry-funnel counters kept outside the canonical result.
+
+    ``reference_candles`` (ADR 0096) are read-only reference-instrument bars by reference
+    id. They feed indicator values only; they never change fill semantics.
+    """
     try:
         with localcontext(_SIMULATION_CONTEXT):
             return _simulate_backtest(
@@ -302,6 +311,7 @@ def simulate_backtest_with_diagnostics(
                 additional_instrument_candles or {},
                 additional_htf_candles or {},
                 additional_indicator_candles or {},
+                reference_candles or {},
             )
     except (DecimalException, ValueError) as error:
         if isinstance(error, BacktestSimulationError):
@@ -320,8 +330,12 @@ def _simulate_backtest(
     additional_instrument_candles: Mapping[str, Sequence[Candle]],
     additional_htf_candles: Mapping[str, Sequence[Candle]],
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]],
+    reference_candles: Mapping[str, Sequence[Candle]],
 ) -> tuple[BacktestResult, BacktestDiagnostics]:
-    """Verify inputs, evaluate every covered product's trace, and run the shared-cash loop."""
+    """Verify inputs, evaluate every covered product's trace, and run the shared-cash loop.
+
+    Every covered product's trace reads the same reference-instrument bars.
+    """
     specification, strategy = _validated_inputs(specification, strategy)
     primary = strategy.instrument.product_id
     product_ids = lockstep_product_ids(strategy)
@@ -351,6 +365,7 @@ def _simulate_backtest(
                 candles_by_product[product_id],
                 htf_by_product.get(product_id, ()),
                 extra_by_product.get(product_id),
+                reference_candles=reference_candles,
             )
         except SignalEvaluationError as error:
             raise BacktestSimulationError(

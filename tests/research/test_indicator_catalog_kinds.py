@@ -10,6 +10,7 @@ earlier values (no lookahead), and ``offset`` is an exact shift.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, cast
@@ -63,6 +64,7 @@ from thytrader.research.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
+    ReferenceInstrumentDataset,
     ResearchRunSpecification,
     WarmupWindow,
 )
@@ -80,6 +82,7 @@ from thytrader.strategies.models import (
     StrategyDefinition,
     indicator_min_warmup,
     indicator_value_keys,
+    reference_instruments,
     strategy_fingerprint,
 )
 from thytrader.strategies.templates import StrategyTemplateId
@@ -92,6 +95,11 @@ if TYPE_CHECKING:
 CANDLES = synthetic_candles(240)
 CLOSES = [candle.close for candle in CANDLES]
 _START = datetime(2026, 1, 1, tzinfo=UTC)
+_DAILY = tuple(
+    replace(candle, starts_at=_START - timedelta(days=120) + timedelta(days=index))
+    for index, candle in enumerate(synthetic_candles(132, seed=95))
+)
+"""Synthetic daily reference bars from 2025-09-03 through 2026-01-12 (ADR 0096)."""
 
 DECLARATIONS: dict[str, dict[str, object]] = {
     "dema": {"kind": "dema", "input": "close", "parameters": {"period": 10}},
@@ -754,7 +762,10 @@ def _spec(
     evaluation_bars: int,
     htf_dataset_fingerprint: str | None = None,
 ) -> ResearchRunSpecification:
-    """Return a 1h research spec whose warmup matches the strategy exactly."""
+    """Return a 1h research spec whose warmup matches the strategy exactly.
+
+    Every declared reference instrument (ADR 0096) is bound to a stand-in dataset.
+    """
     warmup = strategy.data_requirements.warmup_bars
     starts_at = _START + timedelta(hours=warmup)
     return ResearchRunSpecification(
@@ -764,6 +775,15 @@ def _spec(
         strategy_fingerprint=strategy_fingerprint(strategy),
         dataset_fingerprint="sha256:" + "4" * 64,
         htf_dataset_fingerprint=htf_dataset_fingerprint,
+        reference_dataset_fingerprints=tuple(
+            ReferenceInstrumentDataset(
+                reference_id=reference.id,
+                product_id=reference.product_id,
+                timeframe=reference.timeframe,
+                dataset_fingerprint="sha256:" + "6" * 64,
+            )
+            for reference in reference_instruments(strategy)
+        ),
         evaluation=EvaluationWindow(
             starts_at=starts_at, ends_at=starts_at + timedelta(hours=evaluation_bars)
         ),
@@ -780,20 +800,30 @@ def _spec(
 def test_templates_evaluate_identically_in_research_and_paper_live(
     template: StrategyTemplateId,
 ) -> None:
-    """The research trace and the paper/live latest-bar evaluator agree on sampled bars."""
+    """The research trace and the paper/live latest-bar evaluator agree on sampled bars.
+
+    Reference-instrument templates read the same synthetic daily series in both paths;
+    paper/live see only daily bars closed by each decision close.
+    """
     strategy = create_template_strategy(
         template=template.value, product_id="BTC-USDC", timeframe="1h"
     )
     warmup = strategy.data_requirements.warmup_bars
     evaluation_bars = len(CANDLES) - warmup
+    references = {reference.id: _DAILY for reference in reference_instruments(strategy)}
     trace = evaluate_signal_trace(
-        _spec(strategy, evaluation_bars=evaluation_bars), strategy, CANDLES
+        _spec(strategy, evaluation_bars=evaluation_bars),
+        strategy,
+        CANDLES,
+        reference_candles=references,
     )
     assert len(trace.records) == evaluation_bars
     for offset in range(0, evaluation_bars, 6):
         through = CANDLES[: warmup + offset + 1]
         expected = trace.records[offset].entry_condition
-        assert evaluate_latest_entry(strategy, through) is expected, offset
+        assert evaluate_latest_entry(strategy, through, reference_candles=references) is (
+            expected
+        ), offset
 
 
 def test_catalog_templates_produce_signals_on_the_synthetic_series() -> None:
