@@ -71,24 +71,29 @@ docker compose down
 A normal `docker compose down` (and `make down` / `make stop`) preserves PostgreSQL and immutable
 market-data volumes. Only `docker compose down -v` destroys them and is intentionally destructive.
 
-## Portfolio snapshots and the dashboard
+## Portfolio snapshots and Home
 
 The portfolio worker takes a snapshot at startup and then every five minutes by default. Configure a
 value between 60 seconds and 24 hours in `thytrader.yaml` (`snapshot_interval_seconds`). The change
-applies without restart. The dashboard Refresh button is read-only; it never creates history points.
+applies without restart. Home's **Refresh balances** button is read-only; it never creates history
+points.
 
-The portfolio-history panel offers `24H`, `7D`, `30D`, and `All` ranges. The API performs the range
-query and bounds the response to representative observations, preserving the range endpoints without
-returning an unbounded browser payload. The panel compares the latest value with the oldest
-displayed observation, exposes exact point timestamps and values to pointer and keyboard users, and
-marks snapshot cadence as behind when the latest persisted observation is more than two configured
-sampling intervals old. Gaps remain visible rather than being interpolated.
+Home's **Portfolio value** chart offers `1D`, `1W`, `1M`, and `3M` ranges (the API's `24h`, `7d`,
+and `30d` ranges; `3M` reads `all` and keeps the last 90 days). The API performs the range query and
+bounds the response to 300 representative observations, preserving the range endpoints without
+returning an unbounded browser payload; the chart then says "representative sample". The chart
+compares the latest snapshot with the oldest displayed one, exposes exact point timestamps and
+values to pointer and keyboard users, and marks snapshot cadence as behind when the latest persisted
+observation is more than two configured sampling intervals old. Gaps remain visible rather than
+being interpolated: a gap is a missed observation, or in a representative sample a hole longer than
+the spacing between its snapshots.
 
-The dashboard includes **Data-source diagnostics**: a read-only connection and candle-integrity
-check for a selected USD, USDC, or USDT spot product. It shows request-time validation plus the separate worker's
-durable coverage and failure state; it is **not** a price chart, trading signal, profitability
-result, or trading-readiness claim. It uses Coinbase data when credentials are configured, or
-deterministic demo data otherwise.
+Home's **Data health** disclosure (closed by default, or open at `/#data-health`) lists the watched
+datasets from the data catalog and includes **Data-source diagnostics**: a read-only connection and
+candle-integrity check for a selected USD, USDC, or USDT spot product. It shows request-time
+validation plus the separate worker's durable coverage and failure state; it is **not** a price
+chart, trading signal, profitability result, or trading-readiness claim. It uses Coinbase data when
+credentials are configured, or deterministic demo data otherwise.
 
 ## Market-data worker
 
@@ -110,7 +115,7 @@ docker compose logs --tail=100 market-data-worker
 ```
 
 Restart and automatic retries are idempotent for an unchanged aligned range. A failed attempt remains
-visible until a later verified publication succeeds; neither the endpoint nor dashboard refresh
+visible until a later verified publication succeeds; neither the endpoint nor anything on Home
 starts ingestion.
 
 When the aligned lookback window advances, the worker publishes a new immutable dataset. Overlapping

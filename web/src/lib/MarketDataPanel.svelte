@@ -89,11 +89,11 @@
 <section class="market-data-panel" aria-label="Data-source diagnostics">
 	<div class="panel-heading">
 		<div>
-			<h2>Data-source diagnostics</h2>
+			<h3>Data-source diagnostics</h3>
 			<p>Connection and candle-integrity check · not a chart, signal, or historical dataset</p>
 		</div>
 		<label class="product-select">
-			<span>USD spot product</span>
+			<span>Spot product</span>
 			<select
 				value={selectedProductId}
 				onchange={selectProduct}
@@ -294,12 +294,14 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 22px 24px;
+		gap: 12px;
+		padding: 16px 20px;
 		border-bottom: 1px solid var(--line);
 	}
-	h2 {
+	h3 {
 		margin: 0;
-		font-size: 18px;
+		font-size: var(--fs-md);
+		font-weight: 600;
 	}
 	.panel-heading p,
 	.market-empty small {
@@ -326,17 +328,22 @@
 		font-weight: 600;
 		text-transform: capitalize;
 	}
-	.freshness-badge.fresh {
+	.freshness-badge.fresh,
+	.freshness-badge.connected {
 		background: var(--accent-soft);
 		color: var(--accent);
 		border: 1px solid var(--accent-line);
 	}
-	.freshness-badge.stale {
+	.freshness-badge.stale,
+	.freshness-badge.connecting,
+	.freshness-badge.reconnecting,
+	.freshness-badge.disconnected {
 		background: var(--warn-soft);
 		color: var(--warn);
 		border: 1px solid var(--warn-line);
 	}
-	.freshness-badge.unknown {
+	.freshness-badge.unknown,
+	.freshness-badge.disabled {
 		background: var(--hover);
 		color: var(--faint);
 		border: 1px solid var(--line-2);
@@ -459,17 +466,9 @@
 		color: var(--faint);
 		font-size: 14px;
 	}
-	.skeleton {
-		height: 55px;
-		border-radius: 8px;
-		background: linear-gradient(90deg, var(--surface-2), var(--hover), var(--surface-2));
-		background-size: 200%;
-		animation: shimmer 1.4s infinite;
-	}
-	@keyframes shimmer {
-		to {
-			background-position: -200% 0;
-		}
+	/* The shimmer comes from the global .skeleton, which honours prefers-reduced-motion. */
+	.market-loading .skeleton {
+		margin: 0;
 	}
 	@media (max-width: 800px) {
 		.panel-heading {
