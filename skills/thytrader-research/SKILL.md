@@ -150,6 +150,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
 | Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` |
 | Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
+| List one strategy's research jobs (sync and async, newest first) | `uv run thytrader-research list-research-jobs --strategy-id UUID [--limit 20]` |
 | Read back a study after an ambiguous submit | `uv run thytrader-research find-study-by-request --request-fingerprint sha256:…` |
 | Cancel one queued or running research job | `uv run thytrader-research cancel-research-job --job-id UUID --confirm` |
 | List persisted study catalog rows | `uv run thytrader-research list-studies [--kind parameter_sweep] [--strategy-id UUID] [--limit 50]` |
@@ -160,7 +161,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
 
 `list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
-`list-studies`, `list-strategies`, and
+`list-studies`, `list-strategies`, `list-research-jobs`, `show-research-job`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
 `next_cursor`). Default `show-study` includes `window_pnl` headlines (label, role, PnL, trades)
@@ -341,9 +342,13 @@ half-open interval `[evaluation_start, evaluation_end)`; the latest allowed `eva
 in the error is inclusive. Do not invent a window that the catalog cannot cover. For 1m or other
 long runs that exceed gateway timeouts, pass `--async` (or `POST /api/v1/backtests?async=true`) and
 poll `show-backtest-job` / `GET /api/v1/backtests/jobs/{job_id}` until `completed` or `failed`.
-A synchronous submit waits 30 s. If it prints `Timed out after 30 s waiting for the ThyTrader API to
-answer POST /api/v1/backtests`, the backtest may still be running: check `list-results` before
-submitting again, or re-run with `--async` ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)).
+A synchronous submit is a queued job the API waits on for up to
+`THYTRADER_RESEARCH_SYNC_WAIT_SECONDS` (default 25 s; the CLI allows 60 s). When the research
+worker has not finished by then it prints the job with `sync_wait_seconds` and `next_action` instead
+of the result (see "Where research runs"); poll it, do not resubmit. If the CLI itself prints
+`Timed out after … waiting for the ThyTrader API`, the backtest may still be running: check
+`list-research-jobs` / `list-results` before submitting again, or re-run with `--async`
+([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)).
 Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate`,
 `fixed_slippage_bps`; optional `spread_bps` stress. Never send `engine_contract_version`.
 
@@ -388,6 +393,38 @@ rate; stop, time, and end-of-window exits use the **taker** rate. Paper deploy a
 through `thytrader-runtime` ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md));
 omitted paper rates keep the documented `0.001` maker / `0.002` taker schedule. Those paper rates
 are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.
+
+## Where research runs (research worker queue)
+
+Every backtest, study, and portfolio backtest runs in the `research-worker` service, never in the
+API ([ADR 0092](../../docs/decisions/0092-research-worker-pool.md)). The API validates, plans, and
+queues; the pool runs at most `THYTRADER_RESEARCH_WORKER_COUNT` jobs at once (default 2), oldest
+first, so heavy research no longer slows other API calls.
+
+- **`queued` means waiting for a free research worker.** It is neither stuck nor failed. Read the
+  queue with `uv run thytrader-operator health`: `payload.research_workers.queue` has `queued`,
+  `running`, and `oldest_queued_age_seconds` (also split into `research_jobs` and
+  `portfolio_backtests`), beside `configured_workers`, `live_workers`, and `workers[]` (`state`,
+  `job_id`, `job_kind`, `jobs_completed`, `rss_bytes`, `heartbeat_age_seconds`). Queue position is
+  roughly `queued` jobs older than yours divided by the worker count.
+- The `research_worker` health component is `READY` when every worker heartbeats.
+  `RESEARCH_WORKER_MISSING` or `RESEARCH_WORKER_STALE` mean queued research will not start until the
+  service runs again (`make run`); report that instead of resubmitting. `RESEARCH_WORKER_PARTIAL`
+  means some slots are down; the live ones keep draining the queue.
+- **`running`** means one worker holds the job under a renewed lease; `progress_current` /
+  `progress_total` advance per child window.
+- **A synchronous submit is a job too.** `submit-backtest` / `submit-study` without `--async` waits
+  up to `THYTRADER_RESEARCH_SYNC_WAIT_SECONDS` (25 s): a finished job prints the usual result (HTTP
+  201, same 422s for rejected windows or budgets); otherwise the CLI prints `job_id`, `status`,
+  `sync_wait_seconds`, and `next_action` (HTTP 202). The job keeps running: poll
+  `show-research-job --job-id …`. Never resubmit a job that is still `queued` or `running`.
+- **`attempts`** counts claims. A worker that crashes or is OOM-killed loses its lease; the job goes
+  back to `queued` and runs again, at most 3 attempts in total.
+- **`error_code`** on a failed job: `backtest_window_rejected`, `study_window_rejected`, or
+  `study_budget_exceeded` (fix the request); `research_unavailable` (storage or worker outage,
+  retry later); `research_worker_lost` (the job killed its worker on every attempt, so shrink it).
+- `cancel-research-job --confirm` cancels a queued job at once; a running study stops before its
+  next child window; a running single backtest finishes its current simulation first.
 
 ## Failed study submissions
 

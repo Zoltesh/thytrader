@@ -48,8 +48,8 @@ class HealthOpsContract(BaseModel):
     fee_suggestion_source: str
     async_backtest_job_statuses: list[str]
     research_job_statuses: list[str]
-    max_concurrent_research_jobs: int
     research_job_expiry_hours: int
+    research_worker_pool: list[str]
     spot_quote_currencies: list[str]
     catalog_health: list[str]
     bounded_deployment_reads: list[str]
@@ -59,7 +59,6 @@ class HealthOpsContract(BaseModel):
     portfolio_model: list[str]
     portfolio_modes: list[str]
     portfolio_backtest_contract: str
-    max_concurrent_portfolio_backtests: int
     research_dataset_autobind: list[str]
     study_budgets: dict[str, dict[str, int]]
     portfolio_deployment: list[str]

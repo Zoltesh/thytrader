@@ -16,6 +16,7 @@ from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_range
+from thytrader.research.jobs import ResearchExecutionMode
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,7 +39,10 @@ def test_browser_strategy_workflow_snapshots_backtests_and_deletes(tmp_path: Pat
         market_data_dataset_root=tmp_path,
     )
     strategy_id: str | None = None
-    with TestClient(create_app(settings)) as client:
+    # Research runs through the in-process harness here; the worker path is covered in
+    # tests/research_worker (ADR 0092).
+    app = create_app(settings, research_execution=ResearchExecutionMode.IN_PROCESS)
+    with TestClient(app) as client:
         try:
             created = client.post("/api/v1/strategies")
             assert created.status_code == 201, created.text

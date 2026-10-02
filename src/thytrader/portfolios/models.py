@@ -104,7 +104,6 @@ SleeveIssueCode = Literal["strategy_invalid", "quote_currency_mismatch", "produc
 
 PORTFOLIO_BACKTEST_CONTRACT: Final = "thytrader-portfolio-backtest-v1"
 PORTFOLIO_BRIEFING_CONTRACT: Final = "thytrader-portfolio-briefing-v1"
-MAX_CONCURRENT_PORTFOLIO_BACKTESTS: Final = 1
 MAX_SLEEVES: Final = 20
 MAX_NAME_LENGTH: Final = 120
 MAX_NOTE_LENGTH: Final = 280

@@ -100,6 +100,15 @@ class Settings(BaseSettings):
     market_data_worker_readiness_file: Path | None = None
     execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)
     execution_worker_readiness_file: Path | None = None
+    # Research worker pool (ADR 0092). ``research_worker_count`` is the one bound on
+    # concurrent research (backtests, studies, portfolio backtests): one job per process.
+    research_worker_count: int = Field(default=2, ge=1, le=16)
+    research_worker_max_jobs: int = Field(default=50, ge=1, le=100_000)
+    research_worker_max_rss_growth_mb: int = Field(default=256, ge=16, le=65_536)
+    research_worker_readiness_file: Path | None = None
+    research_job_lease_seconds: int = Field(default=60, ge=2, le=3_600)
+    research_job_max_attempts: int = Field(default=3, ge=1, le=10)
+    research_sync_wait_seconds: float = Field(default=25.0, ge=0.0, le=280.0)
     coinbase_api_key_name: SecretStr | None = None
     coinbase_api_private_key: SecretStr | None = None
     yolo_enabled: bool = False

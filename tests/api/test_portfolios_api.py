@@ -13,6 +13,7 @@ from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.portfolios.store import InMemoryPortfolioStore
+from thytrader.research.jobs import ResearchExecutionMode
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
@@ -63,6 +64,7 @@ def harness(tmp_path: Path) -> Iterator[Harness]:
         backtest_submitter=children,
         backtest_result_store=children,
         dataset_store=DatasetStore(tmp_path),
+        research_execution=ResearchExecutionMode.IN_PROCESS,
     )
     with TestClient(app) as client:
         yield Harness(client, strategies, children)

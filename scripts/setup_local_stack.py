@@ -3,8 +3,9 @@
 
 The helper preserves unrelated ignored ``.env`` settings, configures matching
 local-only PostgreSQL values, applies migrations as a one-shot Compose service,
-and starts PostgreSQL, API, portfolio-history worker, market-data worker, and
-web together. It never prints credentials or database URLs.
+and starts PostgreSQL, API, portfolio-history worker, market-data worker, execution
+worker, research worker (the only process that runs backtests and studies, ADR 0092),
+and web together. It never prints credentials or database URLs.
 """
 
 from __future__ import annotations
@@ -161,6 +162,7 @@ def _stack_commands() -> tuple[list[str], ...]:
             "worker",
             "market-data-worker",
             "execution-worker",
+            "research-worker",
             "web",
         ],
     )

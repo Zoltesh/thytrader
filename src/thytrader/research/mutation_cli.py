@@ -130,9 +130,10 @@ def _validation_error_message(error: ValidationError) -> str:
 # synchronous backtest submit needs a hint added here.
 _SUBMIT_TIMEOUT_HINTS: dict[str, str] = {
     "submit-backtest": (
-        "The backtest may still be running: check `thytrader-research list-results` before "
+        "The backtest may still be running (or queued) in the research worker: check "
+        "`thytrader-research list-results` or `thytrader-research list-research-jobs` before "
         "submitting again, or re-run with --async to queue it (HTTP 202) and poll "
-        "`show-backtest-job`."
+        "`show-research-job`."
     ),
 }
 
@@ -288,7 +289,11 @@ def _add_backtest_commands(
     submit = subparsers.add_parser(
         "submit-backtest",
         parents=[trailing],
-        help="Snapshot one strategy's current rules and run one backtest.",
+        help=(
+            "Snapshot one strategy's current rules and run one backtest in the research "
+            "worker. Waits up to the server's sync bound (default 25 s); a longer run returns "
+            "the queued/running job with next_action instead (poll show-research-job)."
+        ),
     )
     submit.add_argument(
         "--file",
@@ -302,13 +307,27 @@ def _add_backtest_commands(
         ),
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    submit.add_argument("--async", action="store_true", help="Queue it (HTTP 202) and poll.")
+    submit.add_argument(
+        "--async",
+        action="store_true",
+        help="Queue it (HTTP 202) and poll show-research-job; 'queued' waits for a free worker.",
+    )
     for name, text in (
         ("show-backtest-job", "Poll one async backtest job status."),
         ("show-research-job", "Poll one async research job (backtest or study)."),
     ):
         job = subparsers.add_parser(name, parents=[trailing], help=text)
         job.add_argument("--job-id", required=True)
+    jobs = subparsers.add_parser(
+        "list-research-jobs",
+        parents=[trailing],
+        help=(
+            "List one strategy's newest research jobs (backtests and studies, sync and async) "
+            "with status, progress, attempts, and error_code."
+        ),
+    )
+    jobs.add_argument("--strategy-id", required=True)
+    jobs.add_argument("--limit", type=int, default=20)
     cancel = subparsers.add_parser(
         "cancel-research-job", parents=[trailing], help="Cancel one queued or running job."
     )
@@ -367,7 +386,13 @@ def _add_study_commands(
     )
     plan.add_argument("--file", required=True, help=_STUDY_FILE_HELP)
     study = subparsers.add_parser(
-        "submit-study", parents=[trailing], help="Submit one composed research study."
+        "submit-study",
+        parents=[trailing],
+        help=(
+            "Submit one composed research study to the research worker. Waits up to the "
+            "server's sync bound (default 25 s); a longer study returns the queued/running job "
+            "with next_action instead (poll show-research-job)."
+        ),
     )
     study.add_argument("--file", required=True, help=_STUDY_FILE_HELP)
     study.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
@@ -524,6 +549,9 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
     ),
     "show-backtest-job": lambda url, args: research_http.show_backtest_job(url, args.job_id),
     "show-research-job": lambda url, args: research_http.show_research_job(url, args.job_id),
+    "list-research-jobs": lambda url, args: research_http.list_research_jobs(
+        url, _uuid(args.strategy_id, "--strategy-id"), args.limit
+    ),
     "cancel-research-job": lambda url, args: research_http.cancel_research_job(url, args.job_id),
     "list-results": _http_list_results,
     "show-result": lambda url, args: research_http.show_result(url, args.result_fingerprint),

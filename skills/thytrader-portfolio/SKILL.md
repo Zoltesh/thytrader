@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v51`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v52`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -171,7 +171,12 @@ beyond its own paper cash).
 `backtest` returns HTTP 202 with the queued `job` and the plan (snapshot fingerprint, capital
 slice, decision dataset per sleeve). Poll `show-backtest --job-id` until `status` is `completed`
 (then `result_fingerprint` is set and the result is included), or `failed` / `expired` with
-`error_message`. `--wait` polls for you. One portfolio backtest runs at a time; queued jobs wait.
+`error_message`. `--wait` polls for you. Portfolio backtests run in the `research-worker` service
+([ADR 0092](../../docs/decisions/0092-research-worker-pool.md)) and share its
+`THYTRADER_RESEARCH_WORKER_COUNT` workers (default 2) with backtests and studies. `queued` means
+waiting for a free research worker; read the backlog from `uv run thytrader-operator health`
+(`payload.research_workers.queue` and `portfolio_backtests`). A job whose worker crashed is
+re-queued after its lease expires.
 
 Accepting the request resolves everything up front, so problems come back immediately as
 `portfolio_backtest_rejected` (422) with `problems[]` (`code`, `message`, `sleeve_id`,

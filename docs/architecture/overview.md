@@ -29,6 +29,7 @@ FastAPI API process ---------------- PostgreSQL
 Portfolio worker ------------------------+
 Market-data worker ----------------------+
 Execution worker ------------------------+
+Research worker (N processes) -----------+   backtests, studies, portfolio backtests
       |
       +---- Coinbase market-data REST
       +---- Coinbase Advanced Trade REST v3 orders (live only)
@@ -192,6 +193,21 @@ Market-data ingestion is already split into its own supervised process so its fi
 provider failures, and retry loop cannot overlap the portfolio-history worker. This is an operational
 boundary within the modular monolith, not a microservice or trading-authority boundary.
 
+### Research worker
+
+Research compute never runs in the API process
+([ADR 0092](../decisions/0092-research-worker-pool.md)). `thytrader-research-worker` (Compose
+service `research-worker`) is a light supervisor that keeps `THYTRADER_RESEARCH_WORKER_COUNT`
+worker processes alive (default 2). Each process claims one queued row at a time from
+`research_jobs` (backtests, studies) or `portfolio_backtest_jobs` with `FOR UPDATE SKIP LOCKED`,
+holds it under a lease its heartbeat thread renews, and writes progress and outcomes fenced by
+that lease. A worker that dies leaves an expired lease; its row is re-queued (or failed as
+`research_worker_lost` after the attempt limit). Processes recycle after a job count or RSS
+growth. The API validates, plans, queues, and long-polls: a synchronous submit answers 201 when
+the worker finishes within `THYTRADER_RESEARCH_SYNC_WAIT_SECONDS`, otherwise 202 with the job.
+The worker has no Coinbase credentials and reads datasets read-only. Operator health reports
+worker liveness, per-worker RSS, and queue depth.
+
 ### Storage
 
 - **PostgreSQL:** configurations, strategies and their snapshots, runtime state, orders, fills, positions, risk state, jobs, and audit records.
@@ -231,7 +247,8 @@ Mermaid diagrams of the shipped contracts live under
 
 Docker Compose should provide:
 
-- web, API, portfolio worker, market-data worker, execution worker, and PostgreSQL services;
+- web, API, portfolio worker, market-data worker, execution worker, research worker, and
+  PostgreSQL services;
 - health checks and restart policies;
 - migrations before service readiness;
 - persistent volumes for PostgreSQL, Parquet, and required application state;

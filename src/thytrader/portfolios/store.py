@@ -31,7 +31,6 @@ from thytrader.portfolios.backtest import (
     portfolio_backtest_listing,
 )
 from thytrader.portfolios.models import (
-    MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
     JournalDetail,
     JournalEntry,
     JournalPage,
@@ -742,13 +741,8 @@ class InMemoryPortfolioStore:
         return tuple(rows[:limit])
 
     async def claim_next(self) -> UUID | None:
-        """Mark the oldest queued job running when capacity allows."""
+        """Mark the oldest queued job running (in-process harness; one runner at a time)."""
         async with self._lock:
-            running = sum(
-                1 for job in self._jobs.values() if job.record.status is ResearchJobStatus.RUNNING
-            )
-            if running >= MAX_CONCURRENT_PORTFOLIO_BACKTESTS:
-                return None
             queued = sorted(
                 (
                     job

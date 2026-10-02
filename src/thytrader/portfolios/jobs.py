@@ -1,10 +1,12 @@
-"""Background runner for queued portfolio backtests (ADR 0088).
+"""Runner for queued portfolio backtests (ADR 0088, ADR 0092).
 
-Like research jobs, portfolio backtests run inside the API process: a poller claims one
-queued job at a time, submits every planned sleeve through the same
+Like research jobs, portfolio backtests run in the ``research-worker`` service, never in
+the API process: a worker claims one queued job under a lease and calls :meth:`run_job`,
+which submits every planned sleeve through the same
 :class:`~thytrader.backtest.submission.BacktestSubmitter` single backtests use (results are
 published and deduplicated by execution fingerprint), reloads each verified child result,
 combines them off the event loop, and stores the canonical result with a journal entry.
+:meth:`start` / :meth:`run_forever` remain only as the in-process test harness.
 """
 
 from __future__ import annotations

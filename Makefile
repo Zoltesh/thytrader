@@ -10,8 +10,8 @@ down: ## Tear down Compose services (preserves database, market-data volumes, an
 
 stop: down ## Synonym for make down (preserves database and market-data volumes)
 
-logs: ## Follow API, worker, market-data worker, execution worker, and web logs
-	docker compose logs -f api worker market-data-worker execution-worker web
+logs: ## Follow API, worker, market-data, execution, research worker, and web logs
+	docker compose logs -f api worker market-data-worker execution-worker research-worker web
 
 status: ## Show service health
 	docker compose ps

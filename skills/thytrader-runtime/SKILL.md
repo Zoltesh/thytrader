@@ -100,6 +100,17 @@ or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an ag
 evidence. Open the `ops/` workspace instead of the git root. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
+## Research load and runtime control
+
+Backtests, studies, and portfolio backtests run in the separate `research-worker` service
+([ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), never in the API, so research
+load does not slow runtime commands, the decision timeline, or the execution worker. A research
+job reported as `queued` is waiting for a free research worker; it never blocks a deployment
+start, pause, resume, or stop. To see how much research is waiting, read
+`payload.research_workers` from `uv run thytrader-operator health`: `queue.queued`,
+`queue.running`, `queue.oldest_queued_age_seconds`, and `live_workers` of `configured_workers`.
+This lane never starts, cancels, or reprioritizes research; that is `thytrader-research`.
+
 ## Decision timeline (read-only)
 
 `thytrader-runtime decisions UUID` answers "what did this bot decide on each bar, and why?" without

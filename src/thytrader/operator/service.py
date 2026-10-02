@@ -94,6 +94,7 @@ from thytrader.operator.models import (
     ReconciliationPayload,
     ReconciliationReport,
     ReportStatus,
+    ResearchWorkersPayload,
     RiskFinding,
     RiskPayload,
     RiskReport,
@@ -113,6 +114,7 @@ from thytrader.operator.models import (
     current_ops_contract,
 )
 from thytrader.operator.portfolios_report import build_portfolios_report
+from thytrader.operator.research_workers import research_worker_health, stale_after_seconds
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
 from thytrader.persistence.backtest_results import (
@@ -125,6 +127,7 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryStore,
     PortfolioHistoryUnavailableError,
 )
+from thytrader.persistence.postgres_research_queue import ResearchQueueUnavailableError
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatUnavailableError
 from thytrader.research.catalog import (
     DisabledResearchStudyCatalog,
@@ -180,6 +183,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.models import MonitorSnapshot
+    from thytrader.operator.research_workers import ResearchQueueSnapshotReader
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore, WorkerName
     from thytrader.portfolio.models import PortfolioAsset
     from thytrader.portfolio.service import PortfolioService
@@ -217,10 +221,12 @@ class OperatorDiagnostics:
     research_studies: ResearchStudyCatalog | None = None
     decision_store: DecisionJournalStore | None = None
     portfolios: PortfolioStorage | None = None
+    research_queue: ResearchQueueSnapshotReader | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
-        """Summarize process, database, worker, and exchange health."""
+        """Summarize process, database, worker, research pool, and exchange health."""
         now = datetime.now(UTC)
+        research_component, research_payload = await self._research_worker_health()
         components = [
             await self._api_component(probe_api=probe_api),
             await self._database_component(),
@@ -228,6 +234,7 @@ class OperatorDiagnostics:
             await self._worker_component("portfolio_worker"),
             await self._worker_component("market_data_worker"),
             await self._worker_component("execution_worker"),
+            research_component,
             await self._exchange_component(),
         ]
         warnings: list[str] = []
@@ -248,7 +255,47 @@ class OperatorDiagnostics:
                 coinbase_credentials_configured=_credentials_configured(self.settings),
                 ops_contract=current_ops_contract(),
                 applied_schema_revision=await self._applied_schema_revision(),
+                research_workers=research_payload,
             ),
+        )
+
+    async def _research_worker_health(
+        self,
+    ) -> tuple[ComponentReport, ResearchWorkersPayload | None]:
+        """Grade the research worker pool from its slot rows and queue depth.
+
+        Without PostgreSQL there is no pool to read. Like the other workers, a process
+        with no heartbeat store at all (local tests) falls back to the readiness file.
+        """
+        if self.research_queue is None:
+            if self.heartbeat_store is None:
+                path = self.settings.research_worker_readiness_file
+                return _readiness_component("research_worker", path), None
+            return (
+                ComponentReport(
+                    name="research_worker",
+                    status=ReportStatus.DEGRADED,
+                    reason_code="HEARTBEAT_UNAVAILABLE",
+                    detail="Research worker heartbeats and queue depth require PostgreSQL.",
+                ),
+                None,
+            )
+        try:
+            snapshot = await self.research_queue.snapshot()
+        except ResearchQueueUnavailableError:
+            return (
+                ComponentReport(
+                    name="research_worker",
+                    status=ReportStatus.DEGRADED,
+                    reason_code="RESEARCH_QUEUE_UNAVAILABLE",
+                    detail="The research job queue could not be read.",
+                ),
+                None,
+            )
+        return research_worker_health(
+            snapshot,
+            now=datetime.now(UTC),
+            stale_after=stale_after_seconds(float(self.settings.research_job_lease_seconds)),
         )
 
     async def configuration(self) -> ConfigurationReport:

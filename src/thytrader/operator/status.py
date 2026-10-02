@@ -31,6 +31,21 @@ _RECOMMENDATIONS: dict[str, str] = {
         "Start the named worker process. Docker /tmp readiness files are not health."
     ),
     "HEARTBEAT_STALE": "Restart the named worker; its last heartbeat is older than two loops.",
+    "RESEARCH_WORKER_MISSING": (
+        "Start the research-worker service (`make run`); queued backtests, studies, and "
+        "portfolio backtests wait until a research worker claims them."
+    ),
+    "RESEARCH_WORKER_STALE": (
+        "Restart the research-worker service; no research worker heartbeated recently, so "
+        "queued research is not running."
+    ),
+    "RESEARCH_WORKER_PARTIAL": (
+        "Some research worker slots are not heartbeating (crash loop or OOM kill); inspect "
+        "the research-worker logs. Live slots keep running queued research."
+    ),
+    "RESEARCH_QUEUE_UNAVAILABLE": (
+        "Verify PostgreSQL is reachable and migrated (0057) so health can read research queues."
+    ),
     "EXCHANGE_UNAVAILABLE": "Check Coinbase connectivity without printing credentials.",
     "MARKET_DATA_STATE_UNAVAILABLE": "Confirm the market-data worker can write PostgreSQL state.",
     "MARKET_DATA_NEVER_RUN": "Start thytrader-market-data-worker and wait for verified coverage.",

@@ -16,6 +16,13 @@ import {
 	type IndicatorKindValue,
 	type IndicatorParameters
 } from '$lib/indicator-catalog';
+import {
+	isAcceptedResearchJob,
+	researchJobFailureMessage,
+	researchJobFailureStatus,
+	waitForResearchJob,
+	type ResearchJobAccepted
+} from '$lib/research-jobs';
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 
 /**
@@ -1082,11 +1089,32 @@ export type BacktestLaunchInput = {
 	spread_bps?: string;
 };
 
+/**
+ * Run one backtest in the research worker. A run longer than the API's synchronous
+ * wait comes back as HTTP 202 with the job; poll it to the same submission shape.
+ */
 export async function submitBacktest(input: BacktestLaunchInput): Promise<BacktestSubmission> {
-	return request<BacktestSubmission>('/api/v1/backtests', {
+	const body = await request<BacktestSubmission | ResearchJobAccepted>('/api/v1/backtests', {
 		method: 'POST',
 		body: JSON.stringify(input)
 	});
+	if (!isAcceptedResearchJob(body)) return body;
+	const job = await waitForResearchJob(body.job_id);
+	if (job.status === 'completed' && job.run_fingerprint && job.result_fingerprint) {
+		return {
+			run_fingerprint: job.run_fingerprint,
+			result_fingerprint: job.result_fingerprint,
+			strategy_id: body.strategy_id ?? undefined,
+			strategy_fingerprint: body.strategy_fingerprint ?? undefined
+		};
+	}
+	const status = researchJobFailureStatus(job);
+	throw new StrategyApiError(
+		status,
+		job.error_code ?? null,
+		`The research operation failed (HTTP ${status}): ${researchJobFailureMessage(job)}`,
+		{}
+	);
 }
 
 /** Plain list of what deleting one strategy removes, skipping zero counts. */

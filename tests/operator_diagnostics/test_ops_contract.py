@@ -32,14 +32,14 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v51"
+    assert expected["id"] == "thytrader-ops-contract-v52"
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]
     assert isinstance(kinds, list)
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0056"
+    assert expected["expected_schema_revision"] == "0057"
     assert expected["take_profit_kinds"] == ["reward_risk", "none"]
     assert expected["live_protection_kinds"] == ["trigger_bracket", "stop_limit"]
     assert expected["backtest_diagnostics"] == ["thytrader-backtest-diagnostics-v1"]
@@ -59,7 +59,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     ]
     assert expected["portfolio_modes"] == ["paper", "live"]
     assert expected["portfolio_backtest_contract"] == "thytrader-portfolio-backtest-v1"
-    assert expected["max_concurrent_portfolio_backtests"] == 1
+    assert "max_concurrent_portfolio_backtests" not in expected
     assert expected["research_dataset_autobind"] == ["backtest", "study"]
     assert expected["study_budgets"] == {
         "sync": {"candidates": 8, "windows": 128},
@@ -102,8 +102,16 @@ def test_ops_contract_matches_requires_payload() -> None:
         "expired",
     ]
     assert expected["research_job_statuses"] == expected["async_backtest_job_statuses"]
-    assert expected["max_concurrent_research_jobs"] == 2
+    assert "max_concurrent_research_jobs" not in expected
     assert expected["research_job_expiry_hours"] == 24
+    assert expected["research_worker_pool"] == [
+        "lease_claim",
+        "crash_requeue",
+        "process_recycle",
+        "sync_long_poll",
+        "job_error_codes",
+        "health_queue_depth",
+    ]
     assert expected["deployment_capital_fields"] == [
         "allocated_capital",
         "venue_available_quote",

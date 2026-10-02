@@ -1,3 +1,10 @@
+import {
+	isAcceptedResearchJob,
+	researchJobFailureMessage,
+	researchJobFailureStatus,
+	waitForResearchJob,
+	type ResearchJobAccepted
+} from '$lib/research-jobs';
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 
 /** Research-study HTTP helpers. Studies compose existing backtests. */
@@ -202,5 +209,28 @@ export async function submitResearchStudy(request: ResearchStudyRequest): Promis
 				: (body.detail?.message ?? 'no details returned');
 		throw new Error(`The research study failed (HTTP ${response.status}): ${detail}`);
 	}
-	return (await response.json()) as ResearchStudy;
+	const body = (await response.json()) as ResearchStudy | ResearchJobAccepted;
+	if (!isAcceptedResearchJob(body)) return body;
+	return finishQueuedStudy(body);
+}
+
+/**
+ * A study longer than the API's synchronous wait comes back as HTTP 202 with its job
+ * (ADR 0092): poll the job, then read the persisted study it produced.
+ */
+async function finishQueuedStudy(accepted: ResearchJobAccepted): Promise<ResearchStudy> {
+	const job = await waitForResearchJob(accepted.job_id);
+	if (job.status !== 'completed' || !job.study_fingerprint) {
+		throw new Error(
+			`The research study failed (HTTP ${researchJobFailureStatus(job)}): ${researchJobFailureMessage(job)}`
+		);
+	}
+	const study = await fetch(
+		`/api/v1/research/studies/${encodeURIComponent(job.study_fingerprint)}?detail=full`,
+		{ headers: { Accept: 'application/json' } }
+	);
+	if (!study.ok) {
+		throw new Error(`Could not load the finished research study (HTTP ${study.status}).`);
+	}
+	return (await study.json()) as ResearchStudy;
 }

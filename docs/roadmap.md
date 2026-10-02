@@ -528,6 +528,23 @@ tripped breaker pauses every sleeve, re-pauses a back-door resume, and stays lat
 proposals walk pending → applied / declined / failed / expired with auto-apply bounded by the
 permissions and the weekly budget.
 
+## Research worker pool: research leaves the API process — ✅ Shipped
+
+Under research load the API sat at 100% of one core and a 1d backtest round trip took 46 s
+([ADR 0092](decisions/0092-research-worker-pool.md)). Shipped: a `research-worker` Compose service
+(supervisor plus `THYTRADER_RESEARCH_WORKER_COUNT` worker processes, default 2) that is the only
+place backtests, studies, and portfolio backtests run; leased `FOR UPDATE SKIP LOCKED` claims on the
+existing job tables with heartbeat renewal, crash and lease-expiry re-queue, an attempt limit, and
+lease-fenced writes; process recycling after a job count or RSS growth; an API that only validates,
+queues, and long-polls (sync submits answer 201, the same 422/503 via `error_code`, or 202 with the
+job); operator health with worker liveness, per-worker RSS, and queue depth;
+`thytrader-research list-research-jobs`; the UI polls a 202. Ops contract
+`thytrader-ops-contract-v52` / Alembic `0057`.
+
+**Exit gate met:** the API answers health in milliseconds and uses a small fraction of a core
+while four heavy backtests run on two workers; a SIGKILLed worker's job is re-queued and completes;
+the same request through the in-process harness and the worker returns byte-identical bodies.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

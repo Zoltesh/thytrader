@@ -395,6 +395,20 @@ research_jobs = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
     Column("cancel_requested", Boolean(), nullable=False, server_default="false"),
+    Column(
+        "error_code",
+        String(32),
+        nullable=True,
+        comment="ResearchJobErrorCode of a failed job (ADR 0092).",
+    ),
+    Column(
+        "lease_owner",
+        String(96),
+        nullable=True,
+        comment="Research worker token holding a running job (ADR 0092).",
+    ),
+    Column("lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("attempts", Integer(), nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ["strategy_id"],
         ["strategies.strategy_id"],
@@ -402,6 +416,7 @@ research_jobs = Table(
         name="fk_research_jobs_strategy_id",
     ),
     CheckConstraint("kind IN ('backtest', 'study')", name="ck_research_jobs_kind"),
+    CheckConstraint("attempts >= 0", name="ck_research_jobs_attempts"),
     CheckConstraint(
         "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
         name="ck_research_jobs_status",
@@ -420,6 +435,36 @@ Index(
     "ix_research_jobs_strategy_created",
     research_jobs.c.strategy_id,
     research_jobs.c.created_at.desc(),
+)
+
+research_workers = Table(
+    "research_workers",
+    metadata,
+    Column(
+        "slot", Integer(), primary_key=True, autoincrement=False, comment="Supervisor slot index."
+    ),
+    Column("pool_size", Integer(), nullable=False, comment="Configured research workers."),
+    Column("pid", Integer(), nullable=False),
+    Column("state", String(16), nullable=False),
+    Column("job_id", UUID(), nullable=True),
+    Column("job_kind", String(32), nullable=True),
+    Column("jobs_completed", Integer(), nullable=False, server_default="0"),
+    Column("rss_bytes", BigInteger(), nullable=True, comment="Resident set size of the process."),
+    Column("started_at", DateTime(timezone=True), nullable=False),
+    Column("heartbeat_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint("slot >= 0 AND pool_size >= 1 AND pid >= 1", name="ck_research_workers_ids"),
+    CheckConstraint(
+        "state IN ('starting', 'idle', 'running', 'stopping')", name="ck_research_workers_state"
+    ),
+    CheckConstraint(
+        "job_kind IS NULL OR job_kind IN ('backtest', 'study', 'portfolio_backtest')",
+        name="ck_research_workers_job_kind",
+    ),
+    CheckConstraint(
+        "jobs_completed >= 0 AND (rss_bytes IS NULL OR rss_bytes >= 0)",
+        name="ck_research_workers_counts",
+    ),
+    comment="Latest self-report of each research worker process (ADR 0092).",
 )
 
 published_research_studies = Table(
@@ -1355,12 +1400,21 @@ portfolio_backtest_jobs = Table(
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "lease_owner",
+        String(96),
+        nullable=True,
+        comment="Research worker token holding a running job (ADR 0092).",
+    ),
+    Column("lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("attempts", Integer(), nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ["portfolio_id"],
         ["portfolios.portfolio_id"],
         ondelete="CASCADE",
         name="fk_portfolio_backtest_jobs_portfolio_id",
     ),
+    CheckConstraint("attempts >= 0", name="ck_portfolio_backtest_jobs_attempts"),
     CheckConstraint(
         "status IN ('queued', 'running', 'completed', 'failed', 'cancelled', 'expired')",
         name="ck_portfolio_backtest_jobs_status",

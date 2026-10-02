@@ -22,6 +22,7 @@ from thytrader.api.dependencies import (
     get_memory_store,
     get_portfolio_service,
     get_portfolio_storage,
+    get_research_queue,
     get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
@@ -67,6 +68,9 @@ from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
+from thytrader.persistence.postgres_research_queue import (  # noqa: TC001 - FastAPI Depends.
+    PostgresResearchQueue,
+)
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore  # noqa: TC001
 from thytrader.portfolio.service import PortfolioService  # noqa: TC001
 from thytrader.portfolios.store import PortfolioStorage  # noqa: TC001
@@ -100,6 +104,7 @@ def get_operator_diagnostics(
     research_studies: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
     decision_store: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
     portfolios: Annotated[PortfolioStorage, Depends(get_portfolio_storage)],
+    research_queue: Annotated[PostgresResearchQueue | None, Depends(get_research_queue)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -124,6 +129,7 @@ def get_operator_diagnostics(
         research_studies=research_studies,
         decision_store=decision_store,
         portfolios=portfolios,
+        research_queue=research_queue,
     )
 
 

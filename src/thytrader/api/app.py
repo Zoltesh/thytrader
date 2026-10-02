@@ -116,6 +116,7 @@ from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateSt
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
+from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
@@ -131,7 +132,12 @@ from thytrader.portfolio.service import PortfolioService
 from thytrader.portfolios.jobs import PortfolioBacktestRunner
 from thytrader.portfolios.store import DisabledPortfolioStore, PortfolioStorage
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
-from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobRunner
+from thytrader.research.jobs import (
+    InMemoryResearchJobStore,
+    ResearchExecutionMode,
+    ResearchJobRunner,
+    ResearchJobStore,
+)
 from thytrader.research.studies import ResearchStudyService
 from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
@@ -154,6 +160,7 @@ if TYPE_CHECKING:
     from thytrader.operator_chat.llm import LlmClient
 
 _logger = logging.getLogger(__name__)
+_HARNESS_POLL_SECONDS = 0.01
 
 
 def create_app(
@@ -187,6 +194,7 @@ def create_app(
     credentials_env_file: Path | None = None,
     decision_journal_store: DecisionJournalStore | None = None,
     portfolio_store: PortfolioStorage | None = None,
+    research_execution: ResearchExecutionMode | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -194,6 +202,11 @@ def create_app(
     used directly without engine creation. Otherwise the store is derived from
     ``settings.database_url`` during the lifespan: PostgreSQL when configured,
     or disabled when absent/blank.
+
+    Research never runs in this process (ADR 0092). With PostgreSQL the API queues
+    jobs for the ``research-worker`` service; without it research submissions 503.
+    ``research_execution=ResearchExecutionMode.IN_PROCESS`` is the test harness: it
+    runs the queue inside the app and must not be used by a server.
     """
     resolved_settings, runtime = _bind_runtime(settings, settings_store)
     external_store = history_store
@@ -343,29 +356,18 @@ def create_app(
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
         _app.state.decision_journal_store = _decision_journal_store(decision_journal_store, engine)
 
-        study_service = ResearchStudyService(
-            publications=_app.state.strategy_snapshot_store,
-            submitter=_app.state.backtest_submitter,
-            results=_app.state.backtest_result_store,
-            catalog=_app.state.research_study_catalog,
-            datasets=dataset_store,
-        )
-        stop_jobs = asyncio.Event()
-        runner = ResearchJobRunner(
-            store=job_store,
-            submitter=_app.state.backtest_submitter,
-            study_service=study_service,
-        )
-        job_task = await runner.start(stop_jobs)
         portfolios = _portfolio_store(external_portfolio_store, engine)
         _app.state.portfolio_store = portfolios
-        portfolio_runner = PortfolioBacktestRunner(
-            store=portfolios,
-            submitter=_app.state.backtest_submitter,
-            results=_app.state.backtest_result_store,
-            datasets=dataset_store,
+        stop_jobs = asyncio.Event()
+        harness_tasks = await _attach_research_execution(
+            _app,
+            _research_execution_mode(research_execution, engine),
+            engine=engine,
+            job_store=job_store,
+            portfolios=portfolios,
+            dataset_store=dataset_store,
+            stop=stop_jobs,
         )
-        portfolio_task = await portfolio_runner.start(stop_jobs)
 
         runtime.ready = True
         try:
@@ -373,7 +375,7 @@ def create_app(
         finally:
             runtime.ready = False
             stop_jobs.set()
-            await _cancel_background_tasks(job_task, portfolio_task)
+            await _cancel_background_tasks(*harness_tasks)
             await _dispose_if_present(engine)
 
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
@@ -563,6 +565,69 @@ async def _seed_default_watchlist(
         lookback_hours=settings.market_data_worker_lookback_hours,
         now=datetime.now(UTC),
     )
+
+
+def _research_execution_mode(
+    requested: ResearchExecutionMode | None, engine: AsyncEngine | None
+) -> ResearchExecutionMode:
+    """Resolve who runs research: the worker pool with PostgreSQL, else nobody.
+
+    Only an explicit ``IN_PROCESS`` (the test harness) runs research in this process.
+    """
+    if requested is not None:
+        return requested
+    if engine is not None:
+        return ResearchExecutionMode.RESEARCH_WORKER
+    return ResearchExecutionMode.UNAVAILABLE
+
+
+async def _attach_research_execution(
+    app: FastAPI,
+    mode: ResearchExecutionMode,
+    *,
+    engine: AsyncEngine | None,
+    job_store: ResearchJobStore,
+    portfolios: PortfolioStorage,
+    dataset_store: DatasetStore,
+    stop: asyncio.Event,
+) -> tuple[asyncio.Task[None], ...]:
+    """Record who runs research and, for the test harness only, start its runners."""
+    app.state.research_execution = mode
+    app.state.research_queue = PostgresResearchQueue(engine) if engine is not None else None
+    if mode is not ResearchExecutionMode.IN_PROCESS:
+        return ()
+    return await _start_in_process_harness(app, job_store, portfolios, dataset_store, stop)
+
+
+async def _start_in_process_harness(
+    app: FastAPI,
+    job_store: ResearchJobStore,
+    portfolios: PortfolioStorage,
+    dataset_store: DatasetStore,
+    stop: asyncio.Event,
+) -> tuple[asyncio.Task[None], ...]:
+    """Start the test-harness runners that execute queued jobs inside this app."""
+    study_service = ResearchStudyService(
+        publications=app.state.strategy_snapshot_store,
+        submitter=app.state.backtest_submitter,
+        results=app.state.backtest_result_store,
+        catalog=app.state.research_study_catalog,
+        datasets=dataset_store,
+    )
+    runner = ResearchJobRunner(
+        store=job_store,
+        submitter=app.state.backtest_submitter,
+        study_service=study_service,
+        poll_seconds=_HARNESS_POLL_SECONDS,
+    )
+    portfolio_runner = PortfolioBacktestRunner(
+        store=portfolios,
+        submitter=app.state.backtest_submitter,
+        results=app.state.backtest_result_store,
+        datasets=dataset_store,
+        poll_seconds=_HARNESS_POLL_SECONDS,
+    )
+    return (await runner.start(stop), await portfolio_runner.start(stop))
 
 
 async def _cancel_background_tasks(*tasks: asyncio.Task[None]) -> None:

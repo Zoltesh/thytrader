@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from hashlib import sha256
+import os
+import socket
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
@@ -37,6 +39,10 @@ from thytrader.persistence.postgres_portfolio_runtime import (
     runtime_rows,
     update_proposal,
 )
+from thytrader.persistence.postgres_research_queue import (
+    PostgresResearchQueue,
+    ResearchQueueUnavailableError,
+)
 from thytrader.persistence.schema import (
     portfolio_backtest_jobs,
     portfolio_journal_entries,
@@ -56,7 +62,6 @@ from thytrader.portfolios.backtest import (
     portfolio_backtest_listing,
 )
 from thytrader.portfolios.models import (
-    MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
     JournalActor,
     JournalChannel,
     JournalEntry,
@@ -113,6 +118,8 @@ if TYPE_CHECKING:
 
 _UNAVAILABLE = "Portfolio storage is unavailable."
 _ACTIVE = (ResearchJobStatus.QUEUED.value, ResearchJobStatus.RUNNING.value)
+_HARNESS_LEASE_SECONDS = 3_600.0
+_HARNESS_MAX_ATTEMPTS = 3
 
 
 class PostgresPortfolioStore:
@@ -353,34 +360,18 @@ class PostgresPortfolioStore:
         return tuple(_job_from_row(row) for row in rows)
 
     async def claim_next(self) -> UUID | None:
-        """Mark the oldest queued job running when capacity allows."""
-        running = select(func.count()).where(
-            portfolio_backtest_jobs.c.status == ResearchJobStatus.RUNNING.value
-        )
-        oldest = (
-            select(portfolio_backtest_jobs.c.job_id)
-            .where(portfolio_backtest_jobs.c.status == ResearchJobStatus.QUEUED.value)
-            .order_by(portfolio_backtest_jobs.c.created_at.asc())
-            .limit(1)
-            .with_for_update(skip_locked=True)
-        )
+        """Claim the oldest queued job for the in-process harness under a long lease.
+
+        Research workers claim through ``PostgresResearchQueue`` (ADR 0092).
+        """
+        owner = f"in-process/{socket.gethostname()[:48]}/{os.getpid()}"
         try:
-            async with self._engine.begin() as connection:
-                if int((await connection.execute(running)).scalar_one()) >= (
-                    MAX_CONCURRENT_PORTFOLIO_BACKTESTS
-                ):
-                    return None
-                job_id = (await connection.execute(oldest)).scalar_one_or_none()
-                if job_id is None:
-                    return None
-                await connection.execute(
-                    update(portfolio_backtest_jobs)
-                    .where(portfolio_backtest_jobs.c.job_id == job_id)
-                    .values(status=ResearchJobStatus.RUNNING.value, updated_at=datetime.now(UTC))
-                )
-        except SQLAlchemyError as error:
+            claimed = await PostgresResearchQueue(self._engine).claim(
+                owner, lease_seconds=_HARNESS_LEASE_SECONDS, order=("portfolio_backtest_jobs",)
+            )
+        except ResearchQueueUnavailableError as error:
             raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
-        return cast("UUID", job_id)
+        return None if claimed is None else claimed.job_id
 
     async def load_plan(self, job_id: UUID) -> PortfolioBacktestPlan:
         """Return one job's resolved plan."""
@@ -483,13 +474,14 @@ class PostgresPortfolioStore:
         return await self._bulk(statement)
 
     async def recover_interrupted(self) -> int:
-        """Requeue jobs left running by an API restart."""
-        statement = (
-            update(portfolio_backtest_jobs)
-            .where(portfolio_backtest_jobs.c.status == ResearchJobStatus.RUNNING.value)
-            .values(status=ResearchJobStatus.QUEUED.value, updated_at=datetime.now(UTC))
-        )
-        return await self._bulk(statement)
+        """Requeue running jobs whose lease expired (never a live worker's job)."""
+        try:
+            counts = await PostgresResearchQueue(self._engine).requeue_expired(
+                max_attempts=_HARNESS_MAX_ATTEMPTS, queues=("portfolio_backtest_jobs",)
+            )
+        except ResearchQueueUnavailableError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+        return counts.total
 
     async def list_results(
         self, portfolio_id: UUID, *, limit: int, offset: int
