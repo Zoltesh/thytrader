@@ -353,8 +353,10 @@ Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate
 `entries_expired`, `entries_repriced`, `entries_refused_at_fill`, `entries_unfilled_at_end`,
 `entries_size_capped`, `warmup_bars`, and `skipped[{reason, count}]`). Use it to explain few or
 zero trades before changing rules: `signals_matched` equals `entries_rested` plus every skipped
-count. `diagnostics` is `null` for results published before ADR 0090; re-running the same
-backtest records it without changing the result fingerprint.
+count. `entries_refused_at_fill` counts only fills that shared cash could no longer fund
+(multi-instrument books); a cash-capped single book always funds. `diagnostics` is `null` for
+results published before ADR 0090. Re-running the same backtest records it; a request whose
+result predates the 2026-10-02 fill amendment (ADR 0083) re-simulates as a new result.
 
 `thytrader-research-evaluate <result_fingerprint>` (a `run_fingerprint` of a completed backtest
 also works) asks the API to re-evaluate that result's run and prints one bounded page of the

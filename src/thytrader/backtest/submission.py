@@ -21,6 +21,7 @@ from thytrader.persistence.postgres_research_runs import PostgresResearchRunStor
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.research.models import (
     BACKTEST_ENGINE,
+    SIMULATION_SEMANTICS,
     AdditionalInstrumentDataset,
     CapitalAssumptions,
     CostAssumptions,
@@ -725,6 +726,7 @@ def _execution_fingerprint(
         "evaluation_end": evaluation_end.isoformat(),
         "evaluation_start": evaluation_start.isoformat(),
         "random_seed": 0,
+        "simulation_semantics": SIMULATION_SEMANTICS,
         "strategy_fingerprint": request.strategy_fingerprint,
     }
     if request.htf_dataset_fingerprint is not None:

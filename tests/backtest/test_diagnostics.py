@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -26,6 +27,7 @@ from thytrader.backtest.models import (
     canonical_backtest_diagnostics_bytes,
 )
 from thytrader.execution.geometry import EntrySkipReason
+from thytrader.research.models import CapitalAssumptions, CostAssumptions
 from thytrader.strategies.models import strategy_fingerprint
 
 if TYPE_CHECKING:
@@ -182,3 +184,43 @@ def test_diagnostics_reject_an_incoherent_funnel() -> None:
     encoded = canonical_backtest_diagnostics_bytes(valid)
     assert BacktestDiagnostics.model_validate_json(encoded) == valid
     assert b'"diagnostics_version":"thytrader-backtest-diagnostics-v1"' in encoded
+
+
+@pytest.mark.parametrize(
+    ("capital", "maker_fee_rate"),
+    [("14.13", "0.005"), ("15.04", "0.001"), ("15.11", "0.001"), ("15.18", "0.001")],
+)
+def test_cash_capped_entries_always_fund_at_fill(capital: str, maker_fee_rate: str) -> None:
+    """An entry sized to the whole fee-adjusted balance fills; rounding never refuses it.
+
+    These balances were refused at fill before the cash bound kept headroom: the fill
+    re-derived notional from ``notional / price`` and its last digit overshot the cash.
+    """
+    base = _strategy()
+    exits = base.model_dump(mode="python")["exits"]
+    exits["initial_stop"]["multiple"] = "0.5"
+    strategy = _with(
+        base,
+        exits=exits,
+        sizing={
+            "kind": "risk_fraction",
+            "risk_fraction": "0.25",
+            "min_quote_notional": "1",
+            "max_quote_notional": "1000",
+        },
+    )
+    run = _run(strategy).model_copy(
+        update={
+            "capital": CapitalAssumptions(quote_currency="USD", initial_quote_balance=capital),
+            "costs": CostAssumptions(
+                maker_fee_rate=maker_fee_rate, taker_fee_rate="0.009", fixed_slippage_bps="5"
+            ),
+        }
+    )
+    result, diagnostics = simulate_backtest_with_diagnostics(run, strategy, _candles())
+
+    assert diagnostics.entries_size_capped == 1
+    assert diagnostics.entries_refused_at_fill == 0
+    assert diagnostics.entries_filled == 1
+    entry = result.trades[0].entry
+    assert Decimal(entry.notional) + Decimal(entry.fee) <= Decimal(capital)

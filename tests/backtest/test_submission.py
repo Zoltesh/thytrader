@@ -132,10 +132,22 @@ def test_execution_fingerprint_embeds_the_cli_payload_shape() -> None:
         "evaluation_end": request.evaluation_end.isoformat(),
         "evaluation_start": request.evaluation_start.isoformat(),
         "random_seed": 0,
+        "simulation_semantics": "2026-10-02",
         "strategy_fingerprint": "sha256:" + "a" * 64,
     }
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     assert fingerprint == f"sha256:{sha256(canonical.encode()).hexdigest()}"
+
+
+def test_execution_fingerprint_changes_with_simulation_semantics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fill-rule amendment re-simulates identical requests instead of reusing old results."""
+    request = _request()
+    before = _execution_fingerprint(request, "USD")
+    monkeypatch.setattr("thytrader.backtest.submission.SIMULATION_SEMANTICS", "2099-01-01")
+
+    assert _execution_fingerprint(request, "USD") != before
 
 
 def test_execution_fingerprint_includes_htf_dataset_only_when_present() -> None:
