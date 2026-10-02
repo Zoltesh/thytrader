@@ -172,6 +172,14 @@ def _parser() -> argparse.ArgumentParser:
         help="Current fee tier and research-only suggested maker/taker rates.",
     )
     subparsers.add_parser(
+        "portfolios",
+        parents=[trailing],
+        help=(
+            "Portfolios: sleeves, allocation, limits, manager settings, newest portfolio "
+            "backtest (read-only; no deployment authority)."
+        ),
+    )
+    subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
         help="Redacted bundle of the supported reports.",
@@ -264,6 +272,7 @@ async def _dispatch(
         "studies": diagnostics.studies,
         "portfolio": diagnostics.portfolio_report,
         "fees": diagnostics.fees_report,
+        "portfolios": diagnostics.portfolios_report,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)

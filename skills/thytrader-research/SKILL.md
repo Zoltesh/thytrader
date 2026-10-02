@@ -321,6 +321,8 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 - `delete-strategy --strategy-id UUID --confirm` **hard-deletes** the strategy and everything that
   belongs to it: snapshots, backtests, run specs, studies that include it, research jobs, dataset
   bindings, and PAPER deployments with their orders, fills, positions, intents, and trade reasons.
+  It also removes the strategy's portfolio sleeves; each removal is journaled in its portfolio and
+  counted as `portfolio_sleeves`.
   It is refused with HTTP 409 `strategy_has_active_deployments` (with `deployment_ids`) while any
   bot of the strategy is running or paused — stop it with `skills/thytrader-runtime/SKILL.md`
   first (that is a runtime-lane action; this skill never stops bots). Stopped LIVE deployments are

@@ -30,7 +30,7 @@ flowchart LR
   Risk -->|ALLOW| Broker["PaperBroker or CoinbaseBroker"]
   Broker --> Order["Order + Fill"]
   Deploy --> Decision["BarDecision per closed bar\n(bar_decisions)"]
-  Health["GET /health/ready"] --> Ops["ops_contract v47"]
+  Health["GET /health/ready"] --> Ops["ops_contract v48"]
 ```
 
 Do not dump these diagrams on [docs/README.md](../../README.md).

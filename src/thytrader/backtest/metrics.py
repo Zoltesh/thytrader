@@ -20,6 +20,7 @@ Formulas (risk-free rate 0):
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal
 from itertools import pairwise
 from statistics import median
@@ -29,10 +30,80 @@ from thytrader.backtest.models import BacktestPerformanceMetrics, backtest_resul
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+    from datetime import datetime
+
     from thytrader.backtest.models import BacktestResult, BacktestTrade, EquityPoint
 
 _SECONDS_PER_YEAR = Decimal("31536000")
 _ZERO = Decimal("0")
+
+
+@dataclass(frozen=True, slots=True)
+class SeriesRatioMetrics:
+    """Ratio metrics of one timestamped equity series under the v1 formulas (rf = 0)."""
+
+    bar_seconds: Decimal | None
+    bars_per_year: Decimal | None
+    sharpe: Decimal | None
+    sortino: Decimal | None
+    calmar: Decimal | None
+    cagr: Decimal | None
+    annualized_volatility: Decimal | None
+
+
+def series_ratio_metrics(
+    points: Sequence[tuple[datetime, Decimal]],
+    *,
+    maximum_drawdown_fraction: Decimal,
+) -> SeriesRatioMetrics:
+    """Apply the ``thytrader-performance-metrics-v1`` ratio formulas to any equity series.
+
+    Used for curves that are not one backtest result (the combined portfolio curve). The
+    formulas match :func:`compute_performance_metrics`: returns between consecutive points,
+    the median positive timestamp delta as the bar clock, sample standard deviations, CAGR
+    from first-to-last timestamps over a 365-day year, and Calmar = CAGR / drawdown.
+    """
+    values = tuple(value for _instant, value in points)
+    returns = tuple(
+        current / previous - 1 for previous, current in pairwise(values) if previous != 0
+    )
+    deltas = [
+        (current - previous).total_seconds()
+        for (previous, _left), (current, _right) in pairwise(points)
+        if current > previous
+    ]
+    bar_seconds = Decimal(str(median(deltas))) if deltas else None
+    bars_per_year = (
+        None if bar_seconds is None or bar_seconds <= 0 else _SECONDS_PER_YEAR / bar_seconds
+    )
+    mean_r = _mean(returns)
+    std_r = _sample_std(returns)
+    downside = tuple(item for item in returns if item < 0)
+    cagr = _series_cagr(points)
+    return SeriesRatioMetrics(
+        bar_seconds=bar_seconds,
+        bars_per_year=bars_per_year,
+        sharpe=_annualized_ratio(mean_r, std_r, bars_per_year),
+        sortino=_annualized_ratio(mean_r, _sample_std(downside), bars_per_year),
+        calmar=_calmar(cagr, maximum_drawdown_fraction),
+        cagr=cagr,
+        annualized_volatility=_annualized_vol(std_r, bars_per_year),
+    )
+
+
+def _series_cagr(points: Sequence[tuple[datetime, Decimal]]) -> Decimal | None:
+    """Compound annual growth from the first to the last point of one series."""
+    if len(points) < 2:
+        return None
+    first_at, initial = points[0]
+    last_at, final = points[-1]
+    if initial <= 0 or final <= 0:
+        return None
+    years = Decimal(str((last_at - first_at).total_seconds())) / _SECONDS_PER_YEAR
+    if years <= 0:
+        return None
+    return (final / initial) ** (Decimal("1") / years) - 1
 
 
 def compute_performance_metrics(result: BacktestResult) -> BacktestPerformanceMetrics:

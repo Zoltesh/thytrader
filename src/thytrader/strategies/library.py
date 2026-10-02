@@ -177,6 +177,8 @@ class StrategyDeletionCounts:
     paper_deployments: int = 0
     live_deployments_kept: int = 0
     allocations_removed: int = 0
+    portfolio_sleeves: int = 0
+    """Sleeves removed from portfolios (each journaled as ``sleeve_removed``; ADR 0088)."""
 
 
 @dataclass(frozen=True, slots=True)

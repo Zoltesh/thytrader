@@ -35,6 +35,7 @@ from thytrader.api.routes.operator import router as operator_router
 from thytrader.api.routes.operator_chat import router as operator_chat_router
 from thytrader.api.routes.portfolio import router as portfolio_router
 from thytrader.api.routes.portfolio_history import router as portfolio_history_router
+from thytrader.api.routes.portfolios import router as portfolios_router
 from thytrader.api.routes.research_studies import router as research_studies_router
 from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.security import router as security_router
@@ -112,6 +113,7 @@ from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketD
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
+from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
@@ -125,6 +127,8 @@ from thytrader.persistence.worker_heartbeats import (
 )
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
+from thytrader.portfolios.jobs import PortfolioBacktestRunner
+from thytrader.portfolios.store import DisabledPortfolioStore, PortfolioStorage
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, ResearchStudyCatalog
 from thytrader.research.jobs import InMemoryResearchJobStore, ResearchJobRunner
 from thytrader.research.studies import ResearchStudyService
@@ -181,6 +185,7 @@ def create_app(
     settings_store: SettingsStore | None = None,
     credentials_env_file: Path | None = None,
     decision_journal_store: DecisionJournalStore | None = None,
+    portfolio_store: PortfolioStorage | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -207,6 +212,7 @@ def create_app(
     external_research_study_catalog = research_study_catalog
     external_dataset_store = dataset_store
     external_notification_sender = notification_sender
+    external_portfolio_store = portfolio_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -350,6 +356,15 @@ def create_app(
             study_service=study_service,
         )
         job_task = await runner.start(stop_jobs)
+        portfolios = _portfolio_store(external_portfolio_store, engine)
+        _app.state.portfolio_store = portfolios
+        portfolio_runner = PortfolioBacktestRunner(
+            store=portfolios,
+            submitter=_app.state.backtest_submitter,
+            results=_app.state.backtest_result_store,
+            datasets=dataset_store,
+        )
+        portfolio_task = await portfolio_runner.start(stop_jobs)
 
         runtime.ready = True
         try:
@@ -357,9 +372,7 @@ def create_app(
         finally:
             runtime.ready = False
             stop_jobs.set()
-            job_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await job_task
+            await _cancel_background_tasks(job_task, portfolio_task)
             await _dispose_if_present(engine)
 
     app = FastAPI(title="ThyTrader API", version=__version__, lifespan=lifespan)
@@ -408,6 +421,7 @@ def create_app(
     app.include_router(decisions_router)
     app.include_router(discretionary_orders_router)
     app.include_router(risk_policy_router)
+    app.include_router(portfolios_router)
     app.include_router(research_studies_router)
     app.include_router(memory_router)
     app.include_router(backtests_router)
@@ -510,6 +524,17 @@ def _init_db_stores(
     )
 
 
+def _portfolio_store(
+    external: PortfolioStorage | None, engine: AsyncEngine | None
+) -> PortfolioStorage:
+    """Use an injected store, else PostgreSQL when configured, else fail closed."""
+    if external is not None:
+        return external
+    if engine is not None:
+        return PostgresPortfolioStore(engine)
+    return DisabledPortfolioStore()
+
+
 def _snapshot_store_for(
     strategy_rows: StrategyStore | None, snapshot_store: StrategySnapshotStore | None
 ) -> StrategySnapshotStore | None:
@@ -536,6 +561,14 @@ async def _seed_default_watchlist(
         lookback_hours=settings.market_data_worker_lookback_hours,
         now=datetime.now(UTC),
     )
+
+
+async def _cancel_background_tasks(*tasks: asyncio.Task[None]) -> None:
+    """Cancel the in-process job runners and wait for each to stop."""
+    for task in tasks:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 async def _dispose_if_present(engine: AsyncEngine | None) -> None:

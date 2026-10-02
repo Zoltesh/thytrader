@@ -19,6 +19,10 @@ from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Py
 from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
 from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
 from thytrader.ops_contract import expected_ops_contract
+from thytrader.portfolios.models import (  # noqa: TC001 - Pydantic field types.
+    ManagerSettings,
+    PortfolioLimits,
+)
 from thytrader.research.catalog import StudyCatalogSummary  # noqa: TC001 - Pydantic field type.
 from thytrader.strategies.indicator_catalog import ParameterKind  # noqa: TC001 - Pydantic field.
 
@@ -44,6 +48,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "support_bundle",
     "portfolio",
     "fees",
+    "portfolios",
 )
 
 SupportedTimeframe = DatasetTimeframe
@@ -147,6 +152,13 @@ class OpsContractPayload(_FrozenModel):
     deployment_ledger_pagination: tuple[Literal["cursor"], ...]
     multi_book_ledger: tuple[Literal["paper", "live"], ...]
     strategy_model: tuple[Literal["mutable_root", "auto_snapshot", "hard_delete"], ...]
+    portfolio_model: tuple[
+        Literal["sleeves", "shared_limits", "manager_settings", "journal", "portfolio_backtest"],
+        ...,
+    ]
+    portfolio_modes: tuple[Literal["paper", "live"], ...]
+    portfolio_backtest_contract: str = Field(min_length=1, max_length=64)
+    max_concurrent_portfolio_backtests: int = Field(ge=1)
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -266,6 +278,69 @@ class PortfolioReport(OperatorEnvelope):
 
     report_kind: Literal["portfolio"] = "portfolio"
     payload: PortfolioPayload
+
+
+class PortfolioSleeveDigest(_FrozenModel):
+    """One sleeve, its strategy, weight, and what blocks it (ADR 0088)."""
+
+    sleeve_id: UUID
+    strategy_id: UUID
+    strategy_name: str
+    product_id: str | None
+    timeframe: str | None
+    weight_fraction: str
+    issues: tuple[Literal["strategy_invalid", "quote_currency_mismatch", "product_unknown"], ...]
+
+
+class PortfolioBacktestDigest(_FrozenModel):
+    """The newest stored portfolio backtest's headline numbers."""
+
+    result_fingerprint: str
+    published_at: datetime
+    evaluation_start: datetime
+    evaluation_end: datetime
+    total_return_fraction: str
+    maximum_drawdown_fraction: str
+    basket_total_return_fraction: str
+
+
+class PortfolioDigest(_FrozenModel):
+    """One portfolio as operators see it. ``deployable`` is false until deployment ships."""
+
+    portfolio_id: UUID
+    name: str
+    mode: Literal["paper", "live"]
+    quote_currency: SpotQuoteCurrency
+    capital_quote: str
+    cash_reserve_fraction: str
+    allocated_fraction: str
+    unallocated_fraction: str
+    revision: int
+    sleeves: tuple[PortfolioSleeveDigest, ...]
+    largest_asset: str | None
+    largest_asset_weight_fraction: str | None
+    largest_asset_within_limit: bool | None
+    limits: PortfolioLimits
+    manager: ManagerSettings
+    deployable: Literal[False] = False
+    latest_backtest: PortfolioBacktestDigest | None
+    active_backtest_jobs: int = Field(ge=0)
+
+
+class PortfoliosPayload(_FrozenModel):
+    """Every portfolio (sleeves, allocation, limits, manager settings, newest backtest)."""
+
+    portfolio_storage: Literal["available", "unavailable"]
+    portfolio_backtest_contract: str
+    total: int = Field(ge=0)
+    portfolios: tuple[PortfolioDigest, ...] = ()
+
+
+class PortfoliosReport(OperatorEnvelope):
+    """Read-only portfolio composition report without trading authority."""
+
+    report_kind: Literal["portfolios"] = "portfolios"
+    payload: PortfoliosPayload
 
 
 class FeesPayload(_FrozenModel):

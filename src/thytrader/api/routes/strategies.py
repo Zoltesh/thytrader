@@ -176,6 +176,9 @@ class StrategyDeletionCountsResponse(BaseModel):
     paper_deployments: int
     live_deployments_kept: int
     allocations_removed: int
+    portfolio_sleeves: int = Field(
+        default=0, description="Portfolio sleeves removed (each journaled as sleeve_removed)."
+    )
 
 
 class StrategyDeletionResponse(BaseModel):
@@ -465,6 +468,7 @@ def counts_response(counts: StrategyDeletionCounts) -> StrategyDeletionCountsRes
         paper_deployments=counts.paper_deployments,
         live_deployments_kept=counts.live_deployments_kept,
         allocations_removed=counts.allocations_removed,
+        portfolio_sleeves=counts.portfolio_sleeves,
     )
 
 
@@ -583,7 +587,8 @@ async def _audit_deletion(
             f"strategy_id={strategy_id} backtests={counts.backtests} studies={counts.studies} "
             f"paper_deployments={counts.paper_deployments} "
             f"live_deployments_kept={counts.live_deployments_kept} "
-            f"allocations_removed={counts.allocations_removed}"
+            f"allocations_removed={counts.allocations_removed} "
+            f"portfolio_sleeves={counts.portfolio_sleeves}"
         ),
     )
     try:

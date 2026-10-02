@@ -41,7 +41,8 @@
         "decisions",
         "support_bundle",
         "portfolio",
-        "fees"
+        "fees",
+        "portfolios"
       ]
     },
     "application_version": {

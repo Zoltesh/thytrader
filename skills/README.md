@@ -61,6 +61,18 @@ Not an extension of operator or research.
 - CLI: `uv run thytrader-runtime`
 - HTTP: `/api/v1/deployments` (incl. `/{id}/decisions`), `/api/v1/strategies/{id}/decisions`, `/api/v1/discretionary-orders`, `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`
 
+## `thytrader-portfolio`
+
+Confirmation-gated portfolios: sleeves (one strategy each, with a capital weight), cash reserve,
+shared limits, manager settings, portfolio backtests, and the append-only journal
+([ADR 0088](../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)). Every mutation
+needs `--confirm` and the current `revision`; YOLO never covers this lane. No deployment, paper,
+live, or order authority.
+
+- Skill: [`thytrader-portfolio/SKILL.md`](thytrader-portfolio/SKILL.md)
+- CLI: `uv run thytrader-portfolio … --confirm`
+- HTTP: `/api/v1/portfolios`
+
 ## `thytrader-playbook`
 
 Sequences existing lane CLIs: data healthy → create strategy → backtest → optional paper. Forwards

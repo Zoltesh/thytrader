@@ -52,6 +52,10 @@ class HealthOpsContract(BaseModel):
     deployment_ledger_pagination: list[str]
     multi_book_ledger: list[str]
     strategy_model: list[str]
+    portfolio_model: list[str]
+    portfolio_modes: list[str]
+    portfolio_backtest_contract: str
+    max_concurrent_portfolio_backtests: int
     expected_schema_revision: str
 
 

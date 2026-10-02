@@ -283,7 +283,39 @@ attaches those exits to the entry; paper still uses synthetic exits. Command exa
 
 ### Portfolio and bot detail
 
-**Portfolio** (http://127.0.0.1:5175/deployments) lists every bot: one row per deployment, grouped
+**Portfolios** ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md)) sit at the top of **Portfolio**
+(http://127.0.0.1:5175/deployments). A portfolio is a set of sleeves — one strategy each, with a
+capital weight — plus a cash reserve, shared limits, and manager settings. It is **Paper** or
+amber **LIVE**, never both; mode and quote currency are fixed when you create it. The header has
+one button per portfolio (with its mode chip) and **New portfolio…** (name, mode, quote currency,
+capital, cash reserve %). The card shows capital, allocated share, cash reserve, and sleeve count,
+and a disabled **Deploy portfolio** ("Deploying a portfolio arrives next"): nothing here trades.
+Four tabs (kept in the URL as `?portfolio=&tab=`):
+
+- **Sleeves** — each sleeve's strategy, weight, market and clock, capital slice, the strategy's
+  current paper or live bots in this portfolio's mode, and issues (invalid rules or a changed
+  quote currency). **+ Add sleeve from a strategy** opens a searchable picker (other-quote
+  strategies and existing sleeves are disabled). **Edit weights** edits every weight and the cash
+  reserve at once and refuses more than 100%. The aside shows allocation bars, the largest single
+  asset against the per-asset limit, and the cash reserve.
+- **Portfolio backtest** — fee rates prefill from the fee-tier suggestion; **Run portfolio
+  backtest** queues a job and shows its progress, then the combined equity against an
+  equal-weight buy-and-hold basket, net return, max drawdown, best sleeve alone, idle capital,
+  Sharpe, what each sleeve contributed, correlations, overlap, the disclosures (sleeves are
+  simulated independently; portfolio caps and cross-sleeve interactions are not simulated), and
+  earlier runs. A rejection lists the problem per sleeve (missing datasets, invalid rules, no
+  common window).
+- **Manager** — the mandate and permissions (rebalance within a weekly budget, pause a sleeve,
+  propose sleeves; never place orders) and the append-only journal of every change. The manager
+  agent loop and approve/decline proposals are not shipped; the settings are stored and shown.
+- **Limits** — max total exposure, max per asset, optional daily loss and drawdown stops. They are
+  stored now and start binding orders when portfolio deployment arrives.
+
+Every change is revision-guarded: if someone else changed the portfolio first, the page reloads it
+and says so. Deleting a strategy removes its sleeves (journaled). Agents use
+[`skills/thytrader-portfolio/SKILL.md`](../../skills/thytrader-portfolio/SKILL.md).
+
+**All bots** (below the portfolios) lists every bot: one row per deployment, grouped
 **Needs attention** (any status other than running, paused, or stopped), **Running**, **Paused**,
 and **Stopped**. An **All / Paper / Live** switch filters the rows. Each row shows the strategy name
 (from the deployment's captured `strategy_name`; a live bot whose strategy was deleted reads
@@ -295,8 +327,8 @@ the whole inventory, and totals allocated capital, performance equity, and gross
 only from the deployments' `capital` and ledger fields, per quote currency. Money is never totalled
 across paper and live (choose Paper or Live), and a figure that cannot be computed truthfully (no
 capital block, an open position without a complete mark) shows `—` with the reason. **Start a
-deployment** opens the strategy library; start from a strategy's Run stage. Portfolios with shared
-capital and a manager agent are not built yet.
+deployment** opens the strategy library; start from a strategy's Run stage. Until portfolio
+deployment ships, each bot runs on its own capital.
 
 **Bot detail** (`/deployments/{id}`) is anchored to the snapshot the bot started with.
 The header shows the strategy name (or "<name> (deleted strategy)" for a kept live bot), the mode
@@ -406,6 +438,8 @@ output. HTTP talks to loopback (`http://127.0.0.1:8200`) unless you pass `--loca
 ```bash
 uv run thytrader-operator health
 uv run thytrader-research list-strategies
+uv run thytrader-portfolio list
+uv run thytrader-portfolio backtest --portfolio-id UUID --maker-fee-rate 0.004 --taker-fee-rate 0.006 --fixed-slippage-bps 5 --wait --confirm
 uv run thytrader-research create-strategy --confirm
 uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm
 uv run thytrader-research save-strategy --strategy-id UUID --file document.json --revision 1 --confirm

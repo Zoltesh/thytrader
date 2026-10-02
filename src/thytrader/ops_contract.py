@@ -32,8 +32,10 @@ automatic snapshots, hard delete; ADR 0082), the explicit
 spot quote currencies, the market-data provider-history floor (``history_floor_at``,
 Alembic 0051), ranged backfill, explicit watched-only ingest, and the research
 watch-lookback ceilings (ADR 0085, Alembic 0052), the implemented indicator kinds or the
-operator ``indicators`` report shape, indicator bar-lag (``offset``) evaluation, or the
-per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087) change.
+operator ``indicators`` report shape, indicator bar-lag (``offset``) evaluation, the
+per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087), or the portfolio model
+(portfolios, sleeves, shared limits, manager settings, the portfolio journal, and the
+portfolio backtest contract; ADR 0088, Alembic 0054) change.
 """
 
 from __future__ import annotations
@@ -42,15 +44,29 @@ from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
+from thytrader.portfolios.models import (
+    MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
+    PORTFOLIO_BACKTEST_CONTRACT,
+    PORTFOLIO_MODES,
+)
 from thytrader.research.models import BACKTEST_ENGINE
 from thytrader.strategies.models import IndicatorKind
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v47"
-EXPECTED_SCHEMA_REVISION = "0053"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v48"
+EXPECTED_SCHEMA_REVISION = "0054"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
+PORTFOLIO_MODEL: tuple[str, ...] = (
+    "sleeves",
+    "shared_limits",
+    "manager_settings",
+    "journal",
+    "portfolio_backtest",
+)
+PORTFOLIO_MODES_FIELD: tuple[str, ...] = PORTFOLIO_MODES
+PORTFOLIO_BACKTEST_CONTRACT_ID: str = PORTFOLIO_BACKTEST_CONTRACT
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
 MULTI_BOOK_LEDGER: tuple[str, ...] = ("paper", "live")
@@ -143,6 +159,10 @@ def expected_ops_contract() -> dict[str, object]:
         "deployment_ledger_pagination": list(DEPLOYMENT_LEDGER_PAGINATION),
         "multi_book_ledger": list(MULTI_BOOK_LEDGER),
         "strategy_model": list(STRATEGY_MODEL),
+        "portfolio_model": list(PORTFOLIO_MODEL),
+        "portfolio_modes": list(PORTFOLIO_MODES_FIELD),
+        "portfolio_backtest_contract": PORTFOLIO_BACKTEST_CONTRACT_ID,
+        "max_concurrent_portfolio_backtests": MAX_CONCURRENT_PORTFOLIO_BACKTESTS,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

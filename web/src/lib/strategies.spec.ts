@@ -170,6 +170,15 @@ describe('deletionCountsText', () => {
 	it('says so when nothing but the strategy goes', () => {
 		expect(deletionCountsText(zeroCounts)).toEqual(['No backtests, studies, or bots']);
 	});
+
+	it('names portfolio sleeves the deletion removes', () => {
+		expect(deletionCountsText({ ...zeroCounts, portfolio_sleeves: 2 })).toEqual([
+			'2 portfolio sleeves (journaled in their portfolios)'
+		]);
+		expect(deletionCountsText({ ...zeroCounts, portfolio_sleeves: 1 })).toEqual([
+			'1 portfolio sleeve (journaled in its portfolio)'
+		]);
+	});
 });
 
 describe('bulkOutcomeText', () => {
