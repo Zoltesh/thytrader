@@ -67,6 +67,7 @@
 		listDeploymentFills,
 		listDeploymentOrders,
 		pauseDeployment,
+		positionStateLabel,
 		resetBreakerLatches,
 		resumeDeployment,
 		stopDeployment,
@@ -872,7 +873,13 @@
 									<td class="num">{position.entry_price}</td>
 									<td class="num">{position.stop_price}</td>
 									<td class="num">{position.target_price ?? 'none'}</td>
-									<td>{position.protection_status ?? 'unknown'}</td>
+									<td data-testid="position-state" title={position.protection_status ?? 'unknown'}
+										>{positionStateLabel(position.position_state, {
+											hasTarget: position.target_price !== null
+										}) ??
+											position.protection_status ??
+											'unknown'}</td
+									>
 								</tr>
 							{/each}
 						</tbody>

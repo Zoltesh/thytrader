@@ -7,7 +7,12 @@
  * Paper capital is simulated, so money is never totalled across paper and
  * live, and amounts are only summed within one quote currency.
  */
-import { canonicalPositions, type Deployment, type DeploymentPosition } from './deployments';
+import {
+	canonicalPositions,
+	positionStateLabel,
+	type Deployment,
+	type DeploymentPosition
+} from './deployments';
 import { marketLabel, productIdQuote, workingOrderCount } from './deployment-detail';
 import { lifecycleControlsAvailable } from './lifecycle-contract';
 import { sumDecimalStrings } from './money';
@@ -265,11 +270,17 @@ export function protectionText(
 			: `${working} working order${working === 1 ? '' : 's'}`;
 	}
 	if (positions.length > 1) {
+		const state = positionStateLabel(deployment.position_state);
+		if (state !== null) return state;
 		const statuses = [...new Set(positions.map((item) => item.protection_status ?? 'unknown'))];
 		return `Protection: ${statuses.join(', ')}`;
 	}
 	const position = positions[0];
-	return `Stop ${position.stop_price} · TP ${position.target_price} · ${position.protection_status ?? 'protection unknown'}`;
+	const state =
+		positionStateLabel(position.position_state, { hasTarget: position.target_price !== null }) ??
+		position.protection_status ??
+		'protection unknown';
+	return `Stop ${position.stop_price} · TP ${position.target_price ?? 'none'} · ${state}`;
 }
 
 /** Signed fill-ledger net PnL in the product's quote, or `—`. */

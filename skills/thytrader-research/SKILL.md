@@ -214,7 +214,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | Poll one async backtest job | `uv run thytrader-research show-backtest-job --job-id UUID` |
 | Plan OOS / walk-forward / cross-market / sweep / WFO windows | `uv run thytrader-research plan-study --file study.json` |
 | Submit a composed research study | `uv run thytrader-research submit-study --file study.json --confirm` |
-| Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` |
+| Queue a long composed study (HTTP 202) | `uv run thytrader-research submit-study --file study.json --async --confirm` (waits up to 30 s for the 202; `--submit-timeout-seconds N` overrides) |
 | Poll one async research job | `uv run thytrader-research show-research-job --job-id UUID` |
 | List one strategy's research jobs (sync and async, newest first) | `uv run thytrader-research list-research-jobs --strategy-id UUID [--limit 20]` |
 | Read back a study after an ambiguous submit | `uv run thytrader-research find-study-by-request --request-fingerprint sha256:…` |
@@ -278,7 +278,10 @@ not look ahead from OOS.
 child windows are required. `submit-study --confirm` snapshots every named strategy and any derived axis
 variants, then submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
 `plan_fingerprint` even when request bounds differ. Long WFO batches should use
-`submit-study --async --confirm` and poll `show-research-job`. If a synchronous `submit-study`
+`submit-study --async --confirm` and poll `show-research-job`. The API plans the study and binds
+its datasets before it answers 202, so an async submit waits up to 30 s for that answer (a
+synchronous one 60 s); pass `--submit-timeout-seconds N` (1-300) to change the wait
+([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). If any `submit-study`
 fails with a timeout or unreachable-API error, the study may already be persisted: the CLI error
 names the `request_fingerprint` and a readback command. Re-run
 `thytrader-research find-study-by-request --request-fingerprint sha256:…` before retrying the

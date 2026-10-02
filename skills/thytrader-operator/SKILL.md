@@ -63,7 +63,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
-| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
+| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
@@ -80,7 +80,12 @@ carry `strategy_id` (null for a stopped live book of a deleted strategy), the sn
 `strategy_fingerprint` differs from its strategy's `current_fingerprint` runs an earlier edit.
 
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
-`side`, `protection_status`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+`side`, `protection_status`, `position_state`, `exit_in_flight`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+Each row also carries the deployment's worst-book `position_state` / `exit_in_flight`
+([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). Report a book by
+`position_state`, not by `phase`: `phase: pending_exit` includes an open book whose TP/SL
+bracket (or stop-only protection) merely rests, which is `open_protected`. Only `exiting`
+(`exit_in_flight: true`) means an exit is being sent.
 `protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
 coverage and venue-visible exits, not inferred parent geometry
 ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). Rows also include
@@ -177,7 +182,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v56`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v57`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0059`, `research_worker_pool` (leased research worker pool;
@@ -206,7 +211,11 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    [ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)). `catalog_health` includes
    `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings`, and (sparse markets,
    [ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md))
-   `no_trade_bars`, `listing_history_floor`, and `watch_relative_complete`. Mismatch means
+   `no_trade_bars`, `listing_history_floor`, and `watch_relative_complete`.
+   `same_bar_exit_precedence` (`stop`, `take_profit`, `signal_exit`, `time_exit`: paper and the
+   backtest resolve a same-bar tie in that order) and `runtime_observability` (`position_state`,
+   `exit_in_flight`, `paper_live_fill_comparison`;
+   [ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). Mismatch means
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.

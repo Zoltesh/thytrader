@@ -13,7 +13,13 @@ from unittest.mock import patch
 import pytest
 
 from thytrader.agent_http import AgentHttpError
-from thytrader.research.http import _ambiguous_study_error, find_study_by_request
+from thytrader.research.http import (
+    ASYNC_SUBMIT_TIMEOUT_SECONDS,
+    _ambiguous_study_error,
+    find_study_by_request,
+    submit_study,
+)
+from thytrader.research.mutation_cli import _parser
 from thytrader.research.study_start import ResearchStudyStartRequest
 
 _STRATEGY_ID = "01985cf0-7b60-7000-8000-00000000beef"
@@ -135,3 +141,40 @@ def test_flagged_transport_timeout_is_ambiguous_even_without_the_old_wording() -
     )
     assert "Submit-state is ambiguous" in str(error)
     assert error.timed_out is True
+
+
+def _submit_timeout(*, async_submission: bool, timeout_seconds: float | None = None) -> float:
+    """POST one study through a fake transport and return the client timeout it used."""
+    seen: list[float] = []
+
+    def fake_mutation(*, timeout: float, **_kwargs: object) -> dict[str, object]:
+        seen.append(timeout)
+        return {"job_id": "job-1", "status": "queued"}
+
+    with patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation):
+        submit_study(
+            "http://127.0.0.1:8000",
+            _study_request(),
+            async_submission=async_submission,
+            timeout_seconds=timeout_seconds,
+        )
+    return seen[0]
+
+
+def test_async_submit_waits_long_enough_for_planning_and_dataset_binding() -> None:
+    """Async submits plan and bind before queueing, so the client waits 30 s, not 5 s."""
+    assert ASYNC_SUBMIT_TIMEOUT_SECONDS == 30.0
+    assert _submit_timeout(async_submission=True) == ASYNC_SUBMIT_TIMEOUT_SECONDS
+    assert _submit_timeout(async_submission=False) == 60.0
+    assert _submit_timeout(async_submission=True, timeout_seconds=90.0) == 90.0
+
+
+def test_submit_timeout_flag_is_bounded() -> None:
+    """``--submit-timeout-seconds`` parses 1-300 seconds and rejects anything else."""
+    parser = _parser()
+    parsed = parser.parse_args(
+        ["submit-study", "--file", "s.json", "--async", "--submit-timeout-seconds", "45"]
+    )
+    assert parsed.submit_timeout_seconds == 45.0
+    with pytest.raises(SystemExit):
+        parser.parse_args(["submit-study", "--file", "s.json", "--submit-timeout-seconds", "0"])

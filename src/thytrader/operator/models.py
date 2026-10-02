@@ -211,6 +211,10 @@ class OpsContractPayload(_FrozenModel):
     strategy_library: tuple[Literal["tag_filter", "bulk_delete_by_tag", "clone_name"], ...]
     portfolio_max_sleeves: int = Field(ge=1)
     portfolio_sleeve_operations: tuple[Literal["batch_add"], ...]
+    same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
+    runtime_observability: tuple[
+        Literal["position_state", "exit_in_flight", "paper_live_fill_comparison"], ...
+    ]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 
@@ -430,13 +434,52 @@ class PortfolioDigest(_FrozenModel):
     active_backtest_jobs: int = Field(ge=0)
 
 
+class EntryFillDigest(_FrozenModel):
+    """One twin's entry-order outcomes (ADR 0097); decimals are canonical strings."""
+
+    deployment_id: UUID
+    portfolio_id: UUID | None = None
+    status: str
+    entries_rested: int = Field(ge=0)
+    entries_filled: int = Field(ge=0)
+    entries_expired: int = Field(ge=0)
+    entries_rejected: int = Field(ge=0)
+    entries_working: int = Field(ge=0)
+    average_fill_vs_limit_bps: str | None = Field(
+        default=None, description="Positive is worse than the posted limit; null with no fill."
+    )
+    average_seconds_to_fill: str | None = None
+    median_seconds_to_fill: str | None = None
+
+
+class PaperLiveFillComparison(_FrozenModel):
+    """A paper and a live book running the same strategy snapshot, side by side (ADR 0097).
+
+    Twins match by ``strategy_fingerprint`` (the content address of the exact rules). Paper
+    waits run to the fill bar's close (a candle must trade through the limit); live waits
+    end at the venue fill.
+    """
+
+    strategy_fingerprint: str
+    strategy_id: UUID | None = None
+    strategy_name: str | None = None
+    product_id: str
+    paper: EntryFillDigest
+    live: EntryFillDigest
+
+
 class PortfoliosPayload(_FrozenModel):
-    """Every portfolio (sleeves, allocation, limits, manager settings, newest backtest)."""
+    """Every portfolio (sleeves, allocation, limits, manager settings, newest backtest).
+
+    ``paper_live_fill_comparisons`` pairs paper and live books bound to the same strategy
+    snapshot (sleeves or standalone) and compares their entry fills (ADR 0097).
+    """
 
     portfolio_storage: Literal["available", "unavailable"]
     portfolio_backtest_contract: str
     total: int = Field(ge=0)
     portfolios: tuple[PortfolioDigest, ...] = ()
+    paper_live_fill_comparisons: tuple[PaperLiveFillComparison, ...] = ()
 
 
 class PortfoliosReport(OperatorEnvelope):
@@ -526,16 +569,26 @@ class StrategySummary(_FrozenModel):
 
 
 class DeploymentBookSummary(_FrozenModel):
-    """One product book without quantities or order payloads."""
+    """One product book without quantities or order payloads.
+
+    ``position_state`` / ``exit_in_flight`` (ADR 0097) say whether an open book merely
+    rests its protection (``open_protected``) or is exiting; ``phase`` stays raw.
+    """
 
     product_id: str
     phase: str
     side: str | None = None
     protection_status: str
+    position_state: str = "flat"
+    exit_in_flight: bool = False
 
 
 class DeploymentSummary(_FrozenModel):
-    """One paper or live runtime without cash, quantities, or order payloads."""
+    """One paper or live runtime without cash, quantities, or order payloads.
+
+    ``position_state`` / ``exit_in_flight`` collapse every book (ADR 0097); they are null
+    only when the report could not read the deployment's books.
+    """
 
     deployment_id: UUID
     kind: str
@@ -547,6 +600,8 @@ class DeploymentSummary(_FrozenModel):
     mode: str
     status: str
     phase: str
+    position_state: str | None = None
+    exit_in_flight: bool | None = None
     product_id: str
     last_evaluated_bar: datetime | None
     mismatch_present: bool

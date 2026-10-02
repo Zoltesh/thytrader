@@ -107,7 +107,10 @@ simulator runs this fixed sequence:
    venue is the next bar's open.
 6. **Time exit.** A position held `exits.time_exit.max_bars_held` completed bars sells at this
    bar's close as a taker (taker fee, slippage). When the signal exit is due on the same close it
-   names the exit (same price).
+   names the exit (same price). A bar that trades through the stop exits as a stop even when the
+   time exit is also due. Paper resolves every same-bar tie in this order too (ops contract
+   `same_bar_exit_precedence`; parity-tested per combination,
+   [ADR 0097](../decisions/0097-runtime-parity-and-observability.md)).
 7. **New entry.** A `matched` close-time signal rests a new post-only limit at this bar's close
    when the book is flat, off cooldown, and under `max_concurrent_positions`, or a same-side
    pyramiding add when the strategy allows it and the position is in profit. A signal never

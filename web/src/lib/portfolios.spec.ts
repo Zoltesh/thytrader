@@ -5,6 +5,7 @@ import {
 	askWhyPrompt,
 	backtestProblems,
 	botStatusText,
+	sleevePositionText,
 	breakerLabel,
 	deploymentStateLabel,
 	checkAllocation,
@@ -435,6 +436,20 @@ describe('portfolio deployment (ADR 0091)', () => {
 			botStatusText(sleeveBot({ status: 'stopped', lifecycle_command: 'flatten', open_books: 1 }))
 		).toBe('Stopping (flatten)');
 		expect(breakerLabel('PORTFOLIO_DAILY_LOSS_STOP')).toBe('Daily loss stop');
+	});
+
+	it('says a sleeve with resting protection is open and protected (ADR 0097)', () => {
+		const resting = sleeveBot({
+			phase: 'pending_exit',
+			position_state: 'open_protected',
+			open_books: 1
+		});
+		expect(sleevePositionText(resting)).toBe('Open · protected');
+		expect(sleevePositionText(sleeveBot({ position_state: 'exiting', open_books: 1 }))).toBe(
+			'Exiting'
+		);
+		expect(sleevePositionText(sleeveBot({ position_state: 'flat', open_books: 0 }))).toBeNull();
+		expect(sleevePositionText(sleeveBot({ open_books: 1 }))).toBeNull();
 	});
 
 	it('offers only the actions that make sense now', () => {

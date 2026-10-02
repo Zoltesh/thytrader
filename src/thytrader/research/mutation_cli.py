@@ -443,6 +443,16 @@ def _add_study_commands(
             "child windows."
         ),
     )
+    study.add_argument(
+        "--submit-timeout-seconds",
+        type=_submit_timeout,
+        default=None,
+        help=(
+            "Client wait for the submit response (1-300 s). Default 30 s with --async (the "
+            "API plans the study and binds datasets before queueing) and 60 s otherwise. A "
+            "timeout is ambiguous: read back with list-studies before resubmitting."
+        ),
+    )
     find = subparsers.add_parser(
         "find-study-by-request",
         parents=[trailing],
@@ -455,6 +465,15 @@ def _add_study_commands(
         help="Show IS vs OOS vs sweep vs paper vs live evidence for one snapshot.",
     )
     evidence.add_argument("--strategy-fingerprint", required=True)
+
+
+def _submit_timeout(value: str) -> float:
+    """Parse a 1-300 second client submit timeout."""
+    parsed = float(value)
+    if not 1 <= parsed <= 300:
+        message = "submit timeout must be between 1 and 300 seconds"
+        raise argparse.ArgumentTypeError(message)
+    return parsed
 
 
 def _page_limit(value: str) -> int:
@@ -621,6 +640,7 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
         url,
         ResearchStudyStartRequest.model_validate(_load_json(args.file)),
         async_submission=bool(getattr(args, "async", False)),
+        timeout_seconds=getattr(args, "submit_timeout_seconds", None),
     ),
     "find-study-by-request": lambda url, args: research_http.find_study_by_request(
         url, args.request_fingerprint

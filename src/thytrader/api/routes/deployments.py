@@ -34,11 +34,19 @@ from thytrader.execution.models import (
     InstrumentRuntime,
     Order,
     Position,
+    RuntimePhase,
     resolved_product_id,
     snapshot_positions,
     visible_instrument_runtimes,
 )
-from thytrader.execution.protection import book_protection_status, working_order_count
+from thytrader.execution.protection import (
+    PositionState,
+    book_exit_in_flight,
+    book_position_state,
+    book_protection_status,
+    deployment_position_state,
+    working_order_count,
+)
 from thytrader.execution.service import (
     ReferenceWatchlist,
     create_deployment,
@@ -124,6 +132,22 @@ class PositionResponse(BaseModel):
         ),
     )
     protection_status: str
+    position_state: str = Field(
+        default="open_protected",
+        description=(
+            "Operator reading of this book (ADR 0097): open_protected (TP/SL bracket, "
+            "stop-only protection, or the paper synthetic stop rests), open_unprotected, "
+            "open_unverified, or exiting. Prefer it over the raw phase, which reads "
+            "pending_exit while protection merely rests."
+        ),
+    )
+    exit_in_flight: bool = Field(
+        default=False,
+        description=(
+            "True only when this book's exit is being sent: a working marketable exit, a "
+            "matched signal exit, or a flatten. A resting TP/SL bracket is not an exit."
+        ),
+    )
     compatibility_focus: bool = False
 
 
@@ -236,7 +260,22 @@ class DeploymentResponse(BaseModel):
     product_id: str
     mode: str
     status: str
-    phase: str
+    phase: str = Field(
+        description=(
+            "Raw worker state machine (flat, pending_entry, open, pending_exit). pending_exit "
+            "includes an open book whose TP/SL protection merely rests; read position_state."
+        )
+    )
+    position_state: str = Field(
+        default="flat",
+        description=(
+            "Operator reading across books (ADR 0097): flat, entering, open_protected, "
+            "open_unprotected, open_unverified, or exiting (the worst book wins)."
+        ),
+    )
+    exit_in_flight: bool = Field(
+        default=False, description="True when any book's exit is being sent (ADR 0097)."
+    )
     cash: str
     paper_starting_cash: str | None
     maker_fee_rate: str | None = None
@@ -801,8 +840,11 @@ async def _snapshot_response(
     positions = _position_collection(snapshot)
     order_products = _order_product_ids(snapshot)
     ledger = ledger_from_snapshot(snapshot)
+    state = deployment_position_state(snapshot)
     return response.model_copy(
         update={
+            "position_state": state.value,
+            "exit_in_flight": state is PositionState.EXITING,
             "position": _compatibility_position(snapshot, positions),
             "positions": positions,
             "instrument_runtimes": _runtime_collection(
@@ -844,8 +886,11 @@ async def _summary_response(
     response = _deployment_response(summary.deployment, timeframe=timeframe)
     positions = _position_collection(snapshot)
     ledger = ledger_from_snapshot(snapshot)
+    state = deployment_position_state(snapshot)
     return response.model_copy(
         update={
+            "position_state": state.value,
+            "exit_in_flight": state is PositionState.EXITING,
             "position": _compatibility_position(snapshot, positions),
             "positions": positions,
             "instrument_runtimes": _runtime_collection(
@@ -946,6 +991,10 @@ def _position_response(
         protection_status=book_protection_status(
             snapshot, product_id=product_id, position=position
         ).value,
+        position_state=book_position_state(
+            snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
+        ).value,
+        exit_in_flight=book_exit_in_flight(snapshot, product_id=product_id, position=position),
         compatibility_focus=compatibility_focus,
     )
 

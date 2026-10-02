@@ -51,12 +51,15 @@ position exit marker; ADR 0093, Alembic 0058), research honesty and agent ergono
 document issue paths, JSON-number decimals, the library tag filter, bulk delete by tag,
 clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094), sparse-market ingest
 (confirmed no-trade bars, listing-only history floors, and watch-relative catalog
-completeness; ADR 0095, Alembic 0059), or read-only reference instruments
+completeness; ADR 0095, Alembic 0059), read-only reference instruments
 (``data_requirements.reference_instruments`` and indicator ``source`` across research,
 paper, and live; reference dataset auto-binding, the ``reference_data_stale`` /
 ``reference_data_missing`` decision skip reasons, and the reference watch gate on deployment
-start; ADR 0096) change. Concurrency is the deployment's ``research_worker_count`` and is
-reported by operator health, not compiled into this contract.
+start; ADR 0096), or runtime parity and observability (paper's backtest same-bar exit
+precedence, ``position_state`` / ``exit_in_flight``, and the paper/live entry-fill
+comparison in the operator ``portfolios`` report; ADR 0097) change. Concurrency is the
+deployment's ``research_worker_count`` and is reported by operator health, not compiled
+into this contract.
 """
 
 from __future__ import annotations
@@ -81,7 +84,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v56"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v57"
 EXPECTED_SCHEMA_REVISION = "0059"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -191,6 +194,12 @@ RESEARCH_HONESTY: tuple[str, ...] = (
 )
 STRATEGY_LIBRARY: tuple[str, ...] = ("tag_filter", "bulk_delete_by_tag", "clone_name")
 PORTFOLIO_SLEEVE_OPERATIONS: tuple[str, ...] = ("batch_add",)
+SAME_BAR_EXIT_PRECEDENCE: tuple[str, ...] = ("stop", "take_profit", "signal_exit", "time_exit")
+RUNTIME_OBSERVABILITY: tuple[str, ...] = (
+    "position_state",
+    "exit_in_flight",
+    "paper_live_fill_comparison",
+)
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -250,6 +259,8 @@ def expected_ops_contract() -> dict[str, object]:
         "strategy_library": list(STRATEGY_LIBRARY),
         "portfolio_max_sleeves": MAX_SLEEVES,
         "portfolio_sleeve_operations": list(PORTFOLIO_SLEEVE_OPERATIONS),
+        "same_bar_exit_precedence": list(SAME_BAR_EXIT_PRECEDENCE),
+        "runtime_observability": list(RUNTIME_OBSERVABILITY),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

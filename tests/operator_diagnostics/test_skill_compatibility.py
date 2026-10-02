@@ -74,7 +74,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v56" in skill
+    assert "thytrader-ops-contract-v57" in skill
     assert "0059" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
@@ -468,3 +468,22 @@ def test_skills_teach_reference_instruments_end_to_end() -> None:
     ):
         assert needle in operator, needle
     assert "reference_data_missing" in schemas
+
+
+def test_skills_document_position_state_parity_and_fill_comparison() -> None:
+    """Agents read open-and-protected vs exiting and twin fills from skills alone (ADR 0097)."""
+    runtime = _RUNTIME_SKILL.read_text(encoding="utf-8")
+    operator = _OPERATOR_SKILL.read_text(encoding="utf-8")
+    schemas = _SCHEMAS.read_text(encoding="utf-8")
+    portfolio = _PORTFOLIO_SKILL.read_text(encoding="utf-8")
+    research = _RESEARCH_SKILL.read_text(encoding="utf-8")
+    for needle in ("position_state", "open_protected", "exit_in_flight", "exiting"):
+        assert needle in runtime, needle
+        assert needle in schemas, needle
+    assert "same_bar_exit_precedence" in operator
+    assert "runtime_observability" in operator
+    assert "paper_live_fill_comparisons" in schemas
+    assert "paper_live_fill_comparisons" in portfolio
+    assert "average_fill_vs_limit_bps" in portfolio
+    assert "--submit-timeout-seconds" in research
+    assert "0097-runtime-parity-and-observability" in runtime

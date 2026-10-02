@@ -290,6 +290,24 @@ product-tagged); do not treat it as the full inventory
 ([ADR 0060](../decisions/0060-multi-book-deployment-api.md)). Operator `strategies` / `runtime`
 reports include redacted `books[]` (product, phase, side, protection — no quantities).
 
+Bot detail, Portfolio rows, Home, and portfolio sleeves describe a book by its **position state**,
+not its raw phase ([ADR 0097](../decisions/0097-runtime-parity-and-observability.md)). Right after
+an entry fills, the TP/SL bracket (or the stop-only order) rests and the worker's `phase` reads
+`pending_exit`, but the book shows **Open · protected (TP/SL resting)** (or **(stop resting)** with no
+take-profit). **Exiting** appears only while an exit is actually being sent: a marketable exit, a
+matched exit rule, or a flatten. HTTP and operator payloads carry the same reading as
+`position_state` and `exit_in_flight`.
+
+When one bar makes several exits due, paper takes the same one the backtest does: the stop first,
+then a take-profit the bar touched, then the exit rule, then the time exit. A bar that trades
+through the stop exits as a stop even if the time exit is also due on that bar.
+
+To see why a live bot entered quickly while its paper twin waited, read
+`uv run thytrader-operator portfolios`: `paper_live_fill_comparisons` pairs paper and live bots
+that run the same strategy snapshot and reports entries rested, filled, and expired, the fill
+against the limit, and the time to fill. A paper post-only entry fills only when a closed candle
+trades through the limit. Live fills whenever Coinbase matches it.
+
 On-demand trades and strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
 available base and never borrows. When stop and take-profit are known and trailing is off, live

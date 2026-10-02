@@ -864,9 +864,15 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
         asyncio.run(execution.save_order(order))
         asyncio.run(execution.save_fill(fill))
         fetched = client.get(f"/api/v1/deployments/{deployment_id}?detail=full")
+        summary = client.get(f"/api/v1/deployments/{deployment_id}")
 
     assert fetched.status_code == 200
     body = fetched.json()
+    # ADR 0097: an open paper book is open and protected; the phase stays raw.
+    for read in (body, summary.json()):
+        assert (read["position_state"], read["exit_in_flight"]) == ("open_protected", False)
+        assert read["positions"][0]["position_state"] == "open_protected"
+        assert read["positions"][0]["exit_in_flight"] is False
     assert body["product_id"] == "BTC-USD"
     assert [item["product_id"] for item in body["positions"]] == ["ETH-USD"]
     assert body["positions"][0]["side"] == "short"

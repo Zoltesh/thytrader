@@ -10,7 +10,7 @@
  * manager agent only proposes (rebalance, pause, resume, add a sleeve); nothing
  * here places an order.
  */
-import type { Deployment } from './deployments';
+import { positionStateLabel, type Deployment } from './deployments';
 import { formatQuoteAmount } from './deployment-portfolio';
 import { sumDecimalStrings } from './money';
 import { compareDecimalStrings, formatPercent, subtractDecimalStrings } from './portfolio';
@@ -105,7 +105,11 @@ export type SleeveDeployment = {
 	strategy_id: string | null;
 	strategy_name: string | null;
 	status: 'running' | 'paused' | 'stopped' | string;
+	/** Raw worker phase; `pending_exit` includes resting TP/SL protection. */
 	phase: string;
+	/** Operator reading of the sleeve's books (ADR 0097); null when not read. */
+	position_state?: string | null;
+	exit_in_flight?: boolean | null;
 	lifecycle_command: string;
 	mismatch_detail: string | null;
 	allocated_capital: string | null;
@@ -1103,6 +1107,15 @@ export function botStatusText(deployment: SleeveDeployment): string {
 			: 'Stopped';
 	}
 	return `${deployment.status.charAt(0).toUpperCase()}${deployment.status.slice(1)}`;
+}
+
+/**
+ * What the sleeve bot's books are doing (ADR 0097): "Open · protected" while a TP/SL
+ * rests, "Exiting" only while an exit is sent. Null when flat or not reported.
+ */
+export function sleevePositionText(deployment: SleeveDeployment): string | null {
+	if (deployment.open_books === 0) return null;
+	return positionStateLabel(deployment.position_state);
 }
 
 /** Which portfolio-wide actions make sense now. */

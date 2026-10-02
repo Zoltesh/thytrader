@@ -33,6 +33,7 @@
 		signedQuote,
 		sleeveBots,
 		sleeveIssueText,
+		sleevePositionText,
 		weightPercent,
 		type Portfolio,
 		type PortfolioDeployment,
@@ -312,6 +313,12 @@
 											href={resolve(`/deployments/${encodeURIComponent(bot.deployment_id)}`)}
 											title={bot.mismatch_detail ?? undefined}>{botStatusText(bot)}</a
 										>
+										{@const positionState = sleevePositionText(bot)}
+										{#if positionState !== null}
+											<div class="faint small" data-testid="sleeve-position-state">
+												{positionState}
+											</div>
+										{/if}
 										{#if occupied(bot)}
 											<div class="faint small">
 												PnL {signedQuote(bot.net_pnl, portfolio.quote_currency)} · {quoteText(

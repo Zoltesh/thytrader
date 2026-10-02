@@ -40,6 +40,8 @@ classDiagram
     mode paper|live
     status running|paused|stopped
     phase flat|pending_entry|open|pending_exit
+    position_state flat|entering|open_protected|open_unprotected|open_unverified|exiting
+    exit_in_flight
     product_id
     timeframe venue clock
     strategy_fingerprint?
