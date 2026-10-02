@@ -36,7 +36,7 @@ def _client(tmp_path: Path) -> TestClient:
 
 
 async def _run_worker_cycle(app: FastAPI) -> None:
-    """Let the worker walk UTC-day chunks until the queued ingest request clears."""
+    """Let the worker walk provider pages until the queued ingest request clears."""
     stop = asyncio.Event()
     task = asyncio.create_task(
         run_market_data_worker(
@@ -49,6 +49,7 @@ async def _run_worker_cycle(app: FastAPI) -> None:
             lookback_hours=1,
             interval_seconds=1,
             watchlist=app.state.market_data_watchlist_store,
+            request_pause_seconds=0.0,
         )
     )
     deadline = time.monotonic() + 40.0
@@ -575,3 +576,74 @@ def test_unknown_product_watch_is_rejected(tmp_path: Path) -> None:
             json={"product_id": "ZZZ-USD", "timeframe": "1h", "lookback_hours": 24},
         )
     assert response.status_code == 400
+
+
+def test_ingest_refuses_an_unwatched_target_without_creating_a_watch(tmp_path: Path) -> None:
+    """Ingest never invents a lookback: an unwatched target is 409 naming watch-add."""
+    with _client(tmp_path) as client:
+        before = client.get("/api/v1/data/watchlist").json()["targets"]
+        ingest = client.post(
+            "/api/v1/data/ingest", json={"product_id": "ETH-USD", "timeframe": "1d"}
+        )
+        fill = client.post(
+            "/api/v1/data/fill-gaps", json={"product_id": "ETH-USD", "timeframe": "1d"}
+        )
+        after = client.get("/api/v1/data/watchlist").json()["targets"]
+
+    assert ingest.status_code == 409, ingest.text
+    assert fill.status_code == 409, fill.text
+    detail = ingest.json()["detail"]
+    assert "ETH-USD 1d is not on the market-data watchlist" in detail
+    assert "thytrader-data watch-add --product-id ETH-USD --timeframe 1d" in detail
+    assert "--lookback-hours <1-87600>" in detail
+    assert after == before
+    assert not any(
+        target["product_id"] == "ETH-USD" and target["timeframe"] == "1d" for target in after
+    )
+
+
+def test_ingest_queues_an_existing_watch_with_its_own_lookback(tmp_path: Path) -> None:
+    """A watched target is queued with the watch's lookback, never the worker default."""
+    with _client(tmp_path) as client:
+        added = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "1d", "lookback_hours": 87_600},
+        )
+        ingest = client.post(
+            "/api/v1/data/ingest", json={"product_id": "ETH-USD", "timeframe": "1d"}
+        )
+        targets = client.get("/api/v1/data/watchlist").json()["targets"]
+
+    assert added.status_code == 200, added.text
+    assert ingest.status_code == 202, ingest.text
+    assert ingest.json()["state"]["watch_expected_candle_count"] == 3_650
+    queued = next(
+        target
+        for target in targets
+        if target["product_id"] == "ETH-USD" and target["timeframe"] == "1d"
+    )
+    assert queued["lookback_hours"] == 87_600
+    assert queued["ingest_requested_at"] is not None
+
+
+def test_watch_add_accepts_research_ceilings_and_rejects_beyond_them(tmp_path: Path) -> None:
+    """The HTTP boundary enforces each per-timeframe ceiling with a readable message."""
+    ceilings = {"1m": 2_160, "5m": 8_760, "15m": 17_520, "30m": 26_280, "1h": 43_800, "4h": 87_600}
+    with _client(tmp_path) as client:
+        accepted = {
+            timeframe: client.put(
+                "/api/v1/data/watchlist",
+                json={"product_id": "ETH-USD", "timeframe": timeframe, "lookback_hours": hours},
+            )
+            for timeframe, hours in ceilings.items()
+        }
+        rejected = client.put(
+            "/api/v1/data/watchlist",
+            json={"product_id": "ETH-USD", "timeframe": "1h", "lookback_hours": 43_801},
+        )
+
+    for timeframe, response in accepted.items():
+        assert response.status_code == 200, (timeframe, response.text)
+        assert response.json()["target"]["lookback_hours"] == ceilings[timeframe]
+    assert rejected.status_code == 422
+    assert "between 1 and 43800 (5 years) for 1h" in rejected.text

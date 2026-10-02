@@ -5,12 +5,19 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
+import requests
 
+from thytrader.exchanges import coinbase_market_data as coinbase_market_data_module
 from thytrader.exchanges.coinbase_market_data import (
     CoinbaseMarketData,
     CoinbaseMarketDataError,
 )
-from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT, CandleInterval
+from thytrader.market_data.models import (
+    HISTORICAL_REQUEST_MAX_CANDLES,
+    MAX_HISTORICAL_INTERVAL_COUNT,
+    CandleInterval,
+    MarketDataRateLimitedError,
+)
 
 
 class StubResponse:
@@ -824,3 +831,67 @@ def test_coinbase_market_data_rejects_unrepresentable_or_non_ascii_candle_epochs
                 datetime(2026, 7, 28, 5, 30, tzinfo=UTC),
             )
         )
+
+
+class ThrottledCoinbaseMarketClient(StubCoinbaseMarketClient):
+    """SDK-shaped client whose candle call fails the way the official SDK reports HTTP errors."""
+
+    def __init__(self, status_code: int) -> None:
+        """Remember which HTTP status the candle call should fail with."""
+        super().__init__()
+        self._status_code = status_code
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Raise ``requests.HTTPError`` carrying the configured response status."""
+        del product_id, start, end, granularity, limit
+        response = requests.Response()
+        response.status_code = self._status_code
+        message = f"{self._status_code} Client Error: https://api.coinbase.com/secret-path"
+        raise requests.HTTPError(message, response=response)
+
+
+def test_coinbase_market_data_maps_http_429_to_a_provider_neutral_rate_limit() -> None:
+    """A throttled candle call surfaces as MarketDataRateLimitedError without the provider text."""
+    ends_at = datetime(2026, 7, 1, tzinfo=UTC)
+
+    with pytest.raises(MarketDataRateLimitedError) as raised:
+        asyncio.run(
+            CoinbaseMarketData(ThrottledCoinbaseMarketClient(429)).get_historical_range(
+                "BTC-USD",
+                CandleInterval.ONE_HOUR,
+                ends_at - timedelta(hours=3),
+                ends_at,
+                ends_at,
+            )
+        )
+
+    assert "secret-path" not in str(raised.value)
+    assert raised.value.__cause__ is None
+
+
+def test_coinbase_market_data_keeps_other_http_errors_unchanged() -> None:
+    """Only HTTP 429 becomes a rate limit; a server error still propagates as itself."""
+    ends_at = datetime(2026, 7, 1, tzinfo=UTC)
+
+    with pytest.raises(requests.HTTPError):
+        asyncio.run(
+            CoinbaseMarketData(ThrottledCoinbaseMarketClient(503)).get_historical_range(
+                "BTC-USD",
+                CandleInterval.ONE_HOUR,
+                ends_at - timedelta(hours=3),
+                ends_at,
+                ends_at,
+            )
+        )
+
+
+def test_coinbase_candle_page_limit_matches_the_worker_request_size() -> None:
+    """The worker plans one request per Coinbase page, so both limits must agree."""
+    assert coinbase_market_data_module._CANDLE_PAGE_LIMIT == HISTORICAL_REQUEST_MAX_CANDLES == 350

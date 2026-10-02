@@ -37,11 +37,13 @@ evaluate those strategies on last-completed complete-only extra-TF and HTF bars 
 Historical candles are published only as complete Parquet ranges with manifests. Gaps are listed
 and classified, never interpolated.
 
-Ingest is a **job**. `POST /api/v1/data/ingest` returns **202** and sets a watchlist flag. The
+Ingest is a **job** for an **existing watch**. `POST /api/v1/data/ingest` returns **202** and sets
+a watchlist flag. It never creates a watch or picks a lookback: an unwatched product/timeframe is
+refused with **HTTP 409**, and the message names the `watch-add` command to run first
+([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)). `fill-gaps` behaves the same. The
 market-data worker (`thytrader-market-data-worker`) is the only process that writes Parquet. The
 API dataset volume stays read-only. By default the CLI polls `GET /api/v1/data/ingest` until the
-flag clears (after the worker finishes `ingest_once`) or 45 minutes elapse. A 90-day 5m prefix
-walk can take minutes; do not treat a fast 202 as published coverage. Agents with bounded
+flag clears (after the worker covers the watch lookback) or 45 minutes elapse. Agents with bounded
 execution windows should pass `--no-wait`: the mutation is identical, the CLI returns the 202-time
 ingest state immediately, and the worker keeps going. Re-check progress with
 `thytrader-data ingest ... --no-wait` (never re-queue to poll) or `thytrader-operator data-catalog`.
@@ -63,47 +65,73 @@ Run every `uv run thytrader-*` command from the repository root (the parent of `
 | List the watchlist | `uv run thytrader-data watchlist-list` |
 | Watch a product/timeframe | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --confirm` |
 | Watch disabled (no ingest until enabled) | `uv run thytrader-data watch-add --product-id ETH-USD --timeframe 5m --disabled --confirm` |
-| Watch a USDC/USDT quote | `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 2h --lookback-hours 8760 --confirm` |
-| Queue ingest (CLI polls the worker) | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
+| Watch a long research history | `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 1d --lookback-hours 87600 --confirm` |
+| Queue ingest for a watched target (CLI polls the worker) | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --confirm` |
 | Queue ingest without polling | `uv run thytrader-data ingest --product-id ETH-USD --timeframe 5m --no-wait --confirm` |
 | Classify missing bars | `uv run thytrader-data inspect-gaps --product-id ETH-USD --timeframe 5m` |
 | Re-queue complete-only ingest | `uv run thytrader-data fill-gaps --product-id ETH-USD --timeframe 5m --confirm` |
 
-`watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`.
+`watchlist-list` and `inspect-gaps` are read-only and do not use `--confirm`. Run `watch-add`
+before `ingest` for any product/timeframe that `watchlist-list` does not show; `ingest` and
+`fill-gaps` on an unwatched target exit with the HTTP 409 message and change nothing.
 
 `watch-add` accepts USD, USDC, and USDT spot products. The web Test/Run **Download data** action uses
-the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation.
-Optional `--lookback-hours` on `watch-add` defaults to 168 (seven days). Sub-daily clocks (`1m`,
-`5m`, `15m`, `30m`, `1h`) may be set up to 2,160 hours (90 days). Slower venue clocks (`2h`,
-`4h`, `6h`, `1d`) may be set up to 8,760 hours (365 days) for low-trade-count research
-([ADR 0068](../../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md)).
-Five-minute ingest can cover a 90-day lookback (25,920 bars). One-minute ingest covers the same
-lookback (129,600 bars). Fifteen-minute ingest covers the same lookback (8,640 bars).
-Thirty-minute ingest covers the same lookback (4,320 bars). Two-hour ingest can cover a 365-day
-lookback (4,380 bars). Four-hour ingest can cover a 365-day lookback (2,190 bars). Six-hour ingest
-can cover a 365-day lookback (1,460 bars). Daily ingest can cover a 365-day lookback (365 bars).
-Initial
-backfill publishes complete UTC days through existing fingerprint-addressed Parquet; incomplete
-days stay holes. When lookback starts before an existing complete island, the worker prepends
-complete UTC-day chunks (`prefix_backfill`) and stops at the first hole. When Coinbase confirms a
-hole directly before the island (still incomplete on one re-fetch), the worker records
-`history_floor_at` (the island start), stops prepending, and keeps extending forward;
-`watch_complete` is then true from that floor. Status payloads (`ingest`, `fill-gaps`, catalog
-rows, `GET /api/v1/market-data/ingestion`) report `history_floor_at`; when it is set, coverage
-legitimately starts there and earlier bars cannot be published without interpolation. No command
-is needed to clear it: it resets itself when the island start changes. Superseded dataset
-revisions are garbage-collected by the worker (bounded, audited, every 6 h). It never deletes a
-fingerprint that any stored record references, or the newest revision. Operators can run a
-one-shot pass with `docker compose exec market-data-worker /app/.venv/bin/thytrader-market-data-retention`
+the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation,
+and watches at the timeframe's ceiling. Optional `--lookback-hours` on `watch-add` defaults to 168
+(seven days). Per-timeframe ceilings ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)):
+
+| Timeframe | Max `--lookback-hours` | Span | Bars at the ceiling |
+|---|---|---|---|
+| `1m` | 2160 | 90 days | 129,600 |
+| `5m` | 8760 | 1 year | 105,120 |
+| `15m` | 17520 | 2 years | 70,080 |
+| `30m` | 26280 | 3 years | 52,560 |
+| `1h` | 43800 | 5 years | 43,800 |
+| `2h`, `4h`, `6h`, `1d` | 87600 | 10 years | 43,800 / 21,900 / 14,600 / 3,650 |
+
+A larger value is rejected (HTTP 422) with the ceiling and its span. Coinbase often holds less
+history than a ceiling allows, especially for USDC markets listed recently; ingest then stops at
+the first hole and reports `history_floor_at` instead of interpolating.
+
+How the worker walks a watch ([ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)):
+
+- Every provider request is one page of at most 350 bars on the interval grid. A one-year `1h`
+  backfill is 26 requests and a one-year `1d` backfill is 2.
+- Initial backfill starts at the newest closed bar and walks back toward the lookback start, so a
+  dataset ending at the newest bar exists after the first request. Prefix backfill (`prefix_backfill`)
+  extends an existing island back the same way. Incremental maintenance extends forward from a
+  one-bar overlap.
+- Each walk publishes one cumulative, fingerprint-addressed revision. UTC-day Parquet partitions and
+  complete-only validation are unchanged.
+- A missing bar ends a run. When Coinbase confirms a hole (still missing on one re-fetch) directly
+  before the island, the worker records `history_floor_at` (the bar after the hole), stops
+  prepending, and keeps extending forward; `watch_complete` is then true from that floor. A confirmed
+  hole in the forward direction starts a newer island after it, because the newest contiguous island
+  wins. A missing bar newer than the settle window (one bar, at least 15 minutes) is waited for,
+  never recorded.
+- Status payloads (`ingest`, `fill-gaps`, catalog rows, `GET /api/v1/market-data/ingestion`) report
+  `history_floor_at`. When it is set, coverage legitimately starts there and earlier bars cannot be
+  published without interpolation. No command is needed to clear it: it resets itself when the
+  island start changes.
+
+Superseded dataset revisions are garbage-collected by the worker (bounded, audited, every 6 h). It
+never deletes a fingerprint that any stored record references, or the newest revision. Operators can
+run a one-shot pass with `docker compose exec market-data-worker /app/.venv/bin/thytrader-market-data-retention`
 (dry run) and add `--confirm` to delete. That command is an operator repair step, not a lane
-mutation; agents should report backlog rather than run it. `inspect-gaps` classifies
-holes across the **watch** window, not only the current island, and never interpolates.
+mutation; agents should report backlog rather than run it. `inspect-gaps` classifies holes across
+the **watch** window, not only the current island, and never interpolates.
 
 `complete` on catalog and ingest state is **island** completeness. `watch_complete` is whether that
-island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 2160` is
+island spans the configured lookback. A 14-day complete 5m island with `lookback_hours: 8760` is
 not done. Catalog `watch_sparsity` is `gapped` in that case while island `sparsity` may still be
-`none`. `GET /api/v1/market-data/datasets` lists
-island fingerprints; it is not the watch-completeness surface.
+`none`. `GET /api/v1/market-data/datasets` lists island fingerprints; it is not the
+watch-completeness surface.
+
+`GET /api/v1/market-data/datasets/latest` and `thytrader-operator data-catalog` are catalog
+listings. Each newest revision passes structural checks (manifest facts, content address, file
+presence, intact Parquet files) and is served from a stat-identity cache, so warm reads stay under a
+second while ingest runs. Content fingerprints are re-verified whenever a backtest, study, or
+deployment binds a dataset, so a damaged revision fails closed at that point.
 
 Gap `cause` values:
 
@@ -123,10 +151,15 @@ When a budget is hit the payload is fail-closed: `truncated` is true, `scanned_b
 many bars were classified, and `gap_summary` covers only that scan. Treat `truncated` as incomplete
 evidence, not as `watch_complete`. Never interpolate.
 
-One `ingest --confirm` keeps walking until `watch_complete` or a durable failure. The worker
-processes a small UTC-day budget per target per cycle, touches its heartbeat between cells and
-chunks, and does not require extra `fill-gaps` calls to finish lookback. Use `fill-gaps` only when
-the user asked to re-queue continuation after a durable hole or failure.
+One `ingest --confirm` keeps walking until `watch_complete` or a durable failure. Every due target
+gets a fair share of provider requests per worker cycle: 24 while its ingest request is pending, 8
+otherwise. Covered watches are refreshed first, then pending requests (oldest first), then other
+backfill. When a target runs out of budget with work left, the next cycle starts at once. Requests
+are paced (0.25 s apart) and the worker touches its heartbeat before each one. A Coinbase HTTP 429
+pauses every target for a shared cooldown (2 s, doubling to 60 s); a target that made no progress
+shows `failure_code: provider_rate_limited` with a short retry. Wait it out; do not re-queue. Extra
+`fill-gaps` calls are not needed to finish a lookback. Use `fill-gaps` only when the user asked to
+re-queue continuation after a durable hole or failure.
 
 ## Confirmation
 
@@ -141,10 +174,12 @@ the user asked to re-queue continuation after a durable hole or failure.
 
 1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC spot ids.
    Judge `watch_complete`, not only `complete`.
-2. `watch-add` then `ingest` for a new product and any ingested venue clock (`1m`, `5m`, `15m`,
-   `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Wait for the CLI poll; do not treat 202 as published
-   Parquet. When a strategy uses `htf_filter` or a per-indicator `timeframe`, ingest those extra
-   clocks the same way before research or deploy. Paper and live pause on extra-TF or HTF gaps.
+2. `watch-add` (choose `--lookback-hours` up to the timeframe's ceiling) then `ingest` for a new
+   product and any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or
+   `1d`). `ingest` refuses an unwatched target with HTTP 409. Wait for the CLI poll or pass
+   `--no-wait`; do not treat 202 as published Parquet. When a strategy uses `htf_filter` or a
+   per-indicator `timeframe`, watch and ingest those extra clocks the same way before research or
+   deploy. Paper and live pause on extra-TF or HTF gaps.
 3. `inspect-gaps` if `watch_complete` is false. Classify; do not interpolate. If `truncated` is
    true, report the partial `gap_summary` and do not claim the full watch was scanned.
 4. Wait for the worker to self-complete the lookback. `fill-gaps --confirm` only if the user asked

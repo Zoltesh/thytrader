@@ -188,10 +188,13 @@ fingerprint and remain deterministic research artifacts.
 optional higher-timeframe filter, and any per-indicator timeframe). When a clock has no verified
 dataset, or its newest bar is stale, the panel names it exactly (for example
 "No verified BTC-USDC × 2h dataset yet"). **Download data…** asks for confirmation, then adds the
-product × timeframe to the watchlist (2,160 h lookback up to 1h, 8,760 h for 2h and slower; a
-longer existing lookback is kept) and queues a no-wait ingest through the same data-lane endpoints
-as `thytrader-data watch-add` / `ingest`. Progress shows received versus expected candles and
-refreshes the dataset choices when the watch completes. For the higher-timeframe filter or an extra
+product × timeframe to the watchlist at that timeframe's research ceiling (90 days at 1m, 1 year
+at 5m, 2 years at 15m, 3 years at 30m, 5 years at 1h, 10 years at 2h and slower; a longer
+existing lookback is kept) and queues a no-wait ingest through the same data-lane endpoints as
+`thytrader-data watch-add` / `ingest`. The worker fetches newest bars first, up to 350 per request,
+so a dataset ending at the latest bar appears quickly and then grows back in time. Coinbase may hold
+less history than the ceiling; coverage then starts where its history does. Progress shows
+received versus expected candles and refreshes the dataset choices when the watch completes. For the higher-timeframe filter or an extra
 indicator clock, a **Change or remove … in Build** link opens the Build stage at that section; the
 higher-timeframe filter is optional and off by default.
 

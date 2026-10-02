@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from email.message import Message
 import json
+import socket
+import threading
 from typing import Protocol
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
@@ -155,3 +157,65 @@ def test_default_api_base_url_is_loopback() -> None:
     """Settings without an override still produce a loopback origin."""
     settings = Settings(_env_file=None)
     assert default_api_base_url(settings).startswith("http://127.0.0.1:")
+
+
+def _stalling_loopback_server() -> tuple[socket.socket, threading.Event]:
+    """Accept loopback connections and never answer, like an API stuck on a long request."""
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind(("127.0.0.1", 0))
+    server.listen(4)
+    done = threading.Event()
+
+    def hold_connections() -> None:
+        held: list[socket.socket] = []
+        server.settimeout(0.1)
+        while not done.is_set():
+            try:
+                connection, _address = server.accept()
+            except OSError:
+                continue
+            held.append(connection)
+        for connection in held:
+            connection.close()
+
+    threading.Thread(target=hold_connections, daemon=True).start()
+    return server, done
+
+
+def test_request_json_reports_a_read_timeout_instead_of_escaping() -> None:
+    """A request the API accepted but did not answer is a clear, flagged AgentHttpError."""
+    server, done = _stalling_loopback_server()
+    port = server.getsockname()[1]
+    try:
+        with pytest.raises(AgentHttpError) as raised:
+            request_json(
+                method="POST",
+                url=f"http://127.0.0.1:{port}/api/v1/backtests",
+                payload={},
+                timeout=0.2,
+            )
+    finally:
+        done.set()
+        server.close()
+    message = str(raised.value)
+    assert raised.value.timed_out is True
+    assert raised.value.status is None
+    assert "Timed out after 0.2 s waiting for the ThyTrader API to answer POST" in message
+    assert "/api/v1/backtests" in message
+    assert "may still be running on the server" in message
+
+
+def test_request_json_reports_a_connect_timeout_without_calling_the_api_down() -> None:
+    """A connect-phase timeout is not "unreachable": the API may be busy, nothing was sent."""
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=URLError(TimeoutError("timed out"))),
+        pytest.raises(AgentHttpError) as raised,
+    ):
+        request_json(
+            method="GET", url="http://127.0.0.1:8200/api/v1/operator/data-catalog", timeout=30.0
+        )
+    message = str(raised.value)
+    assert raised.value.timed_out is True
+    assert "Timed out after 30 s waiting to connect" in message
+    assert "was not sent" in message
+    assert "unreachable" not in message

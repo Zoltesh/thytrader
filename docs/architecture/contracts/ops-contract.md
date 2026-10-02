@@ -8,19 +8,19 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0051`):
+Current checkout (Alembic `0052`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v44` |
-| `expected_schema_revision` | `0051` |
+| `id` | `thytrader-ops-contract-v45` |
+| `expected_schema_revision` | `0052` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `async_backtest_job_statuses` | `queued`, `running`, `completed`, `failed`, `cancelled`, `expired` |
 | `research_job_statuses` | same as `async_backtest_job_statuses` |
 | `max_concurrent_research_jobs` | `2` |
 | `research_job_expiry_hours` | `24` |
 | `spot_quote_currencies` | `USD`, `USDC`, `USDT` |
-| `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest` |
+| `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest`, `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings` ([ADR 0085](../../decisions/0085-fast-research-ingest.md)) |
 | `bounded_deployment_reads` | `list`, `summary`, `fills`, `orders` |
 | `deployment_ledger_pagination` | `cursor` |
 | `multi_book_ledger` | `paper`, `live` |
@@ -46,7 +46,7 @@ Current checkout (Alembic `0051`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v44
+    id thytrader-ops-contract-v45
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -76,7 +76,7 @@ classDiagram
     bounded_deployment_reads
     deployment_ledger_pagination
     multi_book_ledger
-    expected_schema_revision 0051
+    expected_schema_revision 0052
   }
   class HealthPayload {
     api_probed

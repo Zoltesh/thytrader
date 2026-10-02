@@ -15,6 +15,7 @@
 	import {
 		clockLabel,
 		defaultWatchLookbackHours,
+		describeLookbackHours,
 		downloadProgress,
 		fetchIngestStatus,
 		readinessMessage,
@@ -197,12 +198,15 @@
 	onconfirm={() => void confirmDownload()}
 >
 	{#if confirmTarget}
+		{@const lookbackHours = defaultWatchLookbackHours(confirmTarget.timeframe)}
 		<p><strong>{clockLabel(confirmTarget)}</strong></p>
 		<p>
 			This watches {confirmTarget.productId}
-			{confirmTarget.timeframe} with a {defaultWatchLookbackHours(confirmTarget.timeframe)}-hour
+			{confirmTarget.timeframe} with a {lookbackHours}-hour ({describeLookbackHours(lookbackHours)})
 			lookback (an existing longer lookback is kept) and asks the market-data worker to backfill it
-			now. Ingest is complete-only and never interpolates missing bars. It places no orders.
+			now, newest bars first. Coinbase may hold less history than that; coverage then starts where
+			its history does. Ingest is complete-only and never interpolates missing bars. It places no
+			orders.
 		</p>
 	{/if}
 </ConfirmDialog>

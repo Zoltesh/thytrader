@@ -113,8 +113,22 @@ def _validation_error_message(error: ValidationError) -> str:
     return str(issues[0].get("msg", "Document failed validation."))
 
 
-def _agent_http_error_message(message: str) -> str:
-    """Hint a rebuild when a stale API still demands the retired engine selector."""
+# submit-study already names its strategy-scoped readback (research.http); only the
+# synchronous backtest submit needs a hint added here.
+_SUBMIT_TIMEOUT_HINTS: dict[str, str] = {
+    "submit-backtest": (
+        "The backtest may still be running: check `thytrader-research list-results` before "
+        "submitting again, or re-run with --async to queue it (HTTP 202) and poll "
+        "`show-backtest-job`."
+    ),
+}
+
+
+def _agent_http_error_message(error: AgentHttpError, command: str) -> str:
+    """Explain an API failure: rebuild hints for stale images, state checks for timeouts."""
+    message = str(error)
+    if error.timed_out and command in _SUBMIT_TIMEOUT_HINTS:
+        return f"{message} {_SUBMIT_TIMEOUT_HINTS[command]}"
     lowered = message.lower()
     stale_engine_demand = "engine_contract_version" in lowered and "was removed" not in lowered
     if "422" in message and stale_engine_demand:
@@ -816,7 +830,7 @@ def _command_output(arguments: argparse.Namespace) -> str:
     ) as error:
         raise SystemExit(str(error)) from error
     except AgentHttpError as error:
-        raise SystemExit(_agent_http_error_message(str(error))) from error
+        raise SystemExit(_agent_http_error_message(error, arguments.command)) from error
     except ResearchStudyError as error:
         raise SystemExit("Research study submission is unavailable.") from error
     except StudyCatalogUnavailableError as error:

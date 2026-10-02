@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.agent_orchestration.models import YoloTier
+from thytrader.market_data.lookback import describe_watch_lookback_ceilings
 from thytrader.operator_chat.models import ChatLane
 
 if TYPE_CHECKING:
@@ -419,7 +420,10 @@ _TOOLS: tuple[ChatTool, ...] = (
             "timeframe": _TIMEFRAME,
             "lookback_hours": {
                 "type": "integer",
-                "description": "Inclusive lookback hours.",
+                "description": (
+                    "Inclusive lookback hours. Per-timeframe ceilings: "
+                    f"{describe_watch_lookback_ceilings()}."
+                ),
             },
             "enabled": {"type": "boolean", "description": "Whether ingest is enabled."},
         },
@@ -427,7 +431,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="data_ingest",
-        description="Queue complete-only ingest (HTTP 202). Worker writes Parquet.",
+        description=(
+            "Queue complete-only ingest (HTTP 202) for an existing watch. An unwatched "
+            "target is refused with HTTP 409: call data_watch_add first. Worker writes Parquet."
+        ),
         lane=ChatLane.DATA,
         method="POST",
         path="/api/v1/data/ingest",
@@ -440,7 +447,10 @@ _TOOLS: tuple[ChatTool, ...] = (
     ),
     ChatTool(
         name="data_fill_gaps",
-        description="Re-queue complete-only ingest for the same target (fill-gaps).",
+        description=(
+            "Re-queue complete-only ingest for the same watched target (fill-gaps); "
+            "an unwatched target is refused with HTTP 409."
+        ),
         lane=ChatLane.DATA,
         method="POST",
         path="/api/v1/data/ingest",

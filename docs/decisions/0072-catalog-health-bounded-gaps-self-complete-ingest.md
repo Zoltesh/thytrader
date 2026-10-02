@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted (2026-09-17)
+Accepted (2026-09-17). Superseded in part by [0085](0085-fast-research-ingest.md): the
+worker walks provider pages of up to 350 bars under a per-target request budget instead of a
+small UTC-day budget per cycle.
 
 ## Context
 

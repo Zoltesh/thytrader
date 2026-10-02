@@ -24,8 +24,8 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerSuccess,
 )
 from thytrader.market_data_worker.service import (
+    IngestStop,
     _next_retry_at,
-    _utc_day_chunks,
     ingest_once,
     island_covers_watch,
     run_market_data_worker,
@@ -1594,27 +1594,17 @@ def test_rejected_attempt_claim_stops_before_provider_io(
     asyncio.run(exercise())
 
 
-def test_utc_day_chunks_split_half_open_range_at_midnight() -> None:
-    """Initial backfill windows must split on UTC days without inventing bars."""
-    starts_at = datetime(2026, 7, 27, 21, tzinfo=UTC)
-    ends_at = datetime(2026, 7, 29, 3, tzinfo=UTC)
-
-    assert _utc_day_chunks(starts_at, ends_at) == (
-        (starts_at, datetime(2026, 7, 28, tzinfo=UTC)),
-        (datetime(2026, 7, 28, tzinfo=UTC), datetime(2026, 7, 29, tzinfo=UTC)),
-        (datetime(2026, 7, 29, tzinfo=UTC), ends_at),
-    )
-
-
-def test_initial_backfill_stitches_complete_utc_days(tmp_path: Path) -> None:
-    """Complete consecutive UTC days become one fingerprint-addressed island."""
+def test_initial_backfill_fetches_one_provider_page_for_a_multi_day_window(
+    tmp_path: Path,
+) -> None:
+    """Seventy-two hourly bars fit one 350-bar page, so a three-day backfill is one request."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 31, tzinfo=UTC)
         service = _CompleteWindowService()
         state_store = InMemoryMarketDataWorkerStateStore()
 
-        await ingest_once(
+        outcome = await ingest_once(
             service=service,
             dataset_store=DatasetStore(tmp_path),
             state_store=state_store,
@@ -1631,23 +1621,54 @@ def test_initial_backfill_stitches_complete_utc_days(tmp_path: Path) -> None:
         assert state.covered_starts_at == datetime(2026, 7, 28, tzinfo=UTC)
         assert state.covered_ends_at == ends_at
         assert state.expected_candle_count == 72
-        assert len(service.requests) == 3
-        assert service.requests[0][2:4] == (
-            datetime(2026, 7, 28, tzinfo=UTC),
-            datetime(2026, 7, 29, tzinfo=UTC),
-        )
-        assert service.requests[1][2:4] == (
-            datetime(2026, 7, 28, 23, tzinfo=UTC),
-            datetime(2026, 7, 30, tzinfo=UTC),
-        )
+        assert service.requests == [
+            ("ETH-USD", CandleInterval.ONE_HOUR, datetime(2026, 7, 28, tzinfo=UTC), ends_at)
+        ]
+        assert outcome.stop is IngestStop.COMPLETE
+        assert outcome.requests == 1
+        assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 1
 
     asyncio.run(exercise())
 
 
-def test_initial_backfill_skips_incomplete_days_and_keeps_newest_island(
+def test_initial_backfill_walks_newest_page_first_and_publishes_once(tmp_path: Path) -> None:
+    """Multi-page backfill fetches newest-first pages and publishes one cumulative revision."""
+
+    async def exercise() -> None:
+        ends_at = datetime(2026, 7, 31, tzinfo=UTC)
+        service = _CompleteWindowService()
+        state_store = InMemoryMarketDataWorkerStateStore()
+
+        outcome = await ingest_once(
+            service=service,
+            dataset_store=DatasetStore(tmp_path),
+            state_store=state_store,
+            provider="coinbase",
+            product_id="ETH-USD",
+            lookback_hours=72,
+            now=ends_at + timedelta(minutes=5),
+            max_candles_per_request=30,
+        )
+
+        state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
+        assert state is not None
+        assert state.covered_starts_at == datetime(2026, 7, 28, tzinfo=UTC)
+        assert state.covered_ends_at == ends_at
+        assert [request[2:4] for request in service.requests] == [
+            (ends_at - timedelta(hours=30), ends_at),
+            (ends_at - timedelta(hours=60), ends_at - timedelta(hours=30)),
+            (datetime(2026, 7, 28, tzinfo=UTC), ends_at - timedelta(hours=60)),
+        ]
+        assert outcome.requests == 3
+        assert len(tuple((tmp_path / "manifests").glob("*.json"))) == 1
+
+    asyncio.run(exercise())
+
+
+def test_initial_backfill_keeps_the_newest_run_after_a_hole_and_records_its_floor(
     tmp_path: Path,
 ) -> None:
-    """A hole is classified by skipping that day; later complete days remain the latest island."""
+    """A confirmed hole ends the newest island one bar after it; nothing is interpolated."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 31, tzinfo=UTC)
@@ -1669,22 +1690,22 @@ def test_initial_backfill_skips_incomplete_days_and_keeps_newest_island(
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_HOUR)
         assert state is not None
         assert state.status is MarketDataWorkerStatus.SUCCEEDED
-        assert state.covered_starts_at == datetime(2026, 7, 30, tzinfo=UTC)
+        assert state.covered_starts_at == hole + timedelta(hours=1)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 24
-        fingerprints = {path.stem for path in (tmp_path / "manifests").glob("*.json")}
-        assert len(fingerprints) >= 2
+        assert state.expected_candle_count == 35
+        assert state.history_floor_at == hole + timedelta(hours=1)
+        assert len(service.requests) == 2, "one page plus one confirmation re-fetch"
         verified = dataset_store.load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
-        assert verified[0].starts_at == datetime(2026, 7, 30, tzinfo=UTC)
+        assert verified[0].starts_at == hole + timedelta(hours=1)
 
     asyncio.run(exercise())
 
 
-def test_five_minute_backfill_skips_incomplete_day_without_interpolation(
+def test_five_minute_backfill_stops_at_a_hole_without_interpolation(
     tmp_path: Path,
 ) -> None:
-    """A missing 5m bar must not be synthesized; later complete days still publish."""
+    """A missing 5m bar must not be synthesized; the newer complete run still publishes."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 8, 3, tzinfo=UTC)
@@ -1705,19 +1726,20 @@ def test_five_minute_backfill_skips_incomplete_day_without_interpolation(
 
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FIVE_MINUTES)
         assert state is not None
-        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_starts_at == hole + timedelta(minutes=5)
+        assert state.history_floor_at == hole + timedelta(minutes=5)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 288
+        assert state.expected_candle_count == 431
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
 
     asyncio.run(exercise())
 
 
-def test_fifteen_minute_backfill_skips_incomplete_day_without_interpolation(
+def test_fifteen_minute_backfill_stops_at_a_hole_without_interpolation(
     tmp_path: Path,
 ) -> None:
-    """A missing 15m bar must not be synthesized; later complete days still publish."""
+    """A missing 15m bar must not be synthesized; the newer complete run still publishes."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 8, 3, tzinfo=UTC)
@@ -1738,19 +1760,19 @@ def test_fifteen_minute_backfill_skips_incomplete_day_without_interpolation(
 
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.FIFTEEN_MINUTES)
         assert state is not None
-        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_starts_at == hole + timedelta(minutes=15)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 96
+        assert state.expected_candle_count == 143
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
 
     asyncio.run(exercise())
 
 
-def test_thirty_minute_backfill_skips_incomplete_day_without_interpolation(
+def test_thirty_minute_backfill_stops_at_a_hole_without_interpolation(
     tmp_path: Path,
 ) -> None:
-    """A missing 30m bar must not be synthesized; later complete days still publish."""
+    """A missing 30m bar must not be synthesized; the newer complete run still publishes."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 8, 3, tzinfo=UTC)
@@ -1771,19 +1793,19 @@ def test_thirty_minute_backfill_skips_incomplete_day_without_interpolation(
 
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.THIRTY_MINUTES)
         assert state is not None
-        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_starts_at == hole + timedelta(minutes=30)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 48
+        assert state.expected_candle_count == 71
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
 
     asyncio.run(exercise())
 
 
-def test_six_hour_backfill_skips_incomplete_day_without_interpolation(
+def test_six_hour_backfill_stops_at_a_hole_without_interpolation(
     tmp_path: Path,
 ) -> None:
-    """A missing 6h bar must not be synthesized; later complete days still publish."""
+    """A missing 6h bar must not be synthesized; the newer complete run still publishes."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 8, 3, tzinfo=UTC)
@@ -1804,20 +1826,20 @@ def test_six_hour_backfill_skips_incomplete_day_without_interpolation(
 
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.SIX_HOURS)
         assert state is not None
-        assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.covered_starts_at == hole + timedelta(hours=6)
         assert state.covered_ends_at == ends_at
-        assert state.expected_candle_count == 4
+        assert state.expected_candle_count == 5
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
         assert all(candle.starts_at != hole for candle in verified)
-        assert len(verified) == 4
+        assert len(verified) == 5
 
     asyncio.run(exercise())
 
 
-def test_one_day_backfill_skips_incomplete_day_without_interpolation(
+def test_one_day_backfill_stops_at_a_hole_without_interpolation(
     tmp_path: Path,
 ) -> None:
-    """A missing 1d bar must not be synthesized; later complete days still publish."""
+    """A missing 1d bar must not be synthesized; the newer complete run still publishes."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 8, 3, tzinfo=UTC)
@@ -1839,6 +1861,7 @@ def test_one_day_backfill_skips_incomplete_day_without_interpolation(
         state = await state_store.get("coinbase", "ETH-USD", CandleInterval.ONE_DAY)
         assert state is not None
         assert state.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert state.history_floor_at == datetime(2026, 8, 2, tzinfo=UTC)
         assert state.covered_ends_at == ends_at
         assert state.expected_candle_count == 1
         verified = DatasetStore(tmp_path).load_candles(state.content_fingerprint or "")
@@ -1902,8 +1925,8 @@ class _CountingHeartbeatStore(InMemoryWorkerHeartbeatStore):
         await super().touch(worker_name, at)
 
 
-def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> None:
-    """A per-cycle UTC-day cap must leave remaining lookback for the next ingest_once."""
+def test_ingest_once_request_budget_continues_on_the_next_call(tmp_path: Path) -> None:
+    """A per-cycle request cap publishes the newest page and leaves the rest for later."""
 
     async def exercise() -> None:
         now = datetime(2026, 8, 3, 0, 5, tzinfo=UTC)
@@ -1911,7 +1934,7 @@ def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> 
         service = _CompleteWindowService()
         state_store = InMemoryMarketDataWorkerStateStore()
         dataset_store = DatasetStore(tmp_path)
-        await ingest_once(
+        outcome = await ingest_once(
             service=service,
             dataset_store=dataset_store,
             state_store=state_store,
@@ -1919,13 +1942,16 @@ def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> 
             product_id="BTC-USD",
             lookback_hours=48,
             now=now,
-            max_chunks=1,
+            max_requests=1,
+            max_candles_per_request=24,
         )
+        assert outcome.stop is IngestStop.BUDGET
+        assert outcome.more_work is True
         first = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
         assert first is not None
         assert first.complete is True
-        assert first.covered_starts_at == datetime(2026, 8, 1, tzinfo=UTC)
-        assert first.covered_ends_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert first.covered_starts_at == datetime(2026, 8, 2, tzinfo=UTC)
+        assert first.covered_ends_at == closed_end
         assert (
             island_covers_watch(
                 covered_starts_at=first.covered_starts_at,
@@ -1947,9 +1973,12 @@ def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> 
             lookback_hours=48,
             now=later,
             skip_reconcile=True,
+            max_candles_per_request=24,
         )
         second = await state_store.get("coinbase", "BTC-USD", CandleInterval.ONE_HOUR)
         assert second is not None
+        assert second.maintenance_kind == "prefix_backfill"
+        assert second.covered_starts_at == datetime(2026, 8, 1, tzinfo=UTC)
         assert second.covered_ends_at == closed_end
         assert (
             island_covers_watch(
@@ -1966,8 +1995,8 @@ def test_ingest_once_chunk_budget_continues_on_the_next_call(tmp_path: Path) -> 
     asyncio.run(exercise())
 
 
-def test_ingest_once_touches_heartbeat_between_chunks(tmp_path: Path) -> None:
-    """Long backfills must refresh market-data worker liveness during the walk."""
+def test_ingest_once_touches_heartbeat_between_requests(tmp_path: Path) -> None:
+    """Long backfills must refresh market-data worker liveness before every request."""
 
     async def exercise() -> None:
         now = datetime(2026, 8, 3, 0, 5, tzinfo=UTC)
@@ -1981,7 +2010,8 @@ def test_ingest_once_touches_heartbeat_between_chunks(tmp_path: Path) -> None:
             lookback_hours=48,
             now=now,
             heartbeat_store=heartbeats,
-            max_chunks=2,
+            max_requests=2,
+            max_candles_per_request=24,
         )
         assert heartbeats.touches >= 3
 
@@ -1999,7 +2029,7 @@ async def _drive_worker_cycles(
     now: datetime,
     cycles: int,
 ) -> None:
-    """Run bounded two-chunk worker cycles one second apart, like the supervised loop."""
+    """Run bounded two-request worker cycles one second apart, like the supervised loop."""
     for index in range(cycles):
         await ingest_once(
             service=service,
@@ -2010,7 +2040,7 @@ async def _drive_worker_cycles(
             lookback_hours=lookback_hours,
             now=now + timedelta(seconds=index),
             timeframe=timeframe,
-            max_chunks=2,
+            max_requests=2,
         )
 
 
@@ -2019,13 +2049,15 @@ def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
 ) -> None:
     """A provider hole before the island start must not freeze the 4h island.
 
-    Reproduces the stuck 2h/4h watches: the worker records a history floor at the
-    island start and extends forward to the latest closed bar without interpolating.
+    Reproduces the stuck 2h/4h watches: prefix backfill prepends the complete bars after
+    the hole, records the history floor at the new island start, and extends forward to
+    the latest closed bar without interpolating.
     """
 
     async def exercise() -> None:
         interval = CandleInterval.FOUR_HOURS
         hole = datetime(2025, 10, 25, 8, tzinfo=UTC)
+        floor = hole + interval.duration
         island_start = datetime(2025, 10, 26, tzinfo=UTC)
         frozen_end = datetime(2025, 11, 5, 4, tzinfo=UTC)
         service = _CompleteWindowService(missing=frozenset({hole}))
@@ -2063,8 +2095,8 @@ def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
         state = await state_store.get("coinbase", "BTC-USD", interval)
         assert state is not None
         assert state.complete is True
-        assert state.covered_starts_at == island_start
-        assert state.history_floor_at == island_start
+        assert state.covered_starts_at == floor
+        assert state.history_floor_at == floor
         assert state.covered_ends_at == closed_end
         assert state.maintenance_kind == "incremental"
         hole_probes = [request for request in service.requests if request[2] <= hole < request[3]]
@@ -2082,7 +2114,7 @@ def test_prefix_hole_records_history_floor_and_resumes_forward_extension(
             is True
         )
         verified = dataset_store.load_candles(state.content_fingerprint or "")
-        assert verified[0].starts_at == island_start
+        assert verified[0].starts_at == floor
         assert all(candle.starts_at != hole for candle in verified)
 
     asyncio.run(exercise())
@@ -2115,9 +2147,10 @@ def test_new_watch_with_mid_lookback_hole_reaches_latest_bar(tmp_path: Path) -> 
         )
         state = await state_store.get("coinbase", "BTC-USDC", interval)
         assert state is not None
-        assert state.covered_starts_at == datetime(2025, 10, 26, tzinfo=UTC)
+        assert state.covered_starts_at == hole + interval.duration
         assert state.covered_ends_at == closed_end
-        assert state.history_floor_at == datetime(2025, 10, 26, tzinfo=UTC)
+        assert state.history_floor_at == hole + interval.duration
+        assert len(service.requests) == 2, "the newest page plus one confirmation"
 
     asyncio.run(exercise())
 
@@ -2142,7 +2175,7 @@ def test_island_floor_is_ignored_when_it_does_not_match_island_start() -> None:
 def test_chunk_incomplete_warning_names_target_and_bounds(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Operators must see which product, timeframe and chunk failed, without secrets."""
+    """Operators must see which product, timeframe and page failed, without secrets."""
 
     async def exercise() -> None:
         hole = datetime(2026, 7, 29, 12, tzinfo=UTC)
@@ -2163,10 +2196,11 @@ def test_chunk_incomplete_warning_names_target_and_bounds(
     assert incomplete
     assert "product_id=ETH-USD" in incomplete[0]
     assert "timeframe=1h" in incomplete[0]
-    assert "starts_at=2026-07-28T23:00:00+00:00" in incomplete[0]
-    assert "ends_at=2026-07-30T00:00:00+00:00" in incomplete[0]
-    assert "received=24" in incomplete[0]
-    assert "expected=25" in incomplete[0]
+    assert "direction=initial" in incomplete[0]
+    assert "starts_at=2026-07-28T00:00:00+00:00" in incomplete[0]
+    assert "ends_at=2026-07-31T00:00:00+00:00" in incomplete[0]
+    assert "received=71" in incomplete[0]
+    assert "expected=72" in incomplete[0]
 
 
 def test_worker_state_rejects_history_floor_away_from_island_start() -> None:
@@ -2220,7 +2254,7 @@ def test_worker_state_payload_reports_history_floor(tmp_path: Path) -> None:
         )
         state = await state_store.get("coinbase", "BTC-USD", interval)
         payload = worker_state_payload(state, lookback_hours=24 * 40, interval=interval, now=now)
-        assert payload["history_floor_at"] == "2025-10-26T00:00:00+00:00"
+        assert payload["history_floor_at"] == "2025-10-25T12:00:00+00:00"
         assert payload["watch_complete"] is True
 
     asyncio.run(exercise())

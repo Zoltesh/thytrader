@@ -617,3 +617,32 @@ def test_create_strategy_help_names_experiential_model(
     output = capsys.readouterr().out.lower()
     assert "--experiential-model-id" in output
     assert "http" in output
+
+
+def test_submit_backtest_timeout_says_the_run_may_still_be_running(tmp_path: Path) -> None:
+    """A synchronous submit that times out names the readback and --async instead of hiding."""
+    path = tmp_path / "request.json"
+    path.write_text("{}")
+    timed_out = AgentHttpError(
+        "Timed out after 30 s waiting for the ThyTrader API to answer POST /api/v1/backtests.",
+        timed_out=True,
+    )
+    with (
+        patch(
+            "thytrader.research.mutation_cli.BacktestStartRequest.model_validate",
+            return_value=object(),
+        ),
+        patch(
+            "thytrader.agent_http.urlopen",
+            side_effect=urlopen_ready_then(matching_ready_payload()),
+        ),
+        patch("thytrader.research.http.submit_backtest", side_effect=timed_out),
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(["submit-backtest", "--file", str(path), "--confirm"])
+    message = str(raised.value)
+    assert "Timed out after 30 s" in message
+    assert "may still be running" in message
+    assert "list-results" in message
+    assert "--async" in message
+    assert "failed safely" not in message

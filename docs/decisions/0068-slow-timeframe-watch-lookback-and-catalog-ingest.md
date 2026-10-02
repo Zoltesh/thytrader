@@ -1,6 +1,8 @@
 # 0068: Slow-timeframe watch lookback and catalog/ingest hardening
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0085](0085-fast-research-ingest.md) (the 2,160-hour
+  and 8,760-hour watch lookback ceilings; current ceilings run from 90 days at 1m to ten years at
+  2h-1d)
 - Date: 2026-09-17
 
 ## Context

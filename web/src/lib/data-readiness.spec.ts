@@ -95,9 +95,24 @@ describe('required clocks', () => {
 	it('uses the per-timeframe watch lookback ceilings', async () => {
 		const { defaultWatchLookbackHours } = await import('./data-readiness');
 		expect(defaultWatchLookbackHours('1m')).toBe(2160);
-		expect(defaultWatchLookbackHours('1h')).toBe(2160);
-		expect(defaultWatchLookbackHours('2h')).toBe(8760);
-		expect(defaultWatchLookbackHours('1d')).toBe(8760);
+		expect(defaultWatchLookbackHours('5m')).toBe(8760);
+		expect(defaultWatchLookbackHours('15m')).toBe(17520);
+		expect(defaultWatchLookbackHours('30m')).toBe(26280);
+		expect(defaultWatchLookbackHours('1h')).toBe(43800);
+		expect(defaultWatchLookbackHours('2h')).toBe(87600);
+		expect(defaultWatchLookbackHours('4h')).toBe(87600);
+		expect(defaultWatchLookbackHours('6h')).toBe(87600);
+		expect(defaultWatchLookbackHours('1d')).toBe(87600);
+		expect(defaultWatchLookbackHours('3d')).toBe(2160);
+	});
+
+	it('spells lookbacks in years or days for the confirmation copy', async () => {
+		const { describeLookbackHours } = await import('./data-readiness');
+		expect(describeLookbackHours(87600)).toBe('10 years');
+		expect(describeLookbackHours(8760)).toBe('1 year');
+		expect(describeLookbackHours(2160)).toBe('90 days');
+		expect(describeLookbackHours(24)).toBe('1 day');
+		expect(describeLookbackHours(5)).toBe('5 hours');
 	});
 });
 
@@ -182,7 +197,7 @@ describe('requestDatasetDownload', () => {
 		expect(JSON.parse(String(put?.[1]?.body))).toEqual({
 			product_id: 'BTC-USDC',
 			timeframe: '2h',
-			lookback_hours: 8760,
+			lookback_hours: 87600,
 			enabled: true
 		});
 		expect((put?.[1]?.headers as Record<string, string>)['X-CSRF-Token']).toBe('data-csrf');
@@ -196,7 +211,7 @@ describe('requestDatasetDownload', () => {
 
 	it('keeps an existing enabled watch with a long enough lookback', async () => {
 		const fetchMock = stubFetch([
-			{ product_id: 'BTC-USDC', timeframe: '2h', lookback_hours: 8760, enabled: true }
+			{ product_id: 'BTC-USDC', timeframe: '2h', lookback_hours: 87600, enabled: true }
 		]);
 		const { requestDatasetDownload } = await import('./data-readiness');
 		await requestDatasetDownload('BTC-USDC', '2h');

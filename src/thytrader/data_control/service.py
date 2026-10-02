@@ -11,9 +11,11 @@ from thytrader.data_control.models import (
     GapCause,
     GapInspection,
     GapObservation,
+    UnwatchedTargetError,
     classify_gap,
     require_interval,
 )
+from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistError,
     MarketDataWatchlistStore,
@@ -143,10 +145,14 @@ async def ingest_target(
     now: datetime,
     audit_action: str = "ingest_requested",
 ) -> tuple[MarketDataWatchTarget, MarketDataWorkerState | None]:
-    """Queue complete-only ingest for the market-data worker. Does not write Parquet."""
+    """Queue complete-only ingest for an existing watch. Does not write Parquet.
+
+    Ingest never creates a watch or picks a lookback: an unwatched target raises
+    ``UnwatchedTargetError`` (HTTP 409) naming ``watch-add`` (ADR 0085).
+    """
     interval = require_interval(timeframe)
     provider = ingestion_provider(settings)
-    lookback_hours = await _lookback_hours(watchlist, settings, provider, product_id, interval)
+    lookback_hours = await _watched_lookback_hours(watchlist, provider, product_id, interval)
     try:
         target = await watchlist.request_ingest(
             provider=provider,
@@ -287,6 +293,29 @@ async def _require_spot_product(market_data: MarketDataService, product_id: str)
         raise DataControlError(f"{product_id} is not an enabled USD or USDC spot product.")
 
 
+async def _watched_lookback_hours(
+    watchlist: MarketDataWatchlistStore,
+    provider: str,
+    product_id: str,
+    interval: CandleInterval,
+) -> int:
+    """Return the existing watch's lookback, or refuse: ingest never invents a watch."""
+    try:
+        target = await watchlist.get(provider, product_id, interval)
+    except MarketDataWatchlistUnavailableError as error:
+        raise DataControlError("Market-data watchlist is unavailable.") from error
+    if target is None:
+        maximum = max_watch_lookback_hours(interval)
+        message = (
+            f"{product_id} {interval.value} is not on the market-data watchlist, so ingest has "
+            "no lookback to use. Add the watch first with `thytrader-data watch-add "
+            f"--product-id {product_id} --timeframe {interval.value} --lookback-hours "
+            f"<1-{maximum}> --confirm` (PUT /api/v1/data/watchlist), then queue ingest again."
+        )
+        raise UnwatchedTargetError(message)
+    return target.lookback_hours
+
+
 async def _lookback_hours(
     watchlist: MarketDataWatchlistStore,
     settings: Settings,
@@ -294,7 +323,7 @@ async def _lookback_hours(
     product_id: str,
     interval: CandleInterval,
 ) -> int:
-    """Prefer the watchlist lookback, otherwise the worker setting."""
+    """Prefer the watchlist lookback, otherwise the worker setting (read-only inspection)."""
     try:
         target = await watchlist.get(provider, product_id, interval)
     except MarketDataWatchlistUnavailableError:

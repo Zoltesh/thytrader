@@ -29,8 +29,9 @@ strategy/result listings, batched strategy-library enrichment reads,
 promotion evidence, the strategy model (mutable root strategies,
 automatic snapshots, hard delete; ADR 0082), the explicit
 `i_understand_live` HTTP acknowledgement on live start/resume/place-order, supported
-spot quote currencies, or the market-data provider-history floor (``history_floor_at``,
-Alembic 0051) change.
+spot quote currencies, the market-data provider-history floor (``history_floor_at``,
+Alembic 0051), or ranged backfill, explicit watched-only ingest, and the research
+watch-lookback ceilings (ADR 0085, Alembic 0052) change.
 """
 
 from __future__ import annotations
@@ -44,8 +45,8 @@ from thytrader.research.models import BACKTEST_ENGINE
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v44"
-EXPECTED_SCHEMA_REVISION = "0051"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v45"
+EXPECTED_SCHEMA_REVISION = "0052"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 BOUNDED_DEPLOYMENT_READS: tuple[str, ...] = ("list", "summary", "fills", "orders")
 DEPLOYMENT_LEDGER_PAGINATION: tuple[str, ...] = ("cursor",)
@@ -77,6 +78,9 @@ CATALOG_HEALTH: tuple[str, ...] = (
     "bounded_gap_inspection",
     "ingest_self_complete",
     "heartbeat_during_ingest",
+    "ranged_backfill",
+    "explicit_watch_ingest",
+    "research_lookback_ceilings",
 )
 EXPERIENTIAL_MODEL_ENGINES: tuple[str, ...] = ("thytrader-experiential-train-v1",)
 PAPER_TIMEFRAMES: tuple[str, ...] = EXECUTION_TIMEFRAMES

@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING, Literal
 if TYPE_CHECKING:
     from decimal import Decimal
 
-# Coinbase Advanced Trade pages at most ~350 candles; this caps one bounded request.
-# 129,600 one-minute bars is 90 days; 25,920 five-minute bars is also 90 days.
-# 129,600 hourly bars is 5,400 days, but 1h watches stay min(requested, 2,160 hours)
-# via the per-interval lookback maximum in ``market_data.lookback``.
+# Caps one bounded historical range (the adapter pages it at the provider limit).
+# 129,600 one-minute bars is 90 days. Slower clocks stay well below the cap through
+# the per-interval watch lookback ceilings in ``market_data.lookback`` (ADR 0085).
 MAX_HISTORICAL_INTERVAL_COUNT = 129_600
+# Most candles (buckets) one provider candle request returns. Coinbase Advanced Trade
+# serves at most 350 per call, so the ingest worker plans each request to fit one page.
+HISTORICAL_REQUEST_MAX_CANDLES = 350
 
 DatasetTimeframe = Literal["1h", "5m", "15m", "30m", "6h", "1d", "1m", "2h", "4h"]
 DATASET_TIMEFRAMES: tuple[DatasetTimeframe, ...] = (
@@ -41,6 +43,14 @@ EXECUTION_TIMEFRAMES: tuple[DatasetTimeframe, ...] = (
     "1d",
 )
 DATASET_TIMEFRAME_PATTERN = r"^(1h|5m|15m|30m|6h|1d|1m|2h|4h)$"
+
+
+class MarketDataRateLimitedError(RuntimeError):
+    """Signal that a market-data provider refused a request for rate limiting (HTTP 429).
+
+    Provider adapters raise this instead of a transport-specific error so the ingest
+    worker can back off across every target rather than count a target failure.
+    """
 
 
 class CandleInterval(StrEnum):

@@ -309,7 +309,7 @@ def _ambiguous_study_error(
         ambiguous = status == 408 or status >= 500
     else:
         lowered = message.lower()
-        ambiguous = "timed out" in lowered or "unreachable" in lowered
+        ambiguous = error.timed_out or "timed out" in lowered or "unreachable" in lowered
     identities = request.strategy_ids()
     primary = identities[0] if identities else None
     readback = (
@@ -322,8 +322,11 @@ def _ambiguous_study_error(
             f"{message} Submit-state is ambiguous: the study may already be "
             f"persisted. Read back before retrying: {readback}",
             status=status,
+            timed_out=error.timed_out,
         )
-    return AgentHttpError(f"{message} (Verify with: {readback})", status=status)
+    return AgentHttpError(
+        f"{message} (Verify with: {readback})", status=status, timed_out=error.timed_out
+    )
 
 
 def find_study_by_request(base_url: str, request_fingerprint: str) -> str:

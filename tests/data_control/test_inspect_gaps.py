@@ -373,7 +373,7 @@ def test_inspect_gaps_four_hour_thirty_day_lookback_is_not_clipped(tmp_path: Pat
 def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
     tmp_path: Path,
 ) -> None:
-    """Older complete days stay local; the skipped day is a classified hole, not a fill."""
+    """The newest island starts after the hole; earlier bars are classified, never filled."""
 
     async def exercise() -> None:
         ends_at = datetime(2026, 7, 31, tzinfo=UTC)
@@ -406,7 +406,7 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
         latest = dataset_store.list_latest_verified()
         assert len(latest) == 1
         assert latest[0].complete is True
-        assert latest[0].starts_at == "2026-07-30T00:00:00Z"
+        assert latest[0].starts_at == "2026-07-29T13:00:00Z"
 
         inspection = await inspect_gaps(
             service=probe_service,
@@ -420,7 +420,8 @@ def test_inspect_gaps_classifies_hole_and_keeps_newest_island_contiguous(
         )
         gap_starts = {gap.starts_at for gap in inspection.gaps}
         assert hole in gap_starts
-        assert datetime(2026, 7, 28, tzinfo=UTC) not in gap_starts
+        assert datetime(2026, 7, 28, tzinfo=UTC) in gap_starts, "older than the floor"
+        assert hole + timedelta(hours=1) not in gap_starts
         assert datetime(2026, 7, 30, tzinfo=UTC) not in gap_starts
         assert inspection.starts_at == datetime(2026, 7, 28, tzinfo=UTC)
         assert inspection.ends_at == ends_at

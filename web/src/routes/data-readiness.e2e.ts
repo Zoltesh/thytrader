@@ -83,7 +83,7 @@ async function mockDataLane(page: Page): Promise<DataLaneCalls> {
 						provider: 'coinbase',
 						product_id: 'BTC-USDC',
 						timeframe: '2h',
-						lookback_hours: 8760,
+						lookback_hours: 87600,
 						enabled: true
 					}
 				}
@@ -157,7 +157,7 @@ test('Test stage names the missing HTF dataset and downloads it behind a confirm
 	await readiness.getByRole('button', { name: 'Download data…' }).click();
 	const dialog = page.getByTestId('data-download-dialog');
 	await expect(dialog).toContainText('BTC-USDC 2h (HTF filter)');
-	await expect(dialog).toContainText('8760-hour');
+	await expect(dialog).toContainText('87600-hour (10 years)');
 	expect(calls.watchBodies).toHaveLength(0);
 	await dialog.getByRole('button', { name: 'Download data' }).click();
 
@@ -168,7 +168,7 @@ test('Test stage names the missing HTF dataset and downloads it behind a confirm
 		page.getByText('Coinbase has no complete history before 2026-05-09 00:00 UTC')
 	).toBeVisible();
 	expect(calls.watchBodies).toEqual([
-		{ product_id: 'BTC-USDC', timeframe: '2h', lookback_hours: 8760, enabled: true }
+		{ product_id: 'BTC-USDC', timeframe: '2h', lookback_hours: 87600, enabled: true }
 	]);
 	expect(calls.ingestBodies).toEqual([{ product_id: 'BTC-USDC', timeframe: '2h' }]);
 	await expect(page.getByTestId('data-readiness-2h')).toHaveCount(0);

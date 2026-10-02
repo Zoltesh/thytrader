@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import OrderedDict
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from hashlib import file_digest, sha256
@@ -11,7 +12,7 @@ import os
 from pathlib import Path
 import re
 from stat import S_ISREG
-from threading import RLock
+from threading import Lock, RLock
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
@@ -32,13 +33,24 @@ from thytrader.market_data.quality import (
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
 
 type _FileIdentity = tuple[Path, int, int, int, str]
+# Device, inode, size, mtime_ns, ctime_ns of one regular file, captured without reading it.
+type _StatIdentity = tuple[int, int, int, int, int]
+type _ListingStamp = tuple[tuple[Path, _StatIdentity], ...]
 
 
 _DATASET_SCHEMA_VERSION = 2
+# Verified datasets kept per process. Each hit is re-checked against the stat identity and
+# SHA-256 digest of the manifest and every Parquet file, so a cached entry never serves
+# bytes that differ from the bytes that were verified.
+_VERIFIED_DATASET_CACHE_ENTRIES = 256
+DEFAULT_VERIFIED_CANDLE_CACHE_BUDGET = 120_000
+_PARQUET_MAGIC = b"PAR1"
+# Header magic, footer length, and footer magic: the smallest possible complete file.
+_PARQUET_MINIMUM_BYTES = 12
 _SUPPORTED_DATASET_SCHEMA_VERSIONS = frozenset({1, 2})
 _FINGERPRINT_OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
@@ -69,6 +81,20 @@ class DatasetManifest:
 
 
 @dataclass(frozen=True, slots=True)
+class _VerifiedDataset:
+    """One fully verified dataset plus the exact file identities its verification read.
+
+    ``identity`` is None when the files changed while they were being verified; such a
+    result is returned once but never cached. ``candles`` is None when the dataset is
+    larger than the store's candle cache budget.
+    """
+
+    manifest: DatasetManifest
+    candles: tuple[Candle, ...] | None
+    identity: tuple[_FileIdentity, ...] | None
+
+
+@dataclass(frozen=True, slots=True)
 class _DatasetCatalogCandidate:
     """Cheaply parsed manifest identity used to rank deep-verification candidates."""
 
@@ -83,8 +109,17 @@ class _DatasetCatalogCandidate:
 class DatasetStore:
     """Write and verify complete validated ranges as immutable date-partitioned datasets."""
 
-    def __init__(self, root: Path) -> None:
-        """Configure the local root under which immutable datasets are published."""
+    def __init__(
+        self,
+        root: Path,
+        *,
+        candle_cache_budget: int = DEFAULT_VERIFIED_CANDLE_CACHE_BUDGET,
+    ) -> None:
+        """Configure the dataset root and how many verified candles to keep in memory.
+
+        ``candle_cache_budget`` bounds decoded candles held for ``load_candles``; zero keeps
+        only verified manifests (the ingest worker never needs candles back).
+        """
         self._root = root
         self._catalog_lock = RLock()
         self._verified_cache: dict[Path, tuple[tuple[_FileIdentity, ...], DatasetManifest]] = {}
@@ -92,6 +127,17 @@ class DatasetStore:
         # content-addressed and never rewritten in place, so a stat match means the parsed
         # metadata is still exact; deep verification still runs through _verified_cache.
         self._candidate_cache: dict[Path, tuple[tuple[int, int], _DatasetCatalogCandidate]] = {}
+        # Catalog-grade latest-listing entries, valid while the manifest and every file keep
+        # the stat identity captured when the entry passed its structural checks.
+        self._listing_cache: dict[Path, tuple[_ListingStamp, DatasetManifest]] = {}
+        # Parquet files whose envelope (magic at both ends) passed under an exact identity.
+        self._envelope_cache: dict[Path, _StatIdentity] = {}
+        # Manifest-relative partition paths already validated for catalog listings.
+        self._catalog_paths: dict[str, Path] = {}
+        self._content_lock = Lock()
+        self._content_cache: OrderedDict[Path, _VerifiedDataset] = OrderedDict()
+        self._candle_cache_budget = max(0, candle_cache_budget)
+        self._cached_candle_count = 0
 
     def write(
         self,
@@ -156,21 +202,31 @@ class DatasetStore:
         return tuple(verified)
 
     def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
-        """Return the newest verified revision per provider/product/timeframe."""
+        """Return the newest catalog-verified revision per provider/product/timeframe.
+
+        This is a catalog listing for selection and display (ADR 0085). Each entry passed
+        structural verification: manifest schema and facts, its canonical content address,
+        safe in-market file paths, distinct files, every file present, and an intact Parquet
+        envelope. Parquet rows are not decoded here. Anything that binds a dataset to a run
+        resolves its exact fingerprint through ``load_manifest`` or ``load_candles``, which
+        re-verify the content fingerprint, so a corrupt listed revision fails closed there.
+        """
         with self._catalog_lock:
             return self._list_latest_verified()
 
     def _list_latest_verified(self) -> tuple[DatasetManifest, ...]:
-        """List latest verified revisions while the shared catalog cache lock is held.
+        """List latest catalog-verified revisions while the shared catalog lock is held.
 
-        Manifest metadata is cheap to inspect, so candidates are grouped and
-        ordered before any Parquet content is read. Each market then deep-verifies
-        newest-first until one valid revision is found. Historical revisions stay
-        available through ``list_verified()`` for exact-fingerprint provenance.
+        Manifest metadata is cheap to inspect, so candidates are grouped and ordered first.
+        Each market then structurally verifies newest-first until one revision passes.
+        Warm listings only re-stat the manifest and files of each cached newest revision.
+        Historical revisions stay available through ``list_verified()``.
         """
         manifests = self._root / "manifests"
         if not manifests.exists():
             self._verified_cache.clear()
+            self._listing_cache.clear()
+            self._envelope_cache.clear()
             return ()
         candidates: dict[tuple[str, str, str], list[_DatasetCatalogCandidate]] = {}
         seen: set[Path] = set()
@@ -192,10 +248,17 @@ class DatasetStore:
             revisions.sort(key=lambda candidate: candidate.starts_at)
             revisions.sort(key=lambda candidate: candidate.ends_at, reverse=True)
             for candidate in revisions:
-                verified = self._list_verified_manifest(candidate.manifest_path)
-                if verified is not None:
-                    latest.append(verified)
+                entry = self._catalog_entry(candidate.manifest_path)
+                if entry is not None:
+                    latest.append(entry)
                     break
+        referenced = {path for manifest in latest for path in manifest.files}
+        self._envelope_cache = {
+            path: identity for path, identity in self._envelope_cache.items() if path in referenced
+        }
+        self._catalog_paths = {
+            relative: path for relative, path in self._catalog_paths.items() if path in referenced
+        }
         return tuple(latest)
 
     def _prune_catalog_caches(self, seen: set[Path]) -> None:
@@ -206,6 +269,60 @@ class DatasetStore:
         for cached_path in list(self._candidate_cache):
             if cached_path not in seen:
                 del self._candidate_cache[cached_path]
+        for cached_path in list(self._listing_cache):
+            if cached_path not in seen:
+                del self._listing_cache[cached_path]
+
+    def _catalog_entry(self, manifest_path: Path) -> DatasetManifest | None:
+        """Return one catalog-verified revision, or None when it fails structural checks."""
+        cached = self._listing_cache.get(manifest_path)
+        if cached is not None and _stamp_matches(cached[0]):
+            return cached[1]
+        self._listing_cache.pop(manifest_path, None)
+        try:
+            manifest = self._load_manifest_metadata(
+                manifest_path, resolve_file=self._catalog_file_path
+            )
+        except DatasetStoreError:
+            return None
+        stamp = self._catalog_stamp(manifest)
+        if stamp is None:
+            return None
+        self._listing_cache[manifest_path] = (stamp, manifest)
+        return manifest
+
+    def _catalog_file_path(self, relative: str) -> Path:
+        """Validate one manifest-relative partition path once per listing cache lifetime.
+
+        Successive cumulative revisions name mostly the same immutable partitions, so a
+        new revision only resolves its new files. Binding paths never use this cache.
+        """
+        cached = self._catalog_paths.get(relative)
+        if cached is not None:
+            return cached
+        path = _safe_dataset_path(self._root, relative)
+        self._catalog_paths[relative] = path
+        return path
+
+    def _catalog_stamp(self, manifest: DatasetManifest) -> _ListingStamp | None:
+        """Check file uniqueness, placement, presence, and envelopes; return their identities."""
+        if len(set(manifest.files)) != len(manifest.files):
+            return None
+        market_root = self._root / manifest.provider / manifest.product_id / manifest.timeframe
+        manifest_identity = _stat_identity(manifest.manifest_path)
+        if manifest_identity is None:
+            return None
+        entries: list[tuple[Path, _StatIdentity]] = [(manifest.manifest_path, manifest_identity)]
+        for path in manifest.files:
+            identity = _stat_identity(path)
+            if identity is None or not path.is_relative_to(market_root):
+                return None
+            if self._envelope_cache.get(path) != identity:
+                if not _parquet_envelope_intact(path, identity[2]):
+                    return None
+                self._envelope_cache[path] = identity
+            entries.append((path, identity))
+        return tuple(entries)
 
     def _cached_catalog_candidate(self, manifest_path: Path) -> _DatasetCatalogCandidate:
         """Return ranking metadata, re-parsing the manifest only when its stat identity changes."""
@@ -282,11 +399,16 @@ class DatasetStore:
             manifest_path=manifest_path,
         )
 
-    def _load_manifest_metadata(self, manifest_path: Path) -> DatasetManifest:
+    def _load_manifest_metadata(
+        self,
+        manifest_path: Path,
+        *,
+        resolve_file: Callable[[str], Path] | None = None,
+    ) -> DatasetManifest:
         """Validate one manifest structure without reading its referenced Parquet content."""
         try:
             payload = json.loads(manifest_path.read_text())
-            return self._manifest_from_payload(payload, manifest_path)
+            return self._manifest_from_payload(payload, manifest_path, resolve_file=resolve_file)
         except DatasetStoreError:
             raise
         except (OSError, OverflowError, RuntimeError, ValueError, json.JSONDecodeError) as error:
@@ -326,10 +448,19 @@ class DatasetStore:
         return all(_file_identity(expected[0]) == expected for expected in identity)
 
     def load_candles(self, content_fingerprint: str) -> tuple[Candle, ...]:
-        """Resolve and verify exact typed candles by immutable dataset fingerprint."""
-        manifest = self.load_manifest(content_fingerprint)
-        rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
-        return _rows_to_candles(rows)
+        """Resolve and verify exact typed candles by immutable dataset fingerprint.
+
+        The candles are the ones decoded while verifying the content fingerprint (or a cached
+        copy whose files still carry their verified SHA-256 digests), never a second,
+        unverified read of the Parquet files.
+        """
+        dataset = self._verified_dataset(
+            self._manifest_path(content_fingerprint), need_candles=True
+        )
+        if dataset.candles is None:
+            message = "Dataset verification did not yield candles."
+            raise DatasetStoreError(message)
+        return dataset.candles
 
     def load_manifest(self, content_fingerprint: str) -> DatasetManifest:
         """Resolve and verify exact dataset identity and coverage by content fingerprint."""
@@ -422,14 +553,79 @@ class DatasetStore:
         return self._root / "manifests" / f"{match.group(1)}.json"
 
     def load_verified(self, manifest_path: Path) -> DatasetManifest:
-        """Load one manifest and reject missing, malformed, or content-mismatched dataset files."""
+        """Load one manifest and reject missing, malformed, or content-mismatched dataset files.
+
+        A dataset verified earlier in this process is served from cache only while its
+        manifest and every Parquet file keep the exact stat identity and SHA-256 digest
+        captured around that verification. Any difference re-runs full verification, so a
+        cache hit never vouches for bytes other than the bytes that were verified.
+        """
+        return self._verified_dataset(manifest_path, need_candles=False).manifest
+
+    def _verified_dataset(self, manifest_path: Path, *, need_candles: bool) -> _VerifiedDataset:
+        """Return a byte-identical cached verification, otherwise verify and remember it."""
+        cached = self._cached_dataset(manifest_path, need_candles=need_candles)
+        if cached is not None:
+            return cached
+        dataset = self._verify_dataset(manifest_path)
+        self._remember_dataset(manifest_path, dataset)
+        return dataset
+
+    def _cached_dataset(
+        self, manifest_path: Path, *, need_candles: bool
+    ) -> _VerifiedDataset | None:
+        """Return a cached verification only while every verified file is byte-identical."""
+        with self._content_lock:
+            cached = self._content_cache.get(manifest_path)
+            if cached is not None:
+                self._content_cache.move_to_end(manifest_path)
+        if cached is None or cached.identity is None or (need_candles and cached.candles is None):
+            return None
+        if self._identity_matches(cached.identity):
+            return cached
+        with self._content_lock:
+            if self._content_cache.get(manifest_path) is cached:
+                self._evict_dataset(manifest_path)
+        return None
+
+    def _remember_dataset(self, manifest_path: Path, dataset: _VerifiedDataset) -> None:
+        """Cache one stable verification, keeping decoded candles only within the budget."""
+        if dataset.identity is None:
+            return
+        candles = dataset.candles
+        entry = (
+            dataset
+            if candles is not None and len(candles) <= self._candle_cache_budget
+            else replace(dataset, candles=None)
+        )
+        with self._content_lock:
+            self._evict_dataset(manifest_path)
+            self._content_cache[manifest_path] = entry
+            self._cached_candle_count += 0 if entry.candles is None else len(entry.candles)
+            while self._content_cache and (
+                len(self._content_cache) > _VERIFIED_DATASET_CACHE_ENTRIES
+                or self._cached_candle_count > self._candle_cache_budget
+            ):
+                self._evict_dataset(next(iter(self._content_cache)))
+
+    def _evict_dataset(self, manifest_path: Path) -> None:
+        """Drop one cached verification; the caller holds ``_content_lock``."""
+        evicted = self._content_cache.pop(manifest_path, None)
+        if evicted is not None and evicted.candles is not None:
+            self._cached_candle_count -= len(evicted.candles)
+
+    def _verify_dataset(self, manifest_path: Path) -> _VerifiedDataset:
+        """Fully verify one dataset and capture the file identities its verification read."""
+        manifest_identity = _file_identity(manifest_path)
         try:
             payload = json.loads(manifest_path.read_text())
             manifest = self._manifest_from_payload(payload, manifest_path)
+            files_identity = _files_identity(manifest.files)
             rows = tuple(row for file in manifest.files for row in _parquet_rows(file))
+            candles = _rows_to_candles(rows)
             interval = _require_timeframe(manifest.timeframe)
             range_report = analyze_range(
-                _rows_to_candles(rows),
+                candles,
                 interval,
                 _parse_utc_text(manifest.starts_at),
                 _parse_utc_text(manifest.ends_at),
@@ -471,7 +667,16 @@ class DatasetStore:
         if manifest.content_fingerprint != f"sha256:{expected}":
             message = "Dataset verification failed because its content fingerprint does not match."
             raise DatasetStoreError(message)
-        return manifest
+        identity = _dataset_identity(manifest)
+        stable = (
+            identity is not None
+            and manifest_identity is not None
+            and files_identity is not None
+            and identity == (manifest_identity, *files_identity)
+        )
+        return _VerifiedDataset(
+            manifest=manifest, candles=candles, identity=identity if stable else None
+        )
 
     def _write_partition(
         self,
@@ -552,8 +757,20 @@ class DatasetStore:
         # A manifest is the sole publication marker; files created before it remain undiscoverable.
         return manifest
 
-    def _manifest_from_payload(self, payload: object, manifest_path: Path) -> DatasetManifest:
-        """Validate untrusted manifest JSON before using any referenced dataset file."""
+    def _manifest_from_payload(
+        self,
+        payload: object,
+        manifest_path: Path,
+        *,
+        resolve_file: Callable[[str], Path] | None = None,
+    ) -> DatasetManifest:
+        """Validate untrusted manifest JSON before using any referenced dataset file.
+
+        ``resolve_file`` maps one manifest-relative path to a validated dataset path; the
+        default is the full ``_safe_dataset_path`` check. Only the catalog listing passes
+        a cached resolver.
+        """
+        resolve = resolve_file or (lambda item: _safe_dataset_path(self._root, item))
         if not isinstance(payload, dict):
             message = "Dataset verification failed because the manifest schema is unsupported."
             raise DatasetStoreError(message)
@@ -595,9 +812,7 @@ class DatasetStore:
         ):
             message = "Dataset verification failed because manifest files are malformed."
             raise DatasetStoreError(message)
-        files = tuple(
-            _safe_dataset_path(self._root, item) for item in cast("list[str]", files_value)
-        )
+        files = tuple(resolve(item) for item in cast("list[str]", files_value))
         numeric = (
             "expected_candle_count",
             "received_candle_count",
@@ -703,11 +918,14 @@ def _safe_dataset_path(root: Path, relative: str) -> Path:
         message = "Dataset verification failed because a manifest file path escapes its root."
         raise DatasetStoreError(message)
     candidate = root / relative
-    try:
-        candidate.resolve().relative_to(root.resolve())
-    except ValueError as error:
+    # Same check as ``candidate.resolve().relative_to(root.resolve())`` (realpath on both
+    # sides, then segment-wise containment) without pathlib's per-parent object churn,
+    # which dominated listings of tens of thousands of day partitions.
+    resolved_root = os.path.realpath(root)
+    resolved = os.path.realpath(candidate)
+    if os.path.commonpath((resolved, resolved_root)) != resolved_root:
         message = "Dataset verification failed because a manifest file path escapes its root."
-        raise DatasetStoreError(message) from error
+        raise DatasetStoreError(message)
     return candidate
 
 
@@ -722,6 +940,53 @@ def _dataset_identity(
             return None
         identities.append(identity)
     return tuple(identities)
+
+
+def _files_identity(files: tuple[Path, ...]) -> tuple[_FileIdentity, ...] | None:
+    """Capture content identities for a manifest's files, or miss when any is unreadable."""
+    identities: list[_FileIdentity] = []
+    for path in files:
+        identity = _file_identity(path)
+        if identity is None:
+            return None
+        identities.append(identity)
+    return tuple(identities)
+
+
+def _stat_identity(path: Path) -> _StatIdentity | None:
+    """Return a regular file's device, inode, size, and change stamps without reading it."""
+    try:
+        status = path.stat()
+    except OSError:
+        return None
+    if not S_ISREG(status.st_mode):
+        return None
+    return (
+        status.st_dev,
+        status.st_ino,
+        status.st_size,
+        int(status.st_mtime_ns),
+        int(status.st_ctime_ns),
+    )
+
+
+def _stamp_matches(stamp: _ListingStamp) -> bool:
+    """True while every file in a catalog stamp keeps its captured stat identity."""
+    return all(_stat_identity(path) == identity for path, identity in stamp)
+
+
+def _parquet_envelope_intact(path: Path, size: int) -> bool:
+    """True when a file starts and ends with the Parquet magic, so it is not truncated."""
+    if size < _PARQUET_MINIMUM_BYTES:
+        return False
+    try:
+        with path.open("rb") as file:
+            head = file.read(len(_PARQUET_MAGIC))
+            file.seek(-len(_PARQUET_MAGIC), os.SEEK_END)
+            tail = file.read(len(_PARQUET_MAGIC))
+    except OSError:
+        return False
+    return head == _PARQUET_MAGIC and tail == _PARQUET_MAGIC
 
 
 def _file_identity(path: Path) -> _FileIdentity | None:
