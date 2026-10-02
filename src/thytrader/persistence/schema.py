@@ -93,7 +93,10 @@ market_data_worker_state = Table(
         "history_floor_at",
         DateTime(timezone=True),
         nullable=True,
-        comment="Confirmed provider hole directly before the island; prefix backfill stops here.",
+        comment=(
+            "Listing floor: no provider candle before the island start back past the "
+            "timeframe's lookback ceiling (ADR 0095); prefix backfill stops here."
+        ),
     ),
 )
 

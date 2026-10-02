@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0058`):
+Current checkout (Alembic `0059`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v54` |
-| `expected_schema_revision` | `0058` |
+| `id` | `thytrader-ops-contract-v55` |
+| `expected_schema_revision` | `0059` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
 | `portfolio_modes` | `paper`, `live` |
@@ -27,7 +27,7 @@ Current checkout (Alembic `0058`):
 | `research_job_expiry_hours` | `24` |
 | `research_worker_pool` | `lease_claim`, `crash_requeue`, `process_recycle`, `sync_long_poll`, `job_error_codes`, `health_queue_depth` ([ADR 0092](../../decisions/0092-research-worker-pool.md)). v52 dropped `max_concurrent_research_jobs` and `max_concurrent_portfolio_backtests`: concurrency is the deployment's `THYTRADER_RESEARCH_WORKER_COUNT`, reported by operator health as `payload.research_workers.configured_workers` |
 | `spot_quote_currencies` | `USD`, `USDC`, `USDT` |
-| `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest`, `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings` ([ADR 0085](../../decisions/0085-fast-research-ingest.md)) |
+| `catalog_health` | `bounded_gap_inspection`, `ingest_self_complete`, `heartbeat_during_ingest`, `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings` ([ADR 0085](../../decisions/0085-fast-research-ingest.md)), `no_trade_bars`, `listing_history_floor`, `watch_relative_complete` ([ADR 0095](../../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)) |
 | `bounded_deployment_reads` | `list`, `summary`, `fills`, `orders` |
 | `deployment_ledger_pagination` | `cursor` |
 | `multi_book_ledger` | `paper`, `live` |
@@ -67,7 +67,7 @@ Current checkout (Alembic `0058`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v54
+    id thytrader-ops-contract-v55
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -114,7 +114,7 @@ classDiagram
     multi_book_ledger
     research_dataset_autobind
     study_budgets
-    expected_schema_revision 0057
+    expected_schema_revision 0059
   }
   class HealthPayload {
     api_probed

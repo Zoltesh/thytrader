@@ -50,6 +50,11 @@ from thytrader.execution.trade_reason_scope import (
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.no_trade import (
+    fill_no_trade_gaps,
+    has_interior_gaps,
+    merge_confirmed_candles,
+)
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.risk.exposure import risk_bearing_snapshots
@@ -76,7 +81,7 @@ if TYPE_CHECKING:
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.execution_worker.venue import ExecutionVenue
-    from thytrader.market_data.models import Candle, MarketProduct
+    from thytrader.market_data.models import Candle, CandleRangeReport, MarketProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.persistence.audit_events import AuditEventStore
@@ -1617,7 +1622,13 @@ async def _closed_window_for(
     deploy_anchor: datetime,
     as_of_closed_start: datetime | None = None,
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
-    """Fetch deploy-anchored warmup through one closed bar on an interval."""
+    """Fetch deploy-anchored warmup through one closed bar on an interval.
+
+    Coinbase returns no candle for an interval without trades. A bar missing between two
+    real candles, and still missing on one re-fetch, is a confirmed no-trade interval and
+    becomes a flat zero-volume bar, exactly as research datasets publish it (ADR 0095).
+    A missing newest bar is never filled: the gapped window still pauses the book.
+    """
     now = datetime.now(UTC)
     interval = parse_candle_interval(timeframe)
     last_closed_end = interval.align_closed_end(now)
@@ -1630,12 +1641,27 @@ async def _closed_window_for(
     starts_at = warmup_starts_at(deploy_anchor_bar, warmup_bars, timeframe)
     preview = await market_data.get_preview(product_id, interval)
     report = await market_data.get_range(product_id, interval, starts_at, last_closed_end, now)
-    candles = tuple(
+    candles = _window_candles(report, starts_at, last_closed_start)
+    if has_interior_gaps(candles, interval):
+        confirmation = await market_data.get_range(
+            product_id, interval, starts_at, last_closed_end, now
+        )
+        merged = merge_confirmed_candles(
+            candles, _window_candles(confirmation, starts_at, last_closed_start)
+        )
+        candles = fill_no_trade_gaps(merged, interval)
+    return preview.product, candles, last_closed_start
+
+
+def _window_candles(
+    report: CandleRangeReport, starts_at: datetime, last_closed_start: datetime
+) -> tuple[Candle, ...]:
+    """Keep the report's closed candles inside one deploy-anchored window."""
+    return tuple(
         candle
         for candle in report.quality.candles
         if starts_at <= candle.starts_at <= last_closed_start
     )
-    return preview.product, candles, last_closed_start
 
 
 async def _currency_available(reader: QuoteBalanceReader, currency: str) -> Decimal | None:

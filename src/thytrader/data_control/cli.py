@@ -32,8 +32,9 @@ _CONFIRM_HELP = "Required for watchlist and ingest mutations."
 _SPOT_QUOTES_TEXT = ", ".join(SPOT_QUOTE_CURRENCIES[:-1]) + f", or {SPOT_QUOTE_CURRENCIES[-1]}"
 _LOOKBACK_HELP = (
     "Watch window in hours (default 168). Per-timeframe ceilings in hours: "
-    f"{describe_watch_lookback_ceilings()}. Coinbase may hold less history; the worker "
-    "then records history_floor_at instead of interpolating."
+    f"{describe_watch_lookback_ceilings()}. A market listed later has less history; the "
+    "worker proves the listing and records it as history_floor_at. Intervals without trades "
+    "become flat no-trade bars (ADR 0095)."
 )
 _WATCH_REQUIRED_HELP = (
     "The product/timeframe must already be watched (run watch-add first); an unwatched "
@@ -112,10 +113,11 @@ def _parser() -> argparse.ArgumentParser:
     fill = subparsers.add_parser(
         "fill-gaps",
         parents=[trailing],
-        help="Re-run complete-only ingest. Does not interpolate missing bars.",
+        help="Re-run complete-only ingest. Does not interpolate prices.",
         description=(
             "Queue continuation ingest that skips the current-island reconcile. "
-            f"Does not interpolate missing bars. {_WATCH_REQUIRED_HELP}"
+            "Does not interpolate prices; confirmed intervals without trades are flat "
+            f"no-trade bars. {_WATCH_REQUIRED_HELP}"
         ),
     )
     _target_args(fill)

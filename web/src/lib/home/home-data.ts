@@ -108,8 +108,40 @@ export type DatasetCoverageRow = {
 	watch_expected_candle_count?: number | null;
 	/** `complete`, `backfilling`, or `unknown`; `succeeded` alone never means a finished backfill. */
 	watch_status?: 'complete' | 'backfilling' | 'unknown' | null;
+	/** Set only when Coinbase has no trades at all before coverage starts (the listing). */
 	history_floor_at?: string | null;
+	/** Dataset-level completeness; `complete` is watch-relative for watched rows (ADR 0095). */
+	island_complete?: boolean | null;
+	/** Bars of the watch lookback the verified series covers: the X of "X of Y". */
+	watch_covered_candle_count?: number | null;
+	watch_coverage_ratio?: number | null;
+	/** Flat zero-volume bars published for intervals without trades. */
+	synthetic_no_trade_intervals?: number | null;
 };
+
+/**
+ * "X of Y" watch coverage for one catalog row, naming no-trade bars when present.
+ *
+ * Prefers the watch-window count (ADR 0095) and falls back to the dataset's received
+ * candles for images that predate it.
+ */
+export function datasetCoverageText(row: DatasetCoverageRow): string {
+	const covered = row.watch_covered_candle_count ?? row.received_candle_count;
+	const expected = row.watch_expected_candle_count ?? row.expected_candle_count;
+	if (covered === null || covered === undefined) return '—';
+	const base =
+		expected === null || expected === undefined ? `${covered} candles` : `${covered} / ${expected}`;
+	const noTrade = row.synthetic_no_trade_intervals ?? 0;
+	return noTrade > 0 ? `${base} · ${noTrade} no-trade` : base;
+}
+
+/** The watch column: a listing floor is named so a short series is never read as done. */
+export function datasetWatchText(row: DatasetCoverageRow): string {
+	if (row.watch_status === 'complete')
+		return row.history_floor_at ? 'Complete from listing' : 'Complete';
+	if (row.watch_status === 'backfilling') return 'Backfilling';
+	return 'Unknown';
+}
 
 export type DataCatalogReport = {
 	generated_at: string;

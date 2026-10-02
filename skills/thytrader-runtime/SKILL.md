@@ -126,7 +126,13 @@ runtime compared are in `rule.signal.indicator_values` ([ADR 0094](../../docs/de
 A false crossover says where the lines are: `EMA(9) is above EMA(21); no new cross this bar (…)`
 when fast already sits above slow, `EMA(9) is below EMA(21); no cross above yet (…)` when it has
 not reached it. Then come the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
-close price, and the end-of-bar position. A matched signal whose stop/target geometry or
+close price, and the end-of-bar position. `no_trade_bar: true` marks a flat zero-volume bar for an
+interval without trades (its summary ends "(no-trade bar: no trades, flat at the prior close)"):
+paper and live fill a bar Coinbase omitted between two traded bars exactly as research datasets do,
+then evaluate it like any bar. A missing **newest** closed bar is never filled; the book still
+pauses with `skip_reason: data_gap`
+([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). A matched
+signal whose stop/target geometry or
 sizing rested no order is `outcome: skipped` with `skip_reason` `entry_geometry` or `entry_sizing`
 and a precise `reason_code` such as `TARGET_NOT_POSITIVE` (a short's target would be at or below
 zero), `STOP_NOT_POSITIVE`, `NOTIONAL_BELOW_MINIMUM`, `QUANTITY_BELOW_VENUE_MINIMUM`, or

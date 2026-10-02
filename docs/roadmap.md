@@ -583,6 +583,30 @@ market; the library `tag` filter with UI chips and `bulk-delete-strategies --tag
 **Exit gate met:** one `show-study` call explains a WFO; `5` and `"5"` produce identical request
 and execution fingerprints; an invalid import prints its first document-path issue on stderr.
 
+## Sparse markets keep their history — ✅ Shipped
+
+A quiet interval no longer shrinks a dataset to its newest island
+([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). A thin market showed the bug: BONK-USD 1m kept two candles of a
+90-day watch and reported them complete.
+
+- Confirmed intervals without trades become flat zero-volume bars, counted as
+  `synthetic_no_trade_intervals` and disclosed on results as `synthetic_no_trade_bars`. Paper and
+  live fill them the same way and name them `no_trade_bar` on decision rows.
+- `history_floor_at` comes only from a backward listing search that reaches past the lookback
+  ceiling; forward walks never move it.
+- Catalog `complete` is watch-relative, with coverage X of Y in the data-catalog report and the Home
+  data-health table.
+- Alembic `0059` cleared every older floor, and the worker re-proves floors once per process. Ops
+  contract `thytrader-ops-contract-v55`.
+
+**Exit gate met:** liquid gap-free series keep byte-identical dataset fingerprints. Worker tests
+pin these behaviors: a sparse forward chunk keeps history, a backward walk past the listing records
+a floor, a forward gap never moves it, quiet days are skipped with daily probes, a bogus floor is
+repaired on the first visit, and catalog completeness is judged against the lookback.
+
+**Deferred:** a quiet newest bar still pauses a paper or live book (`data_gap`). A non-pausing wait
+for a settling newest bar is a risk-policy change and needs its own ADR.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`
@@ -650,7 +674,7 @@ widening schema, clocks, or live safety. Each needs its own ADR and tests when s
 | Exchange | Coinbase Advanced Trade spot | Same, until trustworthy; **other exchanges later** |
 | Portfolio | Balances, valuation history, fees, plus Phase 10 registry (slots, allowlist, paper book, allocations); on-demand entries use the same registry; daily-loss / drawdown breakers, order-rate limits, and reference-price collars ([ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)) | Max order qty/notional beyond exposure fractions; consecutive-error breaker; kill-switch vs trapped-position behavior |
 | On-demand trades with SL/TP | Yes, long or short via intent + risk; live attaches entry brackets when trailing is off ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md), [ADR 0045](decisions/0045-spot-shorting-and-attached-entry-brackets.md)). Published-strategy same-side adds are [ADR 0056](decisions/0056-multi-instrument-documents-and-pyramiding.md) | On-demand scale-in remains out |
-| Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only; ranged newest-first ingest (350-bar pages, fair per-cycle budgets, 429 backoff) with research lookbacks from 90 days (1m) to 10 years (2h-1d), watched-only ingest, and sub-second catalog listings; ops contract v45 / Alembic 0052 ([ADR 0085](decisions/0085-fast-research-ingest.md)) | Same Coinbase-listed intervals |
+| Dataset TFs | 1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d complete-only; ranged newest-first ingest (350-bar pages, fair per-cycle budgets, 429 backoff) with research lookbacks from 90 days (1m) to 10 years (2h-1d), watched-only ingest, and sub-second catalog listings; ops contract v45 / Alembic 0052 ([ADR 0085](decisions/0085-fast-research-ingest.md)); thin markets keep confirmed no-trade bars as flat bars, with listing-only floors ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)) | Same Coinbase-listed intervals |
 | Strategy / paper / live clocks | All ingested venue TFs ([ADR 0040](decisions/0040-venue-strategy-paper-live-htf-clocks.md)) | Same clocks as ingested venue TFs; extra listed granularities still need their own ADR |
 | Indicators | 53-kind fail-closed catalog through [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md) (trend, momentum, volatility, volume, statistical, and price kinds with series ids; per-declaration `offset` bar lag); optional per-indicator TFs ([ADR 0042](decisions/0042-per-indicator-timeframes.md)) | Further bounded kinds without TA passthrough; operand-level lag |
 | Research | Single-instrument backtests; HTF filter in research, paper, and live ([ADR 0025](decisions/0025-multi-timeframe-htf-filter.md), [ADR 0041](decisions/0041-paper-live-htf-filter-evaluation.md)); Phase 11 OOS / walk-forward / cross-market studies; parameter sweeps, WFO, and stitched OOS equity ([ADR 0044](decisions/0044-parameter-sweeps-wfo-stitched-equity.md)); richer sweep axes and persisted study catalog ([ADR 0052](decisions/0052-richer-sweep-axes-study-catalog.md)); auto-bound catalog datasets, omitted study bounds, cross-market variants from one strategy, and 64-candidate async sweeps ([ADR 0089](decisions/0089-agent-research-ergonomics.md)) | Further composed research remaining destination |

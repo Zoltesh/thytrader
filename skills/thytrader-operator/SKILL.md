@@ -172,10 +172,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v54`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v55`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0058`, `research_worker_pool` (leased research worker pool;
+   Alembic revision `0059`, `research_worker_pool` (leased research worker pool;
    [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `signal_exit_runtimes`
    `research`/`paper`/`live` (`exits.signal_exit`;
    [ADR 0093](../../docs/decisions/0093-signal-based-exits.md)), `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
@@ -197,7 +197,9 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md),
    [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md),
    [ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)). `catalog_health` includes
-   `ranged_backfill`, `explicit_watch_ingest`, and `research_lookback_ceilings`. Mismatch means
+   `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings`, and (sparse markets,
+   [ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md))
+   `no_trade_bars`, `listing_history_floor`, and `watch_relative_complete`. Mismatch means
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
@@ -206,8 +208,13 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
    strings), venue `status` (`online` when trading normally), and `alias` (the product whose
    order book it shares, such as `BTC-USD` for `BTC-USDC`). Check them before sizing an order.
-   In `data-catalog`, judge configured coverage by `watch_complete`; `complete` describes only the
-   current contiguous island. Each row also carries a `watch_status` noun
+   In `data-catalog`, judge configured coverage by `watch_complete`. For a watched row `complete`
+   is the same watch-relative fact ([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md));
+   `island_complete` describes only the published dataset. Report coverage as
+   `watch_covered_candle_count` of `watch_expected_candle_count` (`watch_coverage_ratio`), and
+   `synthetic_no_trade_intervals` as the flat bars published for intervals without trades. A
+   `history_floor_at` is the market's listing, proven by a search back past the timeframe's ceiling;
+   coverage counts from it. Each row also carries a `watch_status` noun
    (`complete` / `backfilling` / `unknown`) so `worker_status=succeeded` — which describes the
    latest chunk only — cannot be misread as a finished backfill. `sparsity` is island-only; use
    `watch_sparsity` for the configured

@@ -35,27 +35,43 @@ extends a published island carries one overlap bar. Initial backfill starts at t
 bar and walks back toward the lookback start, so coverage ends at the newest bar after one request;
 when the watch lookback starts before `covered_starts_at` of a complete island, prefix backfill
 (`prefix_backfill`) walks back the same way from the island start. Incremental maintenance walks
-forward from a one-bar overlap. Pages split into gap-free runs; a missing bar ends a run and is
-never interpolated. Each walk publishes one cumulative revision. A missing bar older than the
-settle window (one bar, at least 15 minutes) that is still missing on an immediate confirmation
-re-fetch is a confirmed provider hole. Directly before the walked segment it becomes
-`history_floor_at` at the first bar after the hole (worker state column, Alembic 0051): the worker
-stops prepending and resumes forward incremental extension. In a forward walk it starts a newer
-island after the hole, because the newest contiguous island wins. A missing bar inside the settle
-window is waited for and never recorded, so a late candle cannot discard a long island. Without
-the floor, prefix backfill would retry the same hole every cycle and the island would never extend
-forward (the 2026-09-17 2h/4h freeze: Coinbase lacks two BTC-USD 2h bars on 2026-05-08 and one 4h
-bar on 2025-10-25 for every product). `watch_complete` treats a floor at the island start as the
-watch start. The floor clears whenever the island start changes (a newer island after a forward
-hole), and stays put once the sliding lookback passes it. Latest verified coverage is the newest contiguous complete island. `complete` describes only that
-island. `watch_complete` is the agent completion decision: it is true only when the complete island
-spans the configured half-open watch window. Catalog, ingest status, gap inspection, and operator
-data-catalog payloads put `watch_complete` on the decision surface before `complete`.
+forward from a one-bar overlap. Each walk publishes one cumulative revision.
+
+Coinbase returns no candle for an interval without trades
+([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). A missing bar older than the settle window (one bar, at
+least 15 minutes) that the page request and its one confirmation re-fetch both omit is a confirmed
+no-trade interval. It is published as a flat bar: `open = high = low = close` = the previous close,
+`volume = 0`. The manifest counts these bars as `synthetic_no_trade_intervals` (written only when
+non-zero, recomputed from the rows at verification, outside the content fingerprint, so gap-free
+series stay byte-identical). No bar is invented before a market's first trade. When the lookback
+start itself had no trades, the newest earlier trade prices the flat bars from the start. Forward
+walks always extend the same island, starting from the stored edge bar when the provider omits a
+no-trade overlap bar. A missing bar inside the settle window is waited for and never filled, so a
+late candle cannot be replaced; a thin 1m market's head can trail closed time by up to 15 minutes.
+
+`history_floor_at` (worker state column, Alembic 0051) comes only from a backward walk's listing
+search. When a confirmed page adds no candle older than the segment, the walk pages to the UTC day
+boundary, then probes daily candles (350 days per request, each confirmed) back to one daily page
+past the timeframe's lookback ceiling, skipping whole days without trades. Only a search that finds no candle at all
+records the floor, at the oldest real bar: the market had not traded yet. Forward walks never set or
+move it. The search may spend up to 48 requests beyond the per-cycle budget, and the worker re-proves
+a recorded floor once per process. Alembic 0059 cleared every floor recorded under the older
+first-hole rule, which had pinned thin markets to their newest island (BONK-USD 1m kept two candles of
+a 90-day watch). `watch_complete` treats a floor at the island start as the watch start, and counts
+coverage that reaches the settle cutoff as spanning the watch.
+
+For a watched target, `complete` on catalog, ingest status, gap inspection, and operator
+data-catalog payloads is watch-relative: it is true only when the verified series spans the
+configured half-open watch window (or starts at a proven listing floor), like `watch_complete`.
+`island_complete` keeps the dataset-level fact. Coverage is `watch_covered_candle_count` of
+`watch_expected_candle_count` bars. These payloads put `watch_complete` on the decision surface
+before `complete`.
 `GET /api/v1/market-data/datasets` and `/datasets/latest` list fingerprint-addressed island
 publications; they are not a watch-completeness surface.
 `inspect-gaps` classifies missing bars as `not_fetched`,
-`exchange_unavailable`, or `incomplete_local`; it never interpolates, and a clean short island does
-not produce `gap_count: 0` for an incomplete watch. Server-side time, probe, and row budgets can
+`exchange_unavailable`, or `incomplete_local`; it never interpolates, no-trade bars are published
+bars rather than gaps, and a clean short island does not produce `gap_count: 0` for an incomplete
+watch. Server-side time, probe, and row budgets can
 stop the scan: the payload then sets `truncated` and a partial `gap_summary`
 ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 `POST /api/v1/data/ingest` queues an ingest job (HTTP 202) for an existing watch and does not call
@@ -239,10 +255,13 @@ The market-data worker aligns each cycle to the last complete bar of the watch t
 cycle requests a bounded lookback. Later cycles plan from durable verified coverage: forward
 incremental (one-bar overlap), or prefix backfill when the watch starts before the island and no
 `history_floor_at` sits at the island start. Incomplete-page warnings (`code=chunk_incomplete`)
-carry `product_id`, `timeframe`, `direction` (`initial` / `prefix` / `forward`), `starts_at`,
-`ends_at`, `expected`, `received`, and `missing_intervals`; `market_data_history_floor_recorded`
-logs each new floor, `market_data_ingestion_walk` logs each walk's stop reason and request count,
-and `market_data_ingestion_rate_limited` logs each throttle with its cooldown.
+carry `product_id`, `timeframe`, `direction` (`initial` / `prefix` / `forward` / `listing_probe`),
+`starts_at`, `ends_at`, `expected`, `received`, and `missing_intervals`; on thin markets they are
+routine. `market_data_no_trade_bars_published` logs each publication that carries no-trade bars,
+`market_data_history_floor_recorded` logs each proven listing floor, `market_data_ingestion_walk`
+logs each walk's stop reason (`complete`, `budget`, `unsettled`, `listing_floor`, `inconsistent`,
+`rate_limited`, ...) and request count, and `market_data_ingestion_rate_limited` logs each throttle
+with its cooldown.
 After restart, the worker first honors any persisted retry deadline and verifies
 the current immutable dataset before trusting durable coverage. Later cycles inside the same covered
 window update scheduling diagnostics without provider or dataset I/O when the island already covers

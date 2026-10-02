@@ -32,6 +32,7 @@ from thytrader.market_data_worker.service import (
     bounded_lookback_start,
     fetch_historical_range,
     island_covers_watch,
+    watch_covered_candle_count,
     watch_expected_candle_count,
 )
 from thytrader.persistence.audit_events import (
@@ -277,10 +278,11 @@ async def inspect_gaps(
         gap_summary=gap_summary,
         warning=warning,
         lookback_hours=lookback_hours,
-        complete=island_complete,
+        complete=island_complete and watch_complete,
         watch_complete=watch_complete,
         truncated=truncated,
         scanned_bar_count=scanned_bar_count,
+        island_complete=island_complete,
     )
 
 
@@ -551,13 +553,26 @@ def worker_state_payload(
     interval: CandleInterval | None = None,
     now: datetime | None = None,
 ) -> dict[str, object]:
-    """Serialize durable ingest outcome without candle payloads."""
+    """Serialize durable ingest outcome without candle payloads.
+
+    With a watch lookback, ``complete`` means the verified series spans that lookback
+    (``watch_complete``) and ``island_complete`` keeps the dataset-level fact; coverage is
+    ``watch_covered_candle_count`` of ``watch_expected_candle_count`` bars (ADR 0095).
+    """
     watch_complete: bool | None = None
     watch_expected: int | None = None
+    watch_covered: int | None = None
     if lookback_hours is not None and interval is not None:
         closed_end = interval.align_closed_end(now or datetime.now(UTC))
         watch_expected = watch_expected_candle_count(lookback_hours, interval, closed_end)
         if state is not None:
+            watch_covered = watch_covered_candle_count(
+                state.covered_starts_at,
+                state.covered_ends_at,
+                lookback_hours,
+                interval,
+                closed_end,
+            )
             watch_complete = island_covers_watch(
                 covered_starts_at=state.covered_starts_at,
                 covered_ends_at=state.covered_ends_at,
@@ -576,13 +591,17 @@ def worker_state_payload(
             "status": "never_run",
             "watch_complete": watch_complete,
             "complete": False,
+            "island_complete": False,
             "watch_expected_candle_count": watch_expected,
+            "watch_covered_candle_count": 0 if watch_expected is not None else None,
         }
     return {
         "status": state.status.value,
         "watch_complete": watch_complete,
-        "complete": state.complete,
+        "complete": state.complete and watch_complete is not False,
+        "island_complete": state.complete,
         "watch_expected_candle_count": watch_expected,
+        "watch_covered_candle_count": watch_covered,
         "failure_code": state.failure_code,
         "covered_starts_at": (
             state.covered_starts_at.isoformat() if state.covered_starts_at else None

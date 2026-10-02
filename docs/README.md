@@ -29,7 +29,7 @@ you are operating a **running** instance (not changing source).
 **Isn't:** another hosted trading UI you rent.
 
 **Is:** local-first, Coinbase-first research and trading. You keep the keys server-side. Missing
-candles are never interpolated. Live stays off until you arm it.
+prices are never interpolated (an interval without trades is a flat no-trade bar). Live stays off until you arm it.
 
 Group strategies into **portfolios** — sleeves with their own capital weights, a cash reserve, and
 shared limits — backtest them together, then start the portfolio as one bot per sleeve under its

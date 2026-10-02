@@ -409,3 +409,28 @@ def test_pause_details_map_onto_their_gates() -> None:
         is DecisionSkipReason.DATA_GAP
     )
     assert pause_skip_reason("Entry submit is unconfirmed.") is DecisionSkipReason.PAUSED
+
+
+def test_a_no_trade_bar_is_evaluated_and_named_on_its_record() -> None:
+    """ADR 0095: a flat zero-volume bar is a normal decision whose record names it."""
+    intent = _intent(IntentPurpose.BRACKET)
+    order = _order(intent, OrderStatus.FILLED)
+    fill = _fill(order, price="95", applied_at=_BAR + timedelta(minutes=20))
+    snapshot = DeploymentSnapshot(
+        deployment=_deployment(),
+        orders=(order,),
+        fills=(fill,),
+        intents=(intent,),
+    )
+    context = _context(snapshot, snapshot, previous_evaluated_at=_BAR + timedelta(seconds=5))
+
+    plain = build_bar_decision(context)
+    flat = build_bar_decision(replace(context, no_trade_bar=True))
+
+    assert plain.no_trade_bar is False
+    assert flat.no_trade_bar is True
+    assert flat.outcome is plain.outcome is DecisionOutcome.EXIT
+    assert (
+        flat.summary
+        == "Exit (stop): sell 0.5 @ 95 (no-trade bar: no trades, flat at the prior close)"
+    )

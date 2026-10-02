@@ -318,7 +318,7 @@ function datasetProblems(
 	} else if (backfilling && ingestion !== null) {
 		const reason = stuckBackfillReason(ingestion, nowMs);
 		if (reason !== null) {
-			const received = row.received_candle_count;
+			const received = row.watch_covered_candle_count ?? row.received_candle_count;
 			const expected = row.watch_expected_candle_count ?? row.expected_candle_count;
 			const progress =
 				received !== null && expected !== null && expected !== undefined

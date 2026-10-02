@@ -69,6 +69,7 @@ from thytrader.execution.geometry import EntrySkipReason, entry_levels
 from thytrader.execution.models import PositionSide as RuntimePositionSide
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.no_trade import is_no_trade_bar
 from thytrader.market_data.quality import (
     CandleQualityError,
     validate_candle_timestamp,
@@ -473,10 +474,30 @@ def _simulate_books(
             equity_curve,
             include_spread_cost=costs.fill_model.spread_stressed,
             evaluation_bars=evaluation_bars,
-            validity_limits=collect_backtest_validity_limits(strategy),
+            validity_limits=collect_backtest_validity_limits(
+                strategy,
+                no_trade_bars=_evaluated_no_trade_bars(
+                    [books[product_id] for product_id in product_ids],
+                    specification.evaluation.starts_at,
+                    bar,
+                    evaluation_bars,
+                ),
+            ),
         ),
     )
     return result, tally.diagnostics()
+
+
+def _evaluated_no_trade_bars(
+    books: Sequence[_Book], starts_at: datetime, bar: timedelta, evaluation_bars: int
+) -> int:
+    """Count flat zero-volume bars the evaluation loop processed across every book (ADR 0095)."""
+    return sum(
+        1
+        for offset in range(evaluation_bars)
+        for book in books
+        if is_no_trade_bar(book.candle_by_start[starts_at + bar * offset])
+    )
 
 
 def _process_bar(

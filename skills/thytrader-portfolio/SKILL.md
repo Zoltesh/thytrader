@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v54`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v55`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.

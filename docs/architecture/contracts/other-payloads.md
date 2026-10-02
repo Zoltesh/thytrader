@@ -6,8 +6,11 @@ remainders.
 ## Dataset manifest
 
 Worker-owned complete-only Parquet. Model: `thytrader.market_data.datasets.DatasetManifest`.
-`complete` is island completeness. Judge a watch by `watch_complete`. Missing
-candles are never interpolated.
+Manifest `complete` is dataset completeness. Judge a watch by `watch_complete`;
+catalog rows make `complete` watch-relative and keep `island_complete`. Prices are never
+interpolated. A confirmed interval without trades is a flat zero-volume bar, counted by the optional
+`synthetic_no_trade_intervals` (written only when non-zero, outside the content fingerprint;
+[ADR 0095](../../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)).
 
 ```mermaid
 classDiagram

@@ -1,6 +1,8 @@
 # 0085: Fast research ingest — ranged backfill, research lookback ceilings, explicit watched ingest, catalog-grade listings
 
-- Status: Accepted
+- Status: Accepted. Superseded in part by [0095](0095-sparse-markets-no-trade-bars-listing-floors.md):
+  confirmed no-trade intervals are now flat bars, forward walks never start a newer island, and
+  `history_floor_at` comes only from a backward listing search.
 - Date: 2026-10-02
 - Supersedes in part: [0068](0068-slow-timeframe-watch-lookback-and-catalog-ingest.md) (the
   2,160-hour and 8,760-hour watch lookback ceilings) and

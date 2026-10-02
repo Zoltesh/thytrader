@@ -11,11 +11,14 @@ ResearchValidityLimitCode = Literal[
     "stop_before_tp_same_bar",
     "spot_short_synthetic",
     "signal_exit_at_close",
+    "synthetic_no_trade_bars",
 ]
 
 
 def collect_backtest_validity_limits(
     strategy: StrategyDefinition,
+    *,
+    no_trade_bars: int = 0,
 ) -> tuple[ResearchValidityLimitCode, ...]:
     """Return the modeling limits that apply to one unified backtest result.
 
@@ -25,6 +28,9 @@ def collect_backtest_validity_limits(
     ``exits.signal_exit`` rule disclose that a matched exit fills as a taker at the
     signal bar's own close, a price paper and live can only approach by selling right
     after that close (ADR 0093); documents without one keep their exact limits.
+    ``no_trade_bars`` counts flat zero-volume bars in the evaluation window (confirmed
+    intervals without trades, ADR 0095); any such bar discloses
+    ``synthetic_no_trade_bars``, and gap-free windows keep their exact limits.
     """
     limits: list[ResearchValidityLimitCode] = [
         "maker_touch_full_fill",
@@ -34,4 +40,6 @@ def collect_backtest_validity_limits(
         limits.append("spot_short_synthetic")
     if signal_exit_condition(strategy.exits) is not None:
         limits.append("signal_exit_at_close")
+    if no_trade_bars > 0:
+        limits.append("synthetic_no_trade_bars")
     return tuple(limits)

@@ -149,7 +149,7 @@ describe('download progress', () => {
 		});
 		expect(done.done).toBe(true);
 		expect(done.floorNote).toBe(
-			'Coinbase has no complete history before 2026-05-09 00:00 UTC; coverage starts there.'
+			'Coinbase has no trades before 2026-05-09 00:00 UTC (the listing); coverage starts there.'
 		);
 	});
 });

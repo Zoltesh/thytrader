@@ -1,4 +1,4 @@
-"""Ranged ingest: provider-sized pages, fair budgets, rate-limit backoff, no interpolation.
+"""Ranged ingest: provider-sized pages, fair budgets, rate-limit backoff, listing floors.
 
 The fake provider below behaves like Coinbase candles: one request returns at most 350
 buckets and a product has no candles before it was listed. Counting its requests is the
@@ -169,10 +169,13 @@ def test_one_year_backfill_request_counts(
 
 
 def test_long_watch_on_a_young_product_stops_at_the_listing_floor(tmp_path: Path) -> None:
-    """A five-year 1h watch on a one-year-old product needs 27 requests, then records its floor.
+    """A five-year 1h watch on a one-year-old product records its listing floor in 43 requests.
 
-    The previous oldest-first walk, budgeted at two UTC days per cycle, re-probed the same two
-    empty pre-listing days every cycle and never published anything.
+    The walk fetches the year of data, then proves the listing (ADR 0095): the empty page
+    below the oldest candle and the rest of its UTC day, then daily-candle probes back to
+    one daily page past the five-year ceiling, each confirmed once. The previous oldest-first
+    walk, budgeted at two UTC days per cycle, re-probed the same empty pre-listing days and
+    never published.
     """
 
     async def exercise() -> None:
@@ -189,8 +192,12 @@ def test_long_watch_on_a_young_product_stops_at_the_listing_floor(tmp_path: Path
             now=_NOW,
         )
 
-        assert outcome.stop is IngestStop.HOLE
-        assert len(provider.requests) == 27, "25 full pages, then the listing page twice"
+        assert outcome.stop is IngestStop.LISTING_FLOOR
+        daily = [request for request in provider.requests if request[1] is CandleInterval.ONE_DAY]
+        # 25 full pages, the listing page, the empty page below it, and the rest of its
+        # UTC day (each twice), then six 350-day probes twice to 350 days past the ceiling.
+        assert len(provider.requests) == 43
+        assert len(daily) == 12
         state = await state_store.get("coinbase", "NEW-USDC", CandleInterval.ONE_HOUR)
         assert state is not None
         assert state.covered_starts_at == listed_at
@@ -387,8 +394,11 @@ async def _seed_island(
     return dataset_store
 
 
-def test_forward_walk_restarts_the_island_after_a_settled_hole(tmp_path: Path) -> None:
-    """A confirmed hole older than the settle window starts a newer island with its floor."""
+def test_settled_forward_gap_is_a_no_trade_bar_and_keeps_the_island(tmp_path: Path) -> None:
+    """A confirmed missing bar older than the settle window becomes a flat bar (ADR 0095).
+
+    The island keeps its start, no floor is recorded, and the manifest counts the bar.
+    """
 
     async def exercise() -> None:
         state_store = InMemoryMarketDataWorkerStateStore()
@@ -412,11 +422,15 @@ def test_forward_walk_restarts_the_island_after_a_settled_hole(tmp_path: Path) -
         assert len(provider.requests) == 2, "one page plus one confirmation"
         state = await state_store.get("coinbase", "ETH-USDC", CandleInterval.ONE_HOUR)
         assert state is not None
-        assert state.covered_starts_at == hole + timedelta(hours=1)
-        assert state.history_floor_at == hole + timedelta(hours=1)
+        assert state.covered_starts_at == _CLOSED_END - timedelta(hours=24)
+        assert state.history_floor_at is None
         assert state.covered_ends_at == _CLOSED_END + timedelta(hours=10)
         candles = dataset_store.load_candles(state.content_fingerprint or "")
-        assert all(candle.starts_at != hole for candle in candles)
+        flat = next(candle for candle in candles if candle.starts_at == hole)
+        assert (flat.open, flat.high, flat.low, flat.close) == (Decimal("105"),) * 4
+        assert flat.volume == 0
+        manifest = dataset_store.load_manifest(state.content_fingerprint or "")
+        assert manifest.synthetic_no_trade_intervals == 1
 
     asyncio.run(exercise())
 
@@ -450,7 +464,7 @@ def test_forward_walk_waits_for_a_late_newest_bar_instead_of_discarding_the_isla
             timeframe=CandleInterval.FIVE_MINUTES,
         )
 
-        assert outcome.stop is IngestStop.HOLE
+        assert outcome.stop is IngestStop.UNSETTLED
         assert len(provider.requests) == 1, "an unsettled hole is not re-fetched"
         state = await state_store.get("coinbase", "ETH-USDC", CandleInterval.FIVE_MINUTES)
         assert state is not None

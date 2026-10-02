@@ -229,6 +229,7 @@ async def get_gaps(
         "lookback_hours": inspection.lookback_hours,
         "watch_complete": inspection.watch_complete,
         "complete": inspection.complete,
+        "island_complete": inspection.island_complete,
         "gap_count": sum(inspection.gap_summary.values()),
         "gap_summary": inspection.gap_summary,
         "gaps": [gap_payload(item) for item in listed],

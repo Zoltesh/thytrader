@@ -25,6 +25,7 @@ from thytrader.market_data.models import (
     interval_from_range,
     parse_candle_interval,
 )
+from thytrader.market_data.no_trade import count_no_trade_bars
 from thytrader.market_data.quality import (
     CandleQualityError,
     analyze_range,
@@ -63,7 +64,13 @@ class DatasetStoreError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class DatasetManifest:
-    """Facts identifying one immutable persisted candle range and its files."""
+    """Facts identifying one immutable persisted candle range and its files.
+
+    ``synthetic_no_trade_intervals`` counts flat zero-volume bars the worker published for
+    confirmed no-trade intervals (ADR 0095). The manifest stores it only when it is
+    non-zero, so gap-free datasets keep their exact bytes, and it is not part of the
+    content fingerprint: deep verification recomputes it from the rows.
+    """
 
     provider: str
     product_id: str
@@ -78,6 +85,7 @@ class DatasetManifest:
     content_fingerprint: str
     files: tuple[Path, ...]
     manifest_path: Path
+    synthetic_no_trade_intervals: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -466,6 +474,26 @@ class DatasetStore:
         """Resolve and verify exact dataset identity and coverage by content fingerprint."""
         return self.load_verified(self._manifest_path(content_fingerprint))
 
+    def load_edge_candle(self, content_fingerprint: str, *, newest: bool) -> Candle:
+        """Return the first or the last bar of one verified dataset.
+
+        The dataset is verified first (or served from a byte-identical cached
+        verification); then only its first or last UTC-day partition is decoded. The
+        ingest worker uses this bar to extend a series whose edge is a stored no-trade
+        bar; ``extend`` verifies the whole prior dataset again before it publishes.
+        """
+        manifest = self.load_manifest(content_fingerprint)
+        path = manifest.files[-1] if newest else manifest.files[0]
+        try:
+            candles = _rows_to_candles(_parquet_rows(path))
+        except (OSError, ValueError, pl.exceptions.PolarsError) as error:
+            message = "Dataset verification failed while reading an edge partition."
+            raise DatasetStoreError(message) from error
+        if not candles:
+            message = "Dataset verification failed because an edge partition is empty."
+            raise DatasetStoreError(message)
+        return candles[-1] if newest else candles[0]
+
     def extend(self, content_fingerprint: str, report: CandleRangeReport) -> DatasetManifest:
         """Publish a cumulative revision by merging a verified overlap that expands start or end."""
         _validate_report_for_publication(report)
@@ -667,6 +695,9 @@ class DatasetStore:
         if manifest.content_fingerprint != f"sha256:{expected}":
             message = "Dataset verification failed because its content fingerprint does not match."
             raise DatasetStoreError(message)
+        manifest = _with_verified_no_trade_count(
+            manifest, cast("dict[str, object]", payload), count_no_trade_bars(candles)
+        )
         identity = _dataset_identity(manifest)
         stable = (
             identity is not None
@@ -741,6 +772,7 @@ class DatasetStore:
             content_fingerprint=f"sha256:{digest}",
             files=files,
             manifest_path=manifest_path,
+            synthetic_no_trade_intervals=count_no_trade_bars(report.quality.candles),
         )
         payload = _manifest_payload(manifest)
         temporary = directory / f".{manifest_path.name}.{uuid4().hex}.tmp"
@@ -861,6 +893,9 @@ class DatasetStore:
             content_fingerprint=content_fingerprint,
             files=files,
             manifest_path=manifest_path,
+            synthetic_no_trade_intervals=_manifest_no_trade_count(
+                manifest_payload, received_candle_count
+            ),
         )
 
 
@@ -1243,7 +1278,7 @@ def _fingerprint_from_manifest(
 
 def _manifest_payload(manifest: DatasetManifest) -> dict[str, object]:
     """Serialize a manifest without host-specific absolute paths."""
-    return {
+    payload: dict[str, object] = {
         "schema_version": _DATASET_SCHEMA_VERSION,
         "provider": manifest.provider,
         "product_id": manifest.product_id,
@@ -1260,6 +1295,40 @@ def _manifest_payload(manifest: DatasetManifest) -> dict[str, object]:
             str(file.relative_to(manifest.manifest_path.parent.parent)) for file in manifest.files
         ],
     }
+    if manifest.synthetic_no_trade_intervals:
+        # Written only when non-zero, so gap-free manifests keep their exact bytes.
+        payload["synthetic_no_trade_intervals"] = manifest.synthetic_no_trade_intervals
+    return payload
+
+
+_NO_TRADE_COUNT_KEY = "synthetic_no_trade_intervals"
+
+
+def _manifest_no_trade_count(payload: dict[str, object], received_candle_count: int) -> int:
+    """Read the optional no-trade bar count; an absent key means zero (pre-ADR 0095)."""
+    value = payload.get(_NO_TRADE_COUNT_KEY, 0)
+    if (
+        not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        or value > received_candle_count
+    ):
+        message = "Dataset verification failed because manifest facts are malformed."
+        raise DatasetStoreError(message)
+    return value
+
+
+def _with_verified_no_trade_count(
+    manifest: DatasetManifest, payload: dict[str, object], verified_count: int
+) -> DatasetManifest:
+    """Bind the no-trade count recomputed from rows; a stored count must agree with it.
+
+    Manifests written before ADR 0095 carry no count; theirs is taken from the rows.
+    """
+    if _NO_TRADE_COUNT_KEY in payload and manifest.synthetic_no_trade_intervals != verified_count:
+        message = "Dataset verification failed because manifest facts do not match candle coverage."
+        raise DatasetStoreError(message)
+    return replace(manifest, synthetic_no_trade_intervals=verified_count)
 
 
 def _utc_text(value: datetime) -> str:

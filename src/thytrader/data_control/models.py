@@ -87,7 +87,12 @@ class GapObservation:
 
 @dataclass(frozen=True, slots=True)
 class GapInspection:
-    """Watch-window gap classification without interpolation."""
+    """Watch-window gap classification without interpolation.
+
+    ``complete`` is watch-relative: the verified series spans the lookback (ADR 0095).
+    ``island_complete`` keeps the dataset-level fact. No-trade bars are present locally,
+    so they are never reported as gaps.
+    """
 
     starts_at: datetime
     ends_at: datetime
@@ -99,6 +104,7 @@ class GapInspection:
     watch_complete: bool
     truncated: bool = False
     scanned_bar_count: int = 0
+    island_complete: bool = False
 
 
 def require_interval(value: str) -> CandleInterval:
