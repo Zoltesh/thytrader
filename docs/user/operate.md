@@ -19,7 +19,7 @@ The left rail has four destinations ([ADR 0079](../decisions/0079-four-destinati
 
 | Rail item | Opens | Also holds |
 | --- | --- | --- |
-| **Home** | `/`: portfolio overview | |
+| **Home** | `/`: balances, live exposure, what needs attention, your bots | Data health disclosure (`/#data-health`) |
 | **Strategies** | `/strategies`: library | Each strategy's workspace: Build `/strategies/{id}`, Test `/test`, Run `/run`, Why `/why`. Old `/research`, `/backtests`, `/deploy` links redirect there |
 | **Portfolio** | `/deployments`: every paper and live bot, grouped by state | `/deployments/{id}` bot detail |
 | **Trade** | `/trade`: on-demand order ticket with a Review aside | |
@@ -42,6 +42,64 @@ direct link. The top bar shows where you are (`section / page`).
   It appears on a live bot's detail page, on Trade while the mode is **Live**, and on a strategy's
   Run stage while the **Arm live trading** dialog is open. It never appears for paper-only views.
   The text always says LIVE, so it does not rely on color.
+
+### Home
+
+Home (http://127.0.0.1:5175/, [ADR 0084](../decisions/0084-home-kpis-needs-attention-data-health.md))
+answers "how am I doing, and what needs me?" from existing endpoints only. Every card loads on its
+own with a skeleton and its own error and **Retry**, so a slow source (the data catalog can take
+about 20 seconds; the Coinbase portfolio call is slow) never blocks the rest. A figure that cannot
+be known shows `—` with the reason, never a guess. Home summarises live bots but is not a live
+context: it shows no amber strip; live rows and items carry a **LIVE** tag.
+
+- **Header.** One line with the Coinbase connection, every detected permission (for example
+  `View + Trade + Transfer`; extra permissions are reported, never treated as consent), and how old
+  the last balance snapshot is. **New order** opens Trade; **New strategy** opens Strategies.
+  Without Coinbase credentials a **Demo data** banner says the balances are a deterministic demo; a
+  fresh install with no balances shows the getting-started path instead.
+- **Portfolio value.** The newest of the current Coinbase reading and the newest snapshot, with its
+  change since the oldest snapshot in the last 24 hours ("since HH:MM" when history is shorter). A
+  reading more than 10 minutes old says so. Demo balances are labelled demo and show no change:
+  history records live balances only.
+- **Available to trade.** The Coinbase available balance in the installation quote currency (the
+  risk policy's `quote_currency`, for example USDC), and **Reserved by live bots**: the
+  `allocated_capital` of running and paused live bots that trade in that currency.
+- **Live exposure.** Gross marked exposure of running and paused live bots per quote currency, the
+  live bot count, and whether open books have exit cover (`flat`, `protected`, `unprotected`, or
+  `protection unconfirmed`). Unknown when an open book has no complete mark.
+- **Bots.** Running count, paused count, and how many bots appear in Needs attention.
+- **Portfolio value chart.** `1D`, `1W`, `1M`, `3M` over portfolio history (`3M` reads the all-time
+  range and keeps the last 90 days). Gaps stay visible; see
+  [setup](setup.md#portfolio-snapshots-and-home).
+- **Needs attention.** One list, critical and live items first. Each item names the problem in
+  words beside an icon and links to where it is fixed:
+  - paused bots, bots reporting a mismatch (with its detail), and any status other than running,
+    paused, or stopped; **Review** opens the bot;
+  - tripped daily-loss or drawdown breaker latches (reset them on the bot page);
+  - live positions without venue-visible exit cover, or with cover not yet reconciled;
+  - only while live bots run or are paused: no Coinbase credentials (**Add credentials** opens
+    Settings) or no published risk policy (publish one with `thytrader-runtime set-risk-policy
+    --confirm`, or ask the agent);
+  - watched datasets whose latest ingest failed, whose backfill is stuck (its scheduled worker
+    attempt is overdue, an attempt has run for over an hour, or it keeps failing), that are stale,
+    or that have gaps. Each links to the strategy trading that market and clock, else to Data
+    health;
+  - the newest research job of one of the 12 most recently updated strategies, when it failed in
+    the last week (**Open Test**).
+
+  Sources still loading, partly read, or failed are listed under the items with their own Retry, so
+  an empty list only says "Nothing needs you right now" after every source was read.
+- **Your bots.** Running and paused bots, live and paper, with mode, market and clock, position
+  and protection, PnL, and status; each row opens `/deployments/{id}`. Stopped bots stay on
+  Portfolio.
+- **Holdings.** Your balances, largest first; click a column header to sort (ascending,
+  descending, unsorted). The ten largest show by default, with **Show all**. Balances under $0.10
+  collapse into one expandable line. **Refresh balances** re-reads Coinbase; a failed refresh keeps
+  the last snapshot with the redacted error.
+- **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
+- **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
+  datasets with coverage, newest candle, watch and worker state, and the same problem words as
+  Needs attention, plus the per-product **Data-source diagnostics**, which load only when opened.
 
 ### Strategies
 

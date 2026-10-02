@@ -88,6 +88,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0081](0081-live-chrome-portfolio-bot-detail-trade.md) | Route-declared global live chrome (amber `LIVE:` strip and frame), Portfolio groups/filter with truthful per-mode capital totals, recomposed bot detail with checkbox-gated live resume, Trade Review aside and live dialog, compact Test run bar with engine default from engine-support | Accepted — superseded in part by 0083 |
 | [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md) | Strategy as the root object: one mutable revision-guarded strategy, automatic content-addressed snapshots at backtest/study/deploy start, `strategy_id` foreign keys, hard delete with live-ledger carve-out; ops contract v41 / Alembic 0048 | Accepted |
 | [0083](0083-unified-backtest-model.md) | One unified backtest model (`engine: "thytrader-backtest"`, corrected maker-limit semantics) replaces the versioned bar-backtest engines; optional `spread_bps` stress on taker legs; no engine selector; `backtest-model` replaces engine-support; ops contract v42 / Alembic 0049 | Accepted |
+| [0084](0084-home-kpis-needs-attention-data-health.md) | Home recomposed from existing endpoints: independently loading KPI tiles, Needs attention aggregated from bots, setup, watched datasets, and research jobs, 1D/1W/1M/3M chart with honest gaps on thinned ranges, compact Holdings, fee tier line, and a Data health disclosure | Accepted |
 
 ## Status values
 

@@ -1,289 +1,273 @@
 <script lang="ts">
+	/**
+	 * Home "Portfolio value" chart card (ADR 0084) over `GET /api/v1/portfolio/history`.
+	 *
+	 * 1D · 1W · 1M · 3M map onto the API's 24h · 7d · 30d ranges; 3M reads `all`
+	 * and keeps the last 90 days. X follows wall-clock time and missed worker
+	 * observations stay visible as gaps: the line is never interpolated. When the
+	 * API thins a long range to representative snapshots, a gap means a hole
+	 * longer than the spacing between those snapshots, not the thinning itself.
+	 */
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
+	import Segmented from '$lib/Segmented.svelte';
+	import {
+		HOME_CHART_RANGES,
+		expectedSampleSpacingSeconds,
+		isThinnedHistory,
+		type HomeChartRange
+	} from '$lib/home/history-range';
+	import type { ChartHistory } from '$lib/home/home-data';
+	import { displayMinus, formatShortUtc } from '$lib/home/home-format';
+	import type { Load } from '$lib/home/load';
 	import {
 		formatConfiguredSamplingInterval,
 		formatUsd,
 		isHistoryStale,
 		portfolioChange,
 		portfolioHistoryChartModel,
-		type HistoryEntry,
-		type HistoryRange
+		type HistoryEntry
 	} from '$lib/portfolio';
 
-	type HistoryAvailability = 'ready' | 'unavailable' | 'failed';
-
 	let {
-		entries = [] as HistoryEntry[],
-		loading = false,
-		availability = 'ready' as HistoryAvailability,
-		selectedRange = '24h' as HistoryRange,
-		samplingIntervalSeconds = 300,
-		onRangeChange
+		history,
+		range,
+		onRangeChange,
+		onRetry
 	}: {
-		entries?: HistoryEntry[];
-		loading?: boolean;
-		availability?: HistoryAvailability;
-		selectedRange?: HistoryRange;
-		samplingIntervalSeconds?: number;
-		onRangeChange: (range: HistoryRange) => void;
+		history: Load<ChartHistory>;
+		range: HomeChartRange;
+		onRangeChange: (range: HomeChartRange) => void;
+		onRetry: () => void;
 	} = $props();
 
-	const ranges: { value: HistoryRange; label: string }[] = [
-		{ value: '24h', label: '24H' },
-		{ value: '7d', label: '7D' },
-		{ value: '30d', label: '30D' },
-		{ value: 'all', label: 'All' }
-	];
-	const chartEntries = $derived([...entries].reverse());
-	const model = $derived(portfolioHistoryChartModel(chartEntries, samplingIntervalSeconds));
-	const current = $derived(entries.length > 0 ? entries[0].total_value.amount : '0');
-	const high = $derived(model.maxAmount);
-	const low = $derived(model.minAmount);
-	const change = $derived(portfolioChange(entries));
-	const workerStale = $derived(isHistoryStale(entries, samplingIntervalSeconds));
-	const latestSnapshot = $derived(
-		entries.length > 0 ? new Date(entries[0].as_of).toLocaleString() : ''
+	const rangeOptions = HOME_CHART_RANGES.map((option) => ({ id: option.id, label: option.id }));
+	const ready = $derived(
+		history.status === 'ready' && history.data.kind === 'ready' ? history.data : null
 	);
+	const entries = $derived<HistoryEntry[]>(ready?.entries ?? []);
+	const cadence = $derived(ready?.samplingIntervalSeconds ?? 300);
+	const spacing = $derived(
+		ready === null ? cadence : expectedSampleSpacingSeconds(entries, cadence, ready.responseCount)
+	);
+	const thinned = $derived(ready !== null && isThinnedHistory(ready.responseCount));
+	const model = $derived(portfolioHistoryChartModel([...entries].reverse(), spacing));
+	const change = $derived(portfolioChange(entries));
+	const workerStale = $derived(isHistoryStale(entries, cadence));
+	const latest = $derived(entries[0] ?? null);
+	const option = $derived(HOME_CHART_RANGES.find((candidate) => candidate.id === range));
 
-	function changeDirectionLabel(direction: 'gain' | 'loss' | 'flat'): string {
-		if (direction === 'gain') return 'up';
-		if (direction === 'loss') return 'down';
-		return 'unchanged';
+	function changeText(
+		direction: 'gain' | 'loss' | 'flat',
+		amount: string,
+		percent: string | null
+	): string {
+		const magnitude = formatUsd(amount.startsWith('-') ? amount.slice(1) : amount);
+		const sign = direction === 'gain' ? '+' : direction === 'loss' ? '−' : '';
+		const pct =
+			percent === null ? '' : ` (${direction === 'gain' ? '+' : ''}${displayMinus(percent)}%)`;
+		return `${sign}${magnitude}${pct}`;
 	}
 </script>
 
-<section class="history-panel" aria-label="Portfolio value history">
-	<div class="panel-heading">
-		<div>
-			<h2>Portfolio history</h2>
-			<p>
-				{entries.length} sampled {entries.length === 1 ? 'snapshot' : 'snapshots'} · target interval {formatConfiguredSamplingInterval(
-					samplingIntervalSeconds
-				)}
-			</p>
-		</div>
-		<div class="range-controls" aria-label="History range">
-			{#each ranges as range (range.value)}
-				<button
-					type="button"
-					class:active={selectedRange === range.value}
-					aria-pressed={selectedRange === range.value}
-					onclick={() => onRangeChange(range.value)}
-				>
-					{range.label}
-				</button>
-			{/each}
-		</div>
+<section
+	class="card chart-card"
+	aria-labelledby="portfolio-chart-title"
+	data-testid="portfolio-chart"
+>
+	<div class="card-head">
+		<h2 id="portfolio-chart-title">Portfolio value</h2>
+		<Segmented
+			label="Chart range"
+			options={rangeOptions}
+			value={range}
+			onchange={onRangeChange}
+			testId="chart-range"
+		/>
 	</div>
-
-	{#if entries.length > 0 && availability === 'ready'}
-		<div class:stale={workerStale} class="worker-status">
-			<span class="worker-dot"></span>
-			{workerStale ? 'Snapshot cadence may be behind' : 'Snapshot cadence is current'} · last snapshot
-			{latestSnapshot}
-		</div>
-	{/if}
-
-	{#if entries.length >= 2 && availability === 'ready'}
-		<div class="stats">
-			<span class="stat"><small>Current</small><strong>{formatUsd(current)}</strong></span>
-			<span class="stat"><small>High</small><strong>{formatUsd(high)}</strong></span>
-			<span class="stat"><small>Low</small><strong>{formatUsd(low)}</strong></span>
-			{#if change}
-				<span
-					class:gain={change.direction === 'gain'}
-					class:loss={change.direction === 'loss'}
-					class="stat change"
-				>
-					<small>Range change ({changeDirectionLabel(change.direction)})</small>
-					<strong
-						>{change.direction === 'gain' ? '+' : change.direction === 'loss' ? '−' : ''}{formatUsd(
-							change.amount.startsWith('-') ? change.amount.slice(1) : change.amount
-						)}{#if change.percent !== null}
-							({change.direction === 'gain' ? '+' : ''}{change.percent}%){/if}</strong
-					>
-				</span>
+	<div class="card-body">
+		{#if history.status === 'loading'}
+			<div class="skeleton chart-skeleton" aria-hidden="true"></div>
+			<p class="sr-only">Loading portfolio history…</p>
+		{:else if history.status === 'error'}
+			<div class="chart-empty" role="status">
+				<p>Portfolio history could not be loaded.</p>
+				<small>Try again after the API and worker report healthy. ({history.error})</small>
+				<button type="button" class="btn retry" onclick={onRetry}>Retry</button>
+			</div>
+		{:else if history.data.kind === 'unavailable'}
+			<div class="chart-empty">
+				<p>Portfolio history is unavailable on this installation.</p>
+				<small>Start the full local stack to enable durable scheduled snapshots.</small>
+			</div>
+		{:else}
+			<p class="meta" data-testid="chart-meta">
+				{entries.length} sampled {entries.length === 1 ? 'snapshot' : 'snapshots'} · target interval
+				{formatConfiguredSamplingInterval(cadence)}{#if thinned}
+					· representative sample{/if}{#if option?.clipDays}
+					· {option.description} of the all-time history{/if}
+			</p>
+			{#if latest !== null}
+				<p class="cadence" class:stale={workerStale}>
+					<span class="dot" aria-hidden="true"></span>
+					{workerStale ? 'Snapshot cadence may be behind' : 'Snapshot cadence is current'} · last snapshot
+					{formatShortUtc(latest.as_of)}
+				</p>
 			{/if}
-		</div>
-	{/if}
-
-	{#if loading}
-		<div class="chart-area"><div class="skeleton chart-skeleton"></div></div>
-	{:else if availability === 'unavailable'}
-		<div class="chart-empty">
-			<p>Portfolio history is unavailable on this installation.</p>
-			<small>Start the full local stack to enable durable scheduled snapshots.</small>
-		</div>
-	{:else if availability === 'failed'}
-		<div class="chart-empty">
-			<p>Portfolio history could not be loaded.</p>
-			<small>Try again after the API and worker report healthy.</small>
-		</div>
-	{:else if entries.length === 0}
-		<div class="chart-empty">
-			<p>No snapshots exist in this range yet.</p>
-			<small
-				>The worker records live portfolios automatically; Refresh never creates chart points.</small
-			>
-		</div>
-	{:else if entries.length === 1}
-		<div class="chart-empty">
-			<p>One snapshot is available.</p>
-			<small>A line appears after the next successful scheduled observation.</small>
-		</div>
-	{:else}
-		<div class="chart-area">
-			<LightweightLineChart
-				series={model.series}
-				samples={model.samples}
-				height={220}
-				pointMarkers={true}
-				hasGaps={model.hasGaps}
-				ariaLabel="Portfolio value over time"
-				testId="portfolio-history-chart"
-			/>
-			{#if model.hasGaps}<p class="gap-note">
-					Gaps indicate missed worker observations; the line is intentionally not interpolated.
-				</p>{/if}
-		</div>
-	{/if}
+			{#if entries.length >= 2}
+				<dl class="stats">
+					<div>
+						<dt>Latest</dt>
+						<dd>{formatUsd(entries[0].total_value.amount)}</dd>
+					</div>
+					<div>
+						<dt>High</dt>
+						<dd>{formatUsd(model.maxAmount)}</dd>
+					</div>
+					<div>
+						<dt>Low</dt>
+						<dd>{formatUsd(model.minAmount)}</dd>
+					</div>
+					{#if change}
+						<div class:gain={change.direction === 'gain'} class:loss={change.direction === 'loss'}>
+							<dt>
+								Range change ({change.direction === 'gain'
+									? 'up'
+									: change.direction === 'loss'
+										? 'down'
+										: 'unchanged'})
+							</dt>
+							<dd>{changeText(change.direction, change.amount, change.percent)}</dd>
+						</div>
+					{/if}
+				</dl>
+			{/if}
+			{#if entries.length === 0}
+				<div class="chart-empty">
+					<p>No snapshots exist in this range yet.</p>
+					<small
+						>The worker records live portfolios automatically; Refresh never creates chart points.</small
+					>
+				</div>
+			{:else if entries.length === 1}
+				<div class="chart-empty">
+					<p>One snapshot is available.</p>
+					<small>A line appears after the next successful scheduled observation.</small>
+				</div>
+			{:else}
+				<LightweightLineChart
+					series={model.series}
+					samples={model.samples}
+					height={220}
+					pointMarkers={true}
+					hasGaps={model.hasGaps}
+					ariaLabel="Portfolio value over the {option?.description ?? 'selected range'}"
+					testId="portfolio-history-chart"
+				/>
+				{#if model.hasGaps}<p class="gap-note">
+						Gaps indicate missed worker observations; the line is intentionally not interpolated.
+					</p>{/if}
+			{/if}
+		{/if}
+	</div>
 </section>
 
 <style>
-	.history-panel {
-		border: 1px solid var(--line);
-		background: var(--surface);
-		border-radius: 13px;
-		overflow: hidden;
-		margin-top: 16px;
-	}
-	.panel-heading {
+	.chart-card {
 		display: flex;
-		justify-content: space-between;
+		flex-direction: column;
+		min-width: 0;
+	}
+	.card-head {
+		display: flex;
 		align-items: center;
-		padding: 22px 24px;
+		gap: 10px;
+		padding: 10px 16px;
 		border-bottom: 1px solid var(--line);
 	}
-	h2 {
-		margin: 0;
-		font-size: 18px;
+	.card-head :global(.seg) {
+		margin-left: auto;
 	}
-	.panel-heading p,
+	.card-body {
+		padding: 10px 16px 14px;
+	}
+	.meta,
 	.gap-note {
-		margin: 5px 0 0;
+		margin: 0;
 		color: var(--faint);
-		font-size: 12px;
+		font-size: var(--fs-sm);
 	}
-	.range-controls {
-		display: flex;
-		gap: 4px;
-		padding: 3px;
-		background: var(--surface);
-		border-radius: 7px;
+	.gap-note {
+		margin-top: 6px;
 	}
-	.range-controls button {
-		border: 0;
-		border-radius: 5px;
-		background: transparent;
-		color: var(--faint);
-		cursor: pointer;
-		font:
-			600 11px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
-		padding: 6px 8px;
-	}
-	.range-controls button.active {
-		background: var(--hover);
-		color: var(--code);
-	}
-	.range-controls button:focus-visible {
-		outline: 2px solid var(--accent);
-		outline-offset: 2px;
-	}
-	.worker-status {
+	.cadence {
 		display: flex;
 		align-items: center;
 		gap: 7px;
-		padding: 10px 24px;
-		border-bottom: 1px solid var(--line);
+		margin: 4px 0 0;
 		color: var(--muted);
-		font-size: 12px;
+		font-size: var(--fs-sm);
 	}
-	.worker-status.stale {
+	.cadence.stale {
 		color: var(--warn);
-		background: var(--warn-soft);
 	}
-	.worker-dot {
+	.dot {
 		width: 7px;
 		height: 7px;
 		border-radius: 50%;
 		background: var(--accent);
 	}
-	.worker-status.stale .worker-dot {
+	.cadence.stale .dot {
 		background: var(--warn);
 	}
 	.stats {
 		display: flex;
-		gap: 24px;
-		padding: 16px 24px;
-		border-bottom: 1px solid var(--line);
+		flex-wrap: wrap;
+		gap: 6px 22px;
+		margin: 10px 0 8px;
 	}
-	.stat {
+	.stats div {
 		display: flex;
 		flex-direction: column;
 	}
-	.stat small {
+	.stats dt {
 		color: var(--faint);
 		font-size: 10px;
-		text-transform: uppercase;
 		letter-spacing: 0.06em;
-		margin-bottom: 4px;
+		text-transform: uppercase;
 	}
-	.stat strong {
+	.stats dd {
+		margin: 2px 0 0;
 		color: var(--text);
-		font:
-			500 15px ui-monospace,
-			SFMono-Regular,
-			Consolas,
-			monospace;
+		font: 500 var(--fs-base) var(--font-mono);
 	}
-	.stat.gain strong {
-		color: var(--accent);
+	.stats .gain dd {
+		color: var(--pos);
 	}
-	.stat.loss strong {
+	.stats .loss dd {
 		color: var(--neg);
 	}
-	.chart-area {
-		padding: 20px 24px;
-	}
 	.chart-empty {
-		padding: 40px 24px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 6px;
+		padding: 36px 12px;
 		text-align: center;
 	}
 	.chart-empty p {
-		margin: 0 0 6px;
-		color: var(--faint);
-		font-size: 14px;
+		margin: 0;
+		color: var(--muted);
+		font-size: var(--fs-md);
 	}
 	.chart-empty small {
 		color: var(--faint);
-		font-size: 12px;
+		font-size: var(--fs-sm);
+	}
+	.retry {
+		margin-top: 6px;
 	}
 	.chart-skeleton {
-		height: 200px;
-		border-radius: 8px;
-	}
-	@media (max-width: 800px) {
-		.panel-heading {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 12px;
-		}
-		.stats {
-			overflow-x: auto;
-			gap: 16px;
-		}
+		height: 260px;
+		margin: 4px 0;
 	}
 </style>
