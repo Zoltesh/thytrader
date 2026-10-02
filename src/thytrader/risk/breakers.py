@@ -55,7 +55,9 @@ def evaluate_circuit_breakers(
     latched = _latched_verdict(occupied)
     if latched is not None:
         return latched
-    daily = _daily_loss_verdict(policy, occupied=occupied, observation=observation, capital=capital)
+    daily = _daily_loss_verdict(
+        policy, mode=mode, occupied=occupied, observation=observation, capital=capital
+    )
     if daily is not None:
         return daily
     return _drawdown_verdict(
@@ -105,6 +107,7 @@ def _latched_verdict(occupied: Sequence[DeploymentSnapshot]) -> RiskVerdict | No
 def _daily_loss_verdict(
     policy: RiskPolicyDefinition,
     *,
+    mode: DeploymentMode,
     occupied: Sequence[DeploymentSnapshot],
     observation: EntryObservation,
     capital: Decimal,
@@ -119,7 +122,8 @@ def _daily_loss_verdict(
             "Daily-loss cannot be computed without a last-close mark on open inventory.",
         )
     limit = capital * Decimal(policy.daily_loss_limit_fraction)
-    if policy.max_daily_loss_quote is not None:
+    # The absolute quote ceiling protects real money; paper uses the capital fraction only.
+    if policy.max_daily_loss_quote is not None and mode is DeploymentMode.LIVE:
         limit = min(limit, Decimal(policy.max_daily_loss_quote))
     if loss < limit:
         return None

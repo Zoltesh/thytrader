@@ -97,3 +97,13 @@ Alembic `0021` stores published versions and a single active pointer. Ops contra
 - **Keep operator `unavailable` until every security-and-risk.md control exists:** rejected; the
   named Phase 10 gap is the missing registry, not the full destination policy catalog.
 - **Gate exits through the same caps:** rejected; capital protection outranks the entry budget.
+
+## Amendment (2026-10-02): live-only allocation membership and absolute quote caps
+
+Allocations reserve real capital, and the absolute `max_daily_loss_quote` /
+`max_portfolio_exposure_quote` ceilings protect real money, so they now bind **live** only.
+In paper, an unlisted strategy or discretionary book is no longer denied when allocations
+exist (it is sized by `paper_capital_quote` and the fractional caps), and the absolute quote
+ceilings do not apply; a listed strategy's paper starting cash and exposure stay bounded by
+its allocation. Live keeps every gate unchanged. Motivation: a tight live allocation set must not
+block paper research across many markets.

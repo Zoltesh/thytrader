@@ -126,8 +126,8 @@ def test_paper_post_persists_intent_and_is_idempotent() -> None:
         assert timeout.place_calls == 1
 
 
-def test_risk_denial_does_not_persist_intent() -> None:
-    """Allocations deny discretionary orders before intent persist."""
+def test_allocations_do_not_block_paper_discretionary_http_orders() -> None:
+    """Allocations reserve live capital only; a paper ticket is accepted and persisted."""
     execution = InMemoryExecutionStore()
     risk = InMemoryRiskPolicyStore()
 
@@ -145,8 +145,8 @@ def test_risk_denial_does_not_persist_intent() -> None:
     asyncio.run(_publish())
     with _client(execution=execution, risk=risk) as client:
         response = client.post("/api/v1/discretionary-orders", json=_body())
-    assert response.status_code == 409
-    assert execution.intents == {}
+    assert response.status_code in {200, 201}
+    assert execution.intents
 
 
 def test_live_without_credentials_is_conflict() -> None:

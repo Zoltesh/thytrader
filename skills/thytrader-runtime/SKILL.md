@@ -149,10 +149,13 @@ strategy are removed with it.
 default quote) and `--allocation STRATEGY_UUID:QUOTE` may be repeated. `STRATEGY_UUID` is the
 strategy's `strategy_id` (not the `sha256:` fingerprint): read it from
 `thytrader-research list-strategies` or `strategy_id` on `thytrader-runtime show UUID`.
-**Allocations have side effects:** once any allocation is published the policy becomes an
-allowlist. `place-order` (discretionary books) is denied and every strategy without its own
-allocation is denied at start and entry. The allocations may not sum above
-`--paper-capital-quote`. Omit `--allocation` unless the user wants exactly that restriction.
+**Allocations gate LIVE only:** once any allocation is published, live becomes an allowlist —
+live `place-order` (discretionary books) is denied and every strategy without its own allocation is
+denied at live start and live entry. **Paper research is not blocked:** unlisted strategies and
+paper discretionary tickets still start and trade, sized by `--paper-capital-quote`; a listed
+strategy's paper starting cash stays bounded by its allocation (a rehearsal of the live
+reservation). The allocations may not sum above `--paper-capital-quote`. Omit `--allocation`
+unless the user wants exactly that live restriction.
 
 `list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
@@ -187,7 +190,8 @@ install's `start --mode live` or `place-order --mode live` is denied
 (`LIVE_REQUIRES_PUBLISHED_POLICY`) until `set-risk-policy --confirm` has published at least one
 version. Paper is unaffected. Optional `--max-daily-loss-quote` and
 `--max-portfolio-exposure-quote` add an absolute quote ceiling alongside the matching fraction
-(whichever binds tighter trips first); unset by default, since this skill does not assert a
+(whichever binds tighter trips first). These absolute ceilings protect real money and apply to
+**live only**; paper keeps the capital fractions of `--paper-capital-quote`. Unset by default, since this skill does not assert a
 universal safe amount for every operator. Optional `--max-venue-order-actions-per-minute` adds a
 combined cap across entry-order and cancellation requests in the same rolling minute — a coarse
 venue-request budget that can only ever deny a **new entry**, never a cancellation or protective

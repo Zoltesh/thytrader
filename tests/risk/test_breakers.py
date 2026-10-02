@@ -50,14 +50,16 @@ def _observation(
     )
 
 
-def _deployment(*, phase: RuntimePhase = RuntimePhase.FLAT) -> Deployment:
-    """One occupied paper book."""
+def _deployment(
+    *, phase: RuntimePhase = RuntimePhase.FLAT, mode: DeploymentMode = DeploymentMode.PAPER
+) -> Deployment:
+    """One occupied book (paper unless a live book is requested)."""
     return Deployment(
         id=uuid4(),
         strategy_fingerprint="sha256:" + "a" * 64,
         strategy_id=_STRATEGY,
         product_id="BTC-USD",
-        mode=DeploymentMode.PAPER,
+        mode=mode,
         status=DeploymentStatus.RUNNING,
         cash=Decimal("9000"),
         phase=phase,
@@ -84,9 +86,9 @@ def _order(*, created_at: datetime, status: OrderStatus = OrderStatus.OPEN) -> O
     )
 
 
-def _round_trip_loss_snapshot() -> DeploymentSnapshot:
+def _round_trip_loss_snapshot(*, mode: DeploymentMode = DeploymentMode.PAPER) -> DeploymentSnapshot:
     """A flat book that realized a 500-quote loss on the current UTC day."""
-    deployment = _deployment()
+    deployment = _deployment(mode=mode)
     buy = Order(
         id=uuid4(),
         deployment_id=deployment.id,
@@ -182,7 +184,25 @@ def test_daily_loss_limit_denies_after_utc_day_loss() -> None:
 
 
 def test_absolute_daily_loss_cap_binds_tighter_than_the_fraction() -> None:
-    """An absolute daily-loss ceiling can deny even when the fraction has room (F25)."""
+    """An absolute daily-loss ceiling can deny live even when the fraction has room (F25)."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"daily_loss_limit_fraction": "1", "max_daily_loss_quote": "10"}
+    )
+    snapshot = _round_trip_loss_snapshot(mode=DeploymentMode.LIVE)
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.LIVE,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        live_quote_cash=Decimal("10000"),
+        observation=_observation(marks={"BTC-USD": Decimal("50")}),
+    )
+    assert verdict.decision is RiskDecision.DENY
+    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+
+
+def test_absolute_daily_loss_cap_does_not_bind_paper() -> None:
+    """The absolute quote ceiling protects real money; paper keeps the capital fraction only."""
     policy = compiled_default_risk_policy().model_copy(
         update={"daily_loss_limit_fraction": "1", "max_daily_loss_quote": "10"}
     )
@@ -194,8 +214,7 @@ def test_absolute_daily_loss_cap_binds_tighter_than_the_fraction() -> None:
         snapshots=(snapshot,),
         observation=_observation(marks={"BTC-USD": Decimal("50")}),
     )
-    assert verdict.decision is RiskDecision.DENY
-    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+    assert verdict.decision is RiskDecision.ALLOW
 
 
 def test_drawdown_limit_denies_when_fill_ledger_drawdown_reaches_cap() -> None:
