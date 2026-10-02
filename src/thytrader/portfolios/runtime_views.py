@@ -13,8 +13,18 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, Field
 
-from thytrader.execution.models import DeploymentMode
-from thytrader.execution.protection import PositionState, deployment_position_state
+from thytrader.execution.book_marks import unrealized_pnl
+from thytrader.execution.models import (
+    DeploymentMode,
+    RuntimePhase,
+    resolved_product_id,
+    snapshot_positions,
+)
+from thytrader.execution.protection import (
+    PositionState,
+    book_position_state,
+    deployment_position_state,
+)
 from thytrader.portfolios.deployment import (
     PortfolioDeploymentState,
     daily_pnl,
@@ -34,6 +44,9 @@ from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.gate import portfolio_exposure
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from thytrader.execution.book_marks import BookMark
     from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.portfolios.deployment import SleeveBook
@@ -41,6 +54,33 @@ if TYPE_CHECKING:
 
 _ZERO = Decimal(0)
 _FRACTION = Decimal("0.000001")
+
+
+class SleeveOpenBookResponse(BaseModel):
+    """One open book of a sleeve bot, compactly (ADR 0098)."""
+
+    product_id: str
+    side: str
+    quantity: str
+    entry_price: str
+    stop_price: str
+    target_price: str | None = Field(description="Null when the strategy declares none.")
+    entered_bar: str = Field(description="UTC start of the bar the book was entered on.")
+    position_state: str = Field(
+        description="open_protected, open_unprotected, open_unverified, or exiting (ADR 0097)."
+    )
+    mark_price: str | None = Field(
+        default=None,
+        description=(
+            "Close of the newest bar the bot evaluated for this product; null without a "
+            "journaled close or on responses that do not mark books."
+        ),
+    )
+    marked_at: str | None = Field(default=None, description="UTC close of that bar.")
+    unrealized_pnl: str | None = Field(
+        default=None,
+        description="Gross unrealized PnL at mark_price, before exit fees; null without a mark.",
+    )
 
 
 class SleeveDeploymentResponse(BaseModel):
@@ -77,6 +117,13 @@ class SleeveDeploymentResponse(BaseModel):
     )
     exposure_quote: str
     open_books: int
+    books: tuple[SleeveOpenBookResponse, ...] = Field(
+        default=(),
+        description=(
+            "Each open book with entry, stop, target, entry bar, and state; the deployment "
+            "read also marks them at the last evaluated bar (ADR 0098)."
+        ),
+    )
     strategy_fingerprint: str | None
     running_current_rules: bool | None = Field(
         description="False when the bot runs an earlier edit of its strategy."
@@ -193,12 +240,20 @@ class ProposalResponse(BaseModel):
 
 
 def deployment_response(
-    snapshot: PortfolioDeploymentSnapshot, *, pending_proposals: int
+    snapshot: PortfolioDeploymentSnapshot,
+    *,
+    pending_proposals: int,
+    marks: Mapping[UUID, Mapping[str, BookMark]] | None = None,
 ) -> PortfolioDeploymentResponse:
-    """Project a portfolio's deployment snapshot."""
+    """Project a portfolio's deployment snapshot.
+
+    ``marks`` (per deployment id, then product) price each sleeve's open books at the last
+    evaluated bar; without them books carry no mark or unrealized PnL.
+    """
     aggregate = snapshot.aggregate
     portfolio = aggregate.portfolio
     by_id = {item.deployment.id: item for item in snapshot.snapshots}
+    marked = marks or {}
     return PortfolioDeploymentResponse(
         portfolio_id=portfolio.portfolio_id,
         name=portfolio.name,
@@ -208,11 +263,13 @@ def deployment_response(
         revision=portfolio.revision,
         state=snapshot.books.state,
         sleeves=tuple(
-            _sleeve_book(book, by_id, quote=portfolio.quote_currency)
+            _sleeve_book(book, by_id, quote=portfolio.quote_currency, marks=marked)
             for book in snapshot.books.sleeves
         ),
         detached=tuple(
-            sleeve_deployment(item, by_id.get(item.id), current_fingerprint=None)
+            sleeve_deployment(
+                item, by_id.get(item.id), current_fingerprint=None, marks=marked.get(item.id)
+            )
             for item in snapshot.books.detached
         ),
         breaker=_breaker(snapshot),
@@ -246,7 +303,11 @@ def action_response(
 
 
 def _sleeve_book(
-    book: SleeveBook, by_id: dict[UUID, DeploymentSnapshot], *, quote: SpotQuoteCurrency
+    book: SleeveBook,
+    by_id: dict[UUID, DeploymentSnapshot],
+    *,
+    quote: SpotQuoteCurrency,
+    marks: Mapping[UUID, Mapping[str, BookMark]],
 ) -> SleeveBookResponse:
     """Project one sleeve and its bot."""
     view = book.view
@@ -267,6 +328,7 @@ def _sleeve_book(
                 deployment,
                 by_id.get(deployment.id),
                 current_fingerprint=view.strategy.current_fingerprint,
+                marks=marks.get(deployment.id),
             )
         ),
     )
@@ -301,8 +363,9 @@ def sleeve_deployment(
     snapshot: DeploymentSnapshot | None,
     *,
     current_fingerprint: str | None,
+    marks: Mapping[str, BookMark] | None = None,
 ) -> SleeveDeploymentResponse:
-    """Project one sleeve bot."""
+    """Project one sleeve bot (and its open books, marked when ``marks`` has them)."""
     pnl = net_pnl(deployment)
     base = sleeve_capital_base(deployment)
     exposure = (
@@ -330,6 +393,7 @@ def sleeve_deployment(
         drawdown_fraction=None if drawdown is None else _fraction(drawdown),
         exposure_quote=canonical_decimal(exposure),
         open_books=0 if snapshot is None else len(snapshot.positions),
+        books=() if snapshot is None else open_books(snapshot, marks or {}),
         strategy_fingerprint=deployment.strategy_fingerprint,
         running_current_rules=(
             None
@@ -417,3 +481,36 @@ def _optional(value: Decimal | None) -> str | None:
 def _optional_time(value: datetime | None) -> str | None:
     """UTC text for an optional instant."""
     return None if value is None else utc_text(value)
+
+
+def open_books(
+    snapshot: DeploymentSnapshot, marks: Mapping[str, BookMark]
+) -> tuple[SleeveOpenBookResponse, ...]:
+    """Project every open book of one sleeve bot, priced at its last-bar mark if known."""
+    rows: list[SleeveOpenBookResponse] = []
+    for position in snapshot_positions(snapshot):
+        product_id = resolved_product_id(position.product_id, snapshot.deployment)
+        mark = marks.get(product_id)
+        state = book_position_state(
+            snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
+        )
+        rows.append(
+            SleeveOpenBookResponse(
+                product_id=product_id,
+                side=position.side.value,
+                quantity=canonical_decimal(position.quantity),
+                entry_price=canonical_decimal(position.entry_price),
+                stop_price=canonical_decimal(position.stop_price),
+                target_price=_optional(position.target_price),
+                entered_bar=utc_text(position.entered_bar),
+                position_state=state.value,
+                mark_price=None if mark is None else canonical_decimal(mark.price),
+                marked_at=None if mark is None else utc_text(mark.bar_closes_at),
+                unrealized_pnl=(
+                    None
+                    if mark is None
+                    else canonical_decimal(unrealized_pnl(position, mark.price))
+                ),
+            )
+        )
+    return tuple(rows)

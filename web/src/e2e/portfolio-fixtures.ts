@@ -311,6 +311,10 @@ export type MockState = {
 	bots: Record<string, string>;
 	breakerLatched: boolean;
 	proposals: Json[];
+	/** Open books by sleeve id for running sleeve bots (ADR 0098). */
+	books: Record<string, Json[]>;
+	/** Rows for GET /fill-comparisons (ADR 0098). */
+	fillComparisons: Json[];
 };
 
 export function newPortfolioState(portfolios: Json[]): MockState {
@@ -324,7 +328,9 @@ export function newPortfolioState(portfolios: Json[]): MockState {
 		rejectBacktest: false,
 		bots: {},
 		breakerLatched: false,
-		proposals: []
+		proposals: [],
+		books: {},
+		fillComparisons: []
 	};
 }
 
@@ -359,7 +365,13 @@ export function proposalFixture(overrides: Json = {}): Json {
 	};
 }
 
-function sleeveBot(portfolio: Json, item: Json, status: string, latched: boolean): Json {
+function sleeveBot(
+	portfolio: Json,
+	item: Json,
+	status: string,
+	latched: boolean,
+	books: Json[] = []
+): Json {
 	const paperCash = portfolio.mode === 'paper' ? item.capital_quote : null;
 	return {
 		deployment_id: `de${String(item.sleeve_id).slice(2)}`,
@@ -379,7 +391,9 @@ function sleeveBot(portfolio: Json, item: Json, status: string, latched: boolean
 		return_fraction: '0',
 		drawdown_fraction: '0',
 		exposure_quote: '0',
-		open_books: 0,
+		open_books: books.length,
+		books,
+		position_state: books.length > 0 ? 'open_protected' : 'flat',
 		strategy_fingerprint: 'sha256:' + 'a'.repeat(64),
 		running_current_rules: true,
 		created_at: '2026-10-02T12:00:00Z',
@@ -408,7 +422,15 @@ export function deploymentFixture(state: MockState, id: string): Json {
 			target_capital_quote: item.capital_quote,
 			issues: item.issues,
 			deployment:
-				status === undefined ? null : sleeveBot(portfolio, item, status, state.breakerLatched)
+				status === undefined
+					? null
+					: sleeveBot(
+							portfolio,
+							item,
+							status,
+							state.breakerLatched,
+							state.books[String(item.sleeve_id)] ?? []
+						)
 		};
 	});
 	const statuses = sleeves.map((item) => (item.deployment as Json | null)?.status ?? null);
@@ -599,6 +621,11 @@ async function handle(route: Route, state: MockState): Promise<void> {
 	}
 	const [id, section, child, grandchild] = parts;
 	if (section === 'deployment') return route.fulfill({ json: deploymentFixture(state, id) });
+	if (section === 'fill-comparisons') {
+		return route.fulfill({
+			json: { portfolio_id: id, comparisons: state.fillComparisons, warnings: [] }
+		});
+	}
 	if (['start', 'pause', 'resume', 'stop'].includes(section ?? '')) {
 		const portfolio = find(state, id);
 		const live = portfolio.mode === 'live';
@@ -879,4 +906,56 @@ export async function mockPortfolioApi(page: Page, state: MockState): Promise<vo
 				}
 			})
 	);
+}
+
+/** One open long book for a running sleeve bot, marked at the last bar (ADR 0098). */
+export function openBookFixture(overrides: Json = {}): Json {
+	return {
+		product_id: 'BTC-USDC',
+		side: 'long',
+		quantity: '0.0083',
+		entry_price: '60125.5',
+		stop_price: '58900',
+		target_price: '63800',
+		entered_bar: '2026-10-02T09:00:00Z',
+		position_state: 'open_protected',
+		mark_price: '61040.25',
+		marked_at: '2026-10-02T13:00:00Z',
+		unrealized_pnl: '7.59',
+		...overrides
+	};
+}
+
+/** A paper twin (outside the portfolio) of one live Core sleeve bot (ADR 0097). */
+export function fillComparisonFixture(liveDeploymentId: string, overrides: Json = {}): Json {
+	const digest = (deployment: string, portfolio: string | null, extra: Json): Json => ({
+		deployment_id: deployment,
+		portfolio_id: portfolio,
+		status: 'running',
+		entries_rested: 6,
+		entries_filled: 4,
+		entries_expired: 2,
+		entries_rejected: 0,
+		entries_working: 0,
+		average_fill_vs_limit_bps: '0',
+		average_seconds_to_fill: '5400',
+		median_seconds_to_fill: '7195',
+		...extra
+	});
+	return {
+		strategy_fingerprint: 'sha256:' + 'a'.repeat(64),
+		strategy_id: EMA,
+		strategy_name: 'EMA Trend Pullback',
+		product_id: 'BTC-USDC',
+		paper: digest('9a9e0000-0000-7000-8000-000000000001', null, {}),
+		live: digest(liveDeploymentId, CORE, {
+			entries_rested: 5,
+			entries_filled: 5,
+			entries_expired: 0,
+			average_fill_vs_limit_bps: '1.8',
+			average_seconds_to_fill: '9',
+			median_seconds_to_fill: '6'
+		}),
+		...overrides
+	};
 }

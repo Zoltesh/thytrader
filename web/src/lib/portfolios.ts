@@ -12,9 +12,11 @@
  */
 import { positionStateLabel, type Deployment } from './deployments';
 import { formatQuoteAmount } from './deployment-portfolio';
+import type { PortfolioFillComparisons } from './fill-comparison';
 import { sumDecimalStrings } from './money';
 import { compareDecimalStrings, formatPercent, subtractDecimalStrings } from './portfolio';
 import { ensureBrowserCsrfSession, mutationHeaders } from './security';
+import type { OpenBook } from './open-books';
 import type { StrategyLibraryEntry } from './strategies';
 
 export type PortfolioMode = 'paper' | 'live';
@@ -120,6 +122,8 @@ export type SleeveDeployment = {
 	drawdown_fraction: string | null;
 	exposure_quote: string;
 	open_books: number;
+	/** Each open book with entry, stop, target, state, and last-bar PnL (ADR 0098). */
+	books?: OpenBook[];
 	strategy_fingerprint: string | null;
 	running_current_rules: boolean | null;
 	created_at: string;
@@ -692,6 +696,11 @@ export function fetchPortfolio(portfolioId: string): Promise<Portfolio> {
 /** The portfolio's deployment: state, each sleeve's bot, breakers, and exposure. */
 export function fetchPortfolioDeployment(portfolioId: string): Promise<PortfolioDeployment> {
 	return request<PortfolioDeployment>(portfolioPath(portfolioId, '/deployment'));
+}
+
+/** Paper vs live entry fills for this portfolio's sleeves that have a twin (ADR 0098). */
+export function fetchFillComparisons(portfolioId: string): Promise<PortfolioFillComparisons> {
+	return request<PortfolioFillComparisons>(portfolioPath(portfolioId, '/fill-comparisons'));
 }
 
 function sleeveSegment(sleeveId: string | null | undefined): string {

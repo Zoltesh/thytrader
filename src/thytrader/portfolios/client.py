@@ -166,6 +166,13 @@ def show_deployment(base_url: str, portfolio_id: UUID) -> JsonObject:
     return _get(f"{base_url}{_PREFIX}/{portfolio_id}/deployment", "portfolio deployment")
 
 
+def show_fill_comparisons(base_url: str, portfolio_id: UUID) -> JsonObject:
+    """GET paper vs live entry fills for twins of the portfolio's sleeves (ADR 0098)."""
+    return _get(
+        f"{base_url}{_PREFIX}/{portfolio_id}/fill-comparisons", "portfolio fill comparisons"
+    )
+
+
 def show_briefing(
     base_url: str, portfolio_id: UUID, *, decisions_per_sleeve: int, journal_limit: int
 ) -> JsonObject:

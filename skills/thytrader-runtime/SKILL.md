@@ -237,7 +237,15 @@ carry them too:
 
 `exit_in_flight` is true only for `exiting`. A deployment takes its worst book (exiting, then
 unprotected, then unverified, then protected). Open paper books that are not exiting are always
-`open_protected`: the worker enforces the stop on every closed bar.
+`open_protected`: the worker enforces the stop on every closed bar. Their `protection_status` is
+`covered` on every read, `list` included, so the two fields agree
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).
+
+`show` (`GET /api/v1/deployments/{id}`) also marks each `positions[]` row: `mark_price` is the
+close of the newest bar the bot evaluated for that product (from the decision journal),
+`marked_at` its UTC close, and `unrealized_pnl` the gross PnL at that mark (signed quantity times
+the move from `entry_price`, before exit fees). All three are null without a journaled close;
+`list` does not mark books.
 
 ## Same-bar exits (paper equals the backtest)
 

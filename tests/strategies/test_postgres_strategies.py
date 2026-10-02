@@ -51,6 +51,7 @@ from thytrader.strategies.library import (
     StrategyDeletionBlockedError,
     StrategyInvalidError,
     StrategyNotFoundError,
+    StrategyOrigin,
     StrategyRevisionConflictError,
     bulk_delete_strategies,
     create_strategy_from_definition,
@@ -875,6 +876,50 @@ def test_library_tag_filter_uses_document_metadata_tags() -> None:
             assert (await store.list_page(limit=10, offset=0, tag=f"{tag}-absent")).total == 0
             everything = await store.list_page(limit=100, offset=0)
             assert everything.total >= 4
+        finally:
+            for record in created:
+                await store.delete(record.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_library_origin_filter_matches_research_tags_in_sql() -> None:
+    """``list_page(origin=)`` uses a JSON path: claude-research or research-* (ADR 0098)."""
+    marker = f"origin-{uuid4().hex[:8]}"
+
+    async def exercise() -> None:
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        created: list[StrategyRecord] = []
+        try:
+
+            def tagged(*tags: str) -> StrategyDefinition:
+                """A fresh template identity carrying ``marker`` plus ``tags``."""
+                payload = create_template_strategy().model_dump(mode="python")
+                payload["metadata"] = {"tags": (marker, *tags), "notes": ()}
+                return StrategyDefinition.model_validate(payload)
+
+            claude = await create_strategy_from_definition(store, tagged("claude-research"))
+            variant = await create_strategy_from_definition(store, tagged("research-sweep"))
+            mine = await create_strategy_from_definition(store, tagged("researcher-notes"))
+            untagged = await _template(store)
+            created.extend((claude, variant, mine, untagged))
+            research = await store.list_page(
+                limit=100, offset=0, tag=marker, origin=StrategyOrigin.RESEARCH
+            )
+            operator = await store.list_page(
+                limit=100, offset=0, tag=marker, origin=StrategyOrigin.OPERATOR
+            )
+            assert {record.strategy_id for record in research.records} == {
+                claude.strategy_id,
+                variant.strategy_id,
+            }
+            assert research.total == 2
+            assert [record.strategy_id for record in operator.records] == [mine.strategy_id]
+            everyone = await store.list_page(limit=100, offset=0, origin=StrategyOrigin.OPERATOR)
+            assert untagged.strategy_id in {record.strategy_id for record in everyone.records}
+            assert claude.strategy_id not in {record.strategy_id for record in everyone.records}
         finally:
             for record in created:
                 await store.delete(record.strategy_id)

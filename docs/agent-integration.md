@@ -260,7 +260,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v57` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v58` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -275,7 +275,8 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md),
 [ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md),
 [ADR 0096](decisions/0096-reference-instruments.md),
-[ADR 0097](decisions/0097-runtime-parity-and-observability.md); `backtest_engine:
+[ADR 0097](decisions/0097-runtime-parity-and-observability.md),
+[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md); `backtest_engine:
 "thytrader-backtest"`; `indicator_kinds`, `indicator_offset_runtimes`, `signal_exit_runtimes`,
 `reference_instrument_runtimes`, and `max_reference_instruments`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
@@ -288,7 +289,9 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md));
 `same_bar_exit_precedence` (`stop`, `take_profit`, `signal_exit`, `time_exit`) and
 `runtime_observability` (`position_state`, `exit_in_flight`, `paper_live_fill_comparison`;
-[ADR 0097](decisions/0097-runtime-parity-and-observability.md)); expected Alembic
+[ADR 0097](decisions/0097-runtime-parity-and-observability.md); plus `paper_protection_covered`,
+`book_marks`, and `portfolio_fill_comparisons`, with `strategy_library` adding `origin_filter`;
+[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md)); expected Alembic
 revision `0059`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
@@ -337,7 +340,16 @@ fingerprints. Decision operands carry 12 significant digits. `GET /api/v1/strate
 `list-strategies --tag`, `bulk-delete-strategies --tag`, `clone-strategy --name`,
 `thytrader-portfolio delete`, `create` with limits and manager settings, and `add-sleeves --file`
 (`POST /api/v1/portfolios/{id}/sleeves/batch`, one revision, at most 32 sleeves) remove most bulk
-chores.
+chores. `GET /api/v1/strategies?origin=research|operator|all` and `list-strategies --origin` split
+agent research (`claude-research` / `research-*` tags) from the operator's own strategies; combine
+it with `tag` ([ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md)).
+Book marks ([ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md)):
+`GET /api/v1/deployments/{id}` positions and `GET /api/v1/portfolios/{id}/deployment` sleeve
+`books[]` carry `mark_price` (the last evaluated bar's close from the decision journal),
+`marked_at`, and gross `unrealized_pnl` (null without a journaled close).
+`GET /api/v1/portfolios/{id}/fill-comparisons` returns the operator report's
+`paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. An open paper book's
+`protection_status` is `covered` on every read.
 Sparse markets ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)): Coinbase returns no candle for an interval without
 trades. The worker publishes each confirmed one as a flat zero-volume bar. Dataset manifests count
 them (`synthetic_no_trade_intervals`), and backtests whose window holds one disclose

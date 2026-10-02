@@ -655,6 +655,28 @@ the same price for every same-bar combination.
 **Deferred:** an explicit paper/live link (twins match by snapshot fingerprint), the fill
 comparison in the Portfolio UI, and moving study planning into the research worker.
 
+
+## Library and Portfolio polish — ✅ Shipped
+
+Operator-facing polish after agent research and paper/live twins ran side by side
+([ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md)). Shipped:
+
+- The Strategies library opens on **Mine**. **Research** (strategies tagged `claude-research` or
+  `research-*`) and **All** are one click away, and each viewer's choice is remembered.
+  `GET /api/v1/strategies?origin=` and `list-strategies --origin` apply the same filter
+  server-side, combined with `tag`.
+- An open paper book's `protection_status` is `covered` on every read, matching `position_state`.
+  Bounded live reads count a working closing-side order as cover.
+- Deployment positions and portfolio sleeve `books[]` carry a last-bar `mark_price` and gross
+  `unrealized_pnl` from the decision journal. Bot detail and sleeve rows show state, uPnL, time
+  held, and entry / stop / target compactly.
+- `GET /api/v1/portfolios/{id}/fill-comparisons` and a **Paper vs live** panel on the Sleeves tab
+  compare twins' entry fills (fill rate, bps vs limit, median wait).
+
+Ops contract `thytrader-ops-contract-v58`; Alembic stays `0059`.
+
+**Deferred:** net-of-fee unrealized PnL, origin counts on the library control, and an explicit
+paper/live link (twins still match by snapshot fingerprint).
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

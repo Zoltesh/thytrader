@@ -6,7 +6,12 @@
 	 *
 	 * Every change is revision-guarded. A 409 reloads the portfolio and says so;
 	 * nothing is merged or retried silently.
+	 *
+	 * Each running bot lists its open books compactly (state, unrealized PnL at
+	 * the last evaluated bar, time held, entry/stop/target; ADR 0098), and the
+	 * "Paper vs live" panel below compares entry fills of sleeves with a twin.
 	 */
+	import { onDestroy } from 'svelte';
 	import { resolve } from '$app/paths';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { marketLabel } from '$lib/deployment-detail';
@@ -42,6 +47,9 @@
 		type SleeveDeployment
 	} from '$lib/portfolios';
 	import type { StrategyLibraryEntry } from '$lib/strategies';
+	import type { PaperLiveFillComparison } from '$lib/fill-comparison';
+	import OpenBookSummary from '$lib/OpenBookSummary.svelte';
+	import PaperLiveFills from './PaperLiveFills.svelte';
 
 	let {
 		portfolio,
@@ -51,7 +59,9 @@
 		inventory,
 		onchanged,
 		onconflict,
-		onaction = () => {}
+		onaction = () => {},
+		fills = [],
+		fillWarnings = []
 	}: {
 		portfolio: Portfolio;
 		/** The portfolio's deployment view (sleeve bots), or null before it loads. */
@@ -63,7 +73,24 @@
 		onconflict: () => Promise<void>;
 		/** Open the confirmation for one sleeve's start, pause, resume, or stop. */
 		onaction?: (action: PortfolioDialogAction, sleeveId: string) => void;
+		/** Paper vs live twins of this portfolio's sleeves (ADR 0098). */
+		fills?: PaperLiveFillComparison[];
+		fillWarnings?: string[];
 	} = $props();
+
+	/** Clock for the open books' held time; a minute is fine-grained enough. */
+	let now = $state(Date.now());
+	const clock = setInterval(() => (now = Date.now()), 60_000);
+	onDestroy(() => clearInterval(clock));
+
+	/** The twin side opposite this sleeve bot, if a paper/live twin exists. */
+	function twinOf(deploymentId: string): 'paper' | 'live' | null {
+		for (const row of fills) {
+			if (row.paper.deployment_id === deploymentId) return 'live';
+			if (row.live.deployment_id === deploymentId) return 'paper';
+		}
+		return null;
+	}
 
 	/** The sleeve's portfolio bot (running, paused, or its last stopped one). */
 	function sleeveBot(sleeveId: string): SleeveDeployment | null {
@@ -236,216 +263,247 @@
 </script>
 
 <div class="layout">
-	<section class="card sleeves" aria-label="Sleeves">
-		{#if portfolio.sleeves.length === 0}
-			<div class="empty">
-				<h2>No sleeves yet</h2>
-				<p>
-					Add a strategy from your library. Each sleeve gets its weight of the portfolio's capital;
-					the rest stays in cash.
-				</p>
-			</div>
-		{:else}
-			<div class="table-wrap">
-				<table>
-					<thead>
-						<tr>
-							<th scope="col">Sleeve</th>
-							<th scope="col" class="left">Weight</th>
-							<th scope="col" class="left">Market</th>
-							<th scope="col">Capital</th>
-							<th scope="col" class="left">Bot ({portfolio.mode === 'live' ? 'live' : 'paper'})</th>
-							<th scope="col" class="left">Status</th>
-							<th scope="col"><span class="sr-only">Actions</span></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each portfolio.sleeves as sleeve, index (sleeve.sleeve_id)}
-							{@const bots = sleeveBots(inventory, sleeve.strategy_id, portfolio.mode)}
-							{@const bot = sleeveBot(sleeve.sleeve_id)}
-							{@const others = bots.filter((item) => item.id !== bot?.deployment_id)}
-							<tr data-testid="sleeve-row">
-								<td>
-									<a
-										class="name"
-										href={resolve(`/strategies/${encodeURIComponent(sleeve.strategy_id)}`)}
-										>{sleeve.strategy_name}</a
-									>
-									{#if sleeve.note}<div class="faint small">{sleeve.note}</div>{/if}
-								</td>
-								<td class="left">
-									{#if editing}
-										<label class="weight-input">
-											<span class="sr-only">Weight for {sleeve.strategy_name} (%)</span>
-											<input
-												type="text"
-												inputmode="decimal"
-												bind:value={draft[sleeve.sleeve_id]}
-												aria-invalid={draftFractions[index] === null}
-											/>
-											<span class="faint">%</span>
-										</label>
-									{:else}
-										<div class="weight">{weightPercent(sleeve.weight_fraction)}</div>
-										<div class="mini" aria-hidden="true">
-											<div class="mini-fill" style:width={bars[index]?.width ?? '0%'}></div>
-										</div>
-									{/if}
-								</td>
-								<td class="left">
-									{sleeve.product_id === null ? 'Unknown market' : marketLabel(sleeve.product_id)}
-									<span class="faint">· {sleeve.timeframe ?? '—'}</span>
-									{#if sleeve.covered_product_ids.length > 1}
-										<div class="faint small">
-											+{sleeve.covered_product_ids.length - 1} more product{sleeve
-												.covered_product_ids.length === 2
-												? ''
-												: 's'}
-										</div>
-									{/if}
-								</td>
-								<td>{quoteText(sleeve.capital_quote, portfolio.quote_currency)}</td>
-								<td class="left" data-testid="sleeve-bot">
-									{#if bot !== null}
+	<div class="main-col">
+		<section class="card sleeves" aria-label="Sleeves">
+			{#if portfolio.sleeves.length === 0}
+				<div class="empty">
+					<h2>No sleeves yet</h2>
+					<p>
+						Add a strategy from your library. Each sleeve gets its weight of the portfolio's
+						capital; the rest stays in cash.
+					</p>
+				</div>
+			{:else}
+				<div class="table-wrap">
+					<table>
+						<thead>
+							<tr>
+								<th scope="col">Sleeve</th>
+								<th scope="col" class="left">Weight</th>
+								<th scope="col" class="left">Market</th>
+								<th scope="col">Capital</th>
+								<th scope="col" class="left"
+									>Bot ({portfolio.mode === 'live' ? 'live' : 'paper'})</th
+								>
+								<th scope="col" class="left">Status</th>
+								<th scope="col"><span class="sr-only">Actions</span></th>
+							</tr>
+						</thead>
+						<tbody>
+							{#each portfolio.sleeves as sleeve, index (sleeve.sleeve_id)}
+								{@const bots = sleeveBots(inventory, sleeve.strategy_id, portfolio.mode)}
+								{@const bot = sleeveBot(sleeve.sleeve_id)}
+								{@const others = bots.filter((item) => item.id !== bot?.deployment_id)}
+								<tr data-testid="sleeve-row">
+									<td>
 										<a
-											class="bot-link"
-											class:breaker={pausedByBreaker(bot)}
-											href={resolve(`/deployments/${encodeURIComponent(bot.deployment_id)}`)}
-											title={bot.mismatch_detail ?? undefined}>{botStatusText(bot)}</a
+											class="name"
+											href={resolve(`/strategies/${encodeURIComponent(sleeve.strategy_id)}`)}
+											>{sleeve.strategy_name}</a
 										>
-										{@const positionState = sleevePositionText(bot)}
-										{#if positionState !== null}
-											<div class="faint small" data-testid="sleeve-position-state">
-												{positionState}
+										{#if sleeve.note}<div class="faint small">{sleeve.note}</div>{/if}
+									</td>
+									<td class="left">
+										{#if editing}
+											<label class="weight-input">
+												<span class="sr-only">Weight for {sleeve.strategy_name} (%)</span>
+												<input
+													type="text"
+													inputmode="decimal"
+													bind:value={draft[sleeve.sleeve_id]}
+													aria-invalid={draftFractions[index] === null}
+												/>
+												<span class="faint">%</span>
+											</label>
+										{:else}
+											<div class="weight">{weightPercent(sleeve.weight_fraction)}</div>
+											<div class="mini" aria-hidden="true">
+												<div class="mini-fill" style:width={bars[index]?.width ?? '0%'}></div>
 											</div>
+										{/if}
+									</td>
+									<td class="left">
+										{sleeve.product_id === null ? 'Unknown market' : marketLabel(sleeve.product_id)}
+										<span class="faint">· {sleeve.timeframe ?? '—'}</span>
+										{#if sleeve.covered_product_ids.length > 1}
+											<div class="faint small">
+												+{sleeve.covered_product_ids.length - 1} more product{sleeve
+													.covered_product_ids.length === 2
+													? ''
+													: 's'}
+											</div>
+										{/if}
+									</td>
+									<td>{quoteText(sleeve.capital_quote, portfolio.quote_currency)}</td>
+									<td class="left" data-testid="sleeve-bot">
+										{#if bot !== null}
+											<a
+												class="bot-link"
+												class:breaker={pausedByBreaker(bot)}
+												href={resolve(`/deployments/${encodeURIComponent(bot.deployment_id)}`)}
+												title={bot.mismatch_detail ?? undefined}>{botStatusText(bot)}</a
+											>
+											{@const positionState = sleevePositionText(bot)}
+											{@const books = bot.books ?? []}
+											{@const twin = twinOf(bot.deployment_id)}
+											{#if twin !== null}
+												<a class="twin" href="#paper-live-fills" data-testid="sleeve-twin"
+													>{twin === 'live' ? 'Live twin' : 'Paper twin'} · fills</a
+												>
+											{/if}
+											{#if books.length > 0}
+												<span class="sr-only" data-testid="sleeve-position-state"
+													>{positionState}</span
+												>
+												{#each books as book (book.product_id)}
+													<OpenBookSummary
+														{book}
+														quote={portfolio.quote_currency}
+														{now}
+														showProduct={books.length > 1}
+													/>
+												{/each}
+											{:else if positionState !== null}
+												<div class="faint small" data-testid="sleeve-position-state">
+													{positionState}
+												</div>
+											{/if}
+											{#if occupied(bot)}
+												<div class="faint small">
+													PnL {signedQuote(bot.net_pnl, portfolio.quote_currency)} · {quoteText(
+														bot.allocated_capital ?? sleeve.capital_quote,
+														portfolio.quote_currency
+													)}
+												</div>
+											{/if}
+										{:else if deployment !== null}
+											<span class="faint">Not started</span>
+										{/if}
+										{#each others as other (other.id)}
+											<a
+												class="bot-link other"
+												href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}
+												>{botLabel(other)} (outside this portfolio)</a
+											>
+										{/each}
+										{#if bot === null && deployment === null && inventory !== null && bots.length === 0}
+											<span class="faint">No bot</span>
+										{/if}
+									</td>
+									<td class="left">
+										{#if sleeve.issues.length === 0}
+											<span class="muted">Ready to backtest</span>
+										{:else}
+											{#each sleeve.issues as issue (issue)}
+												<div class="issue" data-testid="sleeve-issue">{sleeveIssueText(issue)}</div>
+											{/each}
+										{/if}
+									</td>
+									<td class="row-actions">
+										{#if bot !== null && bot.status === 'running'}
+											<button
+												type="button"
+												class="btn ghost compact"
+												aria-label="Pause sleeve {sleeve.strategy_name}"
+												onclick={() => onaction('pause', sleeve.sleeve_id)}>Pause</button
+											>
+										{:else if bot !== null && bot.status === 'paused'}
+											<button
+												type="button"
+												class="btn ghost compact"
+												aria-label="Resume sleeve {sleeve.strategy_name}"
+												disabled={deployment?.breaker.latched === true}
+												onclick={() => onaction('resume', sleeve.sleeve_id)}>Resume…</button
+											>
+										{:else if deployment !== null && sleeve.issues.length === 0}
+											<button
+												type="button"
+												class="btn ghost compact"
+												aria-label="Start sleeve {sleeve.strategy_name}"
+												disabled={deployment.breaker.latched}
+												onclick={() => onaction('start', sleeve.sleeve_id)}>Start…</button
+											>
 										{/if}
 										{#if occupied(bot)}
-											<div class="faint small">
-												PnL {signedQuote(bot.net_pnl, portfolio.quote_currency)} · {quoteText(
-													bot.allocated_capital ?? sleeve.capital_quote,
-													portfolio.quote_currency
-												)}
-											</div>
+											<button
+												type="button"
+												class="btn ghost compact"
+												aria-label="Stop sleeve {sleeve.strategy_name}"
+												onclick={() => onaction('stop', sleeve.sleeve_id)}>Stop…</button
+											>
+										{:else}
+											<button
+												type="button"
+												class="btn ghost compact"
+												aria-label="Remove sleeve {sleeve.strategy_name}"
+												disabled={editing}
+												onclick={() => {
+													removeError = null;
+													removeTarget = sleeve;
+												}}>Remove…</button
+											>
 										{/if}
-									{:else if deployment !== null}
-										<span class="faint">Not started</span>
-									{/if}
-									{#each others as other (other.id)}
-										<a
-											class="bot-link other"
-											href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}
-											>{botLabel(other)} (outside this portfolio)</a
-										>
-									{/each}
-									{#if bot === null && deployment === null && inventory !== null && bots.length === 0}
-										<span class="faint">No bot</span>
-									{/if}
-								</td>
-								<td class="left">
-									{#if sleeve.issues.length === 0}
-										<span class="muted">Ready to backtest</span>
-									{:else}
-										{#each sleeve.issues as issue (issue)}
-											<div class="issue" data-testid="sleeve-issue">{sleeveIssueText(issue)}</div>
-										{/each}
-									{/if}
-								</td>
-								<td class="row-actions">
-									{#if bot !== null && bot.status === 'running'}
-										<button
-											type="button"
-											class="btn ghost compact"
-											aria-label="Pause sleeve {sleeve.strategy_name}"
-											onclick={() => onaction('pause', sleeve.sleeve_id)}>Pause</button
-										>
-									{:else if bot !== null && bot.status === 'paused'}
-										<button
-											type="button"
-											class="btn ghost compact"
-											aria-label="Resume sleeve {sleeve.strategy_name}"
-											disabled={deployment?.breaker.latched === true}
-											onclick={() => onaction('resume', sleeve.sleeve_id)}>Resume…</button
-										>
-									{:else if deployment !== null && sleeve.issues.length === 0}
-										<button
-											type="button"
-											class="btn ghost compact"
-											aria-label="Start sleeve {sleeve.strategy_name}"
-											disabled={deployment.breaker.latched}
-											onclick={() => onaction('start', sleeve.sleeve_id)}>Start…</button
-										>
-									{/if}
-									{#if occupied(bot)}
-										<button
-											type="button"
-											class="btn ghost compact"
-											aria-label="Stop sleeve {sleeve.strategy_name}"
-											onclick={() => onaction('stop', sleeve.sleeve_id)}>Stop…</button
-										>
-									{:else}
-										<button
-											type="button"
-											class="btn ghost compact"
-											aria-label="Remove sleeve {sleeve.strategy_name}"
-											disabled={editing}
-											onclick={() => {
-												removeError = null;
-												removeTarget = sleeve;
-											}}>Remove…</button
-										>
-									{/if}
-								</td>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
-			</div>
-		{/if}
-		<div class="foot">
-			{#if editing}
-				<label class="weight-input">
-					<span>Cash reserve</span>
-					<input
-						type="text"
-						inputmode="decimal"
-						bind:value={reserveDraft}
-						aria-label="Cash reserve (%)"
-						aria-invalid={reserveFraction === null}
-					/>
-					<span class="faint">%</span>
-				</label>
-				<span class="total" data-testid="weights-total" class:over={draftProblem !== null}>
-					{draftTotal === null ? 'Total —' : `Total ${weightPercent(draftTotal)} of capital`}
-				</span>
-				{#if draftProblem !== null}<span class="problem" role="status">{draftProblem}</span>{/if}
-				<span class="spacer"></span>
-				<button type="button" class="btn" onclick={() => (editing = false)} disabled={savingWeights}
-					>Cancel</button
-				>
-				<button
-					type="button"
-					class="btn primary"
-					disabled={draftProblem !== null || savingWeights}
-					onclick={() => void saveWeights()}>{savingWeights ? 'Saving…' : 'Save weights'}</button
-				>
-			{:else}
-				<button type="button" class="btn" onclick={openPicker}>+ Add sleeve from a strategy</button>
-				{#if portfolio.sleeves.length > 0}
-					<button type="button" class="btn ghost" onclick={startEditing}>Edit weights</button>
-				{/if}
-				<span class="spacer"></span>
-				<span class="faint" data-testid="cash-reserve"
-					>Cash reserve: {quoteText(
-						portfolio.allocation.cash_reserve_quote,
-						portfolio.quote_currency
-					)}
-					({weightPercent(portfolio.cash_reserve_fraction)})</span
-				>
+									</td>
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+				</div>
 			{/if}
-		</div>
-		{#if weightsError}<p class="problem pad" role="alert">{weightsError}</p>{/if}
-		{#if notice}<p class="notice pad" role="status">{notice}</p>{/if}
-	</section>
+			<div class="foot">
+				{#if editing}
+					<label class="weight-input">
+						<span>Cash reserve</span>
+						<input
+							type="text"
+							inputmode="decimal"
+							bind:value={reserveDraft}
+							aria-label="Cash reserve (%)"
+							aria-invalid={reserveFraction === null}
+						/>
+						<span class="faint">%</span>
+					</label>
+					<span class="total" data-testid="weights-total" class:over={draftProblem !== null}>
+						{draftTotal === null ? 'Total —' : `Total ${weightPercent(draftTotal)} of capital`}
+					</span>
+					{#if draftProblem !== null}<span class="problem" role="status">{draftProblem}</span>{/if}
+					<span class="spacer"></span>
+					<button
+						type="button"
+						class="btn"
+						onclick={() => (editing = false)}
+						disabled={savingWeights}>Cancel</button
+					>
+					<button
+						type="button"
+						class="btn primary"
+						disabled={draftProblem !== null || savingWeights}
+						onclick={() => void saveWeights()}>{savingWeights ? 'Saving…' : 'Save weights'}</button
+					>
+				{:else}
+					<button type="button" class="btn" onclick={openPicker}
+						>+ Add sleeve from a strategy</button
+					>
+					{#if portfolio.sleeves.length > 0}
+						<button type="button" class="btn ghost" onclick={startEditing}>Edit weights</button>
+					{/if}
+					<span class="spacer"></span>
+					<span class="faint" data-testid="cash-reserve"
+						>Cash reserve: {quoteText(
+							portfolio.allocation.cash_reserve_quote,
+							portfolio.quote_currency
+						)}
+						({weightPercent(portfolio.cash_reserve_fraction)})</span
+					>
+				{/if}
+			</div>
+			{#if weightsError}<p class="problem pad" role="alert">{weightsError}</p>{/if}
+			{#if notice}<p class="notice pad" role="status">{notice}</p>{/if}
+		</section>
+		{#if fills.length > 0}
+			<PaperLiveFills portfolioId={portfolio.portfolio_id} rows={fills} warnings={fillWarnings} />
+		{/if}
+	</div>
 
 	<aside class="card aside" aria-label="Allocation">
 		<h2>Allocation</h2>
@@ -579,6 +637,22 @@
 		grid-template-columns: minmax(0, 1fr) 300px;
 		gap: 16px;
 		align-items: start;
+	}
+	.main-col {
+		display: grid;
+		gap: 16px;
+		min-width: 0;
+	}
+	.twin {
+		display: inline-block;
+		margin-top: 2px;
+		color: var(--muted);
+		font-size: var(--fs-xs);
+		text-decoration: none;
+	}
+	.twin:hover {
+		color: var(--text);
+		text-decoration: underline;
 	}
 	.sleeves {
 		overflow: hidden;

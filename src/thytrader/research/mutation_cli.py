@@ -75,6 +75,7 @@ from thytrader.strategies.library import (
     BulkDeletionItem,
     BulkDeletionReport,
     StrategyLibraryError,
+    StrategyOrigin,
     StrategyRecord,
     parse_document,
 )
@@ -240,6 +241,16 @@ def _add_strategy_commands(
         help=(
             "Only strategies whose metadata.tags include this tag (pass the same --tag with "
             "--cursor). Rows carry their tags."
+        ),
+    )
+    listing.add_argument(
+        "--origin",
+        choices=[item.value for item in StrategyOrigin],
+        default=StrategyOrigin.ALL.value,
+        help=(
+            "research: only strategies tagged claude-research or research-*; operator: every "
+            "other strategy; all (default): no origin filter. Combines with --tag; pass the "
+            "same --origin with --cursor."
         ),
     )
     show = subparsers.add_parser(
@@ -586,7 +597,7 @@ def _http_list_results(base_url: str, arguments: argparse.Namespace) -> str:
 _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
     "create-strategy": _http_create,
     "list-strategies": lambda url, args: research_http.list_strategies(
-        url, limit=args.limit, cursor=args.cursor, tag=args.tag
+        url, limit=args.limit, cursor=args.cursor, tag=args.tag, origin=StrategyOrigin(args.origin)
     ),
     "show-strategy": lambda url, args: research_http.show_strategy(
         url, _uuid(args.strategy_id, "--strategy-id")

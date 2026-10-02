@@ -23,6 +23,8 @@ from sqlalchemy import (
     cast as sql_cast,
     delete,
     func,
+    literal_column,
+    not_,
     or_,
     select,
     update,
@@ -55,6 +57,8 @@ from thytrader.persistence.schema import (
 )
 from thytrader.risk.store import RiskPolicyStoreError, successor_without_allocation
 from thytrader.strategies.library import (
+    RESEARCH_TAG,
+    RESEARCH_TAG_PREFIX,
     SnapshotLookup,
     StrategyDeletionBlockedError,
     StrategyDeletionCounts,
@@ -64,6 +68,7 @@ from thytrader.strategies.library import (
     StrategyInvalidError,
     StrategyLibraryError,
     StrategyNotFoundError,
+    StrategyOrigin,
     StrategyPage,
     StrategyRecord,
     StrategyRevisionConflictError,
@@ -164,11 +169,19 @@ class PostgresStrategyStore:
             raise StrategyNotFoundError("Strategy was not found.")
         return _record_from_row(row)
 
-    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+    async def list_page(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        tag: str | None = None,
+        origin: StrategyOrigin = StrategyOrigin.ALL,
+    ) -> StrategyPage:
         """Return one newest-updated-first page and the total library size.
 
-        ``tag`` filters on the stored document's ``metadata.tags`` (JSONB containment),
-        and ``total`` then counts only matching strategies.
+        ``tag`` filters on the stored document's ``metadata.tags`` (JSONB containment);
+        ``origin`` keeps research (``claude-research`` / ``research-*``) or operator
+        strategies (ADR 0098). ``total`` then counts only matching strategies.
         """
         statement = (
             _strategy_select(None)
@@ -181,6 +194,11 @@ class PostgresStrategyStore:
             tagged = sql_cast(strategies.c.document, JSONB)["metadata"]["tags"].contains([tag])
             statement = statement.where(tagged)
             counted = counted.where(tagged)
+        if origin is not StrategyOrigin.ALL:
+            research = _research_tagged()
+            scoped = research if origin is StrategyOrigin.RESEARCH else not_(research)
+            statement = statement.where(scoped)
+            counted = counted.where(scoped)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -796,3 +814,20 @@ def snapshot_owner(strategy_fingerprint_value: str) -> ScalarSelect[str | None]:
         .where(strategy_snapshots.c.strategy_fingerprint == strategy_fingerprint_value)
         .scalar_subquery()
     )
+
+
+_RESEARCH_TAG_PATH = (
+    f'$.metadata.tags[*] ? (@ == "{RESEARCH_TAG}" || @ starts with "{RESEARCH_TAG_PREFIX}")'
+)
+"""SQL/JSON path matching any research tag; built from module constants, never input."""
+
+
+def _research_tagged() -> ColumnElement[bool]:
+    """True when the stored document carries ``claude-research`` or a ``research-*`` tag.
+
+    Lax-mode JSON path: a missing or malformed ``metadata.tags`` matches nothing, and the
+    coalesce keeps the negation (operator strategies) total.
+    """
+    path = literal_column(f"'{_RESEARCH_TAG_PATH}'::jsonpath")
+    exists = func.jsonb_path_exists(sql_cast(strategies.c.document, JSONB), path)
+    return func.coalesce(exists, False)

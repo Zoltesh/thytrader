@@ -194,7 +194,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 
 | Need | Command |
 |---|---|
-| List the strategy library | `uv run thytrader-research list-strategies [--tag TAG] [--limit 50] [--cursor CURSOR]` |
+| List the strategy library | `uv run thytrader-research list-strategies [--origin all\|operator\|research] [--tag TAG] [--limit 50] [--cursor CURSOR]` |
 | Show one strategy (document, validation, revision, current fingerprint) | `uv run thytrader-research show-strategy --strategy-id UUID` |
 | Show one snapshot a result or bot used | `uv run thytrader-research show-snapshot --strategy-fingerprint sha256:…` |
 | Create a strategy from a template | `uv run thytrader-research create-strategy [--template rsi-mean-reversion] [--product-id ETH-USD] [--timeframe 5m] [--experiential-model-id UUID] --confirm` |
@@ -573,7 +573,13 @@ first, so heavy research no longer slows other API calls.
   status, and `active_deployment_count`. `--tag TAG` (HTTP `GET /api/v1/strategies?tag=`) keeps
   only strategies whose `metadata.tags` include `TAG`; `total` and `next_cursor` then cover the
   matches, so pass the same `--tag` with `--cursor`. Tag the strategies you create in bulk (for
-  example `per-market`) so you can list and clean them up later. Cross-market and sweep variants
+  example `per-market`) so you can list and clean them up later. `--origin research` (HTTP
+  `?origin=research`) keeps strategies tagged `claude-research` or any `research-*` tag;
+  `--origin operator` keeps every other strategy (the person's own, the UI's "Mine" view); the
+  default `all` applies no origin filter. It combines with `--tag`; pass the same `--origin` with
+  `--cursor` ([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).
+  Tag strategies your research run creates `claude-research` so they stay out of the person's
+  default "Mine" view. Cross-market and sweep variants
   are snapshots of their base strategy, never library rows: they do not appear in
   `list-strategies` (not even under `--tag research-market-variant`).
 - `clone-strategy --strategy-id UUID --name "…" --confirm` (HTTP `POST

@@ -304,6 +304,30 @@ def test_list_strategies_tag_filters_on_the_server(capsys: pytest.CaptureFixture
     assert json.loads(capsys.readouterr().out)["strategies"][0]["tags"] == ["majors"]
 
 
+def test_list_strategies_origin_filters_on_the_server() -> None:
+    """``list-strategies --origin research`` sends ``origin``; the default sends none."""
+    urls: list[str] = []
+
+    def fake_read(*, method: str, url: str, **_kw: object) -> object:
+        del method
+        urls.append(url)
+        return {"strategies": [], "total": 0, "has_more": False}
+
+    for argv in (["list-strategies", "--origin", "research"], ["list-strategies"]):
+        with (
+            patch(
+                "thytrader.agent_http.urlopen",
+                side_effect=urlopen_ready_then(matching_ready_payload()),
+            ),
+            patch("thytrader.research.http.request_json", side_effect=fake_read),
+            pytest.raises(SystemExit) as raised,
+        ):
+            main(argv)
+        assert raised.value.code == EXIT_HEALTHY
+    assert parse_qs(urlparse(urls[0]).query)["origin"] == ["research"]
+    assert "origin" not in parse_qs(urlparse(urls[1]).query)
+
+
 def test_bulk_delete_without_dry_run_requires_confirm() -> None:
     """A real bulk delete is a mutation and needs --confirm."""
     handlers = {

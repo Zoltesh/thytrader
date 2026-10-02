@@ -24,7 +24,9 @@ from thytrader.execution.models import (
     RuntimePhase,
 )
 from thytrader.execution.protection import (
+    PositionState,
     ProtectionStatus,
+    book_position_state,
     book_protection_status,
     working_order_count,
 )
@@ -35,15 +37,15 @@ def _at() -> datetime:
     return datetime(2026, 9, 16, 12, tzinfo=UTC)
 
 
-def _deployment() -> Deployment:
-    """Return one paper deployment whose primary product is BTC-USD."""
+def _deployment(mode: DeploymentMode = DeploymentMode.LIVE) -> Deployment:
+    """Return one deployment (live unless asked) whose primary product is BTC-USD."""
     now = _at()
     return Deployment(
         id=uuid4(),
         strategy_fingerprint="sha256:" + ("a" * 64),
         strategy_id=uuid4(),
         product_id="BTC-USD",
-        mode=DeploymentMode.PAPER,
+        mode=mode,
         status=DeploymentStatus.RUNNING,
         cash=Decimal("10000"),
         phase=RuntimePhase.OPEN,
@@ -80,7 +82,7 @@ def test_missing_position_is_flat() -> None:
 
 
 def test_open_book_without_resting_exit_is_unprotected() -> None:
-    """Paper synthetic stops on a filled entry are not venue-visible cover."""
+    """A live book whose filled entry rests no exit at the venue is not covered."""
     deployment = _deployment()
     position = _position(deployment_id=deployment.id)
     now = _at()
@@ -425,3 +427,126 @@ def test_unknown_attached_child_is_unknown_not_covered() -> None:
         book_protection_status(snapshot, product_id="ETH-USD", position=position)
         is ProtectionStatus.UNKNOWN
     )
+
+
+_EXPECTED_STATE: dict[ProtectionStatus, PositionState] = {
+    ProtectionStatus.COVERED: PositionState.OPEN_PROTECTED,
+    ProtectionStatus.UNPROTECTED: PositionState.OPEN_UNPROTECTED,
+    ProtectionStatus.UNKNOWN: PositionState.OPEN_UNVERIFIED,
+}
+"""ADR 0097: an open, non-exiting book's position_state follows its protection_status."""
+
+
+def _resting_take_profit(deployment: Deployment, *, intent_id: UUID) -> Order:
+    """Return one working post-only take-profit buy for the ETH short book."""
+    now = _at()
+    return Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=intent_id,
+        client_order_id="tp",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        status=OrderStatus.OPEN,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("2700"),
+        product_id="ETH-USD",
+    )
+
+
+def _take_profit_intent(deployment: Deployment) -> OrderIntent:
+    """Return the take-profit intent behind ``_resting_take_profit``."""
+    now = _at()
+    return OrderIntent(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        client_order_id="tp",
+        purpose=IntentPurpose.TAKE_PROFIT,
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        created_at=now,
+        candle_starts_at=now,
+        product_id="ETH-USD",
+    )
+
+
+def _open_state(snapshot: DeploymentSnapshot, position: Position) -> PositionState:
+    """``position_state`` for the ETH book of ``snapshot``."""
+    return book_position_state(
+        snapshot, product_id="ETH-USD", position=position, phase=RuntimePhase.PENDING_EXIT
+    )
+
+
+def test_paper_book_with_resting_take_profit_is_covered_on_summary_reads() -> None:
+    """ADR 0098: a bounded read (open orders, no intents) agrees with position_state."""
+    deployment = _deployment(DeploymentMode.PAPER)
+    position = _position(deployment_id=deployment.id)
+    intent = _take_profit_intent(deployment)
+    take_profit = _resting_take_profit(deployment, intent_id=intent.id)
+    summary = DeploymentSnapshot(
+        deployment=deployment, positions=(position,), orders=(take_profit,)
+    )
+    full = DeploymentSnapshot(
+        deployment=deployment, positions=(position,), orders=(take_profit,), intents=(intent,)
+    )
+    for snapshot in (summary, full):
+        status = book_protection_status(snapshot, product_id="ETH-USD", position=position)
+        assert status is ProtectionStatus.COVERED
+        assert _open_state(snapshot, position) is PositionState.OPEN_PROTECTED
+        assert _EXPECTED_STATE[status] is _open_state(snapshot, position)
+
+
+def test_paper_book_with_no_resting_order_is_covered() -> None:
+    """The paper synthetic stop protects a book that rests nothing at all."""
+    deployment = _deployment(DeploymentMode.PAPER)
+    position = _position(deployment_id=deployment.id)
+    snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,))
+    status = book_protection_status(snapshot, product_id="ETH-USD", position=position)
+    assert status is ProtectionStatus.COVERED
+    assert _EXPECTED_STATE[status] is _open_state(snapshot, position)
+
+
+def test_live_resting_take_profit_reads_the_same_with_or_without_intents() -> None:
+    """A live closing-side limit is cover on the bounded read, as on the full read."""
+    deployment = _deployment()
+    position = _position(deployment_id=deployment.id)
+    intent = _take_profit_intent(deployment)
+    take_profit = _resting_take_profit(deployment, intent_id=intent.id)
+    summary = DeploymentSnapshot(
+        deployment=deployment, positions=(position,), orders=(take_profit,)
+    )
+    full = DeploymentSnapshot(
+        deployment=deployment, positions=(position,), orders=(take_profit,), intents=(intent,)
+    )
+    for snapshot in (summary, full):
+        status = book_protection_status(snapshot, product_id="ETH-USD", position=position)
+        assert status is ProtectionStatus.COVERED
+        assert _EXPECTED_STATE[status] is _open_state(snapshot, position)
+
+
+def test_live_opening_side_order_on_a_summary_read_is_not_cover() -> None:
+    """A working add on the book's own side never counts as protection."""
+    deployment = _deployment()
+    position = _position(deployment_id=deployment.id)
+    now = _at()
+    add = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="add",
+        side=OrderSide.SELL,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.5"),
+        status=OrderStatus.OPEN,
+        created_at=now,
+        updated_at=now,
+        price=Decimal("3100"),
+        product_id="ETH-USD",
+    )
+    snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=(add,))
+    status = book_protection_status(snapshot, product_id="ETH-USD", position=position)
+    assert status is ProtectionStatus.UNPROTECTED
+    assert _open_state(snapshot, position) is PositionState.OPEN_UNPROTECTED

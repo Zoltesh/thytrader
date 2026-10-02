@@ -19,6 +19,7 @@
 		PORTFOLIO_TABS,
 		deploymentStateLabel,
 		errorText,
+		fetchFillComparisons,
 		fetchPortfolio,
 		fetchPortfolioDeployment,
 		isRevisionConflict,
@@ -44,6 +45,7 @@
 		type PortfolioTab
 	} from '$lib/portfolios';
 	import { subtractDecimalStrings } from '$lib/portfolio';
+	import type { PortfolioFillComparisons } from '$lib/fill-comparison';
 	import PortfolioActionDialog from './PortfolioActionDialog.svelte';
 	import { listStrategies, type StrategyLibraryEntry } from '$lib/strategies';
 	import BacktestTab from './BacktestTab.svelte';
@@ -73,6 +75,9 @@
 	let actionNotice = $state<string | null>(null);
 	let problems = $state<BacktestProblem[]>([]);
 	let refreshTimer: ReturnType<typeof setInterval> | null = null;
+	let fillsTimer: ReturnType<typeof setInterval> | null = null;
+	/** Paper vs live twins of the selected portfolio's sleeves (ADR 0098). */
+	let fills = $state<PortfolioFillComparisons | null>(null);
 
 	const selected = $derived(
 		portfolios?.find((item) => item.portfolio_id === selectedId) ?? portfolios?.[0] ?? null
@@ -81,6 +86,9 @@
 		deployment !== null && deployment.portfolio_id === selected?.portfolio_id ? deployment : null
 	);
 	const actions = $derived(portfolioActions(view));
+	const fillRows = $derived(
+		fills !== null && fills.portfolio_id === selected?.portfolio_id ? fills : null
+	);
 	const pnl = $derived(
 		view === null ? null : subtractDecimalStrings(view.breaker.equity, view.capital_quote)
 	);
@@ -96,6 +104,18 @@
 			}
 		} catch (caught) {
 			deploymentError = errorText(caught, 'The deployment state is unavailable.');
+		}
+	}
+
+	/** The fill comparison is advisory: a failure hides the panel instead of erroring. */
+	async function loadFills(): Promise<void> {
+		const current = selected;
+		if (current === null) return;
+		try {
+			const next = await fetchFillComparisons(current.portfolio_id);
+			if (selected?.portfolio_id === current.portfolio_id) fills = next;
+		} catch {
+			if (selected?.portfolio_id === current.portfolio_id) fills = null;
 		}
 	}
 
@@ -215,6 +235,7 @@
 		actionNotice = null;
 		syncQuery();
 		void loadDeployment();
+		void loadFills();
 	}
 
 	function chooseTab(next: PortfolioTab): void {
@@ -258,14 +279,16 @@
 
 	onMount(() => {
 		tab = parseTab(page.url.searchParams.get('tab'));
-		void load().then(loadDeployment);
+		void load().then(() => Promise.all([loadDeployment(), loadFills()]));
 		void loadStrategies();
 		// Breakers trip in the worker; refresh the deployment state while the page is open.
 		refreshTimer = setInterval(() => void loadDeployment(), 20_000);
+		fillsTimer = setInterval(() => void loadFills(), 60_000);
 	});
 
 	onDestroy(() => {
 		if (refreshTimer !== null) clearInterval(refreshTimer);
+		if (fillsTimer !== null) clearInterval(fillsTimer);
 	});
 </script>
 
@@ -485,6 +508,8 @@
 					onchanged={replace}
 					onconflict={reloadSelected}
 					onaction={openAction}
+					fills={fillRows?.comparisons ?? []}
+					fillWarnings={fillRows?.warnings ?? []}
 				/>
 			{:else if tab === 'backtest'}
 				<BacktestTab portfolio={selected} onconflict={reloadSelected} />

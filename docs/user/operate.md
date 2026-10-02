@@ -114,9 +114,16 @@ versions, drafts, or publish steps: a strategy is one object you edit and save
 are evidence, not readiness: **Build** (the saved definition is valid), **Test** (a backtest exists),
 **Paper** and **Live** (newest deployment status per mode: running, paused, stopped, or not
 deployed). Clicking a row opens that strategy's workspace; the latest-backtest link opens that
-result on its Test stage. A strategy's `metadata.tags` show as chips under its name; click one to
-show only strategies with that tag (the filter chip above the table clears it). Tag strategies you
-create in bulk, then list them with `thytrader-research list-strategies --tag TAG` or remove them
+result on its Test stage. The **Mine / Research / All** control above the table chooses whose
+strategies you see ([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).
+**Research** holds strategies that agent research created, meaning anything tagged
+`claude-research` or `research-*`. **Mine** holds everything else. The library opens on **Mine**,
+so a burst of research never buries your own strategies, and it remembers your last choice in this
+browser. A strategy's `metadata.tags` show as chips under its name (research tags in blue). Click
+one to show only strategies with that tag within the current view; the filter chip above the table
+clears it. Tag strategies you
+create in bulk, then list them with `thytrader-research list-strategies --tag TAG` (add
+`--origin research` or `--origin operator` for the same split as the page) or remove them
 with `bulk-delete-strategies --tag TAG --dry-run` and then `--confirm`
 ([ADR 0094](../decisions/0094-research-honesty-and-agent-ergonomics.md)). Cross-market variants
 are snapshots of their base strategy and never appear as separate rows.
@@ -296,7 +303,17 @@ an entry fills, the TP/SL bracket (or the stop-only order) rests and the worker'
 `pending_exit`, but the book shows **Open · protected (TP/SL resting)** (or **(stop resting)** with no
 take-profit). **Exiting** appears only while an exit is actually being sent: a marketable exit, a
 matched exit rule, or a flatten. HTTP and operator payloads carry the same reading as
-`position_state` and `exit_in_flight`.
+`position_state` and `exit_in_flight`. An open paper book's `protection_status` is always
+`covered`, on list and summary reads too: its stop is enforced on every closed bar and any
+take-profit rests in the paper broker
+([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).
+
+Each open book also shows its **unrealized PnL** at the close of the last bar the bot evaluated,
+and how long it has been held. On bot detail these are the **Unrealized** and **Held** columns of
+Positions & protection, plus a uPnL line on the Position card. On Portfolio sleeve rows each open
+book shows a state chip (Protected, Unprotected, Unverified, or Exiting), its uPnL, time held, and
+entry / SL / TP. The figure is gross (before exit fees), and the tooltip names the bar close it
+used. Without an evaluated bar it shows `—`, never an estimate.
 
 When one bar makes several exits due, paper takes the same one the backtest does: the stop first,
 then a take-profit the bar touched, then the exit rule, then the time exit. A bar that trades
@@ -306,7 +323,8 @@ To see why a live bot entered quickly while its paper twin waited, read
 `uv run thytrader-operator portfolios`: `paper_live_fill_comparisons` pairs paper and live bots
 that run the same strategy snapshot and reports entries rested, filled, and expired, the fill
 against the limit, and the time to fill. A paper post-only entry fills only when a closed candle
-trades through the limit. Live fills whenever Coinbase matches it.
+trades through the limit. Live fills whenever Coinbase matches it. The Portfolio page shows the
+same comparison for a portfolio's own sleeves (see **Paper vs live** below).
 
 On-demand trades and strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
@@ -362,7 +380,12 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   sleeve alone; a sleeve with a running bot cannot be removed until it is stopped. **+ Add sleeve from a strategy** opens a searchable picker (other-quote
   strategies and existing sleeves are disabled). **Edit weights** edits every weight and the cash
   reserve at once and refuses more than 100%. The aside shows allocation bars, the largest single
-  asset against the per-asset limit, and the cash reserve.
+  asset against the per-asset limit, and the cash reserve. When a sleeve's bot has a paper or live
+  twin (another bot running the same rules snapshot), the row links to a **Paper vs live** panel
+  below the table. For each twin it shows a paper row and a live row with the share of entries
+  that filled, the average fill against the posted limit in bps (positive is worse), the median
+  wait to fill, and how much sooner one side fills
+  ([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).
 - **Portfolio backtest** — fee rates prefill from the fee-tier suggestion; **Run portfolio
   backtest** queues a job and shows its progress, then the combined equity against an
   equal-weight buy-and-hold basket, net return, max drawdown, best sleeve alone, idle capital,

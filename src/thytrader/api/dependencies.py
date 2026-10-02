@@ -250,6 +250,16 @@ def get_decision_journal_store(request: Request) -> DecisionJournalStore:
     return store
 
 
+def get_optional_decision_journal_store(request: Request) -> DecisionJournalStore | None:
+    """Return the decision journal when attached, else None.
+
+    Read views that only decorate books with last-bar marks (ADR 0098) degrade to unmarked
+    books instead of failing when the journal is absent.
+    """
+    store = getattr(request.app.state, "decision_journal_store", None)
+    return store if isinstance(store, DecisionJournalStore) else None
+
+
 def get_risk_policy_store(request: Request) -> RiskPolicyStore:
     """Return the risk-policy registry attached during app startup."""
     store = getattr(request.app.state, "risk_policy_store", None)

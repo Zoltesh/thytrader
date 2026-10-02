@@ -57,7 +57,9 @@ paper, and live; reference dataset auto-binding, the ``reference_data_stale`` /
 ``reference_data_missing`` decision skip reasons, and the reference watch gate on deployment
 start; ADR 0096), or runtime parity and observability (paper's backtest same-bar exit
 precedence, ``position_state`` / ``exit_in_flight``, and the paper/live entry-fill
-comparison in the operator ``portfolios`` report; ADR 0097) change. Concurrency is the
+comparison in the operator ``portfolios`` report; ADR 0097), or the library origin filter,
+paper ``protection_status``, last-bar book marks, and per-portfolio fill comparisons (ADR
+0098) change. Concurrency is the
 deployment's ``research_worker_count`` and is reported by operator health, not compiled
 into this contract.
 """
@@ -84,7 +86,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v57"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v58"
 EXPECTED_SCHEMA_REVISION = "0059"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -192,13 +194,21 @@ RESEARCH_HONESTY: tuple[str, ...] = (
     "document_issue_paths",
     "json_number_decimals",
 )
-STRATEGY_LIBRARY: tuple[str, ...] = ("tag_filter", "bulk_delete_by_tag", "clone_name")
+STRATEGY_LIBRARY: tuple[str, ...] = (
+    "tag_filter",
+    "bulk_delete_by_tag",
+    "clone_name",
+    "origin_filter",
+)
 PORTFOLIO_SLEEVE_OPERATIONS: tuple[str, ...] = ("batch_add",)
 SAME_BAR_EXIT_PRECEDENCE: tuple[str, ...] = ("stop", "take_profit", "signal_exit", "time_exit")
 RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "position_state",
     "exit_in_flight",
     "paper_live_fill_comparison",
+    "paper_protection_covered",
+    "book_marks",
+    "portfolio_fill_comparisons",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

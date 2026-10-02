@@ -6,7 +6,10 @@ import {
 	bulkOutcomeText,
 	deletionCountsText,
 	fetchStrategyPage,
+	isResearchTag,
 	latestDatasets,
+	readStoredOrigin,
+	rememberOrigin,
 	datasetEvaluationWindow,
 	INDICATOR_KIND_OPTIONS,
 	INDICATOR_OUTPUT_SERIES,
@@ -763,6 +766,59 @@ describe('fetchStrategyPage tag filter (ADR 0094)', () => {
 		expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v1/strategies?limit=10&tag=per-market');
 		expect(page.entries[0].tags).toEqual(['per-market']);
 		expect(page.total).toBe(1);
+		vi.unstubAllGlobals();
+	});
+});
+
+describe('library origin (ADR 0098)', () => {
+	it('sends origin unless the view is All', async () => {
+		const fetchMock = vi
+			.fn()
+			.mockImplementation(
+				async () =>
+					new Response(
+						JSON.stringify({ strategies: [], limit: 10, returned: 0, total: 0, has_more: false }),
+						{ status: 200, headers: { 'content-type': 'application/json' } }
+					)
+			);
+		vi.stubGlobal('fetch', fetchMock);
+		await fetchStrategyPage(10, undefined, 'majors', 'operator');
+		await fetchStrategyPage(10, undefined, null, 'all');
+		expect(String(fetchMock.mock.calls[0][0])).toBe(
+			'/api/v1/strategies?limit=10&tag=majors&origin=operator'
+		);
+		expect(String(fetchMock.mock.calls[1][0])).toBe('/api/v1/strategies?limit=10');
+		vi.unstubAllGlobals();
+	});
+
+	it('classifies claude-research and research-* tags as research', () => {
+		expect(isResearchTag('claude-research')).toBe(true);
+		expect(isResearchTag('research-market-variant')).toBe(true);
+		expect(isResearchTag('researcher')).toBe(false);
+		expect(isResearchTag('majors')).toBe(false);
+	});
+
+	it('defaults to Mine and survives unavailable storage', () => {
+		const values = new Map<string, string>();
+		vi.stubGlobal('localStorage', {
+			getItem: (key: string) => values.get(key) ?? null,
+			setItem: (key: string, value: string) => values.set(key, value)
+		});
+		expect(readStoredOrigin()).toBe('operator');
+		rememberOrigin('research');
+		expect(readStoredOrigin()).toBe('research');
+		values.set('thytrader.strategyLibraryOrigin', 'bogus');
+		expect(readStoredOrigin()).toBe('operator');
+		vi.stubGlobal('localStorage', {
+			getItem: () => {
+				throw new Error('blocked');
+			},
+			setItem: () => {
+				throw new Error('blocked');
+			}
+		});
+		expect(readStoredOrigin()).toBe('operator');
+		expect(() => rememberOrigin('all')).not.toThrow();
 		vi.unstubAllGlobals();
 	});
 });

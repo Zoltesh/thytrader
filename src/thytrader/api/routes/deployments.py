@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
@@ -13,6 +14,7 @@ from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
     get_market_data_watchlist_store,
+    get_optional_decision_journal_store,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_snapshot_store,
@@ -21,6 +23,10 @@ from thytrader.api.dependencies import (
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.data_control.service import ingestion_provider
+from thytrader.execution.book_marks import last_bar_marks, signed_unrealized_pnl
+from thytrader.execution.decision_store import (
+    DecisionJournalStore,  # noqa: TC001 - FastAPI Depends.
+)
 from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -34,6 +40,7 @@ from thytrader.execution.models import (
     InstrumentRuntime,
     Order,
     Position,
+    PositionSide,
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
@@ -75,7 +82,7 @@ from thytrader.strategies.snapshots import (
 )
 
 if TYPE_CHECKING:
-    from decimal import Decimal
+    from thytrader.execution.book_marks import BookMark
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 
@@ -146,6 +153,23 @@ class PositionResponse(BaseModel):
         description=(
             "True only when this book's exit is being sent: a working marketable exit, a "
             "matched signal exit, or a flatten. A resting TP/SL bracket is not an exit."
+        ),
+    )
+    mark_price: str | None = Field(
+        default=None,
+        description=(
+            "Close of the newest bar the bot evaluated for this product (ADR 0098); null "
+            "when no journaled close exists or on reads that do not mark books."
+        ),
+    )
+    marked_at: str | None = Field(
+        default=None, description="UTC close time of the bar behind mark_price."
+    )
+    unrealized_pnl: str | None = Field(
+        default=None,
+        description=(
+            "Gross unrealized PnL at mark_price in quote currency (signed quantity times "
+            "the move from entry_price), before exit fees; null without a mark."
         ),
     )
     compatibility_focus: bool = False
@@ -439,17 +463,22 @@ async def get_deployment(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
+    journal: Annotated[DecisionJournalStore | None, Depends(get_optional_decision_journal_store)],
     detail: Annotated[Literal["summary", "full"], Query()] = "summary",
 ) -> DeploymentResponse:
-    """Return one deployment; ``full`` includes every order and fill."""
+    """Return one deployment; ``full`` includes every order and fill.
+
+    Open books carry a last-bar ``mark_price`` and gross ``unrealized_pnl`` (ADR 0098).
+    """
     if detail == "full":
         snapshot = await _require_snapshot(store, deployment_id)
         extra = await _covered_products(publication_store, snapshot.deployment)
-        return await _snapshot_response(
+        response = await _snapshot_response(
             snapshot,
             publication_store,
             extra_product_ids=extra,
         )
+        return await _with_book_marks(response, snapshot, journal)
     try:
         summary = await store.get_deployment_summary(deployment_id)
     except ExecutionStoreError as error:
@@ -460,10 +489,45 @@ async def get_deployment(
         )
         raise HTTPException(status_code=code, detail=str(error)) from None
     extra = await _covered_products(publication_store, summary.deployment)
-    return await _summary_response(
+    response = await _summary_response(
         summary,
         publication_store,
         extra_product_ids=extra,
+    )
+    return await _with_book_marks(response, _summary_as_snapshot(summary), journal)
+
+
+async def _with_book_marks(
+    response: DeploymentResponse,
+    snapshot: DeploymentSnapshot,
+    journal: DecisionJournalStore | None,
+) -> DeploymentResponse:
+    """Stamp each open book (and the compatibility ``position``) with its last-bar mark."""
+    marks = {} if journal is None else await last_bar_marks(journal, snapshot)
+    if not marks:
+        return response
+    positions = tuple(_marked_position(item, marks) for item in response.positions)
+    position = None if response.position is None else _marked_position(response.position, marks)
+    return response.model_copy(update={"positions": positions, "position": position})
+
+
+def _marked_position(item: PositionResponse, marks: dict[str, BookMark]) -> PositionResponse:
+    """One position row with ``mark_price``, ``marked_at``, and ``unrealized_pnl`` when marked."""
+    mark = marks.get(item.product_id)
+    if mark is None:
+        return item
+    pnl = signed_unrealized_pnl(
+        quantity=Decimal(item.quantity),
+        entry_price=Decimal(item.entry_price),
+        side=PositionSide(item.side),
+        mark=mark.price,
+    )
+    return item.model_copy(
+        update={
+            "mark_price": format(mark.price, "f"),
+            "marked_at": mark.bar_closes_at.isoformat(),
+            "unrealized_pnl": format(pnl, "f"),
+        }
     )
 
 

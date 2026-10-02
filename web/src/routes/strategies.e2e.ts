@@ -152,17 +152,19 @@ test('loads only the requested strategy page and changes the server limit', asyn
 	await page.goto('/strategies');
 	await expect(page.getByTestId('strategy-page-size')).toHaveValue('10');
 	await expect(page.locator('tbody tr')).toHaveCount(1);
-	await expect.poll(() => requested).toEqual(['?limit=10']);
+	await expect.poll(() => requested).toEqual(['?limit=10&origin=operator']);
 	await page.getByRole('button', { name: 'Next strategy page' }).click();
 	await expect(
 		page.locator(`tr[data-strategy-id="${secondStrategyEntry.strategy_id}"]`)
 	).toBeVisible();
-	await expect.poll(() => requested).toEqual(['?limit=10', '?limit=10&cursor=next']);
+	await expect
+		.poll(() => requested)
+		.toEqual(['?limit=10&origin=operator', '?limit=10&cursor=next&origin=operator']);
 	await page.getByRole('button', { name: 'Previous strategy page' }).click();
 	await expect(page.locator(`tr[data-strategy-id="${strategyId}"]`)).toBeVisible();
 	await page.getByTestId('strategy-page-size').selectOption('25');
 	await expect(page.getByTestId('strategy-page-size')).toHaveValue('25');
-	await expect.poll(() => requested.at(-1)).toBe('?limit=25');
+	await expect.poll(() => requested.at(-1)).toBe('?limit=25&origin=operator');
 	await expect(page.getByTestId('strategy-page-range')).toContainText('Page 1');
 });
 
@@ -744,10 +746,64 @@ test('a tag chip filters the library by metadata tag and the filter chip clears 
 	await page.goto('/strategies');
 	await expect(page.locator('tbody tr')).toHaveCount(2);
 	await page.getByTestId('library-tag-chip').filter({ hasText: 'per-market' }).click();
-	await expect.poll(() => requested.at(-1)).toBe('?limit=10&tag=per-market');
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&tag=per-market&origin=operator');
 	await expect(page.locator('tbody tr')).toHaveCount(1);
 	await expect(page.getByTestId('library-tag-filter')).toContainText('per-market');
 	await page.getByRole('button', { name: 'Clear the tag filter per-market' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&origin=operator');
+	await expect(page.locator('tbody tr')).toHaveCount(2);
+});
+
+test('the library opens on Mine, splits out research, and remembers the view', async ({ page }) => {
+	const requested: string[] = [];
+	const research = {
+		...secondStrategyEntry,
+		name: 'Sweep candidate 7',
+		tags: ['claude-research', 'research-sweep']
+	};
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		const url = new URL(route.request().url());
+		requested.push(url.search);
+		const origin = url.searchParams.get('origin');
+		const rows =
+			origin === 'operator'
+				? [libraryEntry]
+				: origin === 'research'
+					? [research]
+					: [research, libraryEntry];
+		await route.fulfill({
+			json: { strategies: rows, total: rows.length, has_more: false, next_cursor: null }
+		});
+	});
+	await page.goto('/strategies');
+	const views = page.getByTestId('library-origin');
+	await expect(views.getByRole('button', { name: 'Mine' })).toHaveAttribute('aria-pressed', 'true');
+	await expect(page.locator('tbody tr')).toHaveCount(1);
+	await expect(page.getByTestId('library-total')).toHaveText('1 strategy');
+	await views.getByRole('button', { name: 'Research' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&origin=research');
+	await expect(page.locator(`tr[data-strategy-id="${research.strategy_id}"]`)).toBeVisible();
+	await page.getByTestId('library-tag-chip').filter({ hasText: 'research-sweep' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&tag=research-sweep&origin=research');
+	await page.reload();
+	await expect(views.getByRole('button', { name: 'Research' })).toHaveAttribute(
+		'aria-pressed',
+		'true'
+	);
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&origin=research');
+	await views.getByRole('button', { name: 'All' }).click();
 	await expect.poll(() => requested.at(-1)).toBe('?limit=10');
 	await expect(page.locator('tbody tr')).toHaveCount(2);
+});
+
+test('an empty Mine view points at Research instead of looking empty', async ({ page }) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		const origin = new URL(route.request().url()).searchParams.get('origin');
+		const rows = origin === 'operator' ? [] : [libraryEntry];
+		await route.fulfill({ json: { strategies: rows, total: rows.length, has_more: false } });
+	});
+	await page.goto('/strategies');
+	await expect(page.getByTestId('library-empty-mine')).toContainText('No strategies yet');
+	await page.getByTestId('library-empty-mine').getByRole('button', { name: 'Research' }).click();
+	await expect(page.locator('tbody tr')).toHaveCount(1);
 });
