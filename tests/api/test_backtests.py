@@ -425,6 +425,52 @@ def test_backtests_detail_projects_published_cost_assumptions() -> None:
     assert "costs" not in payload["result"]
 
 
+def test_backtests_detail_states_the_evaluated_window_outside_result_bytes() -> None:
+    """Summary and full detail name the evaluated bars; the result fingerprint is unchanged."""
+    strategy = _strategy()
+    specification = _run(strategy)
+    result = simulate_backtest(specification, strategy, _candles())
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=CostProjectingBacktestResultReader((result,), specification),
+    )
+
+    with TestClient(app) as client:
+        summary = client.get(f"/api/v1/backtests/{fingerprint}").json()
+        full = client.get(f"/api/v1/backtests/{fingerprint}?detail=full").json()
+
+    expected = {
+        "timeframe": "1h",
+        "evaluation_start": "2026-08-01T02:00:00Z",
+        "evaluation_end": "2026-08-01T04:00:00Z",
+        "first_evaluated_bar": "2026-08-01T02:00:00Z",
+        "last_evaluated_bar": "2026-08-01T03:00:00Z",
+        "evaluation_bars": 2,
+        "warmup_bars": 2,
+        "warmup_start": "2026-08-01T00:00:00Z",
+    }
+    assert summary["window"] == expected
+    assert full["window"] == expected
+    assert "window" not in full["result"]
+    assert backtest_result_fingerprint(result) == fingerprint
+
+
+def test_backtests_without_a_source_run_report_no_window() -> None:
+    """A reader that cannot load the run reports ``window: null`` instead of guessing."""
+    result = _result()
+    fingerprint = backtest_result_fingerprint(result)
+    app = create_app(
+        Settings(_env_file=None),
+        backtest_result_store=InMemoryBacktestResultReader((result,)),
+    )
+    with TestClient(app) as client:
+        detail = client.get(f"/api/v1/backtests/{fingerprint}").json()
+        listing = client.get("/api/v1/backtests").json()
+    assert detail["window"] is None
+    assert listing["entries"][0]["window"] is None
+
+
 def test_backtests_detail_rejects_mismatched_reader_identity() -> None:
     """The detail endpoint must not label a reader result with a different requested identity."""
     result = _result()

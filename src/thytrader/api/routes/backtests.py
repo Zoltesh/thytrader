@@ -38,10 +38,12 @@ from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
     BacktestDiagnostics,
+    BacktestEvaluationWindow,
     BacktestPerformanceMetrics,
     BacktestResult,
     BacktestSummary,
     backtest_benchmark_fingerprint,
+    backtest_evaluation_window,
     backtest_result_fingerprint,
 )
 from thytrader.backtest.submission import BacktestStartRequest  # noqa: TC001 - FastAPI body.
@@ -100,7 +102,11 @@ _BACKTEST_NOT_FOUND_ERRORS = (BacktestBenchmarkNotFoundError, BacktestResultNotF
 
 
 class BacktestSummaryResponse(BaseModel):
-    """One newest-first immutable result summary safe for browser discovery."""
+    """One newest-first immutable result summary safe for browser discovery.
+
+    ``window`` states which bars the result evaluated (ADR 0094); null when its run
+    could not be read.
+    """
 
     model_config = ConfigDict(from_attributes=True)
     result_fingerprint: str
@@ -110,6 +116,7 @@ class BacktestSummaryResponse(BaseModel):
     dataset_fingerprint: str
     published_at: str
     summary: BacktestSummary
+    window: BacktestEvaluationWindow | None = None
 
 
 class BacktestListResponse(BaseModel):
@@ -141,7 +148,8 @@ class BacktestDetailResponse(BaseModel):
     """One fully reverified immutable simulation result plus published run costs.
 
     ``diagnostics`` (ADR 0090) is the entry funnel recorded beside the result, or null
-    for results published before it was recorded.
+    for results published before it was recorded. ``window`` (ADR 0094) is the evaluated
+    window derived from the source run, outside the fingerprinted result bytes.
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -150,10 +158,15 @@ class BacktestDetailResponse(BaseModel):
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
     diagnostics: BacktestDiagnostics | None = None
+    window: BacktestEvaluationWindow | None = None
 
 
 class BacktestSummaryDetailResponse(BaseModel):
-    """Bounded backtest projection without trades or equity curves."""
+    """Bounded backtest projection without trades or equity curves.
+
+    ``window`` names the evaluated bars (evaluation_start/end, warmup_bars, first and
+    last evaluated bar), derived from the source run at read time (ADR 0094).
+    """
 
     model_config = ConfigDict(from_attributes=True)
     result_fingerprint: str
@@ -164,6 +177,7 @@ class BacktestSummaryDetailResponse(BaseModel):
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
     diagnostics: BacktestDiagnostics | None = None
+    window: BacktestEvaluationWindow | None = None
 
 
 class BacktestMetricsResponse(BaseModel):
@@ -220,15 +234,23 @@ async def _stored_diagnostics(
         return None
 
 
-async def _published_costs_projection(
+async def _published_source_projection(
     store: BacktestResultReader,
     result: BacktestResult,
-) -> CostAssumptions | None:
-    """Copy source-run CostAssumptions onto the HTTP wrapper without altering result identity."""
+) -> tuple[CostAssumptions | None, BacktestEvaluationWindow | None]:
+    """Copy source-run costs and the evaluated window onto the HTTP wrapper.
+
+    Neither is part of the result bytes, so result identity is unchanged (ADR 0094).
+    """
     if not isinstance(store, _BacktestSourceRunLoader):
-        return None
+        return None, None
     specification = await store.load_source_specification(result)
-    return CostAssumptions.model_validate(specification.costs.model_dump(mode="python"))
+    costs = CostAssumptions.model_validate(specification.costs.model_dump(mode="python"))
+    try:
+        window = backtest_evaluation_window(specification, result.summary.evaluation_bars)
+    except ValueError:
+        window = None
+    return costs, window
 
 
 def _raise_client_disconnected() -> None:
@@ -587,7 +609,7 @@ async def get_backtest(
         if await http_request.is_disconnected():
             _raise_client_disconnected()
         verified_result_fingerprint = backtest_result_fingerprint(result)
-        costs = await _published_costs_projection(store, result)
+        costs, window = await _published_source_projection(store, result)
     except BacktestResultNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -634,6 +656,7 @@ async def get_backtest(
             costs=costs,
             metrics=metrics,
             diagnostics=diagnostics,
+            window=window,
         )
     return BacktestDetailResponse(
         result=result,
@@ -641,6 +664,7 @@ async def get_backtest(
         costs=costs,
         metrics=metrics,
         diagnostics=diagnostics,
+        window=window,
     )
 
 
@@ -736,4 +760,5 @@ def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryRes
         dataset_fingerprint=entry.dataset_fingerprint,
         published_at=entry.published_at.isoformat().replace("+00:00", "Z"),
         summary=entry.summary,
+        window=entry.window,
     )

@@ -166,6 +166,77 @@ export type ResearchStudy = {
 	stitched_oos_equity?: StitchedOosEquity | null;
 };
 
+/** One candidate's sweep assignment, e.g. `{ "fast.period": 20, "slow.period": 200 }`. */
+export type AxisValues = Record<string, number | string>;
+
+/** One child row of a study summary (ADR 0094): its candidate's axis values and bounds. */
+export type StudyWindowPnl = {
+	label: string;
+	role: StudyWindowResult['role'];
+	fold_index: number;
+	product_id: string;
+	evaluation_start: string;
+	evaluation_end: string;
+	result_fingerprint: string;
+	strategy_fingerprint: string;
+	axis_values: AxisValues;
+	total_net_pnl: string;
+	total_return_fraction: string;
+	trade_count: number;
+	selected?: boolean;
+};
+
+/** Every window of one candidate summed: OOS robustness across the grid, not just the winner. */
+export type StudyCandidateAggregate = {
+	strategy_fingerprint: string;
+	product_id: string;
+	axis_values: AxisValues;
+	window_count: number;
+	selected_window_count: number;
+	in_sample_window_count: number;
+	in_sample_total_net_pnl: string | null;
+	oos_window_count: number;
+	oos_total_net_pnl: string | null;
+	oos_positive_window_count: number;
+	oos_trade_count: number;
+	full_window_count: number;
+	full_window_total_net_pnl: string | null;
+};
+
+export type ResearchStudySummary = {
+	study_fingerprint: string;
+	kind: StudyKind;
+	window_count: number;
+	window_pnl: StudyWindowPnl[];
+	candidates: StudyCandidateAggregate[];
+	stitched_oos_points_downsampled?: boolean;
+};
+
+/** `fast.period=20 · slow.period=200`, or `—` when the study has a single candidate. */
+export function formatAxisValues(values: AxisValues | undefined): string {
+	const entries = Object.entries(values ?? {});
+	if (entries.length === 0) return '—';
+	return entries.map(([label, value]) => `${label}=${value}`).join(' · ');
+}
+
+/** `2026-01-01 → 2026-01-04` for one child window (UTC dates). */
+export function formatWindowBounds(start: string, end: string): string {
+	return `${start.slice(0, 10)} → ${end.slice(0, 10)}`;
+}
+
+/** Read one persisted study's summary: axis values, bounds, and per-candidate sums. */
+export async function fetchResearchStudySummary(
+	studyFingerprint: string
+): Promise<ResearchStudySummary> {
+	const response = await fetch(`/api/v1/research/studies/${encodeURIComponent(studyFingerprint)}`, {
+		headers: { Accept: 'application/json' }
+	});
+	if (!response.ok) {
+		throw new Error(`Could not load the study summary (HTTP ${response.status}).`);
+	}
+	return (await response.json()) as ResearchStudySummary;
+}
+
 export type StrategyTemplate = { id: string; name: string; description: string };
 
 export function parseParameterAxisValues(raw: string): string[] {

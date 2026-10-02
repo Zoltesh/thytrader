@@ -21,7 +21,13 @@ from pydantic import ValidationError
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
 from thytrader.agent_orchestration.models import YoloTier
-from thytrader.backtest.models import BacktestDiagnostics, backtest_result_fingerprint
+from thytrader.backtest.models import (
+    BacktestDiagnostics,
+    BacktestEvaluationWindow,
+    BacktestResult,
+    backtest_evaluation_window,
+    backtest_result_fingerprint,
+)
 from thytrader.backtest.submission import (
     BacktestStartRequest,
     BacktestSubmissionError,
@@ -36,7 +42,10 @@ from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, published_execution_timeframe
 from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
-from thytrader.persistence.backtest_results import BacktestDiagnosticsReader
+from thytrader.persistence.backtest_results import (
+    BacktestDiagnosticsReader,
+    BacktestSourceSpecificationReader,
+)
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
@@ -56,6 +65,7 @@ from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyService,
     StudyPlanningError,
+    load_candidate_definitions,
     summarize_research_study,
     summarize_research_study_plan,
 )
@@ -223,6 +233,14 @@ def _add_strategy_commands(
     )
     listing.add_argument("--limit", type=_page_limit, default=50, help="Page size. Maximum 100.")
     listing.add_argument("--cursor", default=None, help="Opaque next_cursor from the last page.")
+    listing.add_argument(
+        "--tag",
+        default=None,
+        help=(
+            "Only strategies whose metadata.tags include this tag (pass the same --tag with "
+            "--cursor). Rows carry their tags."
+        ),
+    )
     show = subparsers.add_parser(
         "show-strategy",
         parents=[trailing],
@@ -257,9 +275,16 @@ def _add_strategy_commands(
     imported.add_argument("--file", required=True, help="Path to a strategy JSON document.")
     imported.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     clone = subparsers.add_parser(
-        "clone-strategy", parents=[trailing], help="Duplicate one strategy into a new identity."
+        "clone-strategy",
+        parents=[trailing],
+        help="Duplicate one strategy into a new identity (optionally named in the same call).",
     )
     clone.add_argument("--strategy-id", required=True)
+    clone.add_argument(
+        "--name",
+        default=None,
+        help="Name of the copy (1-120 characters). Default: '<name> (copy)'.",
+    )
     clone.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     remove = subparsers.add_parser(
         "delete-strategy",
@@ -274,9 +299,19 @@ def _add_strategy_commands(
     bulk = subparsers.add_parser(
         "bulk-delete-strategies",
         parents=[trailing],
-        help="Delete several strategies (per-strategy results). Use --dry-run to preview.",
+        help=(
+            "Delete several strategies (per-strategy results), named by repeated --strategy-id "
+            "or by --tag. Running or paused bots block their strategy; live ledgers are kept. "
+            "Use --dry-run to preview."
+        ),
     )
-    bulk.add_argument("--strategy-id", action="append", required=True, dest="strategy_ids")
+    targets = bulk.add_mutually_exclusive_group(required=True)
+    targets.add_argument("--strategy-id", action="append", dest="strategy_ids")
+    targets.add_argument(
+        "--tag",
+        default=None,
+        help="Every strategy whose metadata.tags include this tag (sent in batches of 100).",
+    )
     bulk.add_argument("--dry-run", action="store_true", help="Preview counts; changes nothing.")
     bulk.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
 
@@ -474,6 +509,16 @@ def _uuid(value: str | None, flag: str) -> UUID:
         raise ResearchCliError(f"{flag} must be a UUID.") from error
 
 
+def _clone_name(arguments: argparse.Namespace) -> str | None:
+    """Return the requested clone name, refusing blank or over-long names before any call."""
+    name = arguments.name
+    if name is None:
+        return None
+    if not name.strip() or len(name) > 120:
+        raise ResearchCliError("--name must be 1-120 characters and not blank.")
+    return name
+
+
 def _optional_uuid(value: str | None, flag: str) -> UUID | None:
     """Parse one optional UUID flag."""
     return None if value is None else _uuid(value, flag)
@@ -519,7 +564,7 @@ def _http_list_results(base_url: str, arguments: argparse.Namespace) -> str:
 _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
     "create-strategy": _http_create,
     "list-strategies": lambda url, args: research_http.list_strategies(
-        url, limit=args.limit, cursor=args.cursor
+        url, limit=args.limit, cursor=args.cursor, tag=args.tag
     ),
     "show-strategy": lambda url, args: research_http.show_strategy(
         url, _uuid(args.strategy_id, "--strategy-id")
@@ -532,15 +577,19 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
         url, _load_document(args.file)
     ),
     "clone-strategy": lambda url, args: research_http.clone_strategy(
-        url, _uuid(args.strategy_id, "--strategy-id")
+        url, _uuid(args.strategy_id, "--strategy-id"), name=_clone_name(args)
     ),
     "delete-strategy": lambda url, args: research_http.delete_strategy(
         url, _uuid(args.strategy_id, "--strategy-id")
     ),
-    "bulk-delete-strategies": lambda url, args: research_http.bulk_delete_strategies(
-        url,
-        tuple(_uuid(item, "--strategy-id") for item in args.strategy_ids),
-        dry_run=bool(args.dry_run),
+    "bulk-delete-strategies": lambda url, args: (
+        research_http.bulk_delete_tagged(url, args.tag, dry_run=bool(args.dry_run))
+        if args.tag is not None
+        else research_http.bulk_delete_strategies(
+            url,
+            tuple(_uuid(item, "--strategy-id") for item in args.strategy_ids),
+            dry_run=bool(args.dry_run),
+        )
     ),
     "submit-backtest": lambda url, args: research_http.submit_backtest(
         url,
@@ -654,21 +703,42 @@ async def _local_import(mutator: ResearchMutator, arguments: argparse.Namespace)
 
 async def _local_clone(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
     """Clone one strategy."""
-    record = await mutator.clone_strategy(_uuid(arguments.strategy_id, "--strategy-id"))
+    record = await mutator.clone_strategy(
+        _uuid(arguments.strategy_id, "--strategy-id"), name=_clone_name(arguments)
+    )
     return _encode(_record_digest(record))
 
 
 async def _local_delete(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
-    """Delete one or several strategies (or dry-run)."""
-    raw: list[str] = (
-        list(arguments.strategy_ids)
-        if arguments.command == "bulk-delete-strategies"
-        else [arguments.strategy_id]
-    )
-    identities = tuple(_uuid(item, "--strategy-id") for item in raw)
+    """Delete one or several strategies (or dry-run), named by id or by --tag."""
+    tag = getattr(arguments, "tag", None)
+    if arguments.command == "bulk-delete-strategies" and tag is not None:
+        identities = await _local_tagged_ids(mutator, tag)
+    else:
+        raw: list[str] = (
+            list(arguments.strategy_ids)
+            if arguments.command == "bulk-delete-strategies"
+            else [arguments.strategy_id]
+        )
+        identities = tuple(_uuid(item, "--strategy-id") for item in raw)
     dry_run = bool(getattr(arguments, "dry_run", False))
     report = await mutator.delete_strategies(identities, dry_run=dry_run)
-    return _encode(_report_payload(report))
+    payload = _report_payload(report)
+    if tag is not None:
+        payload = {"tag": tag, "matched": len(identities), **payload}
+    return _encode(payload)
+
+
+async def _local_tagged_ids(mutator: ResearchMutator, tag: str) -> tuple[UUID, ...]:
+    """Every strategy id tagged ``tag`` from PostgreSQL, across library pages."""
+    identities: list[UUID] = []
+    offset = 0
+    while True:
+        page = await mutator.strategies.list_page(limit=100, offset=offset, tag=tag)
+        identities.extend(record.strategy_id for record in page.records)
+        offset += len(page.records)
+        if not page.records or offset >= page.total:
+            return tuple(dict.fromkeys(identities))
 
 
 async def _local_backtest(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
@@ -705,6 +775,10 @@ async def _local_list_results(mutator: ResearchMutator, arguments: argparse.Name
                     "published_at": row.published_at.isoformat(),
                     "trade_count": row.summary.trade_count,
                     "total_net_pnl": row.summary.total_net_pnl,
+                    "total_return_fraction": row.summary.total_return_fraction,
+                    **research_http.window_fields(
+                        None if row.window is None else row.window.model_dump(mode="json")
+                    ),
                 }
                 for row in rows
             ]
@@ -723,6 +797,7 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
     except StrategySnapshotError:
         timeframe, currency = "1h", "USD"
     diagnostics = await _local_diagnostics(mutator, backtest_result_fingerprint(result))
+    window = await _local_window(mutator, result)
     return _encode(
         {
             "result_fingerprint": backtest_result_fingerprint(result),
@@ -733,9 +808,21 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
             "timeframe": timeframe,
             "currency": currency,
             "summary": result.summary.model_dump(mode="json"),
+            "window": None if window is None else window.model_dump(mode="json"),
             "diagnostics": None if diagnostics is None else diagnostics.model_dump(mode="json"),
         }
     )
+
+
+async def _local_window(
+    mutator: ResearchMutator, result: BacktestResult
+) -> BacktestEvaluationWindow | None:
+    """Derive the evaluated window from the result's source run when the store has it."""
+    store = mutator.results
+    if not isinstance(store, BacktestSourceSpecificationReader):
+        return None
+    specification = await store.load_source_specification(result)
+    return backtest_evaluation_window(specification, result.summary.evaluation_bars)
 
 
 async def _local_diagnostics(
@@ -761,7 +848,8 @@ async def _local_list_studies(mutator: ResearchMutator, arguments: argparse.Name
 async def _local_show_study(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
     """Load one persisted study without dumping child equity curves."""
     study = await mutator.show_study(arguments.study_fingerprint)
-    return _encode(summarize_research_study(study).model_dump(mode="json"))
+    definitions = await load_candidate_definitions(mutator.publications, study)
+    return _encode(summarize_research_study(study, definitions=definitions).model_dump(mode="json"))
 
 
 async def _local_plan_study(mutator: ResearchMutator, arguments: argparse.Namespace) -> str:
@@ -817,11 +905,12 @@ _LOCAL_HANDLERS: dict[str, Callable[[ResearchMutator, argparse.Namespace], Await
 
 
 def _record_digest(record: StrategyRecord) -> dict[str, object]:
-    """Summarize one strategy without its full document."""
-    return {
-        "strategy_id": str(record.strategy_id),
-        "name": record.name,
-        "revision": record.revision,
+    """Summarize one strategy without its full document, shaped like the HTTP digest.
+
+    ``validation`` matches ``show-strategy``; the top-level copies are deprecated
+    (kept for one release, ADR 0094).
+    """
+    validation: dict[str, object] = {
         "valid": record.validation.valid,
         "issues": [
             {"loc": issue.loc, "message": issue.message} for issue in record.validation.issues
@@ -832,8 +921,56 @@ def _record_digest(record: StrategyRecord) -> dict[str, object]:
             {"code": item.code.value, "loc": ".".join(item.loc), "message": item.message}
             for item in strategy_warnings(record.definition)
         ],
+    }
+    return {
+        "strategy_id": str(record.strategy_id),
+        "name": record.name,
+        "revision": record.revision,
+        "validation": validation,
+        "valid": validation["valid"],
+        "issues": validation["issues"],
+        "warnings": validation["warnings"],
         "current_fingerprint": record.current_fingerprint,
     }
+
+
+_DRAFT_VERBS: dict[str, str] = {
+    "create-strategy": "created",
+    "save-strategy": "saved",
+    "import-strategy": "imported",
+    "clone-strategy": "cloned",
+    "show-strategy": "stored",
+}
+
+
+def invalid_draft_notice(command: str, output: str) -> str | None:
+    """Return the stderr line for a strategy command whose result is an invalid draft.
+
+    An agent that parses only part of the JSON must still notice that the strategy it
+    just wrote cannot be backtested or deployed, so the CLI also prints one human line,
+    for example ``saved as an INVALID draft (2 issues): entry.when.all[0].left.input:
+    unknown field "input"``.
+    """
+    verb = _DRAFT_VERBS.get(command)
+    if verb is None:
+        return None
+    try:
+        payload = json.loads(output)
+    except ValueError:
+        return None
+    validation = payload.get("validation") if isinstance(payload, dict) else None
+    if not isinstance(validation, dict) or validation.get("valid") is not False:
+        return None
+    issues = validation.get("issues")
+    listed = issues if isinstance(issues, list) else []
+    count = len(listed)
+    first = listed[0] if listed and isinstance(listed[0], dict) else {}
+    detail = f"{first.get('loc', '(document)')}: {first.get('message', 'invalid')}"
+    noun = "issue" if count == 1 else "issues"
+    return (
+        f"thytrader-research: {verb} as an INVALID draft ({count} {noun}): {detail}. "
+        "It cannot be backtested, studied, or deployed until validation.valid is true."
+    )
 
 
 def _report_payload(report: BulkDeletionReport) -> dict[str, object]:
@@ -944,6 +1081,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         raise SystemExit(message) from error
     sys.stdout.write(f"{output}\n")
+    notice = invalid_draft_notice(arguments.command, output)
+    if notice is not None:
+        sys.stderr.write(f"{notice}\n")
     raise SystemExit(EXIT_HEALTHY)
 
 

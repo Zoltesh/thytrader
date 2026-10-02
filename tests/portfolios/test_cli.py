@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
@@ -14,6 +14,7 @@ from thytrader.portfolios.cli import main
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
 _PID = "01a0f000-0000-7000-8000-000000000001"
 _SLEEVE = "01a0f000-0000-7000-8000-000000000201"
@@ -306,3 +307,129 @@ def test_reads_fail_closed_on_a_stale_image(capsys: pytest.CaptureFixture[str]) 
     assert "stale Compose image" in str(raised.value.code)
     assert all(url.endswith("/health/ready") for url in calls)
     capsys.readouterr()
+
+
+def test_create_takes_limits_mandate_and_permissions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Create sets limits and manager settings in its one revision (ADR 0094)."""
+    document = tmp_path / "portfolio.json"
+    document.write_text(
+        json.dumps({"name": "Majors", "mode": "paper", "capital_quote": "1000"}), "utf-8"
+    )
+    code, _out, recorder = _run(
+        [
+            "create",
+            "--file",
+            str(document),
+            "--max-per-asset-fraction",
+            "0.25",
+            "--daily-loss-quote",
+            "50",
+            "--mandate",
+            "Trend-follow the majors.",
+            "--may-rebalance",
+            "yes",
+            "--confirm",
+        ],
+        {"POST /api/v1/portfolios": _portfolio()},
+        capsys,
+    )
+    assert code == 0
+    body = cast("dict[str, Any]", recorder.bodies["POST /api/v1/portfolios"])
+    assert body["name"] == "Majors"
+    assert body["limits"]["max_per_asset_fraction"] == "0.25"
+    assert body["limits"]["daily_loss_quote"] == "50"
+    assert body["manager"]["mandate"] == "Trend-follow the majors."
+    assert body["manager"]["permissions"]["may_rebalance"] is True
+
+
+def test_create_file_refuses_sleeves(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Sleeves go through add-sleeves --file (one revision), never a second create path."""
+    document = tmp_path / "portfolio.json"
+    document.write_text(
+        json.dumps({"name": "M", "mode": "paper", "capital_quote": "1", "sleeves": []}), "utf-8"
+    )
+    code, _out, recorder = _run(["create", "--file", str(document), "--confirm"], {}, capsys)
+    assert "add-sleeves --file" in str(code)
+    assert "POST /api/v1/portfolios" not in recorder.bodies
+
+
+def test_add_sleeves_posts_one_batch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """add-sleeves --file sends every sleeve to the batch route with the revision."""
+    sleeves = tmp_path / "sleeves.json"
+    second = "0199bbbb-bbbb-7bbb-bbbb-bbbbbbbbbbbb"
+    sleeves.write_text(
+        json.dumps(
+            [
+                {"strategy_id": _STRATEGY, "weight_fraction": "0.4"},
+                {"strategy_id": second, "weight_fraction": "0.3", "note": "ETH"},
+            ]
+        ),
+        "utf-8",
+    )
+    path = f"/api/v1/portfolios/{_PID}/sleeves/batch"
+    code, _out, recorder = _run(
+        [
+            "add-sleeves",
+            "--portfolio-id",
+            _PID,
+            "--revision",
+            "3",
+            "--file",
+            str(sleeves),
+            "--confirm",
+        ],
+        {f"POST {path}": _portfolio()},
+        capsys,
+    )
+    assert code == 0
+    body = cast("dict[str, Any]", recorder.bodies[f"POST {path}"])
+    assert body["revision"] == 3
+    assert [item["strategy_id"] for item in body["sleeves"]] == [_STRATEGY, second]
+
+
+def test_delete_dry_run_previews_and_delete_sends_the_revision(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Delete --dry-run reads only; delete DELETEs with the revision guard."""
+    code, out, recorder = _run(
+        ["delete", "--portfolio-id", _PID, "--revision", "2", "--dry-run"],
+        {f"GET /api/v1/portfolios/{_PID}": _portfolio()},
+        capsys,
+    )
+    assert code == 0
+    preview = json.loads(out)
+    assert preview["dry_run"] is True
+    assert preview["sleeves"] == 1
+    assert recorder.bodies == {}
+    deletion = {
+        "portfolio_id": _PID,
+        "name": "Core",
+        "sleeves": 1,
+        "journal_entries": 3,
+        "backtests": 0,
+        "backtest_jobs": 0,
+    }
+    code, out, _recorder = _run(
+        ["delete", "--portfolio-id", _PID, "--revision", "2", "--confirm"],
+        {f"DELETE /api/v1/portfolios/{_PID}": deletion},
+        capsys,
+    )
+    assert code == 0
+    assert json.loads(out)["journal_entries"] == 3
+
+
+def test_delete_requires_confirm(capsys: pytest.CaptureFixture[str]) -> None:
+    """A real delete is a mutation."""
+    code, _out, recorder = _run(["delete", "--portfolio-id", _PID, "--revision", "2"], {}, capsys)
+    assert "Pass --confirm" in str(code)
+    assert recorder.bodies == {}
+
+
+def test_sleeve_help_states_the_cap(capsys: pytest.CaptureFixture[str]) -> None:
+    """create, add-sleeve, and add-sleeves --help name the 32-sleeve cap."""
+    for command in ("create", "add-sleeve", "add-sleeves"):
+        with pytest.raises(SystemExit):
+            main([command, "--help"])
+        assert "at most 32 sleeves" in " ".join(capsys.readouterr().out.split())

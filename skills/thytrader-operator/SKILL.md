@@ -114,7 +114,8 @@ Without a filter the report pages every bot newest first. Each row is a `thytrad
 record (see [report-schemas.md](references/report-schemas.md)): `outcome` is one of
 `entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, or `error`; `summary`
 is a one-line reason such as `No trade: RSI(14) 47.21 needs ≥ 50`; `rule` holds the evaluated
-entry tree (ALL/ANY/NOT plus each leaf's label, operator, both values, and `true`/`false`/`unknown`)
+entry tree (ALL/ANY/NOT plus each leaf's label, operator, both values rounded to 12 significant
+digits — exact values stay in `rule.signal.indicator_values` — and `true`/`false`/`unknown`)
 and the HTF filter (labels mark another clock as `[4h]` and an indicator `offset` as `(1 bar ago)`;
 the value is the lagged one the runtime compared); `risk` is the risk or freshness verdict; `action`, `intent_id`, `orders`, and
 `fills` link what was sent; `skip_reason` (`cooldown`, `max_open_positions`, `warmup`,
@@ -171,7 +172,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v53`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v54`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0058`, `research_worker_pool` (leased research worker pool;

@@ -60,6 +60,7 @@ from thytrader.portfolios.rules import (
     MutationPlan,
     journal_entry,
     plan_add_sleeve,
+    plan_add_sleeves,
     plan_create,
     plan_remove_sleeve,
     plan_set_weights,
@@ -82,6 +83,7 @@ if TYPE_CHECKING:
         SetWeightsRequest,
         Sleeve,
         SleeveAddRequest,
+        SleevesAddRequest,
         SleeveUpdateRequest,
     )
     from thytrader.portfolios.proposals import ProposalStatus
@@ -139,6 +141,12 @@ class PortfolioStore(Protocol):
         self, portfolio_id: UUID, request: SleeveAddRequest, *, context: MutationContext
     ) -> PortfolioAggregate:
         """Add one strategy as a sleeve under the revision guard."""
+        ...
+
+    async def add_sleeves(
+        self, portfolio_id: UUID, request: SleevesAddRequest, *, context: MutationContext
+    ) -> PortfolioAggregate:
+        """Add several sleeves atomically in one revision under the revision guard."""
         ...
 
     async def update_sleeve(
@@ -343,6 +351,13 @@ class DisabledPortfolioStore:
 
     async def add_sleeve(
         self, portfolio_id: UUID, request: SleeveAddRequest, *, context: MutationContext
+    ) -> PortfolioAggregate:
+        """Refuse without durable storage."""
+        del portfolio_id, request, context
+        raise PortfolioStorageUnavailableError(_UNAVAILABLE)
+
+    async def add_sleeves(
+        self, portfolio_id: UUID, request: SleevesAddRequest, *, context: MutationContext
     ) -> PortfolioAggregate:
         """Refuse without durable storage."""
         del portfolio_id, request, context
@@ -617,6 +632,26 @@ class InMemoryPortfolioStore:
             portfolio_id,
             lambda current: plan_add_sleeve(
                 current, strategy, request, sleeve_id=sleeve_id, context=context
+            ),
+        )
+
+    async def add_sleeves(
+        self, portfolio_id: UUID, request: SleevesAddRequest, *, context: MutationContext
+    ) -> PortfolioAggregate:
+        """Add several strategies as sleeves in one revision (all or none)."""
+        strategies: list[SleeveStrategy] = []
+        for item in request.sleeves:
+            try:
+                record = await self.strategies.get(item.strategy_id)
+            except StrategyNotFoundError as error:
+                raise PortfolioStrategyNotFoundError("Strategy was not found.") from error
+            strategies.append(sleeve_strategy_from_record(record))
+        # Ascending ids keep the batch in request order, as the PostgreSQL store does.
+        sleeve_ids = tuple(sorted(uuid7(context.occurred_at) for _ in request.sleeves))
+        return await self._mutate(
+            portfolio_id,
+            lambda current: plan_add_sleeves(
+                current, strategies, request, sleeve_ids=sleeve_ids, context=context
             ),
         )
 

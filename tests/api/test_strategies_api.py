@@ -16,6 +16,7 @@ from thytrader.backtest.submission import (
 )
 from thytrader.config import Settings
 from thytrader.research.jobs import ResearchExecutionMode
+from thytrader.research.market_variants import MARKET_VARIANT_TAG, derive_market_variant
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import (
     create_strategy_from_definition,
@@ -361,6 +362,70 @@ def test_library_pages_with_total_and_cursor(store: InMemoryStrategyStore) -> No
     assert row["valid"] is True
     assert row["paper_live"] == {"paper": "none", "live": "none"}
     assert bad.status_code == 400
+
+
+def _tagged(tags: tuple[str, ...]) -> StrategyDefinition:
+    """Return the template definition carrying the given metadata tags."""
+    payload = create_template_strategy().model_dump(mode="python")
+    payload["metadata"] = {"tags": tags, "notes": ()}
+    return StrategyDefinition.model_validate(payload)
+
+
+def test_library_filters_by_tag_and_rows_carry_their_tags(store: InMemoryStrategyStore) -> None:
+    """``?tag=`` keeps only matching strategies; total and cursor cover the matches (ADR 0094)."""
+    tagged = [_seed(store, _tagged(("per-market", "majors"))) for _ in range(3)]
+    other = _seed(store, _tagged(("keep",)))
+    with _app(store) as client:
+        first = client.get("/api/v1/strategies?tag=per-market&limit=2").json()
+        second = client.get(
+            f"/api/v1/strategies?tag=per-market&limit=2&cursor={first['next_cursor']}"
+        ).json()
+        everything = client.get("/api/v1/strategies").json()
+        none = client.get("/api/v1/strategies?tag=absent").json()
+    assert first["total"] == 3
+    assert first["has_more"] is True
+    listed = {row["strategy_id"] for row in first["strategies"] + second["strategies"]}
+    assert listed == {str(record.strategy_id) for record in tagged}
+    assert all(row["tags"] == ["per-market", "majors"] for row in first["strategies"])
+    assert everything["total"] == 4
+    assert str(other.strategy_id) in {row["strategy_id"] for row in everything["strategies"]}
+    assert none["total"] == 0
+    assert none["strategies"] == []
+
+
+def test_market_variant_snapshots_never_become_library_rows(
+    store: InMemoryStrategyStore,
+) -> None:
+    """Cross-market variants are snapshots of their base strategy, not strategies."""
+    base = _seed(store)
+    definition = base.definition
+    assert definition is not None
+    snapshot = asyncio.run(store.snapshot(base.strategy_id))
+    variant = derive_market_variant(snapshot, "ETH-USD")
+    recorded = asyncio.run(store.record_snapshot(variant))
+    assert MARKET_VARIANT_TAG in recorded.definition.metadata.tags
+    with _app(store) as client:
+        library = client.get("/api/v1/strategies").json()
+        tagged = client.get(f"/api/v1/strategies?tag={MARKET_VARIANT_TAG}").json()
+    assert [row["strategy_id"] for row in library["strategies"]] == [str(base.strategy_id)]
+    assert library["total"] == 1
+    assert tagged["total"] == 0
+
+
+def test_clone_takes_an_optional_name(client: TestClient) -> None:
+    """``POST .../clone {"name": ...}`` names the copy in one call; blank names are rejected."""
+    created = client.post("/api/v1/strategies").json()
+    named = client.post(
+        f"/api/v1/strategies/{created['strategy_id']}/clone", json={"name": "EMA ETH-USD 1h"}
+    )
+    assert named.status_code == 201
+    assert named.json()["name"] == "EMA ETH-USD 1h"
+    assert named.json()["document"]["name"] == "EMA ETH-USD 1h"
+    for blank_name in ("", "   "):
+        blank = client.post(
+            f"/api/v1/strategies/{created['strategy_id']}/clone", json={"name": blank_name}
+        )
+        assert blank.status_code == 422
 
 
 def test_strategy_summary_follows_crossover_operands_not_indicator_order(

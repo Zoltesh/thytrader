@@ -26,7 +26,9 @@ from thytrader.research.models import (
     BACKTEST_ENGINE,
     BacktestEngine,
     FingerprintText,
+    ResearchRunSpecification,
     UtcDateTime,
+    specification_bar_interval,
 )
 
 _RESULT_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
@@ -205,6 +207,64 @@ class BacktestResult(_FrozenBacktestModel):
     trades: tuple[BacktestTrade, ...]
     equity_curve: tuple[EquityPoint, ...] = Field(min_length=1)
     summary: BacktestSummary
+
+
+class BacktestEvaluationWindow(_FrozenBacktestModel):
+    """Which bars one result evaluated, derived from its run; never part of result bytes.
+
+    ``evaluation_start`` is the first evaluated bar (inclusive) and ``evaluation_end`` the
+    exclusive bound whose bar's open liquidates a position still held. A backtest with
+    omitted bounds starts after the strategy's own warmup, so two strategies on one dataset
+    can cover different windows (BTC-USDC 1d buy-and-hold read 48% with a 60-bar warmup and
+    129% with 110). Pin both bounds when comparing strategies (ADR 0094).
+    """
+
+    timeframe: str
+    evaluation_start: UtcDateTime
+    evaluation_end: UtcDateTime
+    first_evaluated_bar: UtcDateTime
+    last_evaluated_bar: UtcDateTime
+    evaluation_bars: int = Field(ge=1)
+    warmup_bars: int = Field(ge=1)
+    warmup_start: UtcDateTime
+
+    @field_serializer(
+        "evaluation_start",
+        "evaluation_end",
+        "first_evaluated_bar",
+        "last_evaluated_bar",
+        "warmup_start",
+        when_used="json",
+    )
+    def serialize_timestamp(self, value: datetime) -> str:
+        """Render window bounds with the canonical Z suffix."""
+        return value.isoformat().replace("+00:00", "Z")
+
+
+def backtest_evaluation_window(
+    specification: ResearchRunSpecification, evaluation_bars: int
+) -> BacktestEvaluationWindow:
+    """Derive the evaluated window of one result from its verified run specification.
+
+    Args:
+        specification: The result's source run.
+        evaluation_bars: ``summary.evaluation_bars`` of the result.
+
+    Raises:
+        ValueError: When the run's warmup spacing does not name a supported clock.
+    """
+    interval = specification_bar_interval(specification)
+    start = specification.evaluation.starts_at
+    return BacktestEvaluationWindow(
+        timeframe=interval.value,
+        evaluation_start=start,
+        evaluation_end=specification.evaluation.ends_at,
+        first_evaluated_bar=start,
+        last_evaluated_bar=start + interval.duration * (evaluation_bars - 1),
+        evaluation_bars=evaluation_bars,
+        warmup_bars=specification.warmup.bars,
+        warmup_start=specification.warmup.starts_at,
+    )
 
 
 BACKTEST_DIAGNOSTICS_VERSION: Literal["thytrader-backtest-diagnostics-v1"] = (

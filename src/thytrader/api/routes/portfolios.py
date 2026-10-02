@@ -58,6 +58,7 @@ from thytrader.portfolios.models import (
     PortfolioValidationError,
     SetWeightsRequest,
     SleeveAddRequest,
+    SleevesAddRequest,
     SleeveUpdateRequest,
 )
 from thytrader.portfolios.planning import PortfolioBacktestRejectedError, plan_portfolio_backtest
@@ -205,6 +206,26 @@ async def add_sleeve(
     """Add one strategy as a sleeve (same quote currency; weights + reserve <= 1)."""
     try:
         updated = await store.add_sleeve(portfolio_id, body, context=mutation_context(request))
+    except PortfolioError as error:
+        raise portfolio_http_error(error) from None
+    return await _response(updated, execution)
+
+
+@router.post(
+    "/{portfolio_id}/sleeves/batch",
+    response_model=PortfolioResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_sleeves(
+    portfolio_id: UUID,
+    body: SleevesAddRequest,
+    request: Request,
+    store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
+    execution: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> PortfolioResponse:
+    """Add several strategies as sleeves atomically, in one revision (ADR 0094)."""
+    try:
+        updated = await store.add_sleeves(portfolio_id, body, context=mutation_context(request))
     except PortfolioError as error:
         raise portfolio_http_error(error) from None
     return await _response(updated, execution)

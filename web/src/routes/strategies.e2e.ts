@@ -722,3 +722,31 @@ test('the template picker offers every research template', async ({ page }) => {
 	await picker.selectOption('donchian-breakout');
 	await expect(picker).toHaveValue('donchian-breakout');
 });
+
+test('a tag chip filters the library by metadata tag and the filter chip clears it', async ({
+	page
+}) => {
+	const requested: string[] = [];
+	const tagged = { ...libraryEntry, tags: ['per-market', 'majors'] };
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		const url = new URL(route.request().url());
+		requested.push(url.search);
+		const tag = url.searchParams.get('tag');
+		await route.fulfill({
+			json: {
+				strategies: tag === null ? [tagged, secondStrategyEntry] : [tagged],
+				has_more: false,
+				next_cursor: null
+			}
+		});
+	});
+	await page.goto('/strategies');
+	await expect(page.locator('tbody tr')).toHaveCount(2);
+	await page.getByTestId('library-tag-chip').filter({ hasText: 'per-market' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10&tag=per-market');
+	await expect(page.locator('tbody tr')).toHaveCount(1);
+	await expect(page.getByTestId('library-tag-filter')).toContainText('per-market');
+	await page.getByRole('button', { name: 'Clear the tag filter per-market' }).click();
+	await expect.poll(() => requested.at(-1)).toBe('?limit=10');
+	await expect(page.locator('tbody tr')).toHaveCount(2);
+});

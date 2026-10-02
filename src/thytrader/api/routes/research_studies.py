@@ -74,6 +74,7 @@ from thytrader.research.studies import (
     StudyBudgetError,
     StudyKind,
     StudyPlanningError,
+    load_candidate_definitions,
     summarize_research_study,
     summarize_research_study_plan,
 )
@@ -493,9 +494,15 @@ async def list_research_studies(
 async def get_research_study(
     study_fingerprint: str,
     catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     detail: Annotated[Literal["summary", "full"], Query()] = "summary",
 ) -> ResearchStudySummary | ResearchStudy:
-    """Return one persisted study summary (default) or the full document."""
+    """Return one persisted study summary (default) or the full document.
+
+    The summary names each row's and candidate's sweep ``axis_values`` (read from the
+    candidate snapshots), window bounds, per-candidate OOS sums, and a thinned stitched
+    OOS path (ADR 0094).
+    """
     try:
         canonical = await catalog.load(study_fingerprint)
         study = ResearchStudy.model_validate_json(canonical)
@@ -521,7 +528,8 @@ async def get_research_study(
         )
     if detail == "full":
         return study
-    return summarize_research_study(study)
+    definitions = await load_candidate_definitions(publications, study)
+    return summarize_research_study(study, definitions=definitions)
 
 
 @router.get("/promotion-evidence", response_model=PromotionEvidence)

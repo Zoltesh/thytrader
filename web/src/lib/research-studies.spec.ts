@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+	fetchResearchStudySummary,
+	formatAxisValues,
+	formatWindowBounds,
 	listStrategyTemplates,
 	parametersForTarget,
 	parseParameterAxisValues,
@@ -106,6 +109,39 @@ describe('submitResearchStudy', () => {
 		);
 		const [, init] = fetchMock.mock.calls[1] as [string, { body: string }];
 		expect(JSON.parse(init.body)).not.toHaveProperty(['engine', 'contract', 'version'].join('_'));
+		vi.unstubAllGlobals();
+	});
+});
+
+describe('study summary presentation (ADR 0094)', () => {
+	it('renders axis values and bounds, with a dash for single-candidate studies', () => {
+		expect(formatAxisValues({ 'fast.period': 20, 'slow.period': 200 })).toBe(
+			'fast.period=20 · slow.period=200'
+		);
+		expect(formatAxisValues({})).toBe('—');
+		expect(formatAxisValues(undefined)).toBe('—');
+		expect(formatWindowBounds('2026-01-01T00:00:00Z', '2026-01-04T00:00:00Z')).toBe(
+			'2026-01-01 → 2026-01-04'
+		);
+	});
+
+	it('reads the persisted study summary', async () => {
+		const fetchMock = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					study_fingerprint: 'sha256:' + 'a'.repeat(64),
+					kind: 'walk_forward_optimization',
+					window_count: 0,
+					window_pnl: [],
+					candidates: []
+				}),
+				{ status: 200 }
+			)
+		);
+		vi.stubGlobal('fetch', fetchMock);
+		const summary = await fetchResearchStudySummary('sha256:' + 'a'.repeat(64));
+		expect(summary.kind).toBe('walk_forward_optimization');
+		expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/research/studies/sha256%3A');
 		vi.unstubAllGlobals();
 	});
 });

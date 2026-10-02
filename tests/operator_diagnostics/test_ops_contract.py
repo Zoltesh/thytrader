@@ -32,7 +32,18 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v53"
+    assert expected["id"] == "thytrader-ops-contract-v54"
+    assert expected["research_honesty"] == [
+        "result_window",
+        "study_axis_values",
+        "study_candidate_aggregates",
+        "study_stitched_points",
+        "document_issue_paths",
+        "json_number_decimals",
+    ]
+    assert expected["strategy_library"] == ["tag_filter", "bulk_delete_by_tag", "clone_name"]
+    assert expected["portfolio_max_sleeves"] == 32
+    assert expected["portfolio_sleeve_operations"] == ["batch_add"]
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     assert expected["signal_exit_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]

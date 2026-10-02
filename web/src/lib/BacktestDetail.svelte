@@ -4,6 +4,7 @@
 		compareDecimalStrings,
 		SAME_BAR_POLICY_LABEL,
 		formatDiagnosticsFunnel,
+		formatEvaluationWindow,
 		formatFillFee,
 		formatPercent,
 		exitReasonLines,
@@ -76,6 +77,7 @@
 	const spreadStressed = $derived(spreadCostNote !== null);
 	const validityLimits = $derived(result?.summary.validity_limits ?? []);
 	const diagnostics = $derived(detail?.diagnostics ?? null);
+	const evaluationWindow = $derived(detail?.window ?? null);
 </script>
 
 <section class="detail" aria-label="Backtest result detail">
@@ -142,6 +144,16 @@
 				<div class="s">{SAME_BAR_POLICY_LABEL}</div>
 			</div>
 		</div>
+		{#if evaluationWindow}
+			<p class="evaluation-window" data-testid="result-window">
+				<strong>{formatEvaluationWindow(evaluationWindow)}</strong>
+				<span class="faint"
+					>Omitted bounds start after each strategy's own warmup, so strategies with different
+					warmups cover different bars. Pin <code>evaluation_start</code> and
+					<code>evaluation_end</code> when you compare strategies.</span
+				>
+			</p>
+		{/if}
 		<div class="equity-panel">
 			<div class="panel-heading">
 				<div>
@@ -594,6 +606,18 @@
 		gap: 8px 18px;
 		padding: 14px 18px;
 		border-top: 1px solid var(--line);
+	}
+	.evaluation-window {
+		margin: 0;
+		padding: 10px 18px;
+		display: grid;
+		gap: 4px;
+		color: var(--muted);
+		font-size: 12px;
+		line-height: 1.5;
+	}
+	.evaluation-window strong {
+		color: var(--text);
 	}
 	.assumptions {
 		padding: 15px 18px;

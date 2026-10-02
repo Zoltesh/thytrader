@@ -17,11 +17,15 @@
 	} from '$lib/fees';
 	import {
 		axisNeedsIndicator,
+		fetchResearchStudySummary,
+		formatAxisValues,
+		formatWindowBounds,
 		parametersForTarget,
 		parseParameterAxisValues,
 		submitResearchStudy,
 		type ResearchStudy,
 		type ResearchStudyRequest,
+		type ResearchStudySummary,
 		type SelectionMetric,
 		type SweepAxisTarget,
 		type SweepParameter
@@ -78,6 +82,21 @@
 	let axisConditionOperator = $state('');
 	let selectionMetric = $state<SelectionMetric>('total_return_fraction');
 	let studyResult = $state<ResearchStudy | null>(null);
+	/** The persisted summary: axis values per row and per-candidate OOS sums (ADR 0094). */
+	let studySummary = $state<ResearchStudySummary | null>(null);
+	const axisValuesByResult = $derived(
+		new Map((studySummary?.window_pnl ?? []).map((row) => [row.result_fingerprint, row]))
+	);
+	const studyCandidates = $derived(studySummary?.candidates ?? []);
+
+	async function loadStudySummary(studyFingerprint: string): Promise<void> {
+		try {
+			const summary = await fetchResearchStudySummary(studyFingerprint);
+			if (studyResult?.study_fingerprint === studyFingerprint) studySummary = summary;
+		} catch {
+			studySummary = null;
+		}
+	}
 	let selectedStrategyFingerprint = $state('');
 	let launchForm = $state({
 		dataset_fingerprint: '',
@@ -129,6 +148,7 @@
 		selectedStrategyFingerprint = currentFingerprint;
 		launchError = null;
 		studyResult = null;
+		studySummary = null;
 		void loadLaunchDatasets();
 		if (strategyChanged) {
 			feeFieldsTouched = false;
@@ -268,6 +288,7 @@
 		launching = true;
 		launchError = null;
 		studyResult = null;
+		studySummary = null;
 		try {
 			if (mode === 'study') {
 				const study = await submitResearchStudy({
@@ -292,6 +313,8 @@
 					...candidateFields
 				});
 				studyResult = study;
+				studySummary = null;
+				void loadStudySummary(study.study_fingerprint);
 				return;
 			}
 			const input: BacktestLaunchInput = {
@@ -808,6 +831,8 @@
 				<tr>
 					<th scope="col">Window</th>
 					<th scope="col">Role</th>
+					<th scope="col">Axis values</th>
+					<th scope="col">Bounds (UTC)</th>
 					<th scope="col">Return</th>
 					<th scope="col">Trades</th>
 				</tr>
@@ -817,6 +842,12 @@
 					<tr>
 						<td>{window.label}</td>
 						<td>{window.role}{window.selected === true ? ' · selected' : ''}</td>
+						<td data-testid="study-window-axis-values"
+							>{formatAxisValues(
+								axisValuesByResult.get(window.result_fingerprint)?.axis_values
+							)}</td
+						>
+						<td>{formatWindowBounds(window.evaluation_start, window.evaluation_end)}</td>
 						<td>
 							<a
 								href={resolve(`/backtests?result=${encodeURIComponent(window.result_fingerprint)}`)}
@@ -828,6 +859,42 @@
 				{/each}
 			</tbody>
 		</table>
+		{#if studyCandidates.length > 1}
+			<table
+				class="results-table"
+				aria-label="Study candidates"
+				data-testid="research-study-candidates"
+			>
+				<thead>
+					<tr>
+						<th scope="col">Axis values</th>
+						<th scope="col">OOS net PnL (sum)</th>
+						<th scope="col">OOS windows &gt; 0</th>
+						<th scope="col">Selected windows</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each studyCandidates as candidate (candidate.strategy_fingerprint)}
+						<tr>
+							<td>{formatAxisValues(candidate.axis_values)}</td>
+							<td
+								>{candidate.oos_total_net_pnl ??
+									candidate.full_window_total_net_pnl ??
+									'—'}{candidate.oos_window_count === 0 && candidate.full_window_count > 0
+									? ' (full window, not OOS)'
+									: ''}</td
+							>
+							<td
+								>{candidate.oos_window_count === 0
+									? '—'
+									: `${candidate.oos_positive_window_count} / ${candidate.oos_window_count}`}</td
+							>
+							<td>{candidate.selected_window_count}</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+		{/if}
 	</div>
 {/if}
 

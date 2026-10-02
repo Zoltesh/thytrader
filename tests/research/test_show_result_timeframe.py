@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from thytrader.agent_http import AgentHttpError
 from thytrader.market_data.models import published_execution_timeframe
-from thytrader.research.http import show_result
+from thytrader.research.http import show_result, window_fields
 
 _RESULT_FINGERPRINT = "sha256:" + "r" * 64
 _STRATEGY_FINGERPRINT = "sha256:" + "s" * 64
@@ -28,7 +28,20 @@ def _summary_payload() -> dict[str, object]:
             "metrics_contract_version": "thytrader-performance-metrics-v1",
             "sharpe": "0",
         },
+        "window": _WINDOW,
     }
+
+
+_WINDOW: dict[str, object] = {
+    "timeframe": "1d",
+    "evaluation_start": "2021-03-02T00:00:00Z",
+    "evaluation_end": "2026-03-01T00:00:00Z",
+    "first_evaluated_bar": "2021-03-02T00:00:00Z",
+    "last_evaluated_bar": "2026-02-28T00:00:00Z",
+    "evaluation_bars": 1825,
+    "warmup_bars": 60,
+    "warmup_start": "2021-01-01T00:00:00Z",
+}
 
 
 def _show_result_for_timeframe(timeframe: str, quote_currency: str = "USD") -> dict[str, object]:
@@ -114,3 +127,25 @@ def test_show_result_forwards_derived_performance_metrics() -> None:
     metrics = cast("dict[str, str]", payload["metrics"])
     assert metrics["metrics_contract_version"] == "thytrader-performance-metrics-v1"
     assert metrics["sharpe"] == "0"
+
+
+def test_show_result_states_the_evaluated_window() -> None:
+    """show-result forwards evaluation_start/end, warmup_bars, and first/last evaluated bars."""
+    payload = _show_result_for_timeframe("1d")
+    assert payload["window"] == _WINDOW
+
+
+def test_list_rows_flatten_the_window_and_tolerate_unknown_ones() -> None:
+    """Listing rows carry the window bounds so agents can see when two rows are comparable."""
+    assert window_fields(_WINDOW) == {
+        "evaluation_start": "2021-03-02T00:00:00Z",
+        "evaluation_end": "2026-03-01T00:00:00Z",
+        "warmup_bars": 60,
+        "evaluation_bars": 1825,
+    }
+    assert window_fields(None) == {
+        "evaluation_start": None,
+        "evaluation_end": None,
+        "warmup_bars": None,
+        "evaluation_bars": None,
+    }

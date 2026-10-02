@@ -44,9 +44,9 @@ from thytrader.research.models import (
     AdditionalInstrumentDataset,
     BacktestEngine,
     CostAssumptions,
-    DecimalText,
     FingerprintText,
     IndicatorTimeframeDataset,
+    StrictDecimalInputText,
     reject_removed_engine_selection,
 )
 
@@ -117,10 +117,10 @@ class PortfolioBacktestRequest(_FrozenModel):
     """
 
     revision: RevisionNumber | None = None
-    maker_fee_rate: DecimalText
-    taker_fee_rate: DecimalText
-    fixed_slippage_bps: DecimalText
-    spread_bps: DecimalText | None = None
+    maker_fee_rate: StrictDecimalInputText
+    taker_fee_rate: StrictDecimalInputText
+    fixed_slippage_bps: StrictDecimalInputText
+    spread_bps: StrictDecimalInputText | None = None
     evaluation_start: datetime | None = None
     evaluation_end: datetime | None = None
     datasets: tuple[SleeveDatasetOverride, ...] = Field(default=(), max_length=MAX_SLEEVES)

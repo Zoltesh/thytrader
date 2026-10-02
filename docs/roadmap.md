@@ -565,6 +565,24 @@ the close-time exit, no exit on the fill bar, stop and take-profit precedence, a
 Paper and fake-broker live tests pin cancel-protection-then-sell, a pending-cancel race that never
 re-rests protection, and a sleeve's allocation freed on exit.
 
+## Research honesty and agent ergonomics — ✅ Shipped
+
+A day of agents driving ThyTrader found results that hid their window, study summaries that needed
+nine calls to read, two validity shapes, validator-internal issue paths, and bulk chores that cost
+dozens of calls ([ADR 0094](decisions/0094-research-honesty-and-agent-ergonomics.md)). Shipped:
+an evaluated `window` on every backtest result (HTTP, CLI, operator `performance`, the Test stage;
+outside the result bytes); study rows with axis values and bounds, per-candidate OOS sums, and a
+thinned stitched OOS path; one `validation` shape plus a stderr line for invalid drafts; document
+issue paths with plain messages; JSON-number decimals with unchanged fingerprints; 12-digit
+decision operands and honest crossover summaries; `thytrader-portfolio delete`, `create` with
+limits and manager settings, `add-sleeves --file` in one revision, and a 32-sleeve cap;
+`clone-strategy --name`; one INFO line (not a 404 ERROR per report) for an asset with no USD
+market; the library `tag` filter with UI chips and `bulk-delete-strategies --tag`. Ops contract
+`thytrader-ops-contract-v54` / Alembic `0058` (no schema change).
+
+**Exit gate met:** one `show-study` call explains a WFO; `5` and `"5"` produce identical request
+and execution fingerprints; an invalid import prints its first document-path issue on stderr.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

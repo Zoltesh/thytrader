@@ -85,6 +85,7 @@ from thytrader.portfolios.proposals import Proposal, ProposalPage
 from thytrader.portfolios.rules import (
     MutationPlan,
     plan_add_sleeve,
+    plan_add_sleeves,
     plan_create,
     plan_remove_sleeve,
     plan_set_weights,
@@ -111,6 +112,7 @@ if TYPE_CHECKING:
         PortfolioUpdateRequest,
         SetWeightsRequest,
         SleeveAddRequest,
+        SleevesAddRequest,
         SleeveUpdateRequest,
     )
     from thytrader.portfolios.proposals import ProposalSettlement, ProposalStatus
@@ -192,6 +194,33 @@ class PostgresPortfolioStore:
                 current = await load_aggregate(connection, portfolio_id, lock=True)
                 plan = plan_add_sleeve(
                     current, strategy, request, sleeve_id=sleeve_id, context=context
+                )
+                await apply_plan(connection, plan, previous=current)
+                return await load_aggregate(connection, portfolio_id, lock=False)
+        except SQLAlchemyError as error:
+            raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
+
+    async def add_sleeves(
+        self, portfolio_id: UUID, request: SleevesAddRequest, *, context: MutationContext
+    ) -> PortfolioAggregate:
+        """Add several sleeves in one transaction and one revision (all or none).
+
+        Strategy rows are locked FOR SHARE in id order, before the portfolio row, like a
+        single add, so concurrent batches cannot deadlock on each other.
+        """
+        context = _millisecond_context(context)
+        # Ascending ids keep the batch in request order (sleeves load by created_at, id).
+        sleeve_ids = tuple(sorted(uuid7(context.occurred_at) for _ in request.sleeves))
+        try:
+            async with self._engine.begin() as connection:
+                shared = {
+                    identity: await _shared_strategy(connection, identity)
+                    for identity in sorted((item.strategy_id for item in request.sleeves), key=str)
+                }
+                strategies = tuple(shared[item.strategy_id] for item in request.sleeves)
+                current = await load_aggregate(connection, portfolio_id, lock=True)
+                plan = plan_add_sleeves(
+                    current, strategies, request, sleeve_ids=sleeve_ids, context=context
                 )
                 await apply_plan(connection, plan, previous=current)
                 return await load_aggregate(connection, portfolio_id, lock=False)

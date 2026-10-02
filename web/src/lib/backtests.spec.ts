@@ -3,6 +3,7 @@ import {
 	backtestListPageIsFull,
 	fetchBacktest,
 	formatBacktestListBound,
+	formatEvaluationWindow,
 	formatFillFee,
 	formatListSpreadCue,
 	formatPercent,
@@ -146,5 +147,41 @@ describe('fetchBacktest', () => {
 		const url = new URL(requested, 'http://localhost');
 		expect(url.pathname).toBe(`/api/v1/backtests/${encodeURIComponent(fingerprint)}`);
 		expect(url.searchParams.get('detail')).toBe('full');
+	});
+});
+
+describe('formatEvaluationWindow', () => {
+	it('states the evaluated bars and the warmup that preceded them (ADR 0094)', () => {
+		expect(
+			formatEvaluationWindow({
+				timeframe: '1d',
+				evaluation_start: '2021-03-02T00:00:00Z',
+				evaluation_end: '2026-03-01T00:00:00Z',
+				first_evaluated_bar: '2021-03-02T00:00:00Z',
+				last_evaluated_bar: '2026-02-28T00:00:00Z',
+				evaluation_bars: 1825,
+				warmup_bars: 60,
+				warmup_start: '2021-01-01T00:00:00Z'
+			})
+		).toBe(
+			'Evaluated 2021-03-02 → 2026-02-28 · 1825 × 1d bars · after a 60-bar warmup from 2021-01-01'
+		);
+	});
+
+	it('keeps the time of day for intraday bars', () => {
+		expect(
+			formatEvaluationWindow({
+				timeframe: '1h',
+				evaluation_start: '2026-08-01T02:00:00Z',
+				evaluation_end: '2026-08-01T04:00:00Z',
+				first_evaluated_bar: '2026-08-01T02:00:00Z',
+				last_evaluated_bar: '2026-08-01T03:00:00Z',
+				evaluation_bars: 2,
+				warmup_bars: 2,
+				warmup_start: '2026-08-01T00:00:00Z'
+			})
+		).toBe(
+			'Evaluated 2026-08-01 02:00 UTC → 2026-08-01 03:00 UTC · 2 × 1h bars · after a 2-bar warmup from 2026-08-01'
+		);
 	});
 });

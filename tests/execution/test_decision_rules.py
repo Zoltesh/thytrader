@@ -14,6 +14,7 @@ from thytrader.execution.decision_rules import (
     first_unmet,
     indicator_label,
     met_text,
+    significant_or_none,
     unmet_text,
 )
 from thytrader.execution.decisions import (
@@ -242,7 +243,52 @@ def test_crossover_records_previous_and_current_values() -> None:
     assert (trace.left.previous_value, trace.left.value) == ("100", "101.5")
     assert (trace.right.previous_value, trace.right.value) == ("101", "102")
     assert trace.result is ConditionResult.FALSE
-    assert unmet_text(trace) == "EMA(20) did not cross above EMA(50) (101.5 vs 102)"
+    assert unmet_text(trace) == "EMA(20) is below EMA(50); no cross above yet (101.5 vs 102)"
+
+
+def test_no_cross_while_already_above_says_so() -> None:
+    """Fast already above slow: the cross is false because nothing new happened (ADR 0094)."""
+    current = {"fast": Decimal("105"), "slow": Decimal("102")}
+    previous = {"fast": Decimal("104"), "slow": Decimal("101.5")}
+    trace = condition_trace(_FAST_CROSSES_SLOW, current, previous, labeler=_LABELER)
+    assert trace.result is ConditionResult.FALSE
+    assert unmet_text(trace) == "EMA(20) is above EMA(50); no new cross this bar (105 vs 102)"
+
+
+def test_cross_below_and_touching_lines_read_naturally() -> None:
+    """Crosses below mirror the wording; equal values say the lines touch."""
+    below = _comparison(
+        {"left": {"indicator": "fast"}, "operator": "crosses_below", "right": {"indicator": "slow"}}
+    )
+    under = condition_trace(
+        below,
+        {"fast": Decimal("99"), "slow": Decimal("100")},
+        {"fast": Decimal("98"), "slow": Decimal("100")},
+        labeler=_LABELER,
+    )
+    assert unmet_text(under) == "EMA(20) is below EMA(50); no new cross this bar (99 vs 100)"
+    touching = condition_trace(
+        _FAST_CROSSES_SLOW,
+        {"fast": Decimal("100"), "slow": Decimal("100")},
+        {"fast": Decimal("99"), "slow": Decimal("100")},
+        labeler=_LABELER,
+    )
+    assert unmet_text(touching) == "EMA(20) is at EMA(50); no cross above yet (100 vs 100)"
+
+
+def test_operand_values_are_rounded_to_twelve_significant_digits() -> None:
+    """Raw 60-digit indicator Decimals are journaled readably (ADR 0094)."""
+    raw = Decimal("64123.456789123456789012345678901234567890123456789012345678")
+    current = {"fast": raw, "slow": Decimal("0.000012345678901234567")}
+    previous = {"fast": raw, "slow": Decimal("1")}
+    trace = condition_trace(_FAST_CROSSES_SLOW, current, previous, labeler=_LABELER)
+    assert isinstance(trace, ConditionComparisonTrace)
+    assert trace.left.value == "64123.4567891"
+    assert trace.left.previous_value == "64123.4567891"
+    assert trace.right.value == "0.0000123456789012"
+    assert significant_or_none(None) is None
+    assert significant_or_none(Decimal(0)) == "0"
+    assert significant_or_none(Decimal("123456789012345678")) == "123456789012000000"
 
 
 def test_all_any_not_groups_keep_structure_and_find_the_deciding_leaf() -> None:

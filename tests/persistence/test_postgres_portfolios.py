@@ -35,8 +35,10 @@ from thytrader.portfolios.models import (
     PortfolioCreateRequest,
     PortfolioRevisionConflictError,
     PortfolioSleeveExistsError,
+    PortfolioValidationError,
     SetWeightsRequest,
     SleeveAddRequest,
+    SleevesAddRequest,
 )
 from thytrader.portfolios.planning import plan_portfolio_backtest
 from thytrader.research.jobs import ResearchJobStatus
@@ -327,6 +329,62 @@ def test_portfolio_backtest_runs_real_child_backtests_end_to_end(tmp_path: Path)
             await store.delete(pid, expected_revision=(await store.get(pid)).portfolio.revision)
             await strategies.delete(btc.strategy_id)
             await strategies.delete(eth.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_batch_sleeve_add_is_one_revision_and_all_or_nothing() -> None:
+    """``add_sleeves`` writes every sleeve in one transaction and revision (ADR 0094)."""
+
+    async def exercise() -> None:
+        engine = _engine()
+        strategies = PostgresStrategyStore(engine)
+        store = PostgresPortfolioStore(engine)
+        records = [await _strategy(strategies, f"{base}-USDC") for base in ("BTC", "ETH", "SOL")]
+        created = await store.create(
+            PortfolioCreateRequest(name="Batch", mode="paper", capital_quote="1000"),
+            context=_CONTEXT,
+        )
+        pid = created.portfolio.portfolio_id
+        try:
+            too_heavy = SleevesAddRequest.model_validate(
+                {
+                    "revision": 1,
+                    "sleeves": [
+                        {"strategy_id": str(item.strategy_id), "weight_fraction": "0.4"}
+                        for item in records
+                    ],
+                }
+            )
+            with pytest.raises(PortfolioValidationError):
+                await store.add_sleeves(pid, too_heavy, context=_CONTEXT)
+            unchanged = await store.get(pid)
+            assert (unchanged.portfolio.revision, unchanged.sleeves) == (1, ())
+            batch = SleevesAddRequest.model_validate(
+                {
+                    "revision": 1,
+                    "sleeves": [
+                        {"strategy_id": str(item.strategy_id), "weight_fraction": "0.3"}
+                        for item in records
+                    ],
+                }
+            )
+            current = await store.add_sleeves(pid, batch, context=_CONTEXT)
+            assert current.portfolio.revision == 2
+            assert [view.sleeve.strategy_id for view in current.sleeves] == [
+                item.strategy_id for item in records
+            ]
+            journal = await store.journal(pid, limit=10, offset=0)
+            added = [entry for entry in journal.entries if entry.kind == "sleeve_added"]
+            assert len(added) == 3
+            assert {entry.revision for entry in added} == {2}
+            with pytest.raises(PortfolioRevisionConflictError):
+                await store.add_sleeves(pid, batch, context=_CONTEXT)
+        finally:
+            await store.delete(pid, expected_revision=(await store.get(pid)).portfolio.revision)
+            for item in records:
+                await strategies.delete(item.strategy_id)
             await dispose(engine)
 
     asyncio.run(exercise())

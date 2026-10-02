@@ -8,7 +8,7 @@ are read directly from those values; nothing is recomputed from candles.
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -63,6 +63,12 @@ OPERATOR_SYMBOLS: dict[ComparisonOperator, str] = {
     ComparisonOperator.CROSSES_BELOW: "crosses below",
 }
 _CROSSES = frozenset({ComparisonOperator.CROSSES_ABOVE, ComparisonOperator.CROSSES_BELOW})
+OPERAND_SIGNIFICANT_DIGITS = 12
+"""Operand values in a decision row are rounded to this many significant digits (ADR 0094).
+
+Indicator Decimals carry 60+ digits that are noise to a reader; the exact values the
+evaluator compared stay in the row's ``signal.indicator_values``.
+"""
 # Compact names for the original kinds; every other kind uses its catalog label.
 _KIND_NAMES: dict[IndicatorKind, str] = {
     IndicatorKind.EMA: "EMA",
@@ -329,14 +335,33 @@ def _operand(
     key = operand_value_key(operand)
     previous_value = None
     if crossover and previous is not None:
-        previous_value = _canonical_or_none(previous.get(key))
+        previous_value = significant_or_none(previous.get(key))
     return DecisionOperand(
         kind="indicator",
         label=labeler.label(operand, clock=clock),
         key=key,
-        value=_canonical_or_none(current.get(key)),
+        value=significant_or_none(current.get(key)),
         previous_value=previous_value,
     )
+
+
+def significant_or_none(
+    value: Decimal | None, digits: int = OPERAND_SIGNIFICANT_DIGITS
+) -> str | None:
+    """Canonical Decimal text rounded half-even to ``digits`` significant digits.
+
+    ``64123.45678912345678901234`` becomes ``64123.4567891``; None and non-finite
+    values stay undefined.
+    """
+    if value is None or not value.is_finite():
+        return None
+    if value.is_zero():
+        return "0"
+    quantum = Decimal(1).scaleb(value.adjusted() - (digits - 1))
+    try:
+        return canonical_decimal(value.quantize(quantum, rounding=ROUND_HALF_EVEN))
+    except InvalidOperation:
+        return canonical_decimal(value)
 
 
 def _canonical_or_none(value: Decimal | None) -> str | None:
@@ -419,15 +444,42 @@ def unmet_text(node: ConditionTrace) -> str:
         missing = node.left if node.left.value is None else node.right
         return f"{missing.label} has no value yet"
     if node.operator in _CROSSES:
-        direction = "above" if node.operator is ComparisonOperator.CROSSES_ABOVE else "below"
-        return (
-            f"{node.left.label} did not cross {direction} {node.right.label} "
-            f"({display_decimal(node.left.value)} vs {display_decimal(node.right.value)})"
-        )
+        return _no_cross_text(node)
     return (
         f"{node.left.label} {display_decimal(node.left.value)} needs "
         f"{node.operator_symbol} {_right_text(node.right)}"
     )
+
+
+def _no_cross_text(node: ConditionComparisonTrace) -> str:
+    """Explain a false cross from where the lines are now, not only that none happened.
+
+    ``EMA(9) is above EMA(21); no new cross this bar`` when fast already sits above slow,
+    and ``EMA(9) is below EMA(21); no cross above yet`` when it has not reached it.
+    """
+    values = f"({display_decimal(node.left.value)} vs {display_decimal(node.right.value)})"
+    direction = "above" if node.operator is ComparisonOperator.CROSSES_ABOVE else "below"
+    side = _relative_side(node.left.value, node.right.value)
+    if side is None:
+        return f"{node.left.label} did not cross {direction} {node.right.label} {values}"
+    if side == direction:
+        return f"{node.left.label} is {side} {node.right.label}; no new cross this bar {values}"
+    return f"{node.left.label} is {side} {node.right.label}; no cross {direction} yet {values}"
+
+
+def _relative_side(left: str | None, right: str | None) -> str | None:
+    """``above`` / ``below`` / ``at`` for two operand values, or None when unknown."""
+    if left is None or right is None:
+        return None
+    try:
+        difference = Decimal(left) - Decimal(right)
+    except InvalidOperation:
+        return None
+    if difference > 0:
+        return "above"
+    if difference < 0:
+        return "below"
+    return "at"
 
 
 def met_text(node: ConditionTrace, *, fallback: str = "entry rule matched") -> str:

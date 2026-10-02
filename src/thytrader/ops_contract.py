@@ -44,11 +44,14 @@ suggestions, the HTTP signal-trace route (Alembic 0055, ADR 0090), portfolio dep
 breakers, manager proposals, and the manager briefing; ADR 0091, Alembic 0056), the
 research worker pool (leased claims, crash re-queue, process recycling, the synchronous
 long-poll with its 202 fallback, research-job error codes, and health queue depth; Alembic
-0057, ADR 0092), or signal-based exits (``exits.signal_exit`` across research, paper, and
+0057, ADR 0092), signal-based exits (``exits.signal_exit`` across research, paper, and
 live; the ``signal`` exit reason, the ``signal_exit`` intent purpose, and the durable
-position exit marker; ADR 0093, Alembic 0058) change. Concurrency is the deployment's
-``research_worker_count`` and is reported by operator health, not compiled into this
-contract.
+position exit marker; ADR 0093, Alembic 0058), or research honesty and agent ergonomics
+(result windows, study axis values and per-candidate aggregates, thinned stitched points,
+document issue paths, JSON-number decimals, the library tag filter, bulk delete by tag,
+clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094) change. Concurrency is the
+deployment's ``research_worker_count`` and is reported by operator health, not compiled into
+this contract.
 """
 
 from __future__ import annotations
@@ -60,6 +63,7 @@ from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_IN
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.models import (
     BREAKER_REASONS,
+    MAX_SLEEVES,
     PORTFOLIO_BACKTEST_CONTRACT,
     PORTFOLIO_BRIEFING_CONTRACT,
     PORTFOLIO_MODES,
@@ -72,7 +76,7 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v53"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v54"
 EXPECTED_SCHEMA_REVISION = "0058"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -168,6 +172,16 @@ TAKE_PROFIT_KINDS: tuple[str, ...] = ("reward_risk", "none")
 LIVE_PROTECTION_KINDS: tuple[str, ...] = ("trigger_bracket", "stop_limit")
 BACKTEST_DIAGNOSTICS: tuple[str, ...] = (BACKTEST_DIAGNOSTICS_VERSION,)
 FEE_SUGGESTION_SOURCE = "coinbase_account"
+RESEARCH_HONESTY: tuple[str, ...] = (
+    "result_window",
+    "study_axis_values",
+    "study_candidate_aggregates",
+    "study_stitched_points",
+    "document_issue_paths",
+    "json_number_decimals",
+)
+STRATEGY_LIBRARY: tuple[str, ...] = ("tag_filter", "bulk_delete_by_tag", "clone_name")
+PORTFOLIO_SLEEVE_OPERATIONS: tuple[str, ...] = ("batch_add",)
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -221,6 +235,10 @@ def expected_ops_contract() -> dict[str, object]:
         "portfolio_breakers": list(PORTFOLIO_BREAKERS_FIELD),
         "portfolio_proposal_kinds": list(PORTFOLIO_PROPOSAL_KINDS),
         "portfolio_briefing_contract": PORTFOLIO_BRIEFING_CONTRACT_ID,
+        "research_honesty": list(RESEARCH_HONESTY),
+        "strategy_library": list(STRATEGY_LIBRARY),
+        "portfolio_max_sleeves": MAX_SLEEVES,
+        "portfolio_sleeve_operations": list(PORTFOLIO_SLEEVE_OPERATIONS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

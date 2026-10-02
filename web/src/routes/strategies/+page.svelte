@@ -44,6 +44,8 @@
 	let error = $state<string | null>(null);
 	let loading = $state(true);
 	let pageSize = $state<10 | 25 | 50 | 100>(10);
+	/** Show only strategies whose metadata.tags include this tag (ADR 0094). */
+	let tagFilter = $state<string | null>(null);
 	let pageIndex = $state(0);
 	let pageCursors = $state<(string | undefined)[]>([undefined]);
 	let nextCursor = $state<string | null>(null);
@@ -105,7 +107,7 @@
 		loading = true;
 		error = null;
 		try {
-			const page = await fetchStrategyPage(pageSize, pageCursors[pageIndex]);
+			const page = await fetchStrategyPage(pageSize, pageCursors[pageIndex], tagFilter);
 			if (requestId !== libraryRequestId) return;
 			if (page.entries.length === 0 && pageIndex > 0) {
 				pageIndex -= 1;
@@ -124,6 +126,12 @@
 		} finally {
 			if (requestId === libraryRequestId) loading = false;
 		}
+	}
+
+	function filterByTag(tag: string | null): void {
+		tagFilter = tag;
+		selected = [];
+		void loadLibrary();
 	}
 
 	function changePageSize(event: Event): void {
@@ -435,11 +443,26 @@
 			>
 		</div>
 	{/if}
+	{#if tagFilter !== null}
+		<div class="tag-filter" role="status" data-testid="library-tag-filter">
+			<span>Showing strategies tagged</span>
+			<button
+				class="tag-chip active"
+				type="button"
+				aria-label="Clear the tag filter {tagFilter}"
+				onclick={() => filterByTag(null)}>{tagFilter} ✕</button
+			>
+		</div>
+	{/if}
 	<section class="card library-card" aria-label="Strategy library">
 		{#if loading}
 			<div class="loading-region" aria-busy="true"><div class="skeleton wide"></div></div>
 		{:else if error && entries.length === 0}
 			<div class="library-empty"><p>Could not load strategies. Retry the library load.</p></div>
+		{:else if entries.length === 0 && tagFilter !== null}
+			<div class="library-empty">
+				<p>No strategies are tagged {tagFilter}.</p>
+			</div>
 		{:else if entries.length === 0}
 			<div class="library-empty">
 				<p>No strategies yet.</p>
@@ -496,6 +519,20 @@
 											? shortStrategyFingerprint(entry.current_fingerprint)
 											: 'definition has problems'}</span
 									>
+									{#if (entry.tags ?? []).length > 0}
+										<span class="row-tags">
+											{#each entry.tags ?? [] as tag (tag)}
+												<button
+													class="tag-chip"
+													class:active={tag === tagFilter}
+													type="button"
+													data-testid="library-tag-chip"
+													title="Show only strategies tagged {tag}"
+													onclick={() => filterByTag(tag)}>{tag}</button
+												>
+											{/each}
+										</span>
+									{/if}
 								</td>
 								<td
 									>{entry.product_id ? marketLabel(entry.product_id) : '—'}
@@ -744,6 +781,35 @@
 		display: block;
 		color: var(--faint);
 		font-size: var(--fs-xs);
+	}
+	.row-tags {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+		margin-top: 4px;
+	}
+	.tag-chip {
+		border: 1px solid var(--line-2);
+		border-radius: 999px;
+		background: var(--surface-2);
+		color: var(--muted);
+		font-size: var(--fs-xs);
+		padding: 1px 8px;
+		cursor: pointer;
+	}
+	.tag-chip:hover,
+	.tag-chip.active {
+		border-color: var(--accent);
+		color: var(--text);
+		background: var(--accent-soft);
+	}
+	.tag-filter {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: var(--space-3);
+		color: var(--muted);
+		font-size: var(--fs-sm);
 	}
 	.faint {
 		color: var(--faint);

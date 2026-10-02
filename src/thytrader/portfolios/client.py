@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         PortfolioUpdateRequest,
         SetWeightsRequest,
         SleeveAddRequest,
+        SleevesAddRequest,
     )
     from thytrader.portfolios.proposals import ProposalDecisionRequest, ProposalSubmitRequest
 
@@ -70,6 +71,22 @@ def add_sleeve(base_url: str, portfolio_id: UUID, request: SleeveAddRequest) -> 
         request.model_dump(mode="json", exclude_none=True),
         "portfolio",
     )
+
+
+def add_sleeves(base_url: str, portfolio_id: UUID, request: SleevesAddRequest) -> JsonObject:
+    """POST several sleeves at once (one revision, all or none)."""
+    return _mutate(
+        "POST",
+        f"{base_url}{_PREFIX}/{portfolio_id}/sleeves/batch",
+        request.model_dump(mode="json", exclude_none=True),
+        "portfolio",
+    )
+
+
+def delete_portfolio(base_url: str, portfolio_id: UUID, *, revision: int) -> JsonObject:
+    """DELETE one portfolio (revision-guarded; refused while any sleeve is deployed)."""
+    query = urlencode({"revision": str(revision)})
+    return _mutate("DELETE", f"{base_url}{_PREFIX}/{portfolio_id}?{query}", None, "deletion")
 
 
 def remove_sleeve(

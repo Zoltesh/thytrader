@@ -493,3 +493,102 @@ test('the Test stage explains how backtests simulate and never names engine vari
 	expect(text).not.toContain(RETIRED_ENGINE_PREFIX);
 	expect(text).not.toMatch(/engine contract/i);
 });
+
+test('a finished study shows each window candidate axis values and per-candidate OOS sums', async ({
+	page
+}) => {
+	await mockStrategy(page);
+	await mockFees(page, suggestedFeeProfile());
+	await mockDatasets(page);
+	await mockBacktestList(page);
+	const studyFingerprint = `sha256:${'5'.repeat(64)}`;
+	const candidates = [`sha256:${'1'.repeat(64)}`, `sha256:${'2'.repeat(64)}`];
+	const windows = candidates.map((candidate, index) => ({
+		label: `out_of_sample-0-${index}`,
+		role: 'out_of_sample',
+		fold_index: 0,
+		product_id: 'BTC-USD',
+		run_fingerprint: `sha256:${String(index + 3).repeat(64)}`,
+		result_fingerprint: `sha256:${String(index + 6).repeat(64)}`,
+		strategy_fingerprint: candidate,
+		selected: index === 1,
+		evaluation_start: '2026-01-08T00:00:00Z',
+		evaluation_end: '2026-01-11T00:00:00Z',
+		summary: {
+			total_return_fraction: index === 0 ? '-0.01' : '0.02',
+			trade_count: 2,
+			win_rate: '0.5',
+			maximum_drawdown_fraction: '0.01'
+		}
+	}));
+	await page.route('**/api/v1/research/studies', async (route) => {
+		await route.fulfill({
+			status: 201,
+			json: {
+				schema_version: 'thytrader-research-study-v1',
+				study_fingerprint: studyFingerprint,
+				request_fingerprint: `sha256:${'4'.repeat(64)}`,
+				kind: 'walk_forward_optimization',
+				windows,
+				aggregate: {
+					oos_window_count: 2,
+					oos_trade_count: 4,
+					mean_oos_return_fraction: '0.005',
+					mean_is_return_fraction: null,
+					is_oos_return_gap: null
+				},
+				warnings: []
+			}
+		});
+	});
+	await page.route(`**/api/v1/research/studies/${encodeURIComponent(studyFingerprint)}`, (route) =>
+		route.fulfill({
+			json: {
+				study_fingerprint: studyFingerprint,
+				kind: 'walk_forward_optimization',
+				window_count: 2,
+				window_pnl: windows.map((window, index) => ({
+					label: window.label,
+					role: window.role,
+					fold_index: 0,
+					product_id: 'BTC-USD',
+					evaluation_start: window.evaluation_start,
+					evaluation_end: window.evaluation_end,
+					result_fingerprint: window.result_fingerprint,
+					strategy_fingerprint: window.strategy_fingerprint,
+					axis_values: { 'ema_fast.period': index === 0 ? 10 : 20 },
+					total_net_pnl: index === 0 ? '-100' : '200',
+					total_return_fraction: window.summary.total_return_fraction,
+					trade_count: 2
+				})),
+				candidates: candidates.map((candidate, index) => ({
+					strategy_fingerprint: candidate,
+					product_id: 'BTC-USD',
+					axis_values: { 'ema_fast.period': index === 0 ? 10 : 20 },
+					window_count: 1,
+					selected_window_count: index,
+					in_sample_window_count: 0,
+					in_sample_total_net_pnl: null,
+					oos_window_count: 1,
+					oos_total_net_pnl: index === 0 ? '-100' : '200',
+					oos_positive_window_count: index,
+					oos_trade_count: 2,
+					full_window_count: 0,
+					full_window_total_net_pnl: null
+				}))
+			}
+		})
+	);
+	await page.goto(testStage);
+	await page.getByText('Run a study').click();
+	await page.getByLabel('Study').selectOption('oos_holdout');
+	await page.getByRole('button', { name: 'Run study' }).click();
+	await expect(page.getByTestId('research-study-result')).toBeVisible();
+	await expect(page.getByTestId('study-window-axis-values').first()).toHaveText(
+		'ema_fast.period=10'
+	);
+	await expect(page.getByTestId('research-study-result')).toContainText('2026-01-08 → 2026-01-11');
+	const table = page.getByTestId('research-study-candidates');
+	await expect(table).toContainText('ema_fast.period=20');
+	await expect(table).toContainText('1 / 1');
+});

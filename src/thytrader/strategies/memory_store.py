@@ -29,6 +29,7 @@ from thytrader.strategies.library import (
     StrategyRecord,
     StrategyRevisionConflictError,
     StrategySnapshotNotFoundError,
+    document_tags,
     evaluate_document,
     parse_document_text,
 )
@@ -69,11 +70,15 @@ class InMemoryStrategyStore:
         async with self._lock:
             return self._require(strategy_id)
 
-    async def list_page(self, *, limit: int, offset: int) -> StrategyPage:
-        """Return one newest-updated-first page."""
+    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+        """Return one newest-updated-first page, optionally only strategies with ``tag``."""
         async with self._lock:
             ordered = sorted(
-                self._records.values(),
+                (
+                    item
+                    for item in self._records.values()
+                    if tag is None or tag in document_tags(item.document)
+                ),
                 key=lambda item: (-item.updated_at.timestamp(), str(item.strategy_id)),
             )
             return StrategyPage(records=tuple(ordered[offset : offset + limit]), total=len(ordered))

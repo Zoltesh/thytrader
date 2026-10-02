@@ -20,13 +20,14 @@ from sqlalchemy import (
     ScalarSelect,
     Select,
     Table,
+    cast as sql_cast,
     delete,
     func,
     or_,
     select,
     update,
 )
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.datasets import DatasetStoreError
@@ -162,20 +163,27 @@ class PostgresStrategyStore:
             raise StrategyNotFoundError("Strategy was not found.")
         return _record_from_row(row)
 
-    async def list_page(self, *, limit: int, offset: int) -> StrategyPage:
-        """Return one newest-updated-first page and the total library size."""
+    async def list_page(self, *, limit: int, offset: int, tag: str | None = None) -> StrategyPage:
+        """Return one newest-updated-first page and the total library size.
+
+        ``tag`` filters on the stored document's ``metadata.tags`` (JSONB containment),
+        and ``total`` then counts only matching strategies.
+        """
         statement = (
             _strategy_select(None)
             .order_by(strategies.c.updated_at.desc(), strategies.c.strategy_id.asc())
             .limit(limit)
             .offset(offset)
         )
+        counted = select(func.count()).select_from(strategies)
+        if tag is not None:
+            tagged = sql_cast(strategies.c.document, JSONB)["metadata"]["tags"].contains([tag])
+            statement = statement.where(tagged)
+            counted = counted.where(tagged)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
-                total = (
-                    await connection.execute(select(func.count()).select_from(strategies))
-                ).scalar_one()
+                total = (await connection.execute(counted)).scalar_one()
         except SQLAlchemyError as error:
             raise StrategyStorageUnavailableError(_UNAVAILABLE) from error
         return StrategyPage(records=tuple(_record_from_row(row) for row in rows), total=int(total))
