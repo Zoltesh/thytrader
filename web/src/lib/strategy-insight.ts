@@ -89,8 +89,21 @@ export function plainEnglishSummary(model: BuilderModel): string {
 	return [
 		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.${htf}`,
 		`Risk ${model.sizing.risk_fraction} of equity per trade between ${model.sizing.min_quote_notional} ${quote} and ${model.sizing.max_quote_notional} ${quote}.`,
-		`Initial stop ${model.exits.initial_stop.multiple}× ATR, ${takeProfitPhrase(model.exits.take_profit)}, time exit after ${model.exits.time_exit.max_bars_held} bars.`
+		`Initial stop ${model.exits.initial_stop.multiple}× ATR, ${takeProfitPhrase(model.exits.take_profit)}, time exit after ${model.exits.time_exit.max_bars_held} bars.`,
+		...signalExitSentence(model)
 	].join(' ');
+}
+
+/**
+ * Plain-language exit rule (ADR 0093): `Exit when fast crosses below slow (sells at that
+ * bar's close; the initial stop still guards the position).` Empty without a rule.
+ */
+export function signalExitSentence(model: BuilderModel): string[] {
+	const signalExit = model.exits.signal_exit;
+	if (signalExit === undefined) return [];
+	return [
+		`Exit when ${conditionToText(signalExit.when)} (sells at that bar's close; the initial stop still guards the position).`
+	];
 }
 
 export function requiredDataText(model: BuilderModel): string {
@@ -195,6 +208,11 @@ export function validateDefinition(model: BuilderModel): string[] {
 		}
 	}
 	problems.push(...validateCondition(model.entry.when, model.indicators, 'Entry'));
+	if (model.exits.signal_exit !== undefined) {
+		problems.push(
+			...validateCondition(model.exits.signal_exit.when, model.indicators, 'Exit rule')
+		);
+	}
 	if (model.htf_filter !== null) {
 		problems.push(...validateHtfFilter(model.htf_filter, ids, model.timeframe, model.indicators));
 	}

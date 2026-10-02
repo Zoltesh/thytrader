@@ -5,6 +5,7 @@ import {
 	EXIT_INTENT,
 	at,
 	barDecision,
+	comparison,
 	decisionPageBody,
 	everyOutcome,
 	filterByRequest,
@@ -1477,5 +1478,69 @@ test.describe('deployment detail', () => {
 			() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1
 		);
 		expect(overflow).toBe(false);
+	});
+
+	test('a signal exit row names the exit and shows the evaluated exit rule (ADR 0093)', async ({
+		page
+	}) => {
+		const signalExit = barDecision(deploymentId, {
+			...at(0),
+			outcome: 'exit',
+			reason_code: 'EXIT_SIGNAL',
+			summary: 'Exit (signal): EMA(20) 7.01 crosses below EMA(100) 7.05 → sell 5 @ 7.02',
+			exit_reason: 'signal',
+			rule: null,
+			exit_rule: {
+				outcome: 'matched',
+				condition: {
+					node: 'all',
+					result: 'true',
+					children: [
+						comparison({
+							result: 'true',
+							label: 'EMA(20) crosses below EMA(100)',
+							operator: 'crosses_below',
+							operator_symbol: '↘',
+							left: {
+								kind: 'indicator',
+								label: 'EMA(20)',
+								key: 'fast',
+								value: '7.01',
+								previous_value: '7.08'
+							},
+							right: {
+								kind: 'indicator',
+								label: 'EMA(100)',
+								key: 'slow',
+								value: '7.05',
+								previous_value: '7.04'
+							}
+						})
+					]
+				}
+			},
+			position: null
+		});
+		await mockDetailRoutes(page, {
+			decisions: (route) =>
+				route.fulfill({
+					json: { deployment_id: deploymentId, ...decisionPageBody([signalExit]) }
+				})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const timeline = page.getByTestId('why-it-traded');
+		const row = timeline.locator('[data-testid="decision-row"][data-outcome="exit"]');
+		await row.getByRole('button', { name: /Exit \(signal\)/ }).click();
+		const detail = row.getByTestId('decision-detail');
+		await expect(detail).toContainText('Exit reason');
+		await expect(detail).toContainText('signal exit');
+		const exitRule = detail.getByTestId('decision-exit-rule');
+		await expect(exitRule).toContainText('Exit rule');
+		await expect(exitRule.getByTestId('decision-exit-rule-outcome')).toHaveAttribute(
+			'data-outcome',
+			'matched'
+		);
+		await expect(exitRule).toContainText('EMA(20)');
+		await expect(exitRule).toContainText('EMA(100)');
 	});
 });

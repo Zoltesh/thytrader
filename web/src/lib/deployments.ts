@@ -11,6 +11,8 @@ export type DeploymentPosition = {
 	side?: 'long' | 'short' | string;
 	trail_extreme?: string | null;
 	add_count?: number;
+	/** Bar whose exit rule matched; the book is exiting until flat (ADR 0093). */
+	signal_exit_bar?: string | null;
 	protection_status?: string;
 	compatibility_focus?: boolean;
 };

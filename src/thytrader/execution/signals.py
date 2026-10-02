@@ -1,4 +1,4 @@
-"""Evaluate the latest closed candle's entry condition for a live/paper runtime."""
+"""Evaluate the latest closed candle's entry and signal-exit conditions for paper/live."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from thytrader.research.signal_evaluator import (
     overlay_indicator_timeframe_values,
 )
 from thytrader.research.trace import EntryConditionOutcome
-from thytrader.strategies.models import decision_clock_indicators
+from thytrader.strategies.models import decision_clock_indicators, signal_exit_condition
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -48,6 +48,98 @@ class LatestEntryEvaluation:
     htf_previous: Mapping[str, Decimal | None] | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class LatestExitEvaluation:
+    """One newest-bar ``exits.signal_exit`` outcome plus the values the rule read (ADR 0093).
+
+    ``current``/``previous`` are the merged decision-clock (and extra-TF) values, the same
+    ones the entry rule reads on that bar; the HTF filter never gates an exit.
+    ``candle_starts_at`` is None only without candles.
+    """
+
+    outcome: EntryConditionOutcome
+    candle_starts_at: datetime | None
+    current: Mapping[str, Decimal | None] = field(default_factory=dict)
+    previous: Mapping[str, Decimal | None] | None = None
+
+
+def evaluate_latest_signal_exit(
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+) -> LatestExitEvaluation | None:
+    """Evaluate ``exits.signal_exit`` on the newest closed LTF bar, or None without one.
+
+    Uses exactly the merged values ``evaluate_latest_entry_evidence`` computes for
+    ``entry.when`` (extra-TF indicators from last-completed bars only); HTF candles are
+    read only when an extra-TF indicator shares the filter's clock. Missing required
+    coverage raises ``SignalEvaluationError`` (fail closed: no exit is invented).
+    """
+    condition = signal_exit_condition(strategy.exits)
+    if condition is None:
+        return None
+    if len(candles) < 2:
+        return LatestExitEvaluation(
+            outcome=EntryConditionOutcome.UNDEFINED,
+            candle_starts_at=candles[-1].starts_at if candles else None,
+        )
+    merged_values, merged_previous = _latest_merged_values(
+        strategy, candles, _visible_htf(strategy, candles, htf_candles), indicator_timeframe_candles
+    )
+    return LatestExitEvaluation(
+        outcome=entry_condition_outcome(condition, merged_values, merged_previous),
+        candle_starts_at=candles[-1].starts_at,
+        current=merged_values,
+        previous=merged_previous,
+    )
+
+
+def _visible_htf(
+    strategy: StrategyDefinition, candles: Sequence[Candle], htf_candles: Sequence[Candle]
+) -> Sequence[Candle]:
+    """HTF bars that had closed by the newest LTF close (all of them without a filter)."""
+    htf_filter = strategy.htf_filter
+    if htf_filter is None:
+        return htf_candles
+    return bars_closed_at_or_before(
+        htf_candles,
+        close_at=ltf_close(candles[-1].starts_at, strategy.timeframe),
+        timeframe=htf_filter.timeframe,
+    )
+
+
+def _latest_merged_values(
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    visible_htf: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+) -> tuple[dict[str, Decimal | None], dict[str, Decimal | None] | None]:
+    """Decision-clock values of the newest two bars with extra-TF values held onto them."""
+    latest = candles[-1]
+    current_close = ltf_close(latest.starts_at, strategy.timeframe)
+    visible_extra = {
+        timeframe: bars_closed_at_or_before(bars, close_at=current_close, timeframe=timeframe)
+        for timeframe, bars in dict(indicator_timeframe_candles or {}).items()
+    }
+    extra_rows = calculate_extra_indicator_rows(
+        strategy,
+        visible_extra,
+        visible_htf,
+        evaluation_starts_at=latest.starts_at,
+        evaluation_ends_at=current_close,
+    )
+    rows = calculate_indicator_rows(decision_clock_indicators(strategy), candles)
+    return overlay_indicator_timeframe_values(
+        strategy,
+        latest,
+        previous_ltf_start=candles[-2].starts_at,
+        ltf_values=rows[-1],
+        previous_ltf_values=rows[-2],
+        extra_rows=extra_rows,
+    )
+
+
 def evaluate_latest_entry(
     strategy: StrategyDefinition,
     candles: Sequence[Candle],
@@ -75,7 +167,6 @@ def evaluate_latest_entry_evidence(
     The outcome is computed by the same calls in the same order, so trading semantics
     are identical; only the intermediate merged values are retained for explanation.
     """
-    extra_candles = dict(indicator_timeframe_candles or {})
     htf_filter = strategy.htf_filter
     if htf_filter is None and htf_candles:
         raise SignalEvaluationError("HTF candles were supplied without an HTF filter.")
@@ -89,32 +180,9 @@ def evaluate_latest_entry_evidence(
         )
     latest = candles[-1]
     current_close = ltf_close(latest.starts_at, strategy.timeframe)
-    visible_htf = htf_candles
-    if htf_filter is not None:
-        visible_htf = bars_closed_at_or_before(
-            htf_candles,
-            close_at=current_close,
-            timeframe=htf_filter.timeframe,
-        )
-    visible_extra = {
-        timeframe: bars_closed_at_or_before(bars, close_at=current_close, timeframe=timeframe)
-        for timeframe, bars in extra_candles.items()
-    }
-    extra_rows = calculate_extra_indicator_rows(
-        strategy,
-        visible_extra,
-        visible_htf,
-        evaluation_starts_at=latest.starts_at,
-        evaluation_ends_at=current_close,
-    )
-    rows = calculate_indicator_rows(decision_clock_indicators(strategy), candles)
-    merged_values, merged_previous = overlay_indicator_timeframe_values(
-        strategy,
-        latest,
-        previous_ltf_start=candles[-2].starts_at,
-        ltf_values=rows[-1],
-        previous_ltf_values=rows[-2],
-        extra_rows=extra_rows,
+    visible_htf = _visible_htf(strategy, candles, htf_candles)
+    merged_values, merged_previous = _latest_merged_values(
+        strategy, candles, visible_htf, indicator_timeframe_candles
     )
     ltf_outcome = entry_condition_outcome(strategy.entry.when, merged_values, merged_previous)
     if htf_filter is None:

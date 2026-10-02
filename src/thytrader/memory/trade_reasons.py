@@ -40,6 +40,7 @@ class TradeReasonSignalKind(StrEnum):
     STOP = "stop"
     TIME_EXIT = "time_exit"
     BRACKET = "bracket"
+    SIGNAL_EXIT = "signal_exit"
 
 
 class _FrozenModel(BaseModel):
@@ -175,7 +176,7 @@ class TradeReasonRecord(_FrozenModel):
     deployment_kind: Literal["strategy", "discretionary"]
     mode: Literal["paper", "live"]
     product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
-    purpose: Literal["entry", "take_profit", "stop", "time_exit", "bracket"]
+    purpose: Literal["entry", "take_profit", "stop", "time_exit", "bracket", "signal_exit"]
     side: Literal["buy", "sell"]
     strategy: TradeReasonStrategy | None = None
     signal: TradeReasonSignal

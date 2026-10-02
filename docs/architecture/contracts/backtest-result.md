@@ -38,7 +38,7 @@ classDiagram
     only on taker fills when spread_bps gt 0
   }
   class BacktestExitFill {
-    reason stop_loss|take_profit|time_exit|evaluation_end
+    reason stop_loss|take_profit|time_exit|signal|evaluation_end
   }
   class EquityPoint {
     candle_starts_at

@@ -896,6 +896,15 @@ execution_positions = Table(
     Column("side", String(8), nullable=False, server_default="long"),
     Column("add_count", Integer(), nullable=False, server_default="1"),
     Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "signal_exit_bar",
+        DateTime(timezone=True),
+        nullable=True,
+        comment=(
+            "UTC start of the closed bar whose exits.signal_exit rule matched; the book keeps "
+            "exiting until flat (ADR 0093)."
+        ),
+    ),
     ForeignKeyConstraint(["deployment_id"], ["deployments.id"], ondelete="RESTRICT"),
     CheckConstraint("side IN ('long', 'short')", name="ck_execution_positions_side"),
     CheckConstraint(
@@ -1155,12 +1164,13 @@ trade_reason_records = Table(
     CheckConstraint("mode IN ('paper', 'live')", name="ck_trade_reason_mode"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_trade_reason_side"),
     CheckConstraint(
-        "purpose IN ('entry', 'take_profit', 'stop', 'time_exit', 'bracket')",
+        "purpose IN ('entry', 'take_profit', 'stop', 'time_exit', 'bracket', 'signal_exit')",
         name="ck_trade_reason_purpose",
     ),
     CheckConstraint(
         "signal_kind IN ("
-        "'strategy_entry', 'discretionary', 'take_profit', 'stop', 'time_exit', 'bracket'"
+        "'strategy_entry', 'discretionary', 'take_profit', 'stop', 'time_exit', 'bracket', "
+        "'signal_exit'"
         ")",
         name="ck_trade_reason_signal_kind",
     ),

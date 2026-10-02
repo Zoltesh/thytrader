@@ -297,6 +297,8 @@ export type BuilderModel = {
 			| { enabled: false }
 			| { enabled: true; kind: 'atr_multiple'; atr_indicator: string; multiple: string };
 		time_exit: { max_bars_held: number };
+		/** Optional exit rule (ADR 0093); omitted from the document when absent. */
+		signal_exit?: SignalExitDraft;
 	};
 	execution: {
 		entry_preference: string;
@@ -308,6 +310,49 @@ export type BuilderModel = {
 	pyramiding: PyramidingDraft | null;
 	metadata: { tags: string[]; notes: string[] };
 };
+
+/**
+ * `exits.signal_exit` (ADR 0093): exit an open position when this rule matches on a
+ * closed bar after the fill bar. Same grammar and indicator operands as `entry.when`.
+ */
+export type SignalExitDraft = { when: ConditionDraft };
+
+const MIRRORED_CROSS: Partial<Record<ComparisonOperatorValue, ComparisonOperatorValue>> = {
+	crosses_above: 'crosses_below',
+	crosses_below: 'crosses_above'
+};
+
+/**
+ * Starting rule for a new "Exit when" block: the mirror of the entry's first top-level
+ * crossover (`fast crosses above slow` becomes `fast crosses below slow`, so a trend is
+ * held until it reverses), else one comparison on the first indicator for the author to edit.
+ */
+export function defaultSignalExit(
+	entry: ConditionDraft,
+	indicators: IndicatorDraft[]
+): SignalExitDraft {
+	const children = 'all' in entry ? entry.all : 'any' in entry ? entry.any : [];
+	for (const child of children) {
+		if (!('operator' in child)) continue;
+		const operator = MIRRORED_CROSS[child.operator];
+		if (operator !== undefined) {
+			return {
+				when: { all: [{ left: { ...child.left }, operator, right: { ...child.right } }] }
+			};
+		}
+	}
+	return {
+		when: {
+			all: [
+				{
+					left: defaultIndicatorOperand(indicators),
+					operator: 'less_than',
+					right: { literal: '0' }
+				}
+			]
+		}
+	};
+}
 
 /** Reward/risk take-profit, or `none`: exit on the stop, ATR trail, or time exit (ADR 0090). */
 export type TakeProfitDraft = { kind: 'reward_risk'; multiple: string } | { kind: 'none' };

@@ -126,7 +126,12 @@ sizing rested no order is `outcome: skipped` with `skip_reason` `entry_geometry`
 and a precise `reason_code` such as `TARGET_NOT_POSITIVE` (a short's target would be at or below
 zero), `STOP_NOT_POSITIVE`, `NOTIONAL_BELOW_MINIMUM`, `QUANTITY_BELOW_VENUE_MINIMUM`, or
 `INSUFFICIENT_CASH` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
-A position without a take-profit shows `target_price: null`. Repeat `--outcome` to filter (trades are
+A position without a take-profit shows `target_price: null`. With `exits.signal_exit`
+([ADR 0093](../../docs/decisions/0093-signal-based-exits.md)) every post-fill bar of an open book
+carries `exit_rule` (`outcome` plus the evaluated tree with leaf values); a holding bar's summary ends
+`· exit rule: <first unmet leaf>`. The bar the rule matched is `outcome: exit`, `exit_reason:
+signal`, `reason_code: EXIT_SIGNAL` (`Exit (signal): <leaf> → sell …`), even while a live cancel of
+the protection is still pending; the sell's fill may land on the next bar's row. Repeat `--outcome` to filter (trades are
 `--outcome entry_signal --outcome exit`; blocked entries are `--outcome entry_blocked`). Pass the
 response's `next_cursor` as `--cursor` for older bars. `storage: "unavailable"` means the API runs
 without a database. The journal keeps the newest 20,000 decisions per bot (at most 180 days); it never
@@ -153,6 +158,22 @@ Strategy deletion (`thytrader-research delete-strategy`) is refused with HTTP 40
 is this lane's job and needs the user's request. After deletion, stopped live books remain with
 `strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; paper books of the
 strategy are removed with it.
+
+## Signal exits (paper and live)
+
+A strategy whose snapshot declares `exits.signal_exit` ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md))
+exits an open book when that rule matches on a closed bar after the fill bar, with the same
+semantics as the backtest. Paper fills the exit at that bar's close with the taker fee. Live first
+cancels the book's protection (the attached bracket, the OCO, or the stop-only `stop_limit`), then
+sends a marketable cover (intent purpose `signal_exit`), on the same race-safe path as time
+exits and flatten. When Coinbase accepts the cancel but has not finished it, the bot waits
+(`phase: pending_exit`, no pause) and the next cycle sells; it never re-rests protection in
+between. The position shows `signal_exit_bar` (the bar whose rule matched) until it is flat, which
+survives restarts. The protective stop still wins a same-bar tie, and pause or managed shutdown
+keep these risk-reducing exits running. A failed exit-rule evaluation (for example missing
+indicator-timeframe coverage) pauses a running bot with the evaluator's reason; the stop keeps
+guarding the book. Portfolio sleeves need nothing extra: once flat, a sleeve's sizing cash is its
+full allocation again.
 
 ## Portfolios
 
@@ -296,8 +317,8 @@ attached bracket on the entry; paper still uses synthetic exits. A strategy with
 `take_profit: {"kind": "none"}` never attaches a bracket: paper rests no take-profit (its stop is
 synthetic on closed bars), and live rests one Coinbase **stop-limit** after the fill
 (`kind: stop_limit`, intent purpose `bracket`) triggered at the working stop with its limit 5%
-through it — the same offset as a bracket's stop leg. Trailing ratchets replace it; time exits and
-flatten cancel it first. A stop-limit can rest unfilled if price gaps through its limit, exactly
+through it — the same offset as a bracket's stop leg. Trailing ratchets replace it; time exits,
+signal exits, and flatten cancel it first. A stop-limit can rest unfilled if price gaps through its limit, exactly
 like a bracket stop leg ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
 another book clock. Paper `start` and paper `place-order` accept optional `--maker-fee-rate` and
 `--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted paper rates

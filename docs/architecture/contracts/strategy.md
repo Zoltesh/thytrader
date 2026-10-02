@@ -70,6 +70,7 @@ classDiagram
     take_profit reward_risk|none
     trailing_stop
     time_exit
+    signal_exit? when ConditionGroup
   }
   class ExecutionPreferences {
     entry_preference maker_only

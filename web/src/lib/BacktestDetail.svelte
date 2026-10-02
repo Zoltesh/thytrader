@@ -6,6 +6,8 @@
 		formatDiagnosticsFunnel,
 		formatFillFee,
 		formatPercent,
+		exitReasonLines,
+		formatExitReason,
 		formatSkipReason,
 		formatPublishedCosts,
 		formatSpreadCostNote,
@@ -227,6 +229,12 @@
 							{diagnostics.warmup_bars} evaluation bars could not evaluate the rule yet (indicator warmup).
 						</p>
 					{/if}
+					{#if exitReasonLines(diagnostics).length > 0}
+						<p class="faint">How positions closed:</p>
+						<ul data-testid="diagnostics-exits">
+							{#each exitReasonLines(diagnostics) as line (line)}<li>{line}</li>{/each}
+						</ul>
+					{/if}
 				{/if}
 			</div>
 		</details>
@@ -375,7 +383,7 @@
 										>{formatUtcTimestamp(trade.exit.candle_starts_at)}<small
 											>{trade.exit.price}</small
 										></td
-									><td>{trade.exit.reason.replace('_', ' ')}</td><td>{trade.entry.quantity}</td><td
+									><td>{formatExitReason(trade.exit.reason)}</td><td>{trade.entry.quantity}</td><td
 										>{formatFillFee(trade.entry)} / {formatFillFee(trade.exit)}</td
 									>{#if spreadStressed}<td
 											>{trade.entry.spread_cost ? formatUsd(trade.entry.spread_cost) : '—'} / {trade

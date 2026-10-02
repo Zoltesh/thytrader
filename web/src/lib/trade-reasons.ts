@@ -58,6 +58,8 @@ export function tradeReasonKindLabel(record: TradeReasonRecord): string {
 			return 'Stop';
 		case 'time_exit':
 			return 'Time exit';
+		case 'signal_exit':
+			return 'Signal exit';
 		case 'discretionary':
 			return 'Discretionary';
 		default:

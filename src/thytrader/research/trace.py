@@ -80,11 +80,20 @@ class IndicatorTraceValue(_FrozenTraceModel):
 
 
 class SignalTraceRecord(_FrozenTraceModel):
-    """One auditable condition result for a completed evaluation candle."""
+    """One auditable condition result for a completed evaluation candle.
+
+    ``exit_condition`` is the ``exits.signal_exit`` outcome on this candle. It is present
+    only when the strategy declares a signal exit (ADR 0093) and omitted from canonical
+    bytes otherwise, so every older trace keeps its fingerprint. It is evaluated on every
+    candle; whether a position was open to act on it is the simulator's concern.
+    """
 
     candle_starts_at: UtcDateTime
     indicator_values: tuple[IndicatorTraceValue, ...] = Field(min_length=1)
     entry_condition: EntryConditionOutcome
+    exit_condition: EntryConditionOutcome | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("indicator_values")
     @classmethod

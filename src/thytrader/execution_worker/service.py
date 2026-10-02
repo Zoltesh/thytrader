@@ -58,7 +58,9 @@ from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
+    extra_indicator_timeframes,
     lockstep_product_ids,
+    signal_exit_condition,
 )
 
 if TYPE_CHECKING:
@@ -335,6 +337,9 @@ async def _process_stopped(
         market_data, strategy, deploy_anchor=snapshot.deployment.created_at
     )
     if candles:
+        htf_candles, extra_candles = await _signal_exit_windows(
+            market_data, strategy, deploy_anchor=snapshot.deployment.created_at
+        )
         await _journaled_bar(
             snapshot,
             strategy=strategy,
@@ -349,8 +354,33 @@ async def _process_stopped(
                 candles=candles,
                 broker=broker,
                 store=store,
+                htf_candles=htf_candles,
+                indicator_timeframe_candles=extra_candles,
             ),
         )
+
+
+async def _signal_exit_windows(
+    market_data: MarketDataService,
+    strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+) -> tuple[tuple[Candle, ...], dict[str, tuple[Candle, ...]]]:
+    """Best-effort HTF and extra-TF windows a stopped book's exit rule reads (ADR 0093).
+
+    Only a declared ``exits.signal_exit`` on a strategy with per-indicator extra
+    timeframes needs them. A gapped window yields nothing: the exit rule then fails
+    closed (no exit is invented) while the protective stop and time exit keep running.
+    """
+    if signal_exit_condition(strategy.exits) is None or not extra_indicator_timeframes(strategy):
+        return (), {}
+    htf_candles = await _closed_htf_window(market_data, strategy, deploy_anchor=deploy_anchor)
+    if htf_candles is None:
+        return (), {}
+    extra_candles = await _closed_indicator_timeframe_windows(
+        market_data, strategy, htf_candles, deploy_anchor=deploy_anchor
+    )
+    return htf_candles, extra_candles or {}
 
 
 async def _process_one(

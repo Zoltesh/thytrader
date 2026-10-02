@@ -29,8 +29,9 @@ The implemented Phase 2B publication profile remains deliberately narrow and fai
   spot products (at most eight total), with EMA/SMA/RSI/ATR/volume-SMA/`highest`/`lowest`/`stdev`/`stdev_sample`/`roc`/`williams_r`/`cci`/`wma`/`momentum`/`mfi`/`macd`/`bollinger`/`stochastic`/`adx`/`identity`/`constant` indicators;
 - optional `htf_filter` (ADR 0025, ADR 0041) for research, paper, and live: HTF `when` AND-ed with LTF entry using the last completed HTF bar;
 - bounded recursive `all`/`any`/`not` groups of typed comparisons, risk-fraction sizing,
-  ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, and conservative maker
-  preferences;
+  ATR-multiple initial stop, reward/risk take profit, optional ATR trailing stops, an optional
+  `exits.signal_exit` rule tree ([ADR 0093](../decisions/0093-signal-based-exits.md)), and
+  conservative maker preferences;
 - canonical sorted compact JSON and `sha256:<hex>` identity over the entire snapshotted document;
 - one mutable `strategies` row per `strategy_id` (document, validation result, `current_fingerprint`,
   revision) plus content-addressed, deduplicated `strategy_snapshots` rows written automatically when
@@ -115,7 +116,7 @@ stable ([ADR 0056](../decisions/0056-multi-instrument-documents-and-pyramiding.m
 | `entry` | object | LTF signal conditions and entry constraints. |
 | `sizing` | object | Position-sizing policy. |
 | `portfolio_limits` | object | Exposure and concurrency limits. |
-| `exits` | object | Stop-loss, take-profit, trailing, and time exits. |
+| `exits` | object | Stop-loss, take-profit, trailing, time, and optional signal exits. |
 | `execution` | object | Maker/taker preference and fill-wait policy. |
 | `metadata` | object | Typed operator tags and notes; never affects evaluation. |
 
@@ -133,8 +134,8 @@ is accepted and the keys are discarded; they never appear in canonical bytes.
 - **Fingerprint** (stable, documented): `strategy_fingerprint = "sha256:" + hex(SHA-256(canonical
   bytes))`. Canonical bytes are the revalidated document serialized as UTF-8 JSON with sorted keys,
   `(",", ":")` separators, and NaN forbidden, omitting null `htf_filter`, empty
-  `additional_instruments`, absent `entry.pyramiding`, and absent indicator `input` / operand
-  `series`. Every document field is covered, including `strategy_id`, `created_at`, `name`,
+  `additional_instruments`, absent `entry.pyramiding`, absent or null `exits.signal_exit`, and
+  absent indicator `input` / operand `series`. Every document field is covered, including `strategy_id`, `created_at`, `name`,
   `description`, and `metadata`, so a rename yields a new snapshot. Parameter-sweep variants keep
   the base `strategy_id`.
 
@@ -472,6 +473,33 @@ Disabled trailing is only `{"enabled": false}` so existing fingerprints stay sta
 trailing is `{"enabled": true, "kind": "atr_multiple", "atr_indicator": "atr", "multiple": "1.5"}`
 with the same multiple bounds as the initial stop. The named indicator must be an LTF ATR.
 
+### Signal exit
+
+Optional `signal_exit` ([ADR 0093](../decisions/0093-signal-based-exits.md)) closes an open
+position when a condition tree matches on a closed bar:
+
+```json
+"signal_exit": {
+  "when": {
+    "all": [
+      {"left": {"indicator": "fast"}, "operator": "crosses_below", "right": {"indicator": "slow"}}
+    ]
+  }
+}
+```
+
+| Rule | Contract |
+|------|----------|
+| Grammar | Same as `entry.when`: `all`/`any`/`not`, 1–20 children, depth 4, 64 nodes, crossovers between two indicators |
+| References | Decision-list indicators only (per-indicator `timeframe`/`offset` allowed); multi-series operands name a declared `series`; HTF-filter ids are rejected (the filter gates entries only) |
+| Evaluation | Every closed bar after the fill bar while a position is open; never on the fill bar |
+| Fill | Taker at that bar's close (fee, slippage, half the spread stress), like the time exit; live cancels protection, then sends a marketable cover |
+| Precedence | A stop or take-profit the bar touched wins; the signal exit precedes a time exit due on the same close |
+| Identity | Omitted from canonical JSON when absent or `null`, so older documents keep their fingerprints |
+
+The initial stop stays mandatory and keeps protecting the position while the rule waits. The
+trailing stop, take-profit, and time exit still apply; the first to trigger closes the position.
+
 ### Initial stop kinds
 
 | Kind | Parameters | Description |
@@ -546,6 +574,8 @@ when capital protection requires it.
 - Indicator periods are positive and within bounds.
 - `warmup_bars` satisfies all indicator minimum warmup requirements.
 - Entry `when` references only defined LTF indicators.
+- `exits.signal_exit.when` references only defined decision-list indicators (never HTF-filter
+  ids), with the entry operand and series rules.
 - When `htf_filter` is present: HTF timeframe is a coarser integer multiple of LTF; HTF ids are unique and disjoint; HTF `when` references only HTF indicators; HTF warmup covers HTF indicators.
 - Exit `atr_indicator` references a defined ATR indicator.
 - Sizing and risk values are within allowed ranges.

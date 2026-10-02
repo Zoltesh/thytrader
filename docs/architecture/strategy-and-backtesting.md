@@ -77,7 +77,8 @@ state, the saved validation state, and a **How backtests simulate** disclosure
 (`BacktestModelDisclosure`) listing the model's assumptions. The backtest model consumes entry
 conditions, optional HTF filter, per-indicator timeframes, the shipped indicator catalog,
 risk-fraction sizing with notional bounds, maker-only close-limit entries, `max_entry_wait_bars`,
-`on_unfilled_entry`, ATR initial stop, reward/risk resting take profit, time exit, entry cooldown,
+`on_unfilled_entry`, ATR initial stop, reward/risk resting take profit, time exit, the optional
+`exits.signal_exit` rule ([ADR 0093](../decisions/0093-signal-based-exits.md)), entry cooldown,
 and enabled ATR trailing, matching the paper worker. Disabled trailing is a no-op. Walk-forward /
 OOS / cross-market studies compose this model ([research studies](research-studies.md)).
 Validation kinds freeze one snapshot; parameter sweeps and WFO select among snapshots of named

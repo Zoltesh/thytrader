@@ -121,10 +121,14 @@ class BacktestFill(_FrozenBacktestModel):
         return value.isoformat().replace("+00:00", "Z")
 
 
+BacktestExitReason = Literal["stop_loss", "take_profit", "time_exit", "signal", "evaluation_end"]
+"""Why a modeled position closed. ``signal`` is the ``exits.signal_exit`` rule (ADR 0093)."""
+
+
 class BacktestExitFill(BacktestFill):
     """One modeled position-closing fill and its deterministic reason."""
 
-    reason: Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"]
+    reason: BacktestExitReason
 
 
 class BacktestTrade(_FrozenBacktestModel):
@@ -224,6 +228,13 @@ class BacktestSkipCount(_FrozenBacktestModel):
     count: int = Field(ge=1)
 
 
+class BacktestExitCount(_FrozenBacktestModel):
+    """How many closed trades one exit reason produced (ADR 0093)."""
+
+    reason: BacktestExitReason
+    count: int = Field(ge=1)
+
+
 class BacktestDiagnostics(_FrozenBacktestModel):
     """Bounded per-result entry funnel counters, stored beside (never inside) the result.
 
@@ -233,6 +244,11 @@ class BacktestDiagnostics(_FrozenBacktestModel):
     ``entries_filled + entries_expired + entries_refused_at_fill + entries_unfilled_at_end``.
     ``warmup_bars`` counts evaluation bars whose rule could not evaluate yet; they are not
     matched signals. Counts aggregate every covered product.
+
+    ``exit_reasons`` counts closed trades per exit reason (``stop_loss``, ``take_profit``,
+    ``time_exit``, ``signal``, ``evaluation_end``) in lexicographic order; their sum is the
+    result's trade count. It is None on diagnostics recorded before ADR 0093, which never
+    counted exits.
     """
 
     diagnostics_version: Literal["thytrader-backtest-diagnostics-v1"] = BACKTEST_DIAGNOSTICS_VERSION
@@ -246,6 +262,15 @@ class BacktestDiagnostics(_FrozenBacktestModel):
     entries_size_capped: int = Field(ge=0)
     warmup_bars: int = Field(ge=0)
     skipped: tuple[BacktestSkipCount, ...] = Field(default=(), max_length=32)
+    exit_reasons: tuple[BacktestExitCount, ...] | None = Field(default=None, max_length=8)
+
+    @model_validator(mode="after")
+    def require_unique_exit_reasons(self) -> Self:
+        """Count each exit reason at most once."""
+        exits = self.exit_reasons or ()
+        if len({item.reason for item in exits}) != len(exits):
+            raise ValueError("exit_reasons must be unique")
+        return self
 
     @model_validator(mode="after")
     def require_coherent_funnel(self) -> Self:

@@ -1084,6 +1084,17 @@ def _omit_absent_operand_series(node: object) -> None:
         _omit_absent_operand_series(node.get("not"))
 
 
+def _omit_absent_signal_exit(exits: object) -> None:
+    """Drop a null ``signal_exit`` and absent operand series so older exits keep their bytes."""
+    if not isinstance(exits, dict):
+        return
+    signal_exit = exits.get("signal_exit")
+    if not isinstance(signal_exit, dict):
+        exits.pop("signal_exit", None)
+        return
+    _omit_absent_operand_series(signal_exit.get("when"))
+
+
 def _require_operand_series(operand: IndicatorOperand, indicator: IndicatorDefinition) -> None:
     """Require series on multi-output kinds and forbid it on single-output kinds."""
     outputs = indicator_output_series(indicator.kind)
@@ -1333,13 +1344,44 @@ class TimeExit(_FrozenModel):
     max_bars_held: int = Field(ge=1, le=100_000)
 
 
+class SignalExit(_FrozenModel):
+    """Close an open position when a closed-bar condition tree matches (ADR 0093).
+
+    ``when`` uses the ``entry.when`` grammar and may reference the same decision-list
+    indicators (never HTF-filter indicators). It is evaluated on every closed bar after
+    the fill bar while a position is open, and a match exits as a taker at that bar's
+    close, like the time exit. The initial stop stays mandatory: the protective stop, the
+    optional trail, the take-profit, and the time exit still apply, and the stop wins a
+    same-bar tie.
+    """
+
+    when: ConditionGroup
+
+    @model_validator(mode="after")
+    def validate_condition_complexity(self) -> Self:
+        """Reject condition trees whose bounded grammar could exhaust consumers."""
+        _require_bounded_condition_tree(self.when)
+        return self
+
+
 class ExitDefinition(_FrozenModel):
-    """Declare initial-stop, optional take-profit, optional ATR trailing, and time-exit policy."""
+    """Declare initial-stop, optional take-profit, optional ATR trailing, and time-exit policy.
+
+    ``signal_exit`` is optional and omitted from canonical JSON when absent, so every
+    document written before ADR 0093 keeps its bytes and fingerprint.
+    """
 
     initial_stop: AtrMultipleStop
     take_profit: TakeProfitDefinition
     trailing_stop: TrailingStopDefinition
     time_exit: TimeExit
+    signal_exit: SignalExit | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+def signal_exit_condition(exits: ExitDefinition) -> ConditionGroup | None:
+    """Return the ``exits.signal_exit.when`` tree, or None when no signal exit is declared."""
+    signal_exit = exits.signal_exit
+    return None if signal_exit is None else signal_exit.when
 
 
 def atr_trailing_stop(exits: ExitDefinition) -> AtrTrailingStop | None:
@@ -1449,6 +1491,7 @@ class StrategyDefinition(_FrozenModel):
         """Resolve indicator references and enforce warmup sufficiency."""
         _validate_covered_instruments(self)
         _validate_decision_indicators(self)
+        _validate_signal_exit(self)
         _validate_htf_filter(self)
         return self
 
@@ -1548,6 +1591,29 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     required_warmup = max(_indicator_min_warmup(indicator) for indicator in decision_indicators)
     if definition.data_requirements.warmup_bars < required_warmup:
         raise ValueError("warmup_bars must cover the longest indicator period")
+
+
+def _validate_signal_exit(definition: StrategyDefinition) -> None:
+    """Resolve the optional exit-rule tree with the entry operand rules (ADR 0093).
+
+    The tree may reference any decision-list indicator (including per-indicator extra
+    timeframes, like ``entry.when``) but never an HTF-filter indicator: the HTF filter
+    only gates entries. Multi-series operands must name a declared series.
+    """
+    condition = signal_exit_condition(definition.exits)
+    if condition is None:
+        return
+    references = _referenced_indicator_ids(condition)
+    known = {indicator.id for indicator in definition.indicators}
+    htf_filter = definition.htf_filter
+    htf_ids = set() if htf_filter is None else {indicator.id for indicator in htf_filter.indicators}
+    filter_only = sorted((references - known) & htf_ids)
+    if filter_only:
+        raise ValueError(f"exits.signal_exit cannot reference HTF filter indicators: {filter_only}")
+    unknown = sorted(references - known)
+    if unknown:
+        raise ValueError(f"unknown exits.signal_exit indicator references: {unknown}")
+    _require_condition_series(condition, definition.indicators)
 
 
 def _require_atr_indicator(
@@ -1748,6 +1814,7 @@ def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:
     entry = payload.get("entry")
     if isinstance(entry, dict):
         _omit_absent_operand_series(entry.get("when"))
+    _omit_absent_signal_exit(payload.get("exits"))
     htf_filter = payload.get("htf_filter")
     if isinstance(htf_filter, dict):
         _omit_absent_indicator_inputs(htf_filter.get("indicators"))

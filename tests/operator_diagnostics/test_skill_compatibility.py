@@ -74,8 +74,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v52" in skill
-    assert "0057" in skill
+    assert "thytrader-ops-contract-v53" in skill
+    assert "0058" in skill
     assert "backtest_engine" in skill
     assert "thytrader-backtest" in skill
     assert "strategy_model" in skill
@@ -387,3 +387,28 @@ def test_runtime_skill_deploys_portfolios_with_the_same_gates() -> None:
         "YOLO never",
     ):
         assert phrase in skill, phrase
+
+
+def test_skills_teach_signal_exits_end_to_end() -> None:
+    """Operator agents can author, research, run, and read signal exits from skills alone."""
+    research = _RESEARCH_SKILL.read_text(encoding="utf-8")
+    runtime = _RUNTIME_SKILL.read_text(encoding="utf-8")
+    operator = _OPERATOR_SKILL.read_text(encoding="utf-8")
+    schemas = _SCHEMAS.read_text(encoding="utf-8")
+    for needle in (
+        "exits.signal_exit",
+        "crosses_below",
+        "ema-trend-hold",
+        "signal_exit_at_close",
+        "exit_reasons",
+        "exit_condition",
+        "0093-signal-based-exits",
+    ):
+        assert needle in research, needle
+    for needle in ("signal_exit_bar", "exit_reason:", "EXIT_SIGNAL", "exit_rule", "pending_exit"):
+        assert needle in runtime, needle
+    assert "signal_exit_runtimes" in operator
+    assert "`signal`" in operator
+    assert "EXIT_SIGNAL" in schemas
+    assert "exit_rule" in schemas
+    assert "signal_exit_runtimes" in schemas

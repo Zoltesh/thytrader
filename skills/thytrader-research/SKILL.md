@@ -60,8 +60,26 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   same for a long's ATR stop. Warnings never block a save, backtest, or deployment. Report them to
   the operator; lower the multiples or set `exits.take_profit` to `{"kind": "none"}` only when asked.
 - `exits.take_profit` is `{"kind": "reward_risk", "multiple": "2"}` or `{"kind": "none"}` (no
-  target: exit on the stop, the optional ATR trail, or the time exit). `none` has no `multiple`;
-  `take_profit_multiple` sweep axes fail on it.
+  target: exit on the stop, the optional ATR trail, the time exit, or the signal exit). `none` has
+  no `multiple`; `take_profit_multiple` sweep axes fail on it.
+- Optional `exits.signal_exit` is `{"when": <condition tree>}`
+  ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md)): the same `all`/`any`/`not` grammar,
+  operand rules, depth 4 / 64 nodes, and decision-list indicators as `entry.when` (never an
+  `htf_filter` indicator; the HTF filter gates entries only). Example "hold while fast > slow":
+
+  ```json
+  "signal_exit": {"when": {"all": [{"left": {"indicator": "fast"},
+    "operator": "crosses_below", "right": {"indicator": "slow"}}]}}
+  ```
+
+  It is checked on every closed bar **after the fill bar** while a position is open; a match sells
+  as a taker at that bar's close (like the time exit). The `initial_stop` stays mandatory and still
+  protects the position: the stop wins a same-bar tie, a take-profit the bar touched wins, and the
+  trailing stop and time exit still apply (first trigger wins; the signal exit names an exit due on
+  the same close as the time exit). Unknown indicators, a missing or extra `series`, a crossover
+  against a literal, or extra keys are rejected exactly like `entry.when`. Omitting `signal_exit`
+  (or sending `null`) keeps the document's canonical bytes and fingerprint unchanged; adding or
+  editing it changes the fingerprint, so results bind the exact exit rule.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they
@@ -114,16 +132,20 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   From the next candle the take-profit rests. The stop is always checked first: a candle that
   touches both the stop and the take-profit is resolved as the stop (conservative; paper does the
   same). Otherwise a touched take-profit fills at the target (maker). Stops fill as takers at the stop or the worse
-  gapped open; ATR trailing ratchets after the check. Time exits sell at the close.
+  gapped open; ATR trailing ratchets after the check. A matched `exits.signal_exit` rule (never
+  on the fill candle) and the time exit sell at the close as takers, signal first.
 - **End of window.** Open inventory sells at the open of the `evaluation_end` candle; nothing else
   happens on that candle.
 - **Costs.** Maker fee on resting entries/take-profits; taker fee plus `fixed_slippage_bps` on stop,
-  time, and end exits. Optional `spread_bps` (default 0, max 1000) is a constant total spread
+  time, signal, and end exits. Optional `spread_bps` (default 0, max 1000) is a constant total spread
   **stress**: taker exits cross half of it, stops trigger and positions mark on the stressed
   bid/ask, maker fills stay at the limit. Compare the same strategy at 0 / 10 / 25 / 50 bps.
 - **Honesty.** Candles do not show queue position: a touched limit is assumed to fill fully.
-  Every summary lists `validity_limits` (`maker_touch_full_fill`, `stop_before_tp_same_bar`, and
-  `spot_short_synthetic` for shorts); read them before any deployment claim. Backtests are
+  Every summary lists `validity_limits` (`maker_touch_full_fill`, `stop_before_tp_same_bar`,
+  `spot_short_synthetic` for shorts, and `signal_exit_at_close` when the strategy declares
+  `exits.signal_exit`: the backtest prices the exit at the signal bar's own close, which paper and
+  live can only approach by selling right after it); read them before any deployment claim.
+  Trade exit reasons are `stop_loss`, `take_profit`, `time_exit`, `signal`, and `evaluation_end`. Backtests are
   simulated research evidence, never paper or live fills.
 
 ## Commands
@@ -224,8 +246,14 @@ Multi-instrument strategies cannot be re-targeted (clone them per market). See
 
 `create-strategy` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`, `donchian-breakout`,
-`supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion`), `--product-id`, and
+`supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion`, `ema-trend-hold`), `--product-id`, and
 `--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live start by `strategy_id` through `thytrader-runtime`; the server snapshots the current definition.
+`ema-trend-hold` is the trend-holding template ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md)):
+long when EMA(20) (`fast`) crosses above EMA(100) (`slow`), `exits.signal_exit` sells when `fast`
+crosses back below `slow`, a 3× ATR initial stop, no take-profit, a wide 5× ATR trail (optional:
+set `trailing_stop` to `{"enabled": false}` to rely on the cross alone), and a 1000-bar time cap.
+`show-template --template ema-trend-hold` lists its defaults and sweepable axes; a `fast`/`slow`
+`period` axis moves the entry and the exit rule together because both reference those ids.
 `show-result` (HTTP and `--local`) and operator `performance` copy the snapshot's
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
 `currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
@@ -356,9 +384,11 @@ Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate
 (including `spread_bps`), and `diagnostics` — the entry funnel
 `thytrader-backtest-diagnostics-v1` (`signals_matched`, `entries_rested`, `entries_filled`,
 `entries_expired`, `entries_repriced`, `entries_refused_at_fill`, `entries_unfilled_at_end`,
-`entries_size_capped`, `warmup_bars`, and `skipped[{reason, count}]`). Use it to explain few or
-zero trades before changing rules: `signals_matched` equals `entries_rested` plus every skipped
-count. `entries_refused_at_fill` counts only fills that shared cash could no longer fund
+`entries_size_capped`, `warmup_bars`, `skipped[{reason, count}]`, and `exit_reasons[{reason,
+count}]`: closed trades per exit reason (`stop_loss`, `take_profit`, `time_exit`, `signal`,
+`evaluation_end`), summing to the trade count; `null` on diagnostics recorded before ADR 0093).
+Use it to explain few or zero trades before changing rules: `signals_matched` equals
+`entries_rested` plus every skipped count. `entries_refused_at_fill` counts only fills that shared cash could no longer fund
 (multi-instrument books); a cash-capped single book always funds. `diagnostics` is `null` for
 results published before ADR 0090. Re-running the same backtest records it; a request whose
 result predates the 2026-10-02 fill amendment (ADR 0083) re-simulates as a new result.
@@ -366,7 +396,9 @@ result predates the 2026-10-02 fill amendment (ADR 0083) re-simulates as a new r
 `thytrader-research-evaluate <result_fingerprint>` (a `run_fingerprint` of a completed backtest
 also works) asks the API to re-evaluate that result's run and prints one bounded page of the
 entry-condition trace: per-bar `indicator_values` and `entry_condition`
-(`matched` / `not_matched` / `undefined`), outcome `counts`, `total_records`, and `next_cursor`
+(`matched` / `not_matched` / `undefined`), plus `exit_condition` (same values) on every bar when the
+strategy declares `exits.signal_exit` (whether a position was open to act on it is the simulator's
+concern), outcome `counts` (of `entry_condition`), `total_records`, and `next_cursor`
 (`GET /api/v1/backtests/{result_fingerprint}/signal-trace`). It is read-only, needs no
 `--confirm`, and fails with the API's reason (for example `signal_trace_unavailable` when the
 re-evaluated trace does not reproduce the result) instead of a generic message. It does not need

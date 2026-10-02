@@ -91,13 +91,17 @@ class DecisionSkipReason(StrEnum):
 
 
 class DecisionExitReason(StrEnum):
-    """Which exit rule closed (or is closing) the position on this bar."""
+    """Which exit rule closed (or is closing) the position on this bar.
+
+    ``signal`` is the strategy's ``exits.signal_exit`` rule (ADR 0093).
+    """
 
     STOP = "stop"
     TRAIL = "trail"
     TARGET = "target"
     TIME = "time"
     FLATTEN = "flatten"
+    SIGNAL = "signal"
 
 
 class ConditionResult(StrEnum):
@@ -177,6 +181,17 @@ class EntryRuleTrace(_FrozenDecisionModel):
     entry: ConditionTrace
     htf_filter: HtfFilterTrace | None = None
     signal: SignalTraceRecord | None = None
+
+
+class ExitRuleTrace(_FrozenDecisionModel):
+    """The evaluated ``exits.signal_exit`` rule on a bar the book was open (ADR 0093).
+
+    Recorded on every post-fill bar the rule was evaluated, so a holding bar shows why it
+    did not exit and an exit bar shows the leaves that matched.
+    """
+
+    outcome: EntryConditionOutcome
+    condition: ConditionTrace
 
 
 class DecisionRisk(_FrozenDecisionModel):
@@ -266,6 +281,7 @@ class BarDecision(_FrozenDecisionModel):
     fills: tuple[DecisionFill, ...] = Field(default=(), max_length=_MAX_LINKED)
     close_price: DecisionDecimal | None = None
     rule: EntryRuleTrace | None = None
+    exit_rule: ExitRuleTrace | None = None
     risk: DecisionRisk | None = None
     position: DecisionPosition | None = None
 

@@ -119,6 +119,7 @@ class OpsContractPayload(_FrozenModel):
     htf_filter_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_timeframe_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_offset_runtimes: tuple[Literal["research", "paper", "live"], ...]
+    signal_exit_runtimes: tuple[Literal["research", "paper", "live"], ...]
     indicator_kinds: tuple[str, ...]
     position_sides: tuple[Literal["long", "short"], ...]
     attached_entry_brackets: tuple[Literal["paper", "live"], ...]

@@ -120,7 +120,10 @@ the value is the lagged one the runtime compared); `risk` is the risk or freshne
 `fills` link what was sent; `skip_reason` (`cooldown`, `max_open_positions`, `warmup`,
 `pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`,
 `entries_disabled`, `entry_geometry`, `entry_sizing`) and `exit_reason` (`stop`, `trail`,
-`target`, `time`, `flatten`) name the cause. `entry_geometry` / `entry_sizing` mark a matched
+`target`, `time`, `flatten`, `signal`) name the cause. `signal` is the strategy's
+`exits.signal_exit` rule; those rows also carry `exit_rule` (its `outcome` and evaluated tree), as
+does every post-fill holding bar of such a strategy
+([ADR 0093](../../docs/decisions/0093-signal-based-exits.md)). `entry_geometry` / `entry_sizing` mark a matched
 signal that rested no order; its `reason_code` is exact — `TARGET_NOT_POSITIVE` (a short's
 take-profit would be at or below zero), `STOP_NOT_POSITIVE`, `STOP_DISTANCE_NOT_POSITIVE`,
 `NOTIONAL_BELOW_MINIMUM`, `QUANTITY_BELOW_VENUE_MINIMUM`, `NOTIONAL_BELOW_VENUE_MINIMUM`,
@@ -168,11 +171,13 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v52`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v53`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0057`, `research_worker_pool` (leased research worker pool;
-   [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
+   Alembic revision `0058`, `research_worker_pool` (leased research worker pool;
+   [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `signal_exit_runtimes`
+   `research`/`paper`/`live` (`exits.signal_exit`;
+   [ADR 0093](../../docs/decisions/0093-signal-based-exits.md)), `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
    `trigger_bracket`/`stop_limit`, `backtest_diagnostics`, `fee_suggestion_source`
    `coinbase_account` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)),
    `decision_journals` `paper`/`live` (per-bar decision timeline;

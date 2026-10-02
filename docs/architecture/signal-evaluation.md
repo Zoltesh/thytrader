@@ -473,7 +473,12 @@ Each trace records:
   when a filter is present): `{id}` for single-output kinds, `{id}.{series}` for multi-series kinds;
 - one unique, strictly increasing record per evaluation candle;
 - every declared output key's canonical value or explicit `null` exactly once in that sequence; and
-- the final entry-condition outcome: `matched`, `not_matched`, or `undefined`.
+- the final entry-condition outcome: `matched`, `not_matched`, or `undefined`; and
+- when the strategy declares `exits.signal_exit`, the exit rule's outcome `exit_condition` with the
+  same three values, evaluated on every candle from the same merged decision-clock values as
+  `entry.when` (never the HTF filter). Whether a position was open to act on it is the
+  simulator's concern ([ADR 0093](../decisions/0093-signal-based-exits.md)). The field is omitted
+  when no rule is declared, so earlier trace bytes and fingerprints are unchanged.
 
 Canonical indicator values are plain decimal text, optionally signed, with no exponent notation and
 no trailing zeros ([ADR 0027](../decisions/0027-phase-9-roc-williams-cci.md) extended the unsigned

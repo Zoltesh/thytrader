@@ -98,13 +98,21 @@ simulator runs this fixed sequence:
 4. **Trailing.** Enabled ATR trailing ratchets after the stop check, sharing the paper/live
    ratchet (`thytrader.execution.trailing`); the fill bar records the trail extreme without
    raising the stop. Disabled trailing is a no-op.
-5. **Time exit.** A position held `exits.time_exit.max_bars_held` completed bars sells at this
-   bar's close as a taker (taker fee, slippage).
-6. **New entry.** A `matched` close-time signal rests a new post-only limit at this bar's close
+5. **Signal exit.** When the strategy declares `exits.signal_exit`
+   ([ADR 0093](../decisions/0093-signal-based-exits.md)) and its rule matched at this bar's close,
+   the position sells at that close as a taker (taker fee, slippage, half the spread stress). It is
+   never evaluated on the fill bar, and it runs only after the stop and the resting take-profit
+   had their chance on this bar, so a bar that touched either exits there instead. Results
+   disclose `signal_exit_at_close`: live can only sell right after that close, which on a 24/7
+   venue is the next bar's open.
+6. **Time exit.** A position held `exits.time_exit.max_bars_held` completed bars sells at this
+   bar's close as a taker (taker fee, slippage). When the signal exit is due on the same close it
+   names the exit (same price).
+7. **New entry.** A `matched` close-time signal rests a new post-only limit at this bar's close
    when the book is flat, off cooldown, and under `max_concurrent_positions`, or a same-side
    pyramiding add when the strategy allows it and the position is in profit. A signal never
    fills on its own bar.
-7. **Mark.** Equity marks every open position at this bar's close.
+8. **Mark.** Equity marks every open position at this bar's close.
 
 After the last evaluation bar, the bar starting at `evaluation.ends_at` is used **only** to
 liquidate open inventory at its **open** as a taker (reason `evaluation_end`, taker fee,
@@ -147,6 +155,7 @@ closed if their candles or traces cannot be verified.
 | Resting take-profit | maker | none | none |
 | Stop exit | taker | `fixed_slippage_bps` | yes |
 | Time exit (close) | taker | `fixed_slippage_bps` | yes |
+| Signal exit (close) | taker | `fixed_slippage_bps` | yes |
 | Evaluation-end liquidation (open) | taker | `fixed_slippage_bps` | yes |
 
 Fee rates, slippage, and spread are modeled inputs (`CostAssumptions`), never observed Coinbase
@@ -180,8 +189,10 @@ Every simulation also returns a `thytrader-backtest-diagnostics-v1` entry funnel
 fingerprint): `signals_matched`, `entries_rested`, `entries_filled`, `entries_expired`,
 `entries_repriced`, `entries_refused_at_fill` (shared cash no longer covered a fill),
 `entries_unfilled_at_end`, `entries_size_capped` (a notional cap clamped the size; caps never skip),
-`warmup_bars` (evaluation bars whose rule was undefined), and `skipped[{reason, count}]` with the
-gates `pending_entry`, `cooldown`, `max_positions`, `in_position` and every geometry/sizing reason.
+`warmup_bars` (evaluation bars whose rule was undefined), `skipped[{reason, count}]` with the
+gates `pending_entry`, `cooldown`, `max_positions`, `in_position` and every geometry/sizing reason,
+and `exit_reasons[{reason, count}]` (closed trades per exit reason, summing to the trade count;
+`null` on diagnostics recorded before [ADR 0093](../decisions/0093-signal-based-exits.md)).
 The model rejects an incoherent funnel: `signals_matched = entries_rested + Σ skipped` and
 `entries_rested = filled + expired + refused_at_fill + unfilled_at_end`. Results published before
 Alembic 0055 report `diagnostics: null` until an identical run is published again.
@@ -189,8 +200,8 @@ Alembic 0055 report `diagnostics: null` until an identical run is published agai
 ## Result fields
 
 Every closed trade has exact entry/exit fills, notional, fee, fee rate, exit reason
-(`stop_loss`, `take_profit`, `time_exit`, `evaluation_end`), gross PnL, net PnL, and holding
-bars. The equity curve holds cash, base quantity (negative for shorts, `0` when several books
+(`stop_loss`, `take_profit`, `time_exit`, `signal`, `evaluation_end`), gross PnL, net PnL, and
+holding bars. The equity curve holds cash, base quantity (negative for shorts, `0` when several books
 are open), mark price, and equity at every evaluation close plus one terminal point at
 `evaluation.ends_at` after liquidation.
 
@@ -199,7 +210,8 @@ gross profit/loss, win rate, profit factor when losses exist, average win/loss w
 absolute and fractional maximum drawdown, exposure and evaluation bars, `total_spread_cost` when
 spread stress is active, and `validity_limits` — always `maker_touch_full_fill` (candles do not
 show queue position, so a touched limit is assumed to fill completely) and
-`stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies. It does not invent
+`stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies and
+`signal_exit_at_close` for strategies that declare `exits.signal_exit`. It does not invent
 annualization or Sharpe-like statistics inside canonical bytes; those live on the derived
 `thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)),
 and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.

@@ -16,6 +16,7 @@ from thytrader.execution.decision_rules import (
     count_unmet_leaves,
     display_decimal,
     entry_rule_trace,
+    exit_rule_trace,
     first_unmet,
     met_text,
     unmet_text,
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.decision_scope import DecisionObservations
-    from thytrader.execution.decisions import EntryRuleTrace
+    from thytrader.execution.decisions import EntryRuleTrace, ExitRuleTrace
     from thytrader.execution.models import (
         Deployment,
         DeploymentSnapshot,
@@ -67,9 +68,15 @@ if TYPE_CHECKING:
     from thytrader.strategies.models import StrategyDefinition
 
 _EXIT_PURPOSES = frozenset(
-    {IntentPurpose.TAKE_PROFIT, IntentPurpose.STOP, IntentPurpose.TIME_EXIT, IntentPurpose.BRACKET}
+    {
+        IntentPurpose.TAKE_PROFIT,
+        IntentPurpose.STOP,
+        IntentPurpose.TIME_EXIT,
+        IntentPurpose.BRACKET,
+        IntentPurpose.SIGNAL_EXIT,
+    }
 )
-_MARKET_EXITS = frozenset({IntentPurpose.STOP, IntentPurpose.TIME_EXIT})
+_MARKET_EXITS = frozenset({IntentPurpose.STOP, IntentPurpose.TIME_EXIT, IntentPurpose.SIGNAL_EXIT})
 _SUBMITTED = frozenset(
     {OrderStatus.OPEN, OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELED}
 )
@@ -135,6 +142,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
     deployment = after.deployment
     window = _window(context)
     rule = _rule(context)
+    exit_rule = _exit_rule(context)
     classified = _classify(context, window, rule)
     interval = parse_candle_interval(deployment.timeframe or context.strategy.timeframe)
     linked = window.orders[:_MAX_LINKED]
@@ -150,7 +158,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         evaluated_at=context.evaluated_at,
         outcome=classified.outcome,
         reason_code=classified.reason_code,
-        summary=_summary(context, window, rule, classified)[:_SUMMARY_LIMIT],
+        summary=_summary(context, window, rule, classified, exit_rule)[:_SUMMARY_LIMIT],
         skip_reason=classified.skip_reason,
         exit_reason=classified.exit_reason,
         action=classified.action,
@@ -160,6 +168,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         fills=tuple(_fill(fill, window) for fill in window.fills[:_MAX_LINKED]),
         close_price=_text(context.close_price),
         rule=rule,
+        exit_rule=exit_rule,
         risk=classified.risk,
         position=_position(after.position),
     )
@@ -255,6 +264,14 @@ def _rule(context: BarContext) -> EntryRuleTrace | None:
     return entry_rule_trace(context.strategy, observations.evaluation)
 
 
+def _exit_rule(context: BarContext) -> ExitRuleTrace | None:
+    """Explain the evaluated ``exits.signal_exit`` rule when the loop evaluated it."""
+    observations = context.observations
+    if observations is None or observations.exit_evaluation is None:
+        return None
+    return exit_rule_trace(context.strategy, observations.exit_evaluation)
+
+
 def _purpose(order: Order, window: _Window) -> IntentPurpose | None:
     """Effective purpose: venue-attached children of an entry act as brackets."""
     if order.parent_order_id is not None:
@@ -276,7 +293,7 @@ def _classify_outcome(
     context: BarContext, window: _Window, rule: EntryRuleTrace | None
 ) -> _Classified:
     """Apply the outcome precedence: error, entry, exit, block, rule, cancel, hold, skip."""
-    for step in (_error, _entry, _exit, _entry_skipped, _blocked):
+    for step in (_error, _entry, _exit, _signal_exit_pending, _entry_skipped, _blocked):
         found = step(context, window)
         if found is not None:
             return found
@@ -364,6 +381,33 @@ def _exit(context: BarContext, window: _Window) -> _Classified | None:
     return None
 
 
+def _signal_exit_pending(context: BarContext, window: _Window) -> _Classified | None:
+    """A matched exit rule whose marketable exit waits on a protection cancel (ADR 0093).
+
+    The book still holds the position at the end of the bar; the worker keeps exiting on
+    later cycles, so the bar is an exit in progress, not a hold.
+    """
+    observations = context.observations
+    after = context.after or context.before
+    if observations is None or observations.exit_evaluation is None or after.position is None:
+        return None
+    if observations.exit_evaluation.outcome is not EntryConditionOutcome.MATCHED:
+        return None
+    canceled = any(
+        order.status is OrderStatus.CANCELED
+        and order.id in window.before_orders
+        and window.before_orders[order.id].status in _ACTIVE
+        for order in window.orders
+    )
+    return _Classified(
+        outcome=DecisionOutcome.EXIT,
+        reason_code="EXIT_SIGNAL",
+        exit_reason=DecisionExitReason.SIGNAL,
+        action=DecisionAction.ORDER_CANCELED if canceled else DecisionAction.NONE,
+        detail="the exit rule matched; protection is being canceled before the sell",
+    )
+
+
 def _exit_classified(
     reason: DecisionExitReason, *, action: DecisionAction, intent_id: UUID
 ) -> _Classified:
@@ -383,9 +427,11 @@ def _order_for(fill: Fill, window: _Window) -> Order | None:
 
 
 def _market_exit_reason(context: BarContext, purpose: IntentPurpose) -> DecisionExitReason:
-    """Time exits, flatten commands, and stop/trail exits sent marketably."""
+    """Time and signal exits, flatten commands, and stop/trail exits sent marketably."""
     if purpose is IntentPurpose.TIME_EXIT:
         return DecisionExitReason.TIME
+    if purpose is IntentPurpose.SIGNAL_EXIT:
+        return DecisionExitReason.SIGNAL
     deployment = (context.after or context.before).deployment
     if deployment.lifecycle_command is LifecycleCommand.FLATTEN:
         return DecisionExitReason.FLATTEN
@@ -591,6 +637,7 @@ def _summary(
     window: _Window,
     rule: EntryRuleTrace | None,
     classified: _Classified,
+    exit_rule: ExitRuleTrace | None = None,
 ) -> str:
     """One human line per outcome, e.g. ``No trade: RSI(14) 47.21 needs ≥ 50``."""
     outcome = classified.outcome
@@ -599,9 +646,9 @@ def _summary(
     if outcome is DecisionOutcome.NO_SIGNAL:
         return _no_signal_summary(rule)
     if outcome is DecisionOutcome.EXIT:
-        return _exit_summary(window, classified)
+        return _exit_summary(window, classified, exit_rule)
     if outcome is DecisionOutcome.HOLDING:
-        return _holding_summary(context, window, rule)
+        return _holding_summary(context, window, rule, exit_rule)
     if outcome is DecisionOutcome.ENTRY_BLOCKED:
         return f"Blocked: {classified.reason_code} — {classified.detail}"
     if outcome is DecisionOutcome.ERROR:
@@ -636,9 +683,18 @@ def _no_signal_summary(rule: EntryRuleTrace | None) -> str:
     return f"No trade: {unmet_text(node)}{suffix}"
 
 
-def _exit_summary(window: _Window, classified: _Classified) -> str:
-    """``Exit (stop): sell 0.01 @ 63000`` from the exit fill, else the exit order."""
+def _exit_summary(
+    window: _Window, classified: _Classified, exit_rule: ExitRuleTrace | None = None
+) -> str:
+    """``Exit (stop): sell 0.01 @ 63000`` from the exit fill, else the exit order.
+
+    A signal exit names the rule that matched, e.g. ``Exit (signal): EMA(20) crosses below
+    EMA(50) → sell 0.01 @ 61000``.
+    """
     reason = classified.exit_reason.value if classified.exit_reason is not None else "exit"
+    if exit_rule is not None and classified.exit_reason is DecisionExitReason.SIGNAL:
+        matched = met_text(exit_rule.condition, fallback="exit rule matched")
+        return _signal_exit_summary(window, classified, matched)
     fills = [
         fill
         for fill in window.fills
@@ -663,8 +719,43 @@ def _exit_summary(window: _Window, classified: _Classified) -> str:
     )
 
 
-def _holding_summary(context: BarContext, window: _Window, rule: EntryRuleTrace | None) -> str:
-    """``Holding long 0.01 @ 64000 · stop 63000 · target 66000``."""
+def _signal_exit_summary(window: _Window, classified: _Classified, matched: str) -> str:
+    """``Exit (signal): EMA(20) 101 crosses below EMA(50) 102 → sell 0.01 @ 61000``."""
+    fills = [
+        fill
+        for fill in window.fills
+        if (order := _order_for(fill, window)) is not None
+        and order.intent_id == classified.intent_id
+    ]
+    if fills:
+        last = fills[-1]
+        quantity = sum((fill.quantity for fill in fills), start=Decimal(0))
+        order = _order_for(last, window)
+        side = order.side.value if order is not None else "exit"
+        return (
+            f"Exit (signal): {matched} → {side} {display_decimal(_text(quantity))} "
+            f"@ {display_decimal(_text(last.price))}"
+        )
+    order = next((item for item in window.orders if item.intent_id == classified.intent_id), None)
+    if order is not None and classified.intent_id is not None:
+        return (
+            f"Exit (signal): {matched} → {order.side.value} "
+            f"{display_decimal(_text(order.quantity))} order {order.status.value}"
+        )
+    return f"Exit (signal): {matched} → {classified.detail or 'exit in progress'}"
+
+
+def _holding_summary(
+    context: BarContext,
+    window: _Window,
+    rule: EntryRuleTrace | None,
+    exit_rule: ExitRuleTrace | None = None,
+) -> str:
+    """``Holding long 0.01 @ 64000 · stop 63000 · target 66000``.
+
+    With an evaluated exit rule the line ends with its first unmet leaf, e.g.
+    ``· exit rule: EMA(20) 105 needs < EMA(50) 103``.
+    """
     position = (context.after or context.before).position
     if position is None:
         return "Holding"
@@ -692,6 +783,10 @@ def _holding_summary(context: BarContext, window: _Window, rule: EntryRuleTrace 
     observations = context.observations
     if rule is not None and observations is not None and observations.entry_block_code:
         text = f"{text} · signal matched; {observations.entry_block_detail}"
+    if exit_rule is not None:
+        node = first_unmet(exit_rule.condition)
+        if node is not None:
+            text = f"{text} · exit rule: {unmet_text(node)}"
     return text
 
 

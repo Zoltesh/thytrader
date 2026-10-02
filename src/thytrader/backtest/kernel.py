@@ -17,7 +17,8 @@ and can stop on the fill bar. This kernel reproduces that loop over completed OH
    both the stop and the resting take-profit, the stop wins (the candle cannot say which
    traded first, so the conservative exit is assumed; paper does the same). Otherwise a
    touched take-profit fills at the target with the maker fee, the ATR trail ratchets,
-   and a reached ``max_bars_held`` time exit sells at the close as a taker.
+   a matched ``exits.signal_exit`` rule sells at the close as a taker (ADR 0093; never on
+   the fill bar), and a reached ``max_bars_held`` time exit sells at the close as a taker.
 5. Equity marks at each evaluation close. The bar at ``evaluation.ends_at`` only
    liquidates open inventory at its **open** as a taker (``evaluation_end``); no entry,
    take-profit, or stop is processed there.
@@ -49,7 +50,9 @@ from pydantic import ValidationError
 from thytrader.backtest.broker import FillModel, FillQuote
 from thytrader.backtest.models import (
     BacktestDiagnostics,
+    BacktestExitCount,
     BacktestExitFill,
+    BacktestExitReason,
     BacktestFill,
     BacktestGateReason,
     BacktestResult,
@@ -111,7 +114,7 @@ _SIMULATION_CONTEXT = Context(
 _CASH_CAP_HEADROOM = Decimal("1e-12")
 """Fraction of fee-adjusted cash a cash-capped entry leaves unspent, so it always funds."""
 
-ExitReason = Literal["stop_loss", "take_profit", "time_exit", "evaluation_end"]
+ExitReason = BacktestExitReason
 PositionSide = Literal["long", "short"]
 
 
@@ -177,10 +180,16 @@ class _Tally:
     entries_size_capped: int = 0
     warmup_bars: int = 0
     skipped: dict[BacktestGateReason | EntrySkipReason, int] = field(default_factory=dict)
+    exits: dict[ExitReason, int] = field(default_factory=dict)
 
     def skip(self, reason: BacktestGateReason | EntrySkipReason) -> None:
         """Count one matched signal that rested no entry for ``reason``."""
         self.skipped[reason] = self.skipped.get(reason, 0) + 1
+
+    def closed(self, trade: BacktestTrade) -> None:
+        """Count one closed trade under its exit reason."""
+        reason = trade.exit.reason
+        self.exits[reason] = self.exits.get(reason, 0) + 1
 
     def rested(self, pending: _PendingEntry) -> None:
         """Count one rested entry and whether a notional cap bound its size."""
@@ -203,6 +212,10 @@ class _Tally:
             skipped=tuple(
                 BacktestSkipCount(reason=reason, count=count)
                 for reason, count in sorted(self.skipped.items(), key=lambda item: item[0].value)
+            ),
+            exit_reasons=tuple(
+                BacktestExitCount(reason=reason, count=count)
+                for reason, count in sorted(self.exits.items())
             ),
         )
 
@@ -432,6 +445,7 @@ def _simulate_books(
             bar_duration=bar,
         )
         trades.append(trade)
+        tally.closed(trade)
         book.position = None
     equity_curve.append(
         _equity_point(
@@ -504,6 +518,7 @@ def _process_bar(
         )
     if trade is not None:
         trades.append(trade)
+        tally.closed(trade)
         book.cooldown_bars = strategy.entry.cooldown_bars
     return cash
 
@@ -654,7 +669,12 @@ def _manage_position(
     cash: Decimal,
     bar_duration: timedelta,
 ) -> tuple[BacktestTrade | None, Decimal]:
-    """Check the entering stop, ratchet the trail, time-exit at close, then rest take-profit."""
+    """Check the entering stop, ratchet the trail, signal- or time-exit at close, then rest TP.
+
+    The signal exit (ADR 0093) is never evaluated on the fill bar, runs only after the stop
+    and the resting take-profit had their chance on this bar (the protective stop wins a
+    same-bar tie), and precedes the time exit; both sell at this bar's close as a taker.
+    """
     position = book.position
     if position is None:
         return None, cash
@@ -670,13 +690,27 @@ def _manage_position(
         )
         book.position = None
         return trade, cash
+    is_fill_bar = offset == position.entered_bar_index
+    record = book.records.get(candle.starts_at)
     position = _trail_position(
         position,
         candle,
         strategy=strategy,
-        record=book.records.get(candle.starts_at),
-        is_fill_bar=offset == position.entered_bar_index,
+        record=record,
+        is_fill_bar=is_fill_bar,
     )
+    if not is_fill_bar and _signal_exit_matched(record):
+        trade, cash = _close_position(
+            position,
+            candle,
+            cash=cash,
+            quote=_taker_exit_quote(position, candle.close, costs),
+            reason="signal",
+            fee_rate=costs.taker_fee_rate,
+            bar_duration=bar_duration,
+        )
+        book.position = None
+        return trade, cash
     if offset - position.entered_bar_index >= strategy.exits.time_exit.max_bars_held:
         trade, cash = _close_position(
             position,
@@ -691,6 +725,11 @@ def _manage_position(
         return trade, cash
     book.position = replace(position, take_profit_resting=True)
     return None, cash
+
+
+def _signal_exit_matched(record: SignalTraceRecord | None) -> bool:
+    """Whether this bar's ``exits.signal_exit`` rule matched (never for documents without one)."""
+    return record is not None and record.exit_condition is EntryConditionOutcome.MATCHED
 
 
 def _stop_hit(position: _Position, candle: Candle, fill_model: FillModel) -> bool:

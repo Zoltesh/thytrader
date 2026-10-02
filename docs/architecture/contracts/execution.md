@@ -47,7 +47,7 @@ classDiagram
   class OrderIntent {
     id
     client_order_id
-    purpose entry|take_profit|stop|time_exit|bracket
+    purpose entry|take_profit|stop|time_exit|bracket|signal_exit
     side buy|sell
     kind post_only_limit|marketable|trigger_bracket|stop_limit
     quantity Decimal
@@ -69,6 +69,7 @@ classDiagram
     side long|short
     quantity entry_price
     stop_price target_price
+    signal_exit_bar?
   }
   class RiskPolicyDefinition {
     schema_version thytrader-risk-policy-v1
@@ -159,6 +160,7 @@ classDiagram
     outcome entry_signal|no_signal|holding|exit|entry_blocked|skipped|error
     reason_code summary
     skip_reason? exit_reason?
+    exit_rule? outcome condition
     action none|intent_created|order_submitted|order_canceled|repriced
     intent_id? order_ids
     close_price?
@@ -192,9 +194,11 @@ classDiagram
 Outcome precedence: `error` (raised cycle or fail-closed evaluation) → `entry_signal` (new entry
 intent after an evaluated match; `action` is `order_submitted` or `intent_created`; a replacement
 entry without an evaluation is a `skipped`/`pending_entry` bar with `action` `repriced`) → `exit`
-(new stop/time intent, or an exit order whose fill was applied since the previous decision — a
+(new stop/time/signal intent, or an exit order whose fill was applied since the previous decision — a
 venue bracket filled between bars belongs to the next bar; `exit_reason` `stop`, `trail`, `target`,
-`time`, `flatten`) → `entry_blocked` (risk or freshness deny, ATR/sizing/base/maker-price block) →
+`time`, `flatten`, `signal`) → a matched `exits.signal_exit` rule whose sell still waits on a
+protection cancel (`exit`, `EXIT_SIGNAL`; [ADR 0093](../../decisions/0093-signal-based-exits.md)) →
+`entry_blocked` (risk or freshness deny, ATR/sizing/base/maker-price block) →
 evaluated rule (`holding` with a book, `skipped`/`warmup` when undefined, else `no_signal` with
 `CONDITIONS_NOT_MET` or `HTF_FILTER_NOT_MET`) → canceled working entry → `holding` → `skipped`
 (breaker pause, cooldown, max open positions, pending entry, paused, stopped, entries disabled,

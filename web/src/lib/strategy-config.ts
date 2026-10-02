@@ -80,7 +80,10 @@ export function summarizeStrategySource(
 		model.exits.trailing_stop.enabled
 			? `Trailing stop: ${model.exits.trailing_stop.multiple}× ${model.exits.trailing_stop.atr_indicator}`
 			: 'Trailing stop: off',
-		`Time exit: after ${model.exits.time_exit.max_bars_held} bars`
+		`Time exit: after ${model.exits.time_exit.max_bars_held} bars`,
+		...(model.exits.signal_exit === undefined
+			? []
+			: [`Signal exit: when ${conditionToText(model.exits.signal_exit.when)}`])
 	];
 	const sizing = [
 		`Risk ${model.sizing.risk_fraction} of equity per trade, ${model.sizing.min_quote_notional}–${model.sizing.max_quote_notional} quote notional`,

@@ -110,6 +110,13 @@ class PositionResponse(BaseModel):
     side: str = "long"
     trail_extreme: str | None = None
     add_count: int = 1
+    signal_exit_bar: str | None = Field(
+        default=None,
+        description=(
+            "UTC start of the closed bar whose exits.signal_exit rule matched; the book is "
+            "exiting (ADR 0093). Null when no signal exit is pending."
+        ),
+    )
     protection_status: str
     compatibility_focus: bool = False
 
@@ -918,6 +925,9 @@ def _position_response(
             None if position.trail_extreme is None else format(position.trail_extreme, "f")
         ),
         add_count=position.add_count,
+        signal_exit_bar=(
+            None if position.signal_exit_bar is None else position.signal_exit_bar.isoformat()
+        ),
         protection_status=book_protection_status(
             snapshot, product_id=product_id, position=position
         ).value,

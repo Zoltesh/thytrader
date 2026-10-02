@@ -239,7 +239,22 @@ def test_templates_catalog_lists_fail_closed_ids() -> None:
         "supertrend-trend",
         "squeeze-breakout",
         "zscore-mean-reversion",
+        "ema-trend-hold",
     }
+
+
+def test_ema_trend_hold_template_detail_names_its_signal_exit() -> None:
+    """Agents discover the trend-hold exit rule and its axes from the blueprint (ADR 0093)."""
+    client, _, _ = _client()
+    with client:
+        response = client.get("/api/v1/research/templates/ema-trend-hold")
+    assert response.status_code == 200, response.text
+    template = response.json()["template"]
+    assert template["indicator_ids"] == ["fast", "slow", "atr"]
+    assert template["defaults"]["exits.signal_exit"] == "fast crosses below slow"
+    assert template["defaults"]["exits.take_profit"] == "none"
+    parameters = {axis.get("parameter") for axis in template["sweepable_axes"]}
+    assert {"period", "trailing_stop_multiple", "initial_stop_multiple"} <= parameters
 
 
 def test_template_detail_names_indicator_ids_defaults_and_sweepable_axes() -> None:

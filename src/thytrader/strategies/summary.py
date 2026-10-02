@@ -22,20 +22,23 @@ from thytrader.strategies.models import (
     StochasticIndicatorParameters,
     StrategyDefinition,
     indicator_offset,
+    signal_exit_condition,
 )
 
 
 def strategy_summary(definition: StrategyDefinition) -> str:
     """Render a bounded human-readable outline from validated strategy semantics.
 
+    A declared ``exits.signal_exit`` rule follows the entry rule as ``exit when …``.
     The notional range is labeled with the instrument's quote currency (USD, USDC,
     USDT) rather than a dollar sign, so stablecoin strategies read correctly.
     """
     entry_summary = _entry_rule_summary(definition)
+    exit_summary = _exit_rule_summary(definition)
     risk_text = _shift_decimal_text(definition.sizing.risk_fraction, places=2)
     return (
         f"{definition.instrument.product_id} · {definition.timeframe} · {entry_summary} · "
-        f"{risk_text}% risk · "
+        f"{exit_summary}{risk_text}% risk · "
         f"{definition.sizing.min_quote_notional}-{definition.sizing.max_quote_notional} "
         f"{definition.instrument.quote_currency}"
     )
@@ -45,6 +48,15 @@ def _entry_rule_summary(definition: StrategyDefinition) -> str:
     """Describe the validated entry rule tree without EMA-only assumptions."""
     indicators = {indicator.id: indicator for indicator in definition.indicators}
     return _condition_summary(definition.entry.when, indicators)
+
+
+def _exit_rule_summary(definition: StrategyDefinition) -> str:
+    """``exit when … · ``, or nothing when the strategy declares no signal exit (ADR 0093)."""
+    condition = signal_exit_condition(definition.exits)
+    if condition is None:
+        return ""
+    indicators = {indicator.id: indicator for indicator in definition.indicators}
+    return f"exit when {_condition_summary(condition, indicators)} · "
 
 
 def _condition_summary(

@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0057`):
+Current checkout (Alembic `0058`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v52` |
-| `expected_schema_revision` | `0057` |
+| `id` | `thytrader-ops-contract-v53` |
+| `expected_schema_revision` | `0058` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
 | `portfolio_modes` | `paper`, `live` |
@@ -37,6 +37,7 @@ Current checkout (Alembic `0057`):
 | `htf_filter_runtimes` | `research`, `paper`, `live` |
 | `indicator_timeframe_runtimes` | `research`, `paper`, `live` |
 | `indicator_offset_runtimes` | `research`, `paper`, `live` — per-declaration bar lag ([ADR 0086](../../decisions/0086-indicator-catalog-expansion-and-offset.md)) |
+| `signal_exit_runtimes` | `research`, `paper`, `live` — optional `exits.signal_exit` rule ([ADR 0093](../../decisions/0093-signal-based-exits.md)) |
 | `indicator_kinds` | the 53 implemented kinds in operator `indicators` order (`ema` … `constant`, then `dema` … `percent_rank`, ADR 0086) |
 | `position_sides` | `long`, `short` |
 | `attached_entry_brackets` | `paper`, `live` |
@@ -62,7 +63,7 @@ Current checkout (Alembic `0057`):
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v52
+    id thytrader-ops-contract-v53
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -70,6 +71,7 @@ classDiagram
     htf_filter_runtimes
     indicator_timeframe_runtimes
     indicator_offset_runtimes
+    signal_exit_runtimes
     indicator_kinds
     position_sides
     attached_entry_brackets
