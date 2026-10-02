@@ -186,6 +186,36 @@ indicator-timeframe coverage) pauses a running bot with the evaluator's reason; 
 guarding the book. Portfolio sleeves need nothing extra: once flat, a sleeve's sizing cash is its
 full allocation again.
 
+## Reference instruments (paper and live)
+
+A strategy may read up to three read-only reference series
+(`data_requirements.reference_instruments`, indicator `source`;
+[ADR 0096](../../docs/decisions/0096-reference-instruments.md)), for example a BTC-USDC 1d regime
+gate on an alt. References are never traded: orders only go to the traded instrument.
+
+- **Start gate.** `start` (and each portfolio sleeve) is refused with HTTP 409 unless every
+  reference series is on the **enabled** market-data watchlist of the ingestion provider. The
+  message names each missing series and the exact command, for example
+  `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 1d --lookback-hours 2424
+  --confirm` (the lookback covers the derived reference warmup). This lane never adds the watch:
+  hand the command to the data lane (`skills/thytrader-data/SKILL.md`, needs the user's
+  confirmation), then retry the start. In a portfolio start, only that sleeve reports `failed`
+  with the same message; other sleeves start.
+- **Every bar.** The bot loads each reference's closed bars every cycle. Only the last reference
+  bar that had closed by the decision close is used (never an in-progress bar). Before a bar may
+  open risk, each reference must have that bar plus a contiguous warmup window; otherwise the
+  entry is **skipped, fail closed**, with decision row `outcome: skipped` and `skip_reason`
+  `reference_data_stale` (the needed reference bar has not arrived) or `reference_data_missing`
+  (no bars, a gap, or too little history), `reason_code` `REFERENCE_DATA_STALE` /
+  `REFERENCE_DATA_MISSING`, and a `summary` naming the series and the bar it needed. The bot keeps
+  running: stops, targets, trails, time and signal exits keep working, and the next fresh bar
+  trades normally. A persistent stale reason means the reference watch is lagging: check it with
+  `thytrader-operator data-catalog`, never by scraping logs.
+- **Decision rows.** Evaluated rules show reference operands with the reference's base currency
+  and clock, for example `BTC · EMA(100) [1d]`, with the exact values read.
+- Multi-instrument documents (ADR 0056) apply one reference gate to every covered product on the
+  shared bar. Portfolio sleeves need nothing else.
+
 ## Portfolios
 
 A portfolio ([ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md),

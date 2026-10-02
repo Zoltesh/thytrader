@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+import math
 from typing import TYPE_CHECKING
 
 from thytrader.execution.ids import utc_now, uuid7
@@ -19,11 +20,13 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.watchlist import MarketDataWatchlistUnavailableError
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision, RiskReasonCode
 from thytrader.risk.store import load_effective_policy
-from thytrader.strategies.models import covered_product_ids
+from thytrader.strategies.models import covered_product_ids, reference_data_requirements
 from thytrader.strategies.snapshots import (
     StrategySnapshot,
     StrategySnapshotError,
@@ -34,8 +37,9 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.store import ExecutionStore
+    from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.risk.store import RiskPolicyStore
-    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.strategies.models import ReferenceDataRequirement, StrategyDefinition
 
 
 async def create_deployment(
@@ -50,6 +54,7 @@ async def create_deployment(
     paper_maker_fee_rate: Decimal | None = None,
     paper_taker_fee_rate: Decimal | None = None,
     portfolio_sleeve: PortfolioSleeveStart | None = None,
+    reference_watches: ReferenceWatchlist | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -58,7 +63,10 @@ async def create_deployment(
     after later edits or deletion (ADR 0082). ``portfolio_sleeve`` starts the book as
     a sleeve of a deployed portfolio: it is tagged with the portfolio, its allocated
     capital is the sleeve's weight times the portfolio's capital, and on live that
-    allocation counts as risk-policy allocation membership (ADR 0091).
+    allocation counts as risk-policy allocation membership (ADR 0091). A strategy that
+    reads reference instruments (ADR 0096) starts only when every reference series is on
+    the enabled market-data watchlist (``reference_watches``); otherwise the start is
+    refused with the ``thytrader-data watch-add`` command for each missing series.
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     maker_fee_rate, taker_fee_rate = _paper_fee_schedule(
@@ -67,6 +75,7 @@ async def create_deployment(
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
     _require_executable_definition(mode, definition)
+    await _require_reference_watches(reference_watches, definition)
     existing = await store.list_deployments()
     _require_unique_active(existing, strategy_id=definition.strategy_id, mode=mode)
     await _require_risk_admission(
@@ -111,6 +120,74 @@ async def create_deployment(
         portfolio_id=None if portfolio_sleeve is None else portfolio_sleeve.portfolio_id,
     )
     return await store.create_deployment(deployment)
+
+
+@dataclass(frozen=True, slots=True)
+class ReferenceWatchlist:
+    """The market-data watchlist a reference-instrument deployment must be watched on.
+
+    ``provider`` is the ingestion provider the market-data worker uses
+    (``coinbase`` with credentials, otherwise ``demo``).
+    """
+
+    store: MarketDataWatchlistStore
+    provider: str
+
+
+async def _require_reference_watches(
+    watches: ReferenceWatchlist | None, definition: StrategyDefinition
+) -> None:
+    """Refuse a start whose reference series are not on the enabled watchlist (ADR 0096).
+
+    Paper and live read every reference series each cycle and skip entries when one is
+    stale. Requiring an enabled watch keeps each series ingested and visible in the data
+    catalog's freshness. The runtime lane never adds a watch itself: data mutations stay
+    in the confirmation-gated data lane, so the message names the exact command.
+    """
+    requirements = reference_data_requirements(definition)
+    if not requirements:
+        return
+    if watches is None:
+        raise ExecutionConflictError(
+            "This strategy reads reference instruments, but the market-data watchlist is "
+            "unavailable to confirm they are watched. Nothing was started."
+        )
+    missing: list[ReferenceDataRequirement] = []
+    for requirement in requirements:
+        interval = parse_candle_interval(requirement.timeframe)
+        try:
+            target = await watches.store.get(watches.provider, requirement.product_id, interval)
+        except MarketDataWatchlistUnavailableError as error:
+            raise ExecutionConflictError(
+                "The market-data watchlist is unavailable, so the reference instruments cannot "
+                "be confirmed as watched. Nothing was started; retry the start."
+            ) from error
+        if target is None or not target.enabled:
+            missing.append(requirement)
+    if not missing:
+        return
+    series = ", ".join(
+        f"{item.reference_id} ({item.product_id} {item.timeframe})" for item in missing
+    )
+    commands = "; ".join(
+        f"`uv run thytrader-data watch-add --product-id {item.product_id} --timeframe "
+        f"{item.timeframe} --lookback-hours {reference_watch_lookback_hours(item)} --confirm`"
+        for item in missing
+    )
+    raise ExecutionConflictError(
+        f"Reference instrument series {series} must be on the enabled market-data watchlist "
+        f"before this strategy can run. Nothing was started. Watch each, then retry: {commands}."
+    )
+
+
+def reference_watch_lookback_hours(requirement: ReferenceDataRequirement) -> int:
+    """Suggest a watch lookback covering one reference's warmup plus one bar (at least 7 days).
+
+    Capped at the interval's maximum watch lookback.
+    """
+    interval = parse_candle_interval(requirement.timeframe)
+    hours = math.ceil((requirement.warmup_bars + 1) * interval.duration.total_seconds() / 3600)
+    return min(max(hours, 168), max_watch_lookback_hours(interval))
 
 
 @dataclass(frozen=True, slots=True)

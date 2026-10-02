@@ -308,6 +308,17 @@ warnings under the saved definition, such as a short whose take-profit can fall 
 volatility; they never block saving or running. Command examples live in
 [`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md).
 
+**Reference instruments** (Build → Market and data, optional) let a strategy watch up to three
+other markets without trading them, for example "trade this alt only while BTC-USDC's daily close
+is above its EMA(100)". Add a reference (product in the same quote currency, on the strategy's clock
+or a coarser one), then choose it as an indicator's **Instrument** under Indicators. Rules show such
+operands as **BTC · EMA(100) @ 1d**, and the summary states the gate. Only reference bars that have
+already closed count. Paper and live bots need each reference series on the data watchlist before
+they start (the refusal names the `thytrader-data watch-add` command). While a reference is late or
+missing they skip new entries (timeline: **reference data stale** / **reference data missing**) and
+keep managing open positions. Orders always go to the strategy's own market. The **BTC regime
+gate** template starts from this shape.
+
 ### Portfolio and bot detail
 
 **Portfolios** ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),

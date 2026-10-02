@@ -100,6 +100,7 @@ def _catalog_entry(spec: IndicatorKindSpec) -> IndicatorCatalogEntry:
         default_warmup_bars=default_warmup_bars(spec),
         supports_timeframe=accepts_clock,
         supports_offset=accepts_clock,
+        supports_source=accepts_clock,
     )
 
 

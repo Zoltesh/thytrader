@@ -32,6 +32,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.service import (
     PortfolioSleeveStart,
+    ReferenceWatchlist,
     create_deployment,
     set_deployment_status,
 )
@@ -159,8 +160,13 @@ class PortfolioRuntimeService:
         risk_store: RiskPolicyStore | None,
         live_allowed: bool,
         audit: AuditEventStore | None = None,
+        reference_watches: ReferenceWatchlist | None = None,
     ) -> None:
-        """Bind the stores the actions read and write."""
+        """Bind the stores the actions read and write.
+
+        ``reference_watches`` lets a sleeve whose strategy reads reference instruments
+        (ADR 0096) start only when those series are watched, like a single bot.
+        """
         self._portfolios = portfolios
         self._execution = execution
         self._strategies = strategies
@@ -168,6 +174,7 @@ class PortfolioRuntimeService:
         self._risk_store = risk_store
         self._live_allowed = live_allowed
         self._audit = audit
+        self._reference_watches = reference_watches
 
     async def snapshot(self, portfolio_id: UUID) -> PortfolioDeploymentSnapshot:
         """Read the portfolio, its runtime state, and every sleeve's book."""
@@ -557,6 +564,7 @@ class PortfolioRuntimeService:
                 portfolio_sleeve=PortfolioSleeveStart(
                     portfolio_id=aggregate.portfolio.portfolio_id, allocated_capital=item.capital
                 ),
+                reference_watches=self._reference_watches,
             )
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(item.view.strategy.name, item.view, None, "failed", str(error))

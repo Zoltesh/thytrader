@@ -202,7 +202,8 @@ protection cancel (`exit`, `EXIT_SIGNAL`; [ADR 0093](../../decisions/0093-signal
 evaluated rule (`holding` with a book, `skipped`/`warmup` when undefined, else `no_signal` with
 `CONDITIONS_NOT_MET` or `HTF_FILTER_NOT_MET`) → canceled working entry → `holding` → `skipped`
 (breaker pause, cooldown, max open positions, pending entry, paused, stopped, entries disabled,
-catch-up). Bars already evaluated (between-bar protection) are not journaled again.
+`reference_data_stale` / `reference_data_missing` when a read-only reference instrument has no
+usable closed bar or warmup ([ADR 0096](../../decisions/0096-reference-instruments.md)), catch-up). Bars already evaluated (between-bar protection) are not journaled again.
 
 Journaling never alters or blocks trading: notes only assign fields, the record is built after the
 closed-bar call returns, each write has a 5-second timeout, failures are logged and audited at most

@@ -33,11 +33,13 @@ from thytrader.research.dataset_binding import (
     ClockBindings,
     DatasetResolver,
     bind_product_clocks,
+    bind_reference_datasets,
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
 from thytrader.research.models import (
     DecimalInputText,
     IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
     reject_removed_engine_selection,
 )
 from thytrader.research.parameter_sweep import (
@@ -69,6 +71,7 @@ _BOUND_FIELDS = frozenset(
         "dataset_fingerprint",
         "htf_dataset_fingerprint",
         "indicator_dataset_fingerprints",
+        "reference_dataset_fingerprints",
         "evaluation_start",
         "evaluation_end",
     }
@@ -86,7 +89,8 @@ class StudyMarketStart(_FrozenStartModel):
 
     Set exactly one of ``strategy_id`` (a strategy already authored for this market)
     or ``product_id`` (the server derives a variant of the request's top-level
-    ``strategy_id`` for that product). Omitted datasets bind from the catalog.
+    ``strategy_id`` for that product). Omitted datasets bind from the catalog. A
+    derived variant keeps the base strategy's reference instruments (BTC stays BTC).
     """
 
     strategy_id: UUID | None = None
@@ -94,6 +98,7 @@ class StudyMarketStart(_FrozenStartModel):
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = ()
 
 
 class ResearchStudyStartRequest(_FrozenStartModel):
@@ -112,6 +117,7 @@ class ResearchStudyStartRequest(_FrozenStartModel):
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     indicator_dataset_fingerprints: tuple[IndicatorTimeframeDataset, ...] = ()
+    reference_dataset_fingerprints: tuple[ReferenceInstrumentDataset, ...] = ()
     oos_fraction: DecimalInputText | None = None
     embargo_bars: int = Field(default=0, ge=0, le=10_000)
     in_sample_bars: int | None = Field(default=None, ge=1, le=100_000)
@@ -167,6 +173,7 @@ def _validate_market_forms(start: ResearchStudyStartRequest) -> None:
         start.dataset_fingerprint is not None
         or start.htf_dataset_fingerprint is not None
         or start.indicator_dataset_fingerprints
+        or start.reference_dataset_fingerprints
     ):
         raise ValueError("cross_market studies bind datasets per market, under markets[]")
     for market in start.markets:
@@ -197,10 +204,14 @@ class BoundStudyStart:
 
 @dataclass(frozen=True, slots=True)
 class _Leg:
-    """One strategy snapshot and the datasets its child backtests run on."""
+    """One strategy snapshot and the datasets its child backtests run on.
+
+    ``references`` binds the strategy's read-only reference instruments (ADR 0096).
+    """
 
     snapshot: StrategySnapshot
     clocks: ClockBindings
+    references: tuple[ReferenceInstrumentDataset, ...] = ()
 
 
 async def bind_study_start(
@@ -239,6 +250,9 @@ async def bind_study_start(
                 htf_dataset_fingerprint=start.htf_dataset_fingerprint,
                 indicator_dataset_fingerprints=start.indicator_dataset_fingerprints,
             ),
+            references=bind_reference_datasets(
+                base.definition, resolver, explicit=start.reference_dataset_fingerprints
+            ),
         )
         resolver.require_complete()
         payload = _single_market_payload(start, leg, snapshots)
@@ -270,7 +284,10 @@ async def _bind_markets(
             htf_dataset_fingerprint=market.htf_dataset_fingerprint,
             indicator_dataset_fingerprints=market.indicator_dataset_fingerprints,
         )
-        legs.append(_Leg(snapshot=snapshot, clocks=clocks))
+        references = bind_reference_datasets(
+            snapshot.definition, resolver, explicit=market.reference_dataset_fingerprints
+        )
+        legs.append(_Leg(snapshot=snapshot, clocks=clocks, references=references))
     return tuple(legs)
 
 
@@ -310,9 +327,11 @@ def _candidate_legs(
             )
         except ValueError as error:
             raise StudyPlanningError(str(error)) from error
-        return tuple(_Leg(snapshot=item, clocks=base.clocks) for item in derived)
+        return tuple(
+            _Leg(snapshot=item, clocks=base.clocks, references=base.references) for item in derived
+        )
     return tuple(
-        _Leg(snapshot=snapshots[identity], clocks=base.clocks)
+        _Leg(snapshot=snapshots[identity], clocks=base.clocks, references=base.references)
         for identity in start.candidate_strategy_ids
     )
 
@@ -333,6 +352,7 @@ def _single_market_payload(
     payload["dataset_fingerprint"] = leg.clocks.dataset_fingerprint
     payload["htf_dataset_fingerprint"] = leg.clocks.htf_dataset_fingerprint
     payload["indicator_dataset_fingerprints"] = leg.clocks.indicator_dataset_fingerprints
+    payload["reference_dataset_fingerprints"] = leg.references
     payload["candidate_strategy_fingerprints"] = tuple(
         snapshots[identity].strategy_fingerprint for identity in start.candidate_strategy_ids
     )
@@ -353,6 +373,7 @@ def _cross_market_payload(
             "dataset_fingerprint": leg.clocks.dataset_fingerprint,
             "htf_dataset_fingerprint": leg.clocks.htf_dataset_fingerprint,
             "indicator_dataset_fingerprints": leg.clocks.indicator_dataset_fingerprints,
+            "reference_dataset_fingerprints": leg.references,
         }
         for leg in legs
     )
@@ -399,6 +420,7 @@ def _child_window(
         dataset_fingerprint=child.clocks.dataset_fingerprint,
         htf_dataset_fingerprint=child.clocks.htf_dataset_fingerprint,
         indicator_dataset_fingerprints=child.clocks.indicator_dataset_fingerprints,
+        reference_dataset_fingerprints=child.references,
         initial_quote_balance=start.initial_quote_balance,
         maker_fee_rate=start.maker_fee_rate,
         taker_fee_rate=start.taker_fee_rate,

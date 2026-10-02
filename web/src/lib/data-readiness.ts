@@ -20,7 +20,7 @@ import { extraIndicatorTimeframes, type BuilderModel, type Dataset } from '$lib/
 import { timeframeMinutes } from '$lib/strategy-workspace';
 
 /** Why a strategy needs one clock. */
-export type ClockRole = 'execution' | 'htf' | 'indicator';
+export type ClockRole = 'execution' | 'htf' | 'indicator' | 'reference';
 
 export type RequiredClock = {
 	productId: string;
@@ -106,7 +106,8 @@ export class DataLaneError extends Error {
 
 /**
  * Every clock a strategy reads: its execution clock, the optional HTF filter
- * clock, and extra per-indicator clocks, in that order and without duplicates.
+ * clock, extra per-indicator clocks, and each read-only reference instrument
+ * series (ADR 0096), in that order and without duplicates.
  */
 export function requiredClocks(model: BuilderModel): RequiredClock[] {
 	const clocks: RequiredClock[] = [
@@ -122,6 +123,17 @@ export function requiredClocks(model: BuilderModel): RequiredClock[] {
 		if (seen.has(timeframe)) continue;
 		clocks.push({ productId: model.product_id, timeframe, role: 'indicator' });
 		seen.add(timeframe);
+	}
+	const series = new Set(clocks.map((clock) => `${clock.productId}:${clock.timeframe}`));
+	for (const reference of model.reference_instruments) {
+		const key = `${reference.product_id}:${reference.timeframe}`;
+		if (series.has(key)) continue;
+		clocks.push({
+			productId: reference.product_id,
+			timeframe: reference.timeframe,
+			role: 'reference'
+		});
+		series.add(key);
 	}
 	return clocks;
 }
@@ -170,7 +182,9 @@ export function clockLabel(clock: RequiredClock): string {
 			? 'execution clock'
 			: clock.role === 'htf'
 				? 'HTF filter'
-				: 'indicator clock';
+				: clock.role === 'reference'
+					? 'reference instrument'
+					: 'indicator clock';
 	return `${clock.productId} ${clock.timeframe} (${role})`;
 }
 
@@ -182,7 +196,9 @@ export function readinessMessage(readiness: ClockReadiness): string | null {
 			? 'execution'
 			: readiness.role === 'htf'
 				? 'higher-timeframe filter'
-				: 'extra indicator';
+				: readiness.role === 'reference'
+					? 'reference instrument'
+					: 'extra indicator';
 	if (readiness.availability === 'missing') {
 		return `No verified ${subject} dataset yet. This strategy's ${role} clock needs it.`;
 	}

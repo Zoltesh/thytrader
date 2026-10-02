@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, StrictBool
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
+    get_market_data_watchlist_store,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_snapshot_store,
@@ -19,6 +20,7 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.strategy_http import snapshot_for_start
+from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
@@ -38,6 +40,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import book_protection_status, working_order_count
 from thytrader.execution.service import (
+    ReferenceWatchlist,
     create_deployment,
     parse_decimal,
     reset_breaker_latches,
@@ -45,6 +48,9 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.watchlist import (
+    MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
+)
 from thytrader.persistence.audit_events import (
     AuditEvent,
     AuditEventCategory,
@@ -300,8 +306,14 @@ async def post_deployment(
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
+    watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
 ) -> DeploymentResponse:
-    """Snapshot the strategy's current rules and start a running paper or live book."""
+    """Snapshot the strategy's current rules and start a running paper or live book.
+
+    A strategy that reads reference instruments (ADR 0096) starts only when every
+    reference series is on the enabled market-data watchlist (409 otherwise, naming
+    the ``thytrader-data watch-add`` command).
+    """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
     try:
@@ -315,6 +327,9 @@ async def post_deployment(
             paper_taker_fee_rate=parse_decimal(body.taker_fee_rate, field="taker_fee_rate"),
             live_allowed=runtime.settings.coinbase_api_key_name is not None,
             risk_store=risk_store,
+            reference_watches=ReferenceWatchlist(
+                store=watchlist, provider=ingestion_provider(runtime.settings)
+            ),
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

@@ -115,7 +115,9 @@ def _parser() -> argparse.ArgumentParser:
         parents=[trailing],
         help=(
             "Start one paper or live deployment from a strategy's current (valid) rules. "
-            "The response's strategy_fingerprint names the snapshot the bot runs."
+            "The response's strategy_fingerprint names the snapshot the bot runs. A strategy "
+            "with reference instruments starts only when each reference series is on the "
+            "enabled market-data watchlist (409 names the thytrader-data watch-add command)."
         ),
     )
     start.add_argument(

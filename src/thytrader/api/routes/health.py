@@ -28,6 +28,8 @@ class HealthOpsContract(BaseModel):
     indicator_timeframe_runtimes: list[str]
     indicator_offset_runtimes: list[str]
     signal_exit_runtimes: list[str]
+    reference_instrument_runtimes: list[str]
+    max_reference_instruments: int
     indicator_kinds: list[str]
     position_sides: list[str]
     attached_entry_brackets: list[str]

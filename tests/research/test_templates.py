@@ -11,6 +11,7 @@ from thytrader.strategies.models import (
     IndicatorKind,
     IndicatorOperand,
     LiteralOperand,
+    decision_clock_indicators,
     indicator_min_warmup,
 )
 from thytrader.strategies.templates import (
@@ -77,7 +78,7 @@ def test_blueprints_describe_the_built_document(template: StrategyTemplateId) ->
     declared = {indicator.id for indicator in draft.indicators}
     assert blueprint["warmup_bars"] == draft.data_requirements.warmup_bars
     assert blueprint["warmup_bars"] == max(
-        indicator_min_warmup(indicator) for indicator in draft.indicators
+        indicator_min_warmup(indicator) for indicator in decision_clock_indicators(draft)
     )
     assert set(blueprint["indicator_ids"]) == declared
     for key in blueprint["defaults"]:

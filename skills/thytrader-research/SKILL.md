@@ -92,6 +92,32 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   against a literal, or extra keys are rejected exactly like `entry.when`. Omitting `signal_exit`
   (or sending `null`) keeps the document's canonical bytes and fingerprint unchanged; adding or
   editing it changes the fingerprint, so results bind the exact exit rule.
+- Optional `data_requirements.reference_instruments` declares up to **3 read-only reference
+  instruments** ([ADR 0096](../../docs/decisions/0096-reference-instruments.md)), for example
+  "trade alts only while BTC-USDC 1d close > EMA(100)":
+
+  ```json
+  "data_requirements": {"warmup_bars": 50, "required_fields": ["open","high","low","close","volume"],
+    "reference_instruments": [{"id": "btc", "product_id": "BTC-USDC", "timeframe": "1d"}]},
+  "indicators": [ …,
+    {"id": "btc_close", "kind": "identity", "input": "close", "source": "btc", "parameters": {}},
+    {"id": "btc_ema", "kind": "ema", "input": "close", "source": "btc", "parameters": {"period": 100}}]
+  ```
+
+  An indicator with `"source": "<id>"` reads that reference's bars on the reference's timeframe
+  (it must omit `timeframe`; `constant` cannot take a source); operands in `entry.when` and
+  `exits.signal_exit` use it like any indicator. Rules: `id` matches `^[a-z][a-z0-9_]{0,31}$` and
+  is unique; no repeated `product_id`+`timeframe`; the reference uses the **strategy's quote
+  currency**; its timeframe equals the strategy timeframe or is a coarser integer multiple (like an
+  HTF clock); every reference is read by at least one indicator; ATR stop/trail indicators and
+  `htf_filter` indicators never take a source (gate on a reference in `entry.when`). Warmup per
+  reference is derived from its indicators (period plus offset), so `warmup_bars` covers only the
+  traded instrument. **Alignment:** at each decision close only the last reference bar that had
+  already closed is visible (an in-progress reference bar is never read; a same-timeframe reference
+  reads the bar that closes with the decision bar). A reference is never traded: there are no
+  cross-instrument orders and a strategy still trades one instrument (or its ADR 0056 covered
+  products, which all share the same references). Omitting the list keeps canonical bytes and
+  fingerprints; declaring one changes the fingerprint.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they
@@ -278,7 +304,7 @@ Multi-instrument strategies cannot be re-targeted (clone them per market). See
 
 `create-strategy` defaults to template `ema-trend`, `BTC-USDC` / `1h`. Pass `--template`
 (`ema-trend`, `rsi-mean-reversion`, `macd-trend`, `bollinger-mean-reversion`, `donchian-breakout`,
-`supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion`, `ema-trend-hold`), `--product-id`, and
+`supertrend-trend`, `squeeze-breakout`, `zscore-mean-reversion`, `ema-trend-hold`, `btc-regime-gate`), `--product-id`, and
 `--timeframe` (any ingested venue clock) for another USD, USDC, or USDT spot product. Paper and live start by `strategy_id` through `thytrader-runtime`; the server snapshots the current definition.
 `ema-trend-hold` is the trend-holding template ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md)):
 long when EMA(20) (`fast`) crosses above EMA(100) (`slow`), `exits.signal_exit` sells when `fast`
@@ -286,6 +312,11 @@ crosses back below `slow`, a 3× ATR initial stop, no take-profit, a wide 5× AT
 set `trailing_stop` to `{"enabled": false}` to rely on the cross alone), and a 1000-bar time cap.
 `show-template --template ema-trend-hold` lists its defaults and sweepable axes; a `fast`/`slow`
 `period` axis moves the entry and the exit rule together because both reference those ids.
+`btc-regime-gate` ([ADR 0096](../../docs/decisions/0096-reference-instruments.md)) goes long when
+EMA(20) crosses above EMA(50) on the traded product, only while `btc_close > btc_ema` on the
+read-only `BTC-<instrument quote>` 1d reference (EMA(100)), with an ATR stop and target. Its
+`btc_ema` `period` axis needs no warmup edit (reference warmup is derived). Backtests need a
+complete BTC 1d dataset in the same quote; it binds automatically like any other clock.
 `show-result` (HTTP and `--local`) and operator `performance` copy the snapshot's
 `instrument.quote_currency` into the result `currency` field; USDC-product results report
 `currency: USDC`. They also include the derived `thytrader-performance-metrics-v1` block
@@ -373,16 +404,27 @@ study windows still report each snapshot `strategy_fingerprint`.
 `dataset_fingerprint`, `htf_dataset_fingerprint`, `indicator_dataset_fingerprints`,
 `additional_instrument_datasets` (backtests), and per-market dataset fields (cross-market studies)
 are all optional. For each clock the strategy needs — decision clock, HTF filter, extra indicator
-clocks, and each additional instrument — an omitted fingerprint binds the newest complete dataset
+clocks, each additional instrument, and each reference instrument — an omitted fingerprint binds the newest complete dataset
 the catalog lists for that product and timeframe from the configured ingestion provider (`coinbase`
 with credentials, otherwise `demo`; the same rows as `thytrader-operator data-catalog`). Explicit
 fingerprints are used exactly as sent, and you may mix the two (for example send only
 `dataset_fingerprint` and let the HTF clock bind). Every response echoes `bound_datasets`:
-`[{product_id, timeframe, role: decision|filter|indicator, dataset_fingerprint, source:
-request|latest_catalog}]`, and the bound fingerprints are part of the run's identity, so record them
+`[{product_id, timeframe, role: decision|filter|indicator|reference, reference_id?,
+dataset_fingerprint, source: request|latest_catalog}]` (`reference_id` only on `reference` rows), and the bound fingerprints are part of the run's identity, so record them
 with the result. A clock with no cataloged dataset fails closed with HTTP 422 `datasets_missing`:
 `detail.missing` lists each `{product_id, timeframe, role}` and the message names the exact
 `uv run thytrader-data watch-add … --confirm` and `ingest … --confirm` commands; nothing runs.
+
+**Reference datasets** ([ADR 0096](../../docs/decisions/0096-reference-instruments.md)) bind the
+same way, once per strategy: an omitted entry binds the newest complete catalog dataset for the
+reference's `product_id` + `timeframe` (`role: reference`, `reference_id` set). To pin one, send
+`reference_dataset_fingerprints: [{reference_id, product_id, timeframe, dataset_fingerprint}]`
+(each must equal a declared reference; `--reference-dataset-fingerprint REFERENCE_ID=sha256:…` on
+the local publish CLI). Omitted bounds shrink to the reference's closed-bar coverage (including its
+derived warmup); explicit bounds beyond it are refused with `backtest_window_rejected`. Studies carry
+the bindings into every window and candidate. A cross-market study re-targets only the traded
+instrument: the reference stays fixed (BTC stays BTC) and every market leg reads the same reference
+series; a market in a different quote currency than the reference is refused (`quote currency`).
 
 **Study bounds may be omitted.** `plan-study` / `submit-study` may omit both `evaluation_start` and
 `evaluation_end` (never just one). The server then uses the common covered window: the intersection

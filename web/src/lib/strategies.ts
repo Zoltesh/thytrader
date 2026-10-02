@@ -212,8 +212,22 @@ export type IndicatorDraft = {
 	timeframe?: string;
 	/** Bar lag on the indicator's own clock (1 = previous completed bar); omit for now. */
 	offset?: number;
+	/**
+	 * Reference instrument id this indicator reads (ADR 0096); empty or absent reads the
+	 * traded instrument. A sourced indicator uses the reference's timeframe.
+	 */
+	source?: string;
 	parameters: IndicatorParameters;
 };
+
+/**
+ * One read-only reference series (ADR 0096): indicators may read it with `source`, it is
+ * never traded, and a reference bar is used only after it closes.
+ */
+export type ReferenceInstrumentDraft = { id: string; product_id: string; timeframe: string };
+
+/** Most reference instruments one strategy may declare. */
+export const MAX_REFERENCE_INSTRUMENTS = 3;
 
 /** One New-strategy template from the research template catalog. */
 export type StrategyTemplateOption = { id: string; name: string; description: string };
@@ -286,6 +300,8 @@ export type BuilderModel = {
 	additional_instruments: CoveredInstrumentDraft[];
 	timeframe: string;
 	warmup_bars: number;
+	/** Read-only reference series (`data_requirements.reference_instruments`, ADR 0096). */
+	reference_instruments: ReferenceInstrumentDraft[];
 	indicators: IndicatorDraft[];
 	htf_filter: HtfFilterDraft | null;
 	entry: { when: ConditionDraft };
@@ -488,7 +504,10 @@ export type OperandChoice = { key: string; label: string; group?: string };
  * readably (`Supertrend(10, 3) · direction`). Keys stay `indicator:<id>[.<series>]`.
  * Labels that would repeat get ` — <id>` appended so every option stays distinct.
  */
-export function operandChoices(indicators: IndicatorDraft[]): OperandChoice[] {
+export function operandChoices(
+	indicators: IndicatorDraft[],
+	references: ReferenceInstrumentDraft[] = []
+): OperandChoice[] {
 	const choices: (OperandChoice & { id: string })[] = [];
 	for (const indicator of indicators) {
 		const series = INDICATOR_OUTPUT_SERIES[indicator.kind];
@@ -496,16 +515,16 @@ export function operandChoices(indicators: IndicatorDraft[]): OperandChoice[] {
 			choices.push({
 				id: indicator.id,
 				key: `indicator:${indicator.id}`,
-				label: operandDisplayLabel(indicator)
+				label: referenceOperandLabel(indicator, references)
 			});
 			continue;
 		}
-		const group = `${indicatorDisplayLabel(indicator)} — ${indicator.id}`;
+		const group = `${referenceOperandLabel(indicator, references, null)} — ${indicator.id}`;
 		for (const name of series) {
 			choices.push({
 				id: indicator.id,
 				key: `indicator:${indicator.id}.${name}`,
-				label: operandDisplayLabel(indicator, name),
+				label: referenceOperandLabel(indicator, references, name),
 				group
 			});
 		}
@@ -519,6 +538,55 @@ export function operandChoices(indicators: IndicatorDraft[]): OperandChoice[] {
 	}));
 	labelled.push({ key: 'literal', label: 'literal value' });
 	return labelled;
+}
+
+/** The declared reference an indicator reads, or undefined for the traded instrument. */
+export function indicatorReference(
+	indicator: { source?: string },
+	references: ReferenceInstrumentDraft[]
+): ReferenceInstrumentDraft | undefined {
+	if (indicator.source === undefined || indicator.source === '') return undefined;
+	return references.find((reference) => reference.id === indicator.source);
+}
+
+/** Base currency label of one reference (`BTC` for `BTC-USDC`). */
+export function referenceBaseLabel(reference: ReferenceInstrumentDraft): string {
+	return reference.product_id.split('-')[0] || reference.id;
+}
+
+/**
+ * Operand label naming the instrument for reference indicators: `BTC · EMA(100) @ 1d`.
+ * `series` null renders the indicator itself (multi-series group headers).
+ */
+export function referenceOperandLabel(
+	indicator: IndicatorDraft,
+	references: ReferenceInstrumentDraft[],
+	series: string | null = null
+): string {
+	const reference = indicatorReference(indicator, references);
+	const display =
+		reference === undefined ? indicator : { ...indicator, timeframe: reference.timeframe };
+	const label =
+		series === null && INDICATOR_OUTPUT_SERIES[indicator.kind] !== undefined
+			? indicatorDisplayLabel(display)
+			: operandDisplayLabel(display, series ?? undefined);
+	return reference === undefined ? label : `${referenceBaseLabel(reference)} · ${label}`;
+}
+
+/** Reference clocks for one decision clock: the decision clock or a coarser integer multiple. */
+export function validReferenceTimeframes(decisionTimeframe: string): string[] {
+	if (TIMEFRAME_SECONDS[decisionTimeframe as ExecutionTimeframe] === undefined) return [];
+	return [decisionTimeframe, ...validHtfTimeframes(decisionTimeframe)];
+}
+
+/** A new reference: BTC in the strategy's quote on 1d (or the coarsest legal clock). */
+export function defaultReferenceInstrument(model: BuilderModel): ReferenceInstrumentDraft {
+	const taken = new Set(model.reference_instruments.map((reference) => reference.id));
+	let id = 'btc';
+	for (let index = 2; taken.has(id); index += 1) id = `ref${index}`;
+	const clocks = validReferenceTimeframes(model.timeframe);
+	const timeframe = clocks.includes('1d') ? '1d' : (clocks.at(-1) ?? model.timeframe);
+	return { id, product_id: `BTC-${quoteCurrencyFor(model.product_id, 'USDC')}`, timeframe };
 }
 
 /**
@@ -538,6 +606,7 @@ export function applyIndicatorKindDefaults(indicator: IndicatorDraft): void {
 	}
 	if (!entry.supports_timeframe) delete indicator.timeframe;
 	if (!entry.supports_offset) delete indicator.offset;
+	if (!entry.supports_source) delete indicator.source;
 	const carried: IndicatorParameters = {};
 	for (const spec of entry.parameters) {
 		const previous = readParameter(indicator.parameters, spec.name);
@@ -583,8 +652,10 @@ function serializedParameters(
 
 /**
  * Canonical indicator payload for saving a strategy. Optional parameters are
- * omitted when blank, `timeframe` only appears for an extra clock, and `offset`
- * only appears when it is a positive bar lag on a kind that accepts one.
+ * omitted when blank, `timeframe` only appears for an extra clock, `offset`
+ * only appears when it is a positive bar lag on a kind that accepts one, and
+ * `source` only appears for a reference-instrument indicator (which then omits
+ * `timeframe`: it reads the reference's clock).
  */
 export function serializeIndicator(
 	indicator: IndicatorDraft,
@@ -592,7 +663,12 @@ export function serializeIndicator(
 ): IndicatorDraft {
 	const entry = findCatalogEntry(indicator.kind);
 	if (entry === undefined) return indicator;
+	const source =
+		entry.supports_source && indicator.source !== undefined && indicator.source !== ''
+			? indicator.source
+			: undefined;
 	const extraTimeframe =
+		source === undefined &&
 		decisionTimeframe !== undefined &&
 		entry.supports_timeframe &&
 		indicator.timeframe !== undefined &&
@@ -611,7 +687,8 @@ export function serializeIndicator(
 		...(input === undefined ? {} : { input }),
 		parameters: serializedParameters(indicator, entry),
 		...(extraTimeframe === undefined ? {} : { timeframe: extraTimeframe }),
-		...(offset === undefined ? {} : { offset })
+		...(offset === undefined ? {} : { offset }),
+		...(source === undefined ? {} : { source })
 	};
 }
 
@@ -1008,9 +1085,14 @@ export function toBuilderModel(strategy: StrategyDefinition, revision: number): 
 		})),
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
+		reference_instruments: (
+			(strategy.data_requirements as { reference_instruments?: ReferenceInstrumentDraft[] })
+				.reference_instruments ?? []
+		).map((reference) => ({ ...reference })),
 		indicators: ((strategy.indicators as IndicatorDraft[]) ?? []).map((indicator) => ({
 			...indicator,
-			timeframe: indicator.timeframe ?? ''
+			timeframe: indicator.timeframe ?? '',
+			source: indicator.source ?? ''
 		})),
 		htf_filter: toHtfFilterDraft(strategy.htf_filter),
 		entry: { when: entry.when },
@@ -1067,7 +1149,16 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 		timeframe: model.timeframe,
 		data_requirements: {
 			warmup_bars: model.warmup_bars,
-			required_fields: ['open', 'high', 'low', 'close', 'volume']
+			required_fields: ['open', 'high', 'low', 'close', 'volume'],
+			...(model.reference_instruments.length === 0
+				? {}
+				: {
+						reference_instruments: model.reference_instruments.map((reference) => ({
+							id: reference.id,
+							product_id: reference.product_id.trim().toUpperCase(),
+							timeframe: reference.timeframe
+						}))
+					})
 		},
 		indicators: model.indicators.map((indicator) => serializeIndicator(indicator, model.timeframe)),
 		...(model.htf_filter === null

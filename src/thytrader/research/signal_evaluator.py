@@ -48,6 +48,8 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     indicator_value_keys,
     operand_value_key,
+    reference_indicator_groups,
+    reference_instruments,
     signal_exit_condition,
     strategy_fingerprint,
     unbound_indicator_timeframes,
@@ -70,11 +72,15 @@ def evaluate_signal_trace(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> SignalTrace:
     """Evaluate deterministic entry (and optional signal-exit) conditions over one interval.
 
     The exit tree reads the same merged decision-clock values as ``entry.when`` and never
-    the HTF filter, which gates entries only (ADR 0093).
+    the HTF filter, which gates entries only (ADR 0093). ``reference_candles`` holds each
+    declared reference instrument's bars by reference id (ADR 0096); a reference bar is
+    held onto a decision close only after it has closed, like an extra clock.
     """
     try:
         specification = ResearchRunSpecification.model_validate(
@@ -103,6 +109,12 @@ def evaluate_signal_trace(
         evaluation_starts_at=specification.evaluation.starts_at,
         evaluation_ends_at=specification.evaluation.ends_at,
     )
+    reference_rows = calculate_reference_indicator_rows(
+        strategy,
+        reference_candles or {},
+        evaluation_starts_at=specification.evaluation.starts_at,
+        evaluation_ends_at=specification.evaluation.ends_at,
+    )
     htf_rows = _htf_indicator_rows(specification, strategy, htf_candles)
     declared = decision_and_filter_indicators(strategy)
     indicator_ids = tuple(key for indicator in declared for key in indicator_value_keys(indicator))
@@ -120,6 +132,7 @@ def evaluate_signal_trace(
             ltf_values=values,
             previous_ltf_values=previous_values,
             extra_rows=extra_rows,
+            reference_rows=reference_rows,
         )
         ltf_outcome = _condition_outcome(strategy.entry.when, merged_values, merged_previous)
         htf_outcome, htf_values = htf_filter_outcome(
@@ -260,6 +273,127 @@ def calculate_extra_indicator_rows(
     return rows_by_timeframe
 
 
+def calculate_reference_indicator_rows(
+    strategy: StrategyDefinition,
+    reference_candles: Mapping[str, Sequence[Candle]],
+    *,
+    evaluation_starts_at: datetime,
+    evaluation_ends_at: datetime,
+    strict: bool = True,
+) -> dict[str, dict[datetime, Mapping[str, Decimal | None]]]:
+    """Calculate each reference instrument's indicators on its closed bars (ADR 0096).
+
+    Rows are keyed by reference id, then by reference bar start. Coverage spans the
+    reference warmup before the first mapped bar through the last reference bar that
+    closes at or before ``evaluation_ends_at``. ``strict`` (research) rejects missing,
+    gapped, or undeclared reference bars. Paper and live pass ``strict=False``: a
+    reference without full coverage yields no rows, its values stay undefined, and no
+    rule reading it can match (the execution worker journals why).
+    """
+    declared = {reference.id for reference in reference_instruments(strategy)}
+    undeclared = sorted(set(reference_candles) - declared)
+    if undeclared and strict:
+        raise SignalEvaluationError(
+            f"Reference candles were supplied for undeclared reference instruments {undeclared}."
+        )
+    rows_by_reference: dict[str, dict[datetime, Mapping[str, Decimal | None]]] = {}
+    for reference, indicators in reference_indicator_groups(strategy):
+        selected = _reference_window(
+            reference_candles.get(reference.id) or (),
+            reference_label=f"{reference.id} ({reference.product_id} {reference.timeframe})",
+            expected_starts=closed_bar_starts(
+                evaluation_starts_at=evaluation_starts_at,
+                evaluation_ends_at=evaluation_ends_at,
+                timeframe=reference.timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(indicators),
+            ),
+            strict=strict,
+        )
+        if selected is None:
+            continue
+        try:
+            computed = calculate_indicator_rows(indicators, selected)
+        except (DecimalException, IndicatorCalculationError) as error:
+            raise SignalEvaluationError(
+                "Reference indicator calculation failed under the deterministic Decimal contract."
+            ) from error
+        rows_by_reference[reference.id] = {
+            candle.starts_at: values for candle, values in zip(selected, computed, strict=True)
+        }
+    return rows_by_reference
+
+
+def _reference_window(
+    candles: Sequence[Candle],
+    *,
+    reference_label: str,
+    expected_starts: Sequence[datetime],
+    strict: bool,
+) -> tuple[Candle, ...] | None:
+    """Select one reference's exact closed bars, or None (lenient) when coverage is missing."""
+    if not candles:
+        if strict:
+            raise SignalEvaluationError(
+                f"Candles are required for reference instrument {reference_label}."
+            )
+        return None
+    try:
+        return _required_htf_candles(expected_starts, candles)
+    except SignalEvaluationError as error:
+        if strict:
+            raise SignalEvaluationError(
+                f"Reference instrument {reference_label} candle coverage is incomplete or not "
+                "contiguous."
+            ) from error
+        return None
+
+
+def _overlay_reference_values(
+    strategy: StrategyDefinition,
+    *,
+    current_close: datetime,
+    previous_close: datetime | None,
+    current: dict[str, Decimal | None],
+    previous: dict[str, Decimal | None] | None,
+    reference_rows: Mapping[str, Mapping[datetime, Mapping[str, Decimal | None]]],
+    strict: bool,
+) -> None:
+    """Hold each reference's last closed bar onto one decision close, in place.
+
+    At decision close ``T`` the visible reference bar is the last one whose exclusive
+    close is ``<= T`` (same-close bars are eligible; an in-progress bar never is). A
+    reference without rows (paper/live coverage missing) leaves its keys undefined.
+    """
+    for reference, indicators in reference_indicator_groups(strategy):
+        keys = tuple(key for indicator in indicators for key in indicator_value_keys(indicator))
+        rows = reference_rows.get(reference.id)
+        mapped = _mapped_reference_row(rows, current_close, reference.timeframe)
+        if mapped is None and strict:
+            raise SignalEvaluationError(
+                "Reference instrument alignment missed a last completed bar."
+            )
+        current.update(mapped if mapped is not None else dict.fromkeys(keys))
+        if previous is None or previous_close is None:
+            continue
+        mapped_previous = _mapped_reference_row(rows, previous_close, reference.timeframe)
+        if mapped_previous is None and strict:
+            raise SignalEvaluationError(
+                "Reference instrument alignment missed a previous completed bar."
+            )
+        previous.update(mapped_previous if mapped_previous is not None else dict.fromkeys(keys))
+
+
+def _mapped_reference_row(
+    rows: Mapping[datetime, Mapping[str, Decimal | None]] | None,
+    close_at: datetime,
+    timeframe: str,
+) -> Mapping[str, Decimal | None] | None:
+    """Return the reference row whose bar closed last at or before ``close_at``."""
+    if rows is None:
+        return None
+    return rows.get(mapped_htf_start(close_at, timeframe))
+
+
 def overlay_indicator_timeframe_values(
     strategy: StrategyDefinition,
     candle: Candle,
@@ -268,8 +402,14 @@ def overlay_indicator_timeframe_values(
     ltf_values: Mapping[str, Decimal | None],
     previous_ltf_values: Mapping[str, Decimal | None] | None,
     extra_rows: Mapping[str, Mapping[datetime, Mapping[str, Decimal | None]]],
+    reference_rows: Mapping[str, Mapping[datetime, Mapping[str, Decimal | None]]] | None = None,
+    strict_references: bool = True,
 ) -> tuple[dict[str, Decimal | None], dict[str, Decimal | None] | None]:
-    """Hold last-completed extra-TF values onto one LTF close without lookahead."""
+    """Hold last-completed extra-TF and reference values onto one LTF close without lookahead.
+
+    Reference values (ADR 0096) are applied only for a strategy that declares reference
+    instruments; see :func:`calculate_reference_indicator_rows` for ``strict_references``.
+    """
     current = dict(ltf_values)
     previous = None if previous_ltf_values is None else dict(previous_ltf_values)
     current_close = ltf_close(candle.starts_at, strategy.timeframe)
@@ -291,6 +431,20 @@ def overlay_indicator_timeframe_values(
                 "Indicator timeframe alignment missed a previous completed bar."
             )
         previous.update(mapped_previous)
+    if reference_instruments(strategy):
+        _overlay_reference_values(
+            strategy,
+            current_close=current_close,
+            previous_close=(
+                None
+                if previous_ltf_start is None
+                else ltf_close(previous_ltf_start, strategy.timeframe)
+            ),
+            current=current,
+            previous=previous,
+            reference_rows=reference_rows or {},
+            strict=strict_references,
+        )
     return current, previous
 
 
@@ -416,6 +570,18 @@ def _verify_contract(
     if declared_extra != required_extra:
         raise SignalEvaluationError(
             "Research run indicator-timeframe datasets do not match the published strategy."
+        )
+    required_references = tuple(
+        (reference.id, reference.product_id, reference.timeframe)
+        for reference in reference_instruments(strategy)
+    )
+    declared_references = tuple(
+        (item.reference_id, item.product_id, item.timeframe)
+        for item in specification.reference_dataset_fingerprints
+    )
+    if declared_references != required_references:
+        raise SignalEvaluationError(
+            "Research run reference-instrument datasets do not match the published strategy."
         )
     return specification.engine
 

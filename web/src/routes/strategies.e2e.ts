@@ -717,7 +717,8 @@ test('the template picker offers every research template', async ({ page }) => {
 		'Supertrend trend',
 		'Squeeze breakout',
 		'Z-score mean reversion',
-		'EMA trend hold'
+		'EMA trend hold',
+		'BTC regime gate'
 	]);
 	await picker.selectOption('donchian-breakout');
 	await expect(picker).toHaveValue('donchian-breakout');

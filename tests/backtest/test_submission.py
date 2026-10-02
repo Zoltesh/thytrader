@@ -292,7 +292,9 @@ class _LoadedStrategyStore:
                 (),
                 {"product_id": "BTC-USD", "quote_currency": "USD"},
             )()
-            data_requirements = type("DataRequirements", (), {"warmup_bars": 1})()
+            data_requirements = type(
+                "DataRequirements", (), {"warmup_bars": 1, "reference_instruments": ()}
+            )()
 
         class _Strategy:
             definition = _Definition()

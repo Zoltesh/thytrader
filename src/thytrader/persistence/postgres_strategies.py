@@ -81,6 +81,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     covered_product_ids,
     expanded_data_requirements,
+    reference_series,
     strategy_fingerprint,
 )
 from thytrader.strategies.snapshots import (
@@ -737,7 +738,8 @@ def _verify_compatible_dataset(
 
     A multi-instrument document (ADR 0056) runs the same timeframes on every covered
     product, so a dataset matches when its product is any covered product and its
-    timeframe is one the document reads.
+    timeframe is one the document reads. A declared reference instrument (ADR 0096)
+    also matches its exact product and timeframe.
     """
     try:
         manifest = dataset_store.load_manifest(dataset_fingerprint)
@@ -750,15 +752,17 @@ def _verify_compatible_dataset(
     allowed_timeframes = {
         requirement.timeframe for requirement in expanded_data_requirements(definition)
     }
-    if (
-        manifest.provider != "coinbase"
-        or manifest.product_id not in allowed_products
-        or manifest.timeframe not in allowed_timeframes
-    ):
+    covered = manifest.product_id in allowed_products and manifest.timeframe in allowed_timeframes
+    referenced = (manifest.product_id, manifest.timeframe) in reference_series(definition)
+    if manifest.provider != "coinbase" or not (covered or referenced):
+        references = "".join(
+            f"; reference {product_id} {timeframe}"
+            for product_id, timeframe in sorted(reference_series(definition))
+        )
         raise StrategyDatasetMismatchError(
             f"Dataset {manifest.product_id} {manifest.timeframe} ({manifest.provider}) does not "
             f"match the strategy: it covers {', '.join(allowed_products)} on "
-            f"{', '.join(sorted(allowed_timeframes))} (coinbase)."
+            f"{', '.join(sorted(allowed_timeframes))}{references} (coinbase)."
         )
 
 

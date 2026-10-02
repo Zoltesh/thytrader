@@ -119,8 +119,9 @@ _MUTATIONS = frozenset(
 _STUDY_FILE_HELP = (
     "Study start JSON naming strategies by id. Dataset fingerprints and both evaluation bounds "
     "may be omitted (the newest complete catalog datasets and their common covered window are "
-    "bound and echoed). cross_market takes markets[].strategy_id, or one strategy_id plus "
-    "markets[].product_id to derive per-market variants."
+    "bound and echoed, including each reference instrument). cross_market takes "
+    "markets[].strategy_id, or one strategy_id plus markets[].product_id to derive per-market "
+    "variants; a variant keeps the base strategy's reference instruments (BTC stays BTC)."
 )
 
 
@@ -336,9 +337,11 @@ def _add_backtest_commands(
         help=(
             "Path to a backtest start JSON document: strategy_id, optional dataset "
             "fingerprint(s) (omitted ones bind the newest complete catalog dataset per clock and "
-            "are echoed in bound_datasets), optional evaluation window, initial_quote_balance, "
-            "maker/taker fee rates, fixed_slippage_bps, and optional spread_bps stress. "
-            "engine_contract_version is rejected."
+            "are echoed in bound_datasets; that includes each reference instrument, role "
+            "reference, pinnable with reference_dataset_fingerprints[] {reference_id, "
+            "product_id, timeframe, dataset_fingerprint}), optional evaluation window, "
+            "initial_quote_balance, maker/taker fee rates, fixed_slippage_bps, and optional "
+            "spread_bps stress. engine_contract_version is rejected."
         ),
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)

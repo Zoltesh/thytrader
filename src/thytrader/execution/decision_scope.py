@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.decisions import DecisionSkipReason
     from thytrader.execution.geometry import EntrySkipReason
+    from thytrader.execution.references import ReferenceGate
     from thytrader.execution.signals import LatestEntryEvaluation, LatestExitEvaluation
     from thytrader.risk.models import RiskVerdict
 
@@ -37,6 +38,7 @@ class DecisionObservations:
     entry_block_code: str | None = None
     entry_block_detail: str | None = None
     entry_skip: EntrySkipReason | None = None
+    reference_gate: ReferenceGate | None = None
 
 
 _SCOPE: ContextVar[DecisionObservations | None] = ContextVar(
@@ -69,6 +71,14 @@ def note_entry_gate(reason: DecisionSkipReason | None) -> None:
     if observations is None or reason is None:
         return
     observations.entry_gate = reason
+
+
+def note_reference_gate(gate: ReferenceGate) -> None:
+    """Record that a stale or missing reference instrument blocked entries (ADR 0096)."""
+    observations = _SCOPE.get()
+    if observations is None:
+        return
+    observations.reference_gate = gate
 
 
 def note_evaluation(evaluation: LatestEntryEvaluation) -> None:

@@ -36,7 +36,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "sma",
@@ -73,7 +74,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "rsi",
@@ -106,7 +108,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 15,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "atr",
@@ -145,7 +148,8 @@
       "warmup": "period",
       "default_warmup_bars": 14,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "volume_sma",
@@ -178,7 +182,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "highest",
@@ -215,7 +220,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "lowest",
@@ -252,7 +258,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "stdev",
@@ -289,7 +296,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "stdev_sample",
@@ -326,7 +334,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "roc",
@@ -363,7 +372,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 11,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "williams_r",
@@ -402,7 +412,8 @@
       "warmup": "period",
       "default_warmup_bars": 14,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "cci",
@@ -441,7 +452,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "wma",
@@ -478,7 +490,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "momentum",
@@ -515,7 +528,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 11,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "mfi",
@@ -556,7 +570,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 15,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "macd",
@@ -617,7 +632,8 @@
       "warmup": "slow_period + signal_period - 1",
       "default_warmup_bars": 34,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "bollinger",
@@ -665,7 +681,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "stochastic",
@@ -718,7 +735,8 @@
       "warmup": "k_period + d_period - 1",
       "default_warmup_bars": 16,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "adx",
@@ -761,7 +779,8 @@
       "warmup": "2 * period - 1",
       "default_warmup_bars": 27,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "identity",
@@ -786,7 +805,8 @@
       "warmup": "1",
       "default_warmup_bars": 1,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "constant",
@@ -817,7 +837,8 @@
       "warmup": "1",
       "default_warmup_bars": 1,
       "supports_timeframe": false,
-      "supports_offset": false
+      "supports_offset": false,
+      "supports_source": false
     },
     {
       "kind": "dema",
@@ -854,7 +875,8 @@
       "warmup": "2 * period - 1",
       "default_warmup_bars": 39,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "tema",
@@ -891,7 +913,8 @@
       "warmup": "3 * period - 2",
       "default_warmup_bars": 58,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "hma",
@@ -928,7 +951,8 @@
       "warmup": "period + floor(sqrt(period)) - 1",
       "default_warmup_bars": 23,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "kama",
@@ -989,7 +1013,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 11,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "vwma",
@@ -1026,7 +1051,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "supertrend",
@@ -1079,7 +1105,8 @@
       "warmup": "period",
       "default_warmup_bars": 10,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "parabolic_sar",
@@ -1129,7 +1156,8 @@
       "warmup": "2",
       "default_warmup_bars": 2,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "aroon",
@@ -1170,7 +1198,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 26,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "ichimoku",
@@ -1236,7 +1265,8 @@
       "warmup": "max(tenkan_period, kijun_period, senkou_b_period)",
       "default_warmup_bars": 52,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "vortex",
@@ -1278,7 +1308,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 15,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "linear_regression",
@@ -1318,7 +1349,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "trix",
@@ -1351,7 +1383,8 @@
       "warmup": "3 * period - 1",
       "default_warmup_bars": 44,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "stochastic_rsi",
@@ -1420,7 +1453,8 @@
       "warmup": "rsi_period + stoch_period + k_period + d_period - 2",
       "default_warmup_bars": 32,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "ppo",
@@ -1481,7 +1515,8 @@
       "warmup": "slow_period + signal_period - 1",
       "default_warmup_bars": 34,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "ultimate_oscillator",
@@ -1544,7 +1579,8 @@
       "warmup": "long_period + 1",
       "default_warmup_bars": 29,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "awesome_oscillator",
@@ -1594,7 +1630,8 @@
       "warmup": "slow_period",
       "default_warmup_bars": 34,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "cmo",
@@ -1627,7 +1664,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 10,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "tsi",
@@ -1687,7 +1725,8 @@
       "warmup": "long_period + short_period + signal_period - 1",
       "default_warmup_bars": 50,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "keltner",
@@ -1752,7 +1791,8 @@
       "warmup": "max(period, atr_period)",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "donchian",
@@ -1793,7 +1833,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "bollinger_percent_b",
@@ -1837,7 +1878,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "bollinger_bandwidth",
@@ -1881,7 +1923,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "natr",
@@ -1920,7 +1963,8 @@
       "warmup": "period",
       "default_warmup_bars": 14,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "choppiness",
@@ -1959,7 +2003,8 @@
       "warmup": "period",
       "default_warmup_bars": 14,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "historical_volatility",
@@ -2003,7 +2048,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 21,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "obv",
@@ -2043,7 +2089,8 @@
       "warmup": "signal_period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "cmf",
@@ -2084,7 +2131,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "accumulation_distribution",
@@ -2128,7 +2176,8 @@
       "warmup": "signal_period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "vwap",
@@ -2169,7 +2218,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "force_index",
@@ -2206,7 +2256,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 14,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "zscore",
@@ -2243,7 +2294,8 @@
       "warmup": "period",
       "default_warmup_bars": 20,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     },
     {
       "kind": "percent_rank",
@@ -2280,7 +2332,8 @@
       "warmup": "period + 1",
       "default_warmup_bars": 21,
       "supports_timeframe": true,
-      "supports_offset": true
+      "supports_offset": true,
+      "supports_source": true
     }
   ]
 }

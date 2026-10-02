@@ -8,18 +8,22 @@ import {
 } from './indicator-catalog';
 import {
 	INDICATOR_OUTPUT_SERIES,
+	MAX_REFERENCE_INSTRUMENTS,
 	extraIndicatorTimeframes,
+	quoteCurrencyFor,
 	quoteLabelFor,
 	takeProfitMultiple,
 	takeProfitPhrase,
 	resolvedIndicatorTimeframe,
 	validHtfTimeframes,
+	validReferenceTimeframes,
 	type BuilderModel,
 	type ConditionDraft,
 	type HtfFilterDraft,
 	type IndicatorDraft,
 	type IndicatorKindValue,
-	type OperandDraft
+	type OperandDraft,
+	type ReferenceInstrumentDraft
 } from './strategies';
 
 export const OPERATOR_LABELS: Record<string, string> = {
@@ -88,10 +92,30 @@ export function plainEnglishSummary(model: BuilderModel): string {
 			: ` HTF filter on ${model.htf_filter.timeframe}: ${conditionToText(model.htf_filter.when)}.`;
 	return [
 		`${model.name}: when ${entryText}, enter long on ${model.product_id} ${model.timeframe}.${htf}`,
+		...referenceGateSentence(model),
 		`Risk ${model.sizing.risk_fraction} of equity per trade between ${model.sizing.min_quote_notional} ${quote} and ${model.sizing.max_quote_notional} ${quote}.`,
 		`Initial stop ${model.exits.initial_stop.multiple}× ATR, ${takeProfitPhrase(model.exits.take_profit)}, time exit after ${model.exits.time_exit.max_bars_held} bars.`,
 		...signalExitSentence(model)
 	].join(' ');
+}
+
+/**
+ * Plain-language reference gate (ADR 0096): `Gated on BTC-USDC 1d (btc: btc_close,
+ * btc_ema) as a read-only reference instrument; only closed reference bars count, and
+ * entries skip while a reference is stale or missing.` Empty without references.
+ */
+export function referenceGateSentence(model: BuilderModel): string[] {
+	if (model.reference_instruments.length === 0) return [];
+	const series = model.reference_instruments.map((reference) => {
+		const readers = model.indicators
+			.filter((indicator) => indicator.source === reference.id)
+			.map((indicator) => indicator.id);
+		const listed = readers.length === 0 ? 'no indicators yet' : readers.join(', ');
+		return `${reference.product_id} ${reference.timeframe} (${reference.id}: ${listed})`;
+	});
+	return [
+		`Gated on ${series.join('; ')} as read-only reference instruments; only closed reference bars count, orders stay on ${model.product_id}, and entries skip while a reference is stale or missing.`
+	];
 }
 
 /**
@@ -123,10 +147,82 @@ export function requiredDataText(model: BuilderModel): string {
 			`Extra indicator clocks ${extra.join(', ')} use last-completed bars of those timeframes.`
 		);
 	}
-	if (model.htf_filter !== null || extra.length > 0) {
+	for (const reference of model.reference_instruments) {
+		const readers = model.indicators.filter((indicator) => indicator.source === reference.id);
+		const warmup = Math.max(1, ...readers.map((indicator) => indicatorWarmupBars(indicator)));
+		parts.push(
+			`Reference ${reference.product_id} ${reference.timeframe} (${reference.id}): ${warmup} completed bars, using only the last reference bar that closed by each ${model.timeframe} close.`
+		);
+	}
+	if (model.htf_filter !== null || extra.length > 0 || model.reference_instruments.length > 0) {
 		parts.push('Research, paper, and live share that alignment.');
 	}
 	return parts.join(' ');
+}
+
+const REFERENCE_ID_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
+const SPOT_PRODUCT_PATTERN = /^[A-Z0-9]{2,20}-(?:USD|USDC|USDT)$/;
+
+/**
+ * Reference-instrument rules mirrored from the backend (ADR 0096): at most three, unique
+ * ids and series, the strategy's quote currency, the decision clock or a coarser integer
+ * multiple, every reference read by an indicator, and every `source` declared.
+ */
+export function validateReferenceInstruments(model: BuilderModel): string[] {
+	const problems: string[] = [];
+	const references: ReferenceInstrumentDraft[] = model.reference_instruments;
+	if (references.length > MAX_REFERENCE_INSTRUMENTS) {
+		problems.push(`At most ${MAX_REFERENCE_INSTRUMENTS} reference instruments are allowed.`);
+	}
+	const ids = new Set(references.map((reference) => reference.id));
+	if (ids.size !== references.length) problems.push('Reference instrument ids must be unique.');
+	const series = new Set(
+		references.map((reference) => `${reference.product_id}:${reference.timeframe}`)
+	);
+	if (series.size !== references.length) {
+		problems.push('Reference instruments must not repeat one product and timeframe.');
+	}
+	const quote = quoteCurrencyFor(model.product_id, '');
+	for (const reference of references) {
+		const label = `Reference instrument "${reference.id}"`;
+		if (!REFERENCE_ID_PATTERN.test(reference.id)) {
+			problems.push(
+				`${label} id must start with a lowercase letter and use lowercase letters, digits, or underscores (at most 32).`
+			);
+		}
+		if (!SPOT_PRODUCT_PATTERN.test(reference.product_id)) {
+			problems.push(`${label} product must be a BASE-USD, BASE-USDC, or BASE-USDT spot product.`);
+		} else if (quote !== '' && quoteCurrencyFor(reference.product_id) !== quote) {
+			problems.push(`${label} must use the strategy quote currency ${quote}.`);
+		}
+		if (!validReferenceTimeframes(model.timeframe).includes(reference.timeframe)) {
+			problems.push(
+				`${label} timeframe ${reference.timeframe} must equal ${model.timeframe} or be a coarser integer multiple of it.`
+			);
+		}
+		if (!model.indicators.some((indicator) => indicator.source === reference.id)) {
+			problems.push(
+				`${label} must be read by at least one indicator (pick it as an indicator's instrument).`
+			);
+		}
+	}
+	for (const indicator of model.indicators) {
+		if (indicator.source === undefined || indicator.source === '') continue;
+		if (!ids.has(indicator.source)) {
+			problems.push(
+				`Indicator "${indicator.id}" reads unknown reference instrument "${indicator.source}".`
+			);
+		}
+		if (indicator.kind === 'constant') {
+			problems.push(`Indicator "${indicator.id}" constant must omit the reference instrument.`);
+		}
+		if (indicator.timeframe !== undefined && indicator.timeframe !== '') {
+			problems.push(
+				`Indicator "${indicator.id}" reads a reference instrument, so it must omit its own timeframe.`
+			);
+		}
+	}
+	return problems;
 }
 
 const INDICATOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
@@ -203,10 +299,12 @@ export function validateDefinition(model: BuilderModel): string[] {
 				`Indicator "${indicator.id}" timeframe ${clock} must be a coarser integer multiple of ${model.timeframe}.`
 			);
 		}
-		if (clock === model.timeframe) {
+		const sourced = indicator.source !== undefined && indicator.source !== '';
+		if (clock === model.timeframe && !sourced) {
 			warmupNeeded.set(indicator.id, indicatorWarmupBars(indicator));
 		}
 	}
+	problems.push(...validateReferenceInstruments(model));
 	problems.push(...validateCondition(model.entry.when, model.indicators, 'Entry'));
 	if (model.exits.signal_exit !== undefined) {
 		problems.push(
@@ -270,6 +368,7 @@ export function validateDefinition(model: BuilderModel): string[] {
 		.filter(
 			(indicator) =>
 				indicator.kind === 'atr' &&
+				(indicator.source === undefined || indicator.source === '') &&
 				resolvedIndicatorTimeframe(indicator, model.timeframe) === model.timeframe
 		)
 		.map((indicator) => indicator.id);

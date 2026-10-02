@@ -25,12 +25,13 @@ from thytrader.research.models import (
     CostAssumptions,
     EvaluationWindow,
     IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
     ResearchRunSpecification,
     WarmupWindow,
     removed_engine_selection_message,
     warmup_starts_at,
 )
-from thytrader.strategies.models import unbound_indicator_timeframes
+from thytrader.strategies.models import reference_instruments, unbound_indicator_timeframes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -79,6 +80,16 @@ def _parser() -> argparse.ArgumentParser:
             "Extra indicator-timeframe dataset as TIMEFRAME=sha256:…. Repeatable. "
             "Required for unbound extra indicator clocks; omit when the extra TF equals "
             "htf_filter.timeframe."
+        ),
+    )
+    publish.add_argument(
+        "--reference-dataset-fingerprint",
+        action="append",
+        default=[],
+        metavar="REFERENCE_ID=FINGERPRINT",
+        help=(
+            "Reference-instrument dataset as REFERENCE_ID=sha256:…, one per declared "
+            "data_requirements.reference_instruments entry (ADR 0096). Repeatable."
         ),
     )
     publish.add_argument("--evaluation-start", required=True, type=_timestamp)
@@ -138,6 +149,12 @@ def backtest_execution_fingerprint(
         payload["indicator_dataset_fingerprints"] = [
             {"timeframe": item.timeframe, "dataset_fingerprint": item.dataset_fingerprint}
             for item in _parsed_indicator_bindings(arguments.indicator_dataset_fingerprint)
+        ]
+    references = _parsed_reference_bindings(list(arguments.reference_dataset_fingerprint or []))
+    if references:
+        payload["reference_dataset_fingerprints"] = [
+            {"reference_id": reference_id, "dataset_fingerprint": fingerprint}
+            for reference_id, fingerprint in references
         ]
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
@@ -213,6 +230,43 @@ def _indicator_dataset_fingerprints(
     return bindings
 
 
+def _parsed_reference_bindings(values: list[str]) -> tuple[tuple[str, str], ...]:
+    """Parse REFERENCE_ID=sha256:… bindings in the order given."""
+    parsed: list[tuple[str, str]] = []
+    for value in values:
+        reference_id, separator, fingerprint = value.partition("=")
+        if separator != "=" or not reference_id or not fingerprint:
+            raise ValueError(
+                "reference dataset fingerprint must be REFERENCE_ID=sha256: followed by 64 hex"
+            )
+        _fingerprint(fingerprint)
+        parsed.append((reference_id, fingerprint))
+    return tuple(parsed)
+
+
+def _reference_dataset_fingerprints(
+    arguments: argparse.Namespace, definition: StrategyDefinition
+) -> tuple[ReferenceInstrumentDataset, ...]:
+    """Require exactly one dataset per declared reference instrument, in declaration order."""
+    given = dict(_parsed_reference_bindings(list(arguments.reference_dataset_fingerprint or [])))
+    declared = reference_instruments(definition)
+    if len(given) != len(arguments.reference_dataset_fingerprint or []) or set(given) != {
+        reference.id for reference in declared
+    }:
+        raise ValueError(
+            "reference dataset fingerprints must name each declared reference instrument once"
+        )
+    return tuple(
+        ReferenceInstrumentDataset(
+            reference_id=reference.id,
+            product_id=reference.product_id,
+            timeframe=reference.timeframe,
+            dataset_fingerprint=given[reference.id],
+        )
+        for reference in declared
+    )
+
+
 async def _publish(arguments: argparse.Namespace) -> str:
     """Load strategy requirements, derive warmup, and idempotently publish one backtest run."""
     settings = Settings()
@@ -224,6 +278,9 @@ async def _publish(arguments: argparse.Namespace) -> str:
         strategy = await strategy_store.load(arguments.strategy_fingerprint)
         htf_dataset_fingerprint = _htf_dataset_fingerprint(arguments, strategy.definition)
         indicator_dataset_fingerprints = _indicator_dataset_fingerprints(
+            arguments, strategy.definition
+        )
+        reference_dataset_fingerprints = _reference_dataset_fingerprints(
             arguments, strategy.definition
         )
         dataset_store = DatasetStore(settings.market_data_dataset_root)
@@ -246,6 +303,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
             dataset_fingerprint=arguments.dataset_fingerprint,
             htf_dataset_fingerprint=htf_dataset_fingerprint,
             indicator_dataset_fingerprints=indicator_dataset_fingerprints,
+            reference_dataset_fingerprints=reference_dataset_fingerprints,
             evaluation=EvaluationWindow(
                 starts_at=arguments.evaluation_start, ends_at=arguments.evaluation_end
             ),

@@ -13,6 +13,7 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
     lockstep_product_ids,
+    reference_data_requirements,
     unbound_indicator_timeframes,
 )
 
@@ -46,8 +47,13 @@ def verify_research_run_eligibility(
     additional_manifests: dict[str, DatasetManifest] | None = None,
     additional_htf_manifests: dict[str, DatasetManifest] | None = None,
     additional_indicator_manifests: dict[str, dict[str, DatasetManifest]] | None = None,
+    reference_manifests: dict[str, DatasetManifest] | None = None,
 ) -> None:
-    """Fail closed unless exact verified artifacts cover the complete run contract."""
+    """Fail closed unless exact verified artifacts cover the complete run contract.
+
+    ``reference_manifests`` maps each bound reference id to its dataset manifest
+    (ADR 0096).
+    """
     definition = published_strategy.definition
     if specification.strategy_fingerprint != published_strategy.strategy_fingerprint:
         raise ResearchRunPublicationError(
@@ -95,6 +101,64 @@ def verify_research_run_eligibility(
         additional_htf_manifests=additional_htf_manifests or {},
         additional_indicator_manifests=additional_indicator_manifests or {},
     )
+    _require_reference_datasets(specification, definition, reference_manifests or {})
+
+
+def _require_reference_datasets(
+    specification: ResearchRunSpecification,
+    definition: StrategyDefinition,
+    reference_manifests: Mapping[str, DatasetManifest],
+) -> None:
+    """Require one complete closed-bar dataset per declared reference instrument (ADR 0096).
+
+    Bindings must list every declared reference in declaration order with its exact
+    product and timeframe, and each dataset must cover the reference warmup before the
+    first mapped bar through the last reference bar closing at evaluation end.
+    """
+    requirements = reference_data_requirements(definition)
+    declared = tuple(
+        (item.reference_id, item.product_id, item.timeframe)
+        for item in specification.reference_dataset_fingerprints
+    )
+    required = tuple((item.reference_id, item.product_id, item.timeframe) for item in requirements)
+    if declared != required:
+        raise ResearchRunPublicationError(
+            "Research run reference-instrument datasets do not match the published strategy."
+        )
+    for binding, requirement in zip(
+        specification.reference_dataset_fingerprints, requirements, strict=True
+    ):
+        manifest = reference_manifests.get(binding.reference_id)
+        if (
+            manifest is None
+            or binding.dataset_fingerprint != manifest.content_fingerprint
+            or not manifest.complete
+            or manifest.provider != "coinbase"
+            or manifest.product_id != requirement.product_id
+            or manifest.timeframe != requirement.timeframe
+        ):
+            raise ResearchRunPublicationError(
+                "Research run reference-instrument dataset identity does not match the "
+                "verified strategy and request."
+            )
+        try:
+            starts_at = _parse_canonical_utc(manifest.starts_at)
+            ends_at = _parse_canonical_utc(manifest.ends_at)
+            required_start, required_end = closed_bar_required_coverage(
+                evaluation_starts_at=specification.evaluation.starts_at,
+                evaluation_ends_at=specification.evaluation.ends_at,
+                timeframe=requirement.timeframe,
+                warmup_bars=requirement.warmup_bars,
+            )
+        except ValueError as error:
+            raise ResearchRunPublicationError(
+                "Research run reference-instrument dataset coverage timestamps are invalid."
+            ) from error
+        if starts_at > required_start or ends_at < required_end:
+            raise ResearchRunPublicationError(
+                "Research run reference-instrument dataset does not provide the required "
+                "closed-bar coverage."
+            )
 
 
 def _require_decision_dataset(

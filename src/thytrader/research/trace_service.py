@@ -138,7 +138,18 @@ def _evaluate_primary_trace(
         item.timeframe: dataset_store.load_candles(item.dataset_fingerprint)
         for item in specification.indicator_dataset_fingerprints
     }
-    return evaluate_signal_trace(specification, definition, candles, htf_candles, extra_candles)
+    reference_candles = {
+        item.reference_id: dataset_store.load_candles(item.dataset_fingerprint)
+        for item in specification.reference_dataset_fingerprints
+    }
+    return evaluate_signal_trace(
+        specification,
+        definition,
+        candles,
+        htf_candles,
+        extra_candles,
+        reference_candles=reference_candles,
+    )
 
 
 def signal_trace_page(

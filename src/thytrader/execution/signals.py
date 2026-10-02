@@ -13,12 +13,17 @@ from thytrader.research.signal_evaluator import (
     and_entry_outcomes,
     calculate_extra_indicator_rows,
     calculate_htf_indicator_rows,
+    calculate_reference_indicator_rows,
     entry_condition_outcome,
     htf_filter_outcome,
     overlay_indicator_timeframe_values,
 )
 from thytrader.research.trace import EntryConditionOutcome
-from thytrader.strategies.models import decision_clock_indicators, signal_exit_condition
+from thytrader.strategies.models import (
+    decision_clock_indicators,
+    reference_instruments,
+    signal_exit_condition,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -32,8 +37,9 @@ if TYPE_CHECKING:
 class LatestEntryEvaluation:
     """One newest-bar entry outcome plus the exact values the rule consumed.
 
-    ``current``/``previous`` are the merged decision-clock (and extra-TF) values the
-    entry tree read; ``htf_current``/``htf_previous`` are the last-completed HTF values
+    ``current``/``previous`` are the merged decision-clock (extra-TF and reference
+    instrument) values the entry tree read; ``htf_current``/``htf_previous`` are the
+    last-completed HTF values
     the optional filter read. The decision journal explains a bar from these values
     instead of recomputing indicators. ``candle_starts_at`` is None only without candles.
     """
@@ -68,13 +74,17 @@ def evaluate_latest_signal_exit(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> LatestExitEvaluation | None:
     """Evaluate ``exits.signal_exit`` on the newest closed LTF bar, or None without one.
 
     Uses exactly the merged values ``evaluate_latest_entry_evidence`` computes for
     ``entry.when`` (extra-TF indicators from last-completed bars only); HTF candles are
     read only when an extra-TF indicator shares the filter's clock. Missing required
-    coverage raises ``SignalEvaluationError`` (fail closed: no exit is invented).
+    extra-TF coverage raises ``SignalEvaluationError`` (fail closed: no exit is invented).
+    A reference instrument without closed-bar coverage leaves its values undefined, so a
+    rule reading it cannot match (ADR 0096).
     """
     condition = signal_exit_condition(strategy.exits)
     if condition is None:
@@ -85,7 +95,11 @@ def evaluate_latest_signal_exit(
             candle_starts_at=candles[-1].starts_at if candles else None,
         )
     merged_values, merged_previous = _latest_merged_values(
-        strategy, candles, _visible_htf(strategy, candles, htf_candles), indicator_timeframe_candles
+        strategy,
+        candles,
+        _visible_htf(strategy, candles, htf_candles),
+        indicator_timeframe_candles,
+        reference_candles,
     )
     return LatestExitEvaluation(
         outcome=entry_condition_outcome(condition, merged_values, merged_previous),
@@ -114,8 +128,14 @@ def _latest_merged_values(
     candles: Sequence[Candle],
     visible_htf: Sequence[Candle],
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> tuple[dict[str, Decimal | None], dict[str, Decimal | None] | None]:
-    """Decision-clock values of the newest two bars with extra-TF values held onto them."""
+    """Decision-clock values of the newest two bars with extra-TF values held onto them.
+
+    Reference instrument bars are filtered to those closed at or before the newest
+    decision close before any indicator is computed, so an in-progress reference bar is
+    never read (ADR 0096).
+    """
     latest = candles[-1]
     current_close = ltf_close(latest.starts_at, strategy.timeframe)
     visible_extra = {
@@ -129,6 +149,20 @@ def _latest_merged_values(
         evaluation_starts_at=latest.starts_at,
         evaluation_ends_at=current_close,
     )
+    reference_rows = calculate_reference_indicator_rows(
+        strategy,
+        {
+            reference.id: bars_closed_at_or_before(
+                (reference_candles or {}).get(reference.id, ()),
+                close_at=current_close,
+                timeframe=reference.timeframe,
+            )
+            for reference in reference_instruments(strategy)
+        },
+        evaluation_starts_at=latest.starts_at,
+        evaluation_ends_at=current_close,
+        strict=False,
+    )
     rows = calculate_indicator_rows(decision_clock_indicators(strategy), candles)
     return overlay_indicator_timeframe_values(
         strategy,
@@ -137,6 +171,8 @@ def _latest_merged_values(
         ltf_values=rows[-1],
         previous_ltf_values=rows[-2],
         extra_rows=extra_rows,
+        reference_rows=reference_rows,
+        strict_references=False,
     )
 
 
@@ -145,14 +181,21 @@ def evaluate_latest_entry(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> EntryConditionOutcome:
     """Evaluate LTF entry AND optional HTF filter on the newest closed LTF bar.
 
-    Extra-TF LTF-list indicators and HTF-filter values come from last-completed
-    bars only. In-progress bars are dropped. Missing required coverage fails closed.
+    Extra-TF LTF-list indicators, reference-instrument indicators, and HTF-filter values
+    come from last-completed bars only. In-progress bars are dropped. Missing required
+    coverage fails closed (a missing reference leaves its values undefined: no entry).
     """
     return evaluate_latest_entry_evidence(
-        strategy, candles, htf_candles, indicator_timeframe_candles
+        strategy,
+        candles,
+        htf_candles,
+        indicator_timeframe_candles,
+        reference_candles=reference_candles,
     ).outcome
 
 
@@ -161,6 +204,8 @@ def evaluate_latest_entry_evidence(
     candles: Sequence[Candle],
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    *,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> LatestEntryEvaluation:
     """Evaluate like ``evaluate_latest_entry`` and keep the values each rule read.
 
@@ -182,7 +227,7 @@ def evaluate_latest_entry_evidence(
     current_close = ltf_close(latest.starts_at, strategy.timeframe)
     visible_htf = _visible_htf(strategy, candles, htf_candles)
     merged_values, merged_previous = _latest_merged_values(
-        strategy, candles, visible_htf, indicator_timeframe_candles
+        strategy, candles, visible_htf, indicator_timeframe_candles, reference_candles
     )
     ltf_outcome = entry_condition_outcome(strategy.entry.when, merged_values, merged_previous)
     if htf_filter is None:

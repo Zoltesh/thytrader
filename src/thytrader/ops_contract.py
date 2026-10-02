@@ -49,11 +49,14 @@ live; the ``signal`` exit reason, the ``signal_exit`` intent purpose, and the du
 position exit marker; ADR 0093, Alembic 0058), research honesty and agent ergonomics
 (result windows, study axis values and per-candidate aggregates, thinned stitched points,
 document issue paths, JSON-number decimals, the library tag filter, bulk delete by tag,
-clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094), or sparse-market ingest
+clone names, the 32-sleeve cap, and batch sleeve adds; ADR 0094), sparse-market ingest
 (confirmed no-trade bars, listing-only history floors, and watch-relative catalog
-completeness; ADR 0095, Alembic 0059) change. Concurrency is the deployment's
-``research_worker_count`` and is reported by operator health, not compiled into this
-contract.
+completeness; ADR 0095, Alembic 0059), or read-only reference instruments
+(``data_requirements.reference_instruments`` and indicator ``source`` across research,
+paper, and live; reference dataset auto-binding, the ``reference_data_stale`` /
+``reference_data_missing`` decision skip reasons, and the reference watch gate on deployment
+start; ADR 0096) change. Concurrency is the deployment's ``research_worker_count`` and is
+reported by operator health, not compiled into this contract.
 """
 
 from __future__ import annotations
@@ -73,12 +76,12 @@ from thytrader.portfolios.models import (
 from thytrader.portfolios.proposals import PROPOSAL_KINDS
 from thytrader.research.models import BACKTEST_ENGINE
 from thytrader.research.parameter_sweep import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
-from thytrader.strategies.models import IndicatorKind
+from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v55"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v56"
 EXPECTED_SCHEMA_REVISION = "0059"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -155,6 +158,7 @@ HTF_FILTER_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_TIMEFRAME_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_OFFSET_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 SIGNAL_EXIT_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
+REFERENCE_INSTRUMENT_RUNTIMES: tuple[str, ...] = ("research", "paper", "live")
 INDICATOR_KINDS: tuple[str, ...] = tuple(kind.value for kind in IndicatorKind)
 POSITION_SIDES: tuple[str, ...] = ("long", "short")
 ATTACHED_ENTRY_BRACKETS: tuple[str, ...] = ("paper", "live")
@@ -202,6 +206,8 @@ def expected_ops_contract() -> dict[str, object]:
         "indicator_timeframe_runtimes": list(INDICATOR_TIMEFRAME_RUNTIMES),
         "indicator_offset_runtimes": list(INDICATOR_OFFSET_RUNTIMES),
         "signal_exit_runtimes": list(SIGNAL_EXIT_RUNTIMES),
+        "reference_instrument_runtimes": list(REFERENCE_INSTRUMENT_RUNTIMES),
+        "max_reference_instruments": MAX_REFERENCE_INSTRUMENTS,
         "indicator_kinds": list(INDICATOR_KINDS),
         "position_sides": list(POSITION_SIDES),
         "attached_entry_brackets": list(ATTACHED_ENTRY_BRACKETS),

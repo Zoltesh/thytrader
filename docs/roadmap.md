@@ -607,6 +607,30 @@ repaired on the first visit, and catalog completeness is judged against the look
 **Deferred:** a quiet newest bar still pauses a paper or live book (`data_gap`). A non-pausing wait
 for a settling newest bar is a risk-policy change and needs its own ADR.
 
+## Reference instruments — ✅ Shipped
+
+Strategies can gate on another market without trading it
+([ADR 0096](decisions/0096-reference-instruments.md)), for example "alts only while BTC-USDC 1d
+close > EMA(100)".
+
+- `data_requirements.reference_instruments` (at most 3, same quote currency, decision clock or a
+  coarser integer multiple) is read by indicators with `source`. Each reference's warmup is derived
+  from its indicators, and it uses closed-bar alignment like an HTF filter.
+- Research auto-binds reference datasets (`bound_datasets` role `reference`), and cross-market
+  studies keep the reference fixed.
+- Paper and live load reference bars every cycle. A stale or missing reference skips entries with
+  `reference_data_stale` / `reference_data_missing`. A start is refused until each reference
+  series is watched.
+- The builder has a reference block and an indicator instrument picker, with `BTC · EMA(100)`
+  labels. Template `btc-regime-gate`. Ops contract `thytrader-ops-contract-v56`.
+
+**Exit gate met:** reference-free documents keep their canonical bytes, results, and fingerprints
+(golden pinned). Tests prove an in-progress reference bar never changes a value, backtests are
+deterministic, and the paper/live fake loop fails closed on stale and missing references.
+
+**Deferred:** cross-instrument orders (pairs, spreads), references in another quote currency,
+reference indicators inside `htf_filter`, and auto-adding the reference watch at deployment start.
+
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 
 Non-secret knobs including YOLO on/off and independent tiers live in `thytrader.yaml`

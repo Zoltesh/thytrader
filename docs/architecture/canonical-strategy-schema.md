@@ -381,6 +381,43 @@ Per-indicator extra clocks overlay last-completed values onto the decision-clock
 
 `1m` cannot be HTF (nothing in the catalog is finer). `4h` LTF may use `1d` only (`6h` is not an integer multiple).
 
+## Reference instruments
+
+Optional `data_requirements.reference_instruments` declares up to three **read-only** series from
+other instruments ([ADR 0096](../decisions/0096-reference-instruments.md)). Indicators read one
+with `source`; operands in `entry.when` and `exits.signal_exit` then reference those indicators
+normally. Example: trade an alt only while BTC-USDC's last closed daily close is above its EMA(100).
+
+```json
+"data_requirements": {
+  "warmup_bars": 50,
+  "required_fields": ["open", "high", "low", "close", "volume"],
+  "reference_instruments": [{"id": "btc", "product_id": "BTC-USDC", "timeframe": "1d"}]
+},
+"indicators": [
+  {"id": "btc_close", "kind": "identity", "input": "close", "source": "btc", "parameters": {}},
+  {"id": "btc_ema", "kind": "ema", "input": "close", "source": "btc", "parameters": {"period": 100}}
+]
+```
+
+| Rule | Contract |
+|------|----------|
+| Count and ids | 1-3 entries; `id` matches `^[a-z][a-z0-9_]{0,31}$`, unique; no repeated `product_id` + `timeframe` pair |
+| Product | Coinbase spot product in the **strategy's quote currency**. Paper/live additionally require the series on the enabled market-data watchlist (watch-add only accepts enabled spot products) |
+| Timeframe | Equal to the strategy timeframe or a coarser integer multiple of it (the HTF pairing rule with the decision clock allowed) |
+| `source` | Names a declared reference id; the indicator omits `timeframe` (it reads the reference clock). `constant` takes no source; ATR stop/trail indicators and `htf_filter` indicators never take one |
+| Readers | Every reference is read by at least one indicator |
+| Warmup | Derived per reference from its indicators (period plus offset); `warmup_bars` covers the traded instrument only |
+| Alignment | At decision close `T`, a reference indicator reads the last reference bar whose exclusive close is `≤ T`. An in-progress reference bar is never read; a same-timeframe reference reads the bar that closes at `T` |
+| Research | Reference datasets bind like extra clocks (`bound_datasets` role `reference`) or are pinned with `reference_dataset_fingerprints`; omitted bounds shrink to reference coverage |
+| Paper / live | Reference bars are loaded every cycle. A missing or stale reference skips entries (`reference_data_missing` / `reference_data_stale`); exits keep running |
+| Canonical bytes | An empty or omitted list is dropped from canonical JSON, so reference-free documents keep their bytes and fingerprints; declaring references changes the fingerprint |
+
+Not supported: orders on a reference (no cross-instrument orders, pairs, or spreads), more than one
+traded instrument per strategy beyond ADR 0056 covered products (which all share the same
+references), a reference in another quote currency, a reference finer than the decision clock, and
+HTF-filter indicators on a reference.
+
 ## Entry
 
 ```json
