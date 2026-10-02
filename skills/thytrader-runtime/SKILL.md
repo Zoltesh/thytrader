@@ -246,6 +246,11 @@ close of the newest bar the bot evaluated for that product (from the decision jo
 `marked_at` its UTC close, and `unrealized_pnl` the gross PnL at that mark (signed quantity times
 the move from `entry_price`, before exit fees). All three are null without a journaled close;
 `list` does not mark books.
+On `show` (both summary and full HTTP detail), `ledger.mark_complete`, `marked_exposure`,
+`total_net_pnl`, and `total_return_fraction` use the same per-product journaled closes as the
+positions. Every open book needs its own mark; a missing close or unavailable journal leaves
+aggregate PnL and exposure null. Reads never fetch a venue price to fill the gap. Use full
+detail or the paged ledgers when historical fills or round-trip counts are needed.
 
 ## Same-bar exits (paper equals the backtest)
 

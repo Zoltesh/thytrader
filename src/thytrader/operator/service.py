@@ -20,6 +20,7 @@ from thytrader.backtest.models import (
 )
 from thytrader.config import Settings
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.execution.book_marks import last_bar_marks
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.execution.loop import split_pending_entry
 from thytrader.execution.models import (
@@ -184,7 +185,7 @@ def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
 
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
     from uuid import UUID
 
@@ -1489,12 +1490,19 @@ class OperatorDiagnostics:
         summaries: list[DeploymentSummary] = []
         for item in deployments:
             summary_row = await self._summary_or_none(item.id)
+            snapshot = _summary_as_snapshot(summary_row) if summary_row else None
+            marks = (
+                await last_bar_marks(self.decision_store, snapshot)
+                if self.decision_store is not None and snapshot is not None
+                else {}
+            )
             extra_ids = extra.get(item.strategy_fingerprint or "", (item.product_id,))
             summaries.append(
                 _deployment_summary(
                     item,
-                    snapshot=_summary_as_snapshot(summary_row) if summary_row else None,
+                    snapshot=snapshot,
                     summary_row=summary_row,
+                    marks={product_id: mark.price for product_id, mark in marks.items()},
                     extra_product_ids=extra_ids,
                     timeframe=await self._runtime_timeframe(item),
                 )
@@ -2137,6 +2145,7 @@ def _deployment_summary(
     *,
     snapshot: DeploymentSnapshot | None = None,
     summary_row: DeploymentSummarySnapshot | None = None,
+    marks: Mapping[str, Decimal] | None = None,
     extra_product_ids: tuple[str, ...] = (),
     timeframe: SupportedTimeframe | None = None,
 ) -> DeploymentSummary:
@@ -2144,7 +2153,7 @@ def _deployment_summary(
     ledger = None
     state: PositionState | None = None
     if snapshot is not None:
-        ledger = ledger_from_snapshot(snapshot)
+        ledger = ledger_from_snapshot(snapshot, marks=marks)
         state = deployment_position_state(snapshot)
     return DeploymentSummary(
         deployment_id=deployment.id,

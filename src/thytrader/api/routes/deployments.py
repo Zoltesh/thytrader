@@ -502,13 +502,22 @@ async def _with_book_marks(
     snapshot: DeploymentSnapshot,
     journal: DecisionJournalStore | None,
 ) -> DeploymentResponse:
-    """Stamp each open book (and the compatibility ``position``) with its last-bar mark."""
+    """Mark open books and their aggregate ledger from the same journaled closes."""
     marks = {} if journal is None else await last_bar_marks(journal, snapshot)
     if not marks:
         return response
     positions = tuple(_marked_position(item, marks) for item in response.positions)
     position = None if response.position is None else _marked_position(response.position, marks)
-    return response.model_copy(update={"positions": positions, "position": position})
+    ledger = ledger_from_snapshot(
+        snapshot, marks={product_id: mark.price for product_id, mark in marks.items()}
+    )
+    return response.model_copy(
+        update={
+            "positions": positions,
+            "position": position,
+            "ledger": _ledger_summary_response(ledger),
+        }
+    )
 
 
 def _marked_position(item: PositionResponse, marks: dict[str, BookMark]) -> PositionResponse:

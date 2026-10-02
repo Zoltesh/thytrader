@@ -315,6 +315,11 @@ book shows a state chip (Protected, Unprotected, Unverified, or Exiting), its uP
 entry / SL / TP. The figure is gross (before exit fees), and the tooltip names the bar close it
 used. Without an evaluated bar it shows `—`, never an estimate.
 
+Bot detail's aggregate ledger uses those same per-product bar closes for PnL and exposure.
+If any open book lacks a journaled close, the aggregate stays unknown even when another book
+has a mark. Operator runtime checks use the same rule; the separate Performance report uses
+market-data closes and may have a price when the decision journal does not.
+
 When one bar makes several exits due, paper takes the same one the backtest does: the stop first,
 then a take-profit the bar touched, then the exit rule, then the time exit. A bar that trades
 through the stop exits as a stop even if the time exit is also due on that bar.

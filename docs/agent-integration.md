@@ -347,6 +347,11 @@ Book marks ([ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.m
 `GET /api/v1/deployments/{id}` positions and `GET /api/v1/portfolios/{id}/deployment` sleeve
 `books[]` carry `mark_price` (the last evaluated bar's close from the decision journal),
 `marked_at`, and gross `unrealized_pnl` (null without a journaled close).
+Deployment detail (summary or full) derives `ledger.mark_complete`, `marked_exposure`, net PnL,
+and return from the same per-product journal marks. Operator `strategies` / `runtime` use them
+for `ledger_mark_complete`. Every open book needs its own close: a missing mark or journal
+outage leaves aggregate PnL/exposure unknown. These reads stay local and bounded; the separate
+operator `performance` report uses market-data closes.
 `GET /api/v1/portfolios/{id}/fill-comparisons` returns the operator report's
 `paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. An open paper book's
 `protection_status` is `covered` on every read.

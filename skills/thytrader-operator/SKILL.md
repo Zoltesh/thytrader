@@ -105,6 +105,13 @@ For sizes, orders, and fills use `thytrader-runtime show` (`positions`, `instrum
 product-tagged orders/fills, `book_totals`). The singular HTTP `position` field is
 compatibility-only.
 
+`strategies` and `runtime` also report `ledger_mark_complete`: true when every open product
+book has a last-close mark in the decision journal (or the deployment is flat), false when any
+open book has no journaled close or the journal cannot be read, and null when its books cannot
+be loaded. This uses the same journal marks as `thytrader-runtime show`, without fetching venue
+prices or historical fills. The separate `performance` report uses market-data closes and can
+still be marked when journal evidence is unavailable.
+
 ## Decision timeline
 
 Every paper and live strategy bot journals one decision per completed bar and covered product

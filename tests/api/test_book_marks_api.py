@@ -20,7 +20,7 @@ import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.execution.decision_store import InMemoryDecisionJournalStore
+from thytrader.execution.decision_store import DecisionStoreError, InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
@@ -208,3 +208,88 @@ def test_fill_comparisons_list_only_this_portfolios_twins(world: World) -> None:
     assert body["warnings"] == []
     missing = world.client.get(f"/api/v1/portfolios/{uuid4()}/fill-comparisons")
     assert missing.status_code == 404
+
+
+@pytest.mark.parametrize("detail", ["summary", "full"])
+@pytest.mark.parametrize("mode", [DeploymentMode.PAPER, DeploymentMode.LIVE])
+@pytest.mark.parametrize("coverage", ["complete", "partial", "missing"])
+def test_runtime_ledger_uses_each_open_books_journaled_mark(
+    world: World, detail: str, mode: DeploymentMode, coverage: str
+) -> None:
+    """Detail and operator completeness agree, including a missing secondary short mark."""
+    _portfolio_id, bot = _started_portfolio(world)
+    _open_long(world, bot, close=None if coverage == "missing" else "59500")
+    snapshot = asyncio.run(world.execution.get_deployment(bot))
+    assert snapshot.position is not None
+    short = replace(
+        snapshot.position,
+        product_id="ETH-USDC",
+        side=PositionSide.SHORT,
+        quantity=Decimal("0.2"),
+        entry_price=Decimal("2500"),
+        stop_price=Decimal("2600"),
+        target_price=Decimal("2300"),
+    )
+    asyncio.run(world.execution.save_position(short, deployment_id=bot))
+    # Opening both books spends 600, receives 500, and pays 2 in entry fees.
+    deployment = replace(snapshot.deployment, mode=mode, cash=Decimal("398"))
+    asyncio.run(world.execution.save_deployment(deployment))
+    if coverage == "complete":
+        decision = BarDecision(
+            deployment_id=bot,
+            product_id="ETH-USDC",
+            timeframe="1h",
+            mode=mode,
+            bar_starts_at=_BAR,
+            bar_closes_at=_BAR + timedelta(hours=1),
+            evaluated_at=_BAR + timedelta(hours=1, seconds=2),
+            outcome=DecisionOutcome.HOLDING,
+            reason_code="HOLDING",
+            summary="Holding short.",
+            close_price="2450",
+        )
+        asyncio.run(world.journal.upsert(decision))
+
+    response = world.client.get(f"/api/v1/deployments/{bot}?detail={detail}")
+    assert response.status_code == 200, response.text
+    body: JsonBody = response.json()
+    ledger = body["ledger"]
+    assert ledger["mark_complete"] is (coverage == "complete")
+    if coverage == "complete":
+        assert Decimal(ledger["marked_exposure"]) == Decimal("105")
+        assert Decimal(ledger["total_net_pnl"]) == Decimal("3")
+        assert Decimal(ledger["total_return_fraction"]) == Decimal("0.006")
+    else:
+        assert ledger["marked_exposure"] is None
+        assert ledger["total_net_pnl"] is None
+        assert ledger["total_return_fraction"] is None
+    report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
+    (row,) = report["payload"]["deployments"]
+    assert row["ledger_mark_complete"] is ledger["mark_complete"]
+
+
+def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A journal outage leaves open books incomplete without failing either read."""
+    _portfolio_id, bot = _started_portfolio(world)
+    _open_long(world, bot, close="61000")
+
+    async def unavailable(
+        deployment_id: UUID, product_id: str, bar_starts_at: datetime
+    ) -> BarDecision | None:
+        """Model an unavailable journal after a price was previously written."""
+        del deployment_id, product_id, bar_starts_at
+        raise DecisionStoreError("Decision journal is unavailable.")
+
+    monkeypatch.setattr(world.journal, "latest_before", unavailable)
+    for detail in ("summary", "full"):
+        response = world.client.get(f"/api/v1/deployments/{bot}?detail={detail}")
+        assert response.status_code == 200, response.text
+        body: JsonBody = response.json()
+        assert body["ledger"]["mark_complete"] is False
+        assert body["ledger"]["total_net_pnl"] is None
+        assert body["positions"][0]["mark_price"] is None
+    report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
+    (row,) = report["payload"]["deployments"]
+    assert row["ledger_mark_complete"] is False

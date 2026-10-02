@@ -47,6 +47,11 @@ reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_
 breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
 `worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and
 `open_book_count` without cash or quantities. Latches persist across pause.
+`ledger_mark_complete` uses each open product's last journaled close: true when all are marked
+or the deployment is flat, false when any close is missing or the journal is unavailable, null
+when the books could not be read. It shares the deployment detail's journal mark source; the
+separate `performance` report uses market-data closes. Summary reads remain bounded and do not
+load historical fills or fetch venue prices.
 Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
 or `thytrader-runtime stop UUID --flatten --confirm`. Latched breakers clear only through
 `thytrader-runtime reset-breaker-latches UUID --confirm` /
