@@ -32,10 +32,12 @@ from thytrader.execution.decisions import (
     DecisionRisk,
     DecisionSkipReason,
 )
+from thytrader.execution.geometry import entry_skip_category, entry_skip_detail
 from thytrader.execution.models import (
     DeploymentStatus,
     IntentPurpose,
     LifecycleCommand,
+    OrderKind,
     OrderStatus,
     RuntimePhase,
     resolved_product_id,
@@ -274,7 +276,7 @@ def _classify_outcome(
     context: BarContext, window: _Window, rule: EntryRuleTrace | None
 ) -> _Classified:
     """Apply the outcome precedence: error, entry, exit, block, rule, cancel, hold, skip."""
-    for step in (_error, _entry, _exit, _blocked):
+    for step in (_error, _entry, _exit, _entry_skipped, _blocked):
         found = step(context, window)
         if found is not None:
             return found
@@ -399,6 +401,8 @@ def _filled_exit_reason(
         return DecisionExitReason.TARGET
     if purpose in _MARKET_EXITS and purpose is not None:
         return _market_exit_reason(context, purpose)
+    if order.kind is OrderKind.STOP_LIMIT:
+        return _stop_or_trail(context)
     stop = order.stop_trigger_price
     target = order.take_profit_price or order.price
     if stop is not None and target is not None and abs(price - target) < abs(price - stop):
@@ -413,6 +417,26 @@ def _stop_or_trail(context: BarContext) -> DecisionExitReason:
     if trailing and position is not None and position.trail_extreme is not None:
         return DecisionExitReason.TRAIL
     return DecisionExitReason.STOP
+
+
+def _entry_skipped(context: BarContext, window: _Window) -> _Classified | None:
+    """A matched signal whose stop/target geometry or sizing rested no entry (ADR 0090)."""
+    del window
+    observations = context.observations
+    if observations is None or observations.entry_skip is None:
+        return None
+    reason = observations.entry_skip
+    category = (
+        DecisionSkipReason.ENTRY_GEOMETRY
+        if entry_skip_category(reason) == "geometry"
+        else DecisionSkipReason.ENTRY_SIZING
+    )
+    return _Classified(
+        outcome=DecisionOutcome.SKIPPED,
+        reason_code=reason.value.upper(),
+        skip_reason=category,
+        detail=entry_skip_detail(reason),
+    )
 
 
 def _blocked(context: BarContext, window: _Window) -> _Classified | None:
@@ -647,8 +671,12 @@ def _holding_summary(context: BarContext, window: _Window, rule: EntryRuleTrace 
     text = (
         f"Holding {position.side.value} {display_decimal(_text(position.quantity))} "
         f"@ {display_decimal(_text(position.entry_price))} · stop "
-        f"{display_decimal(_text(position.stop_price))} · target "
-        f"{display_decimal(_text(position.target_price))}"
+        f"{display_decimal(_text(position.stop_price))} · "
+        + (
+            "no take-profit"
+            if position.target_price is None
+            else f"target {display_decimal(_text(position.target_price))}"
+        )
     )
     entry_fill = next(
         (
@@ -689,6 +717,8 @@ def _skip_summary(
     if reason is DecisionSkipReason.MAX_OPEN_POSITIONS:
         limit = context.strategy.portfolio_limits.max_concurrent_positions
         return f"Skipped: max concurrent positions reached ({limit})"
+    if reason in {DecisionSkipReason.ENTRY_GEOMETRY, DecisionSkipReason.ENTRY_SIZING}:
+        return f"Skipped: signal matched but {classified.detail}"
     return _status_skip_summary(deployment, classified)
 
 
@@ -768,7 +798,7 @@ def _position(position: Position | None) -> DecisionPosition | None:
         quantity=canonical_decimal(position.quantity),
         entry_price=canonical_decimal(position.entry_price),
         stop_price=canonical_decimal(position.stop_price),
-        target_price=canonical_decimal(position.target_price),
+        target_price=_text(position.target_price),
     )
 
 

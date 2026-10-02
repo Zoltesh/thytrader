@@ -74,7 +74,9 @@ export function summarizeStrategySource(
 	];
 	const exits = [
 		`Initial stop: ${model.exits.initial_stop.kind} ${model.exits.initial_stop.multiple}× ${model.exits.initial_stop.atr_indicator}`,
-		`Take profit: ${model.exits.take_profit.kind} ${model.exits.take_profit.multiple}× risk`,
+		model.exits.take_profit.kind === 'reward_risk'
+			? `Take profit: reward_risk ${model.exits.take_profit.multiple}× risk`
+			: 'Take profit: none (stop, trail, or time exit)',
 		model.exits.trailing_stop.enabled
 			? `Trailing stop: ${model.exits.trailing_stop.multiple}× ${model.exits.trailing_stop.atr_indicator}`
 			: 'Trailing stop: off',

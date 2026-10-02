@@ -72,6 +72,8 @@ flowchart TD
   Sim --> Result["BacktestResult fingerprint"]
   Result --> API["GET /api/v1/backtests/..."]
   Result --> BH["derived buy-and-hold-v1\ncarries engine, not in result bytes"]
+  Sim --> Diag["thytrader-backtest-diagnostics-v1\nentry funnel, diagnostics_json column\nnot in result bytes (ADR 0090)"]
+  Diag --> API
 ```
 
 Results carry `engine` and no `broker` block; the run's `costs` (including

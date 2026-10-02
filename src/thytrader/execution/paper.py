@@ -58,6 +58,8 @@ class PaperBroker:
         del product_id, side, stop_trigger_price, take_profit_price
         if kind is OrderKind.TRIGGER_BRACKET:
             raise ValueError("paper does not submit venue trigger brackets")
+        if kind is OrderKind.STOP_LIMIT:
+            raise ValueError("paper does not submit venue stop-limit orders")
         if kind is OrderKind.MARKETABLE:
             if price is None:
                 raise ValueError("marketable paper orders require a mark price")

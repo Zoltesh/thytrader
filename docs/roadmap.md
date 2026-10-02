@@ -483,6 +483,24 @@ skills resolve the API base URL from settings. Ops contract `thytrader-ops-contr
 **Exit gate met:** a backtest and an OOS study with no fingerprints or bounds bind and echo the
 newest datasets; a cross-market study from one strategy plans three exact variants; a 9-candidate
 sweep queues async and is refused synchronously; `plan-study` prints a 422's code and message.
+## Research correctness: optional take-profit, named skips, diagnostics — ✅ Shipped
+
+Live research found a short whose take-profit would be at or below zero silently never entering
+([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). Shipped:
+`exits.take_profit: {"kind": "none"}` in backtest, paper (no TP order; synthetic stop), and live
+(one Coinbase `stop_limit_stop_limit_gtc` 5% through the stop instead of a TP/SL bracket); one
+shared stop/target geometry that names every refusal (`target_not_positive`, `stop_not_positive`,
+`notional_below_minimum`, …) in backtest diagnostics and as `skipped` decision rows; advisory
+save-time `validation.warnings` for geometry that plausible volatility makes untradable; a
+`thytrader-backtest-diagnostics-v1` entry funnel stored beside each result (fingerprints
+unchanged) on `show-result`, the API, and the Test stage's "Why so few trades?" disclosure;
+fee prefills from the account's reported Coinbase rates with the public schedule as context; and
+`thytrader-research-evaluate` ported to `GET /api/v1/backtests/{fp}/signal-trace`. Ops contract
+`thytrader-ops-contract-v50` / Alembic `0055`.
+
+**Exit gate met:** the AVAX-style 10R short reports `target_not_positive` instead of zero
+unexplained trades; backtest/paper/live parity tests cover `take_profit: none`; golden
+fingerprints for pre-existing strategies and results are unchanged.
 
 ## YAML non-secret settings and runtime-reloadable YOLO — ✅ Shipped
 

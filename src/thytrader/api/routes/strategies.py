@@ -38,6 +38,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
 )
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
+from thytrader.strategies.advisories import strategy_warnings
 from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
 from thytrader.strategies.library import (
     MAX_BULK_DELETE,
@@ -78,11 +79,20 @@ class ValidationIssueResponse(BaseModel):
     message: str
 
 
+class ValidationWarningResponse(BaseModel):
+    """One advisory finding that never blocks a save or a run (ADR 0090)."""
+
+    code: str
+    loc: str
+    message: str
+
+
 class StrategyValidationResponse(BaseModel):
-    """The validation result stored with the current document."""
+    """The validation result stored with the current document plus advisory warnings."""
 
     valid: bool
     issues: tuple[ValidationIssueResponse, ...] = ()
+    warnings: tuple[ValidationWarningResponse, ...] = ()
 
 
 class StrategyResponse(BaseModel):
@@ -448,11 +458,31 @@ def strategy_response(record: StrategyRecord) -> StrategyResponse:
                 ValidationIssueResponse(loc=item.loc, message=item.message)
                 for item in record.validation.issues
             ),
+            warnings=_warning_responses(record.definition),
         ),
         current_fingerprint=record.current_fingerprint,
         summary=None if record.definition is None else strategy_summary(record.definition),
         product_id=record.product_id,
         timeframe=record.timeframe,
+    )
+
+
+def _warning_responses(
+    definition: StrategyDefinition | None,
+) -> tuple[ValidationWarningResponse, ...]:
+    """Advisory warnings for a valid definition; never allowed to break a response."""
+    if definition is None:
+        return ()
+    try:
+        found = strategy_warnings(definition)
+    except (ArithmeticError, ValueError) as error:
+        _logger.warning("Strategy warnings unavailable: %s", type(error).__name__)
+        return ()
+    return tuple(
+        ValidationWarningResponse(
+            code=item.code.value, loc=".".join(item.loc), message=item.message
+        )
+        for item in found
     )
 
 

@@ -62,7 +62,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` (every paused `mismatch_detail` is a `STATE_MISMATCH` finding whose `detail` is the mismatch text; split pending-entry state adds `FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`; a live order Coinbase reports FILLED with no List Fills rows (`Filled order has no REST fills.`) adds `FILLED_WITHOUT_FILL` next to `STATE_MISMATCH`; `unknown` orders add `UNKNOWN_ORDERS`; recent audit failures add `AUDIT_FAILURES`) |
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
-| Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus research-only suggested maker/taker) |
+| Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
 | Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, newest portfolio backtest; `deployable: false`). Edit portfolios with `thytrader-portfolio` (ADR 0088) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
@@ -119,8 +119,13 @@ and the HTF filter (labels mark another clock as `[4h]` and an indicator `offset
 the value is the lagged one the runtime compared); `risk` is the risk or freshness verdict; `action`, `intent_id`, `orders`, and
 `fills` link what was sent; `skip_reason` (`cooldown`, `max_open_positions`, `warmup`,
 `pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`,
-`entries_disabled`) and `exit_reason` (`stop`, `trail`, `target`, `time`, `flatten`) name the
-cause. Values are exact Decimal strings. Pass `next_cursor` back as `--cursor` for older bars.
+`entries_disabled`, `entry_geometry`, `entry_sizing`) and `exit_reason` (`stop`, `trail`,
+`target`, `time`, `flatten`) name the cause. `entry_geometry` / `entry_sizing` mark a matched
+signal that rested no order; its `reason_code` is exact — `TARGET_NOT_POSITIVE` (a short's
+take-profit would be at or below zero), `STOP_NOT_POSITIVE`, `STOP_DISTANCE_NOT_POSITIVE`,
+`NOTIONAL_BELOW_MINIMUM`, `QUANTITY_BELOW_VENUE_MINIMUM`, `NOTIONAL_BELOW_VENUE_MINIMUM`,
+`INSUFFICIENT_CASH`, or `SIZING_CASH_UNAVAILABLE`
+([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). Values are exact Decimal strings. Pass `next_cursor` back as `--cursor` for older bars.
 The journal keeps the newest 20,000 decisions per bot for at most 180 days. `storage: unavailable`
 means the API has no database; it is not "no decisions". A bar is journaled only once it closes
 and is processed, so the newest bar lags the clock by up to one execution-worker interval.
@@ -155,10 +160,13 @@ Database health is an API engine ping when `THYTRADER_DATABASE_URL` is set.
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v49`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v50`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0054`, `decision_journals` `paper`/`live` (per-bar decision timeline;
+   Alembic revision `0055`, `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
+   `trigger_bracket`/`stop_limit`, `backtest_diagnostics`, `fee_suggestion_source`
+   `coinbase_account` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)),
+   `decision_journals` `paper`/`live` (per-bar decision timeline;
    [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `portfolio_model` (sleeves, shared limits, manager settings, journal,
    portfolio backtest; [ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
    [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;

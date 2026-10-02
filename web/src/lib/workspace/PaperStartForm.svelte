@@ -2,7 +2,7 @@
 	/**
 	 * Start-paper form for the Run stage (the start half of the former
 	 * DeployWorkstation). Paper starting cash plus maker/taker fee
-	 * assumptions, prefilled from the Coinbase fee-tier suggestion unless the
+	 * assumptions, prefilled from your Coinbase account fee rates (ADR 0090) unless the
 	 * operator edited them. Starting is a mutation behind a confirmation, and
 	 * it starts a new deployment of the strategy's current rules (the server
 	 * snapshots them): it is not a promotion of any backtest.

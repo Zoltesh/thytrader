@@ -78,6 +78,26 @@
 		onchange();
 	}
 
+	/** Last reward/risk multiple, restored when the operator switches back from `none`. */
+	let lastTakeProfitMultiple = $state('2');
+
+	/** Switch between a reward/risk take-profit and none (stop, trail, time exit only). */
+	function setTakeProfitKind(kind: string): void {
+		const current = model.exits.take_profit;
+		if (kind === 'none') {
+			if (current.kind === 'reward_risk') lastTakeProfitMultiple = current.multiple;
+			model.exits.take_profit = { kind: 'none' };
+		} else {
+			model.exits.take_profit = { kind: 'reward_risk', multiple: lastTakeProfitMultiple };
+		}
+		markDirty();
+	}
+
+	function setTakeProfitMultiple(multiple: string): void {
+		model.exits.take_profit = { kind: 'reward_risk', multiple };
+		markDirty();
+	}
+
 	/** Edit the Coinbase product id (`BASE-QUOTE`); the base currency follows the id. */
 	function setProduct(raw: string): void {
 		const productId = raw.trim().toUpperCase();
@@ -562,14 +582,31 @@
 				</div>
 				<div class="grid-two">
 					<label
-						>Take profit — reward/risk multiple
-						<input
-							inputmode="decimal"
-							bind:value={model.exits.take_profit.multiple}
-							oninput={markDirty}
-						/></label
+						>Take profit
+						<select
+							aria-label="Take profit kind"
+							value={model.exits.take_profit.kind}
+							onchange={(event) => setTakeProfitKind(event.currentTarget.value)}
+						>
+							<option value="reward_risk">Reward/risk multiple</option>
+							<option value="none">None — exit on stop, trail, or time</option>
+						</select></label
 					>
-					<span></span>
+					{#if model.exits.take_profit.kind === 'reward_risk'}
+						<label
+							>Take profit — reward/risk multiple
+							<input
+								inputmode="decimal"
+								value={model.exits.take_profit.multiple}
+								oninput={(event) => setTakeProfitMultiple(event.currentTarget.value)}
+							/></label
+						>
+					{:else}
+						<p class="hint">
+							No take-profit order rests. Paper enforces the stop on closed bars; live rests a
+							Coinbase stop-limit at the stop.
+						</p>
+					{/if}
 				</div>
 				<div class="grid-two">
 					<label

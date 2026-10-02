@@ -43,7 +43,14 @@ export type StrategyDocument = { [key: string]: unknown };
 
 export type StrategyValidationIssue = { loc: string; message: string };
 
-export type StrategyValidation = { valid: boolean; issues: StrategyValidationIssue[] };
+/** Advisory finding on a valid document; never blocks a save or a run (ADR 0090). */
+export type StrategyValidationWarning = { code: string; loc: string; message: string };
+
+export type StrategyValidation = {
+	valid: boolean;
+	issues: StrategyValidationIssue[];
+	warnings?: StrategyValidationWarning[];
+};
 
 /** `GET/PUT /api/v1/strategies/{id}` and the create / clone / import responses. */
 export type StrategyRecord = {
@@ -278,7 +285,7 @@ export type BuilderModel = {
 	portfolio_limits: { max_strategy_exposure_fraction: string; max_concurrent_positions: number };
 	exits: {
 		initial_stop: { kind: string; atr_indicator: string; multiple: string };
-		take_profit: { kind: string; multiple: string };
+		take_profit: TakeProfitDraft;
 		trailing_stop:
 			| { enabled: false }
 			| { enabled: true; kind: 'atr_multiple'; atr_indicator: string; multiple: string };
@@ -294,6 +301,20 @@ export type BuilderModel = {
 	pyramiding: PyramidingDraft | null;
 	metadata: { tags: string[]; notes: string[] };
 };
+
+/** Reward/risk take-profit, or `none`: exit on the stop, ATR trail, or time exit (ADR 0090). */
+export type TakeProfitDraft = { kind: 'reward_risk'; multiple: string } | { kind: 'none' };
+
+/** The reward/risk multiple, or null when the strategy declares no take-profit. */
+export function takeProfitMultiple(takeProfit: TakeProfitDraft): string | null {
+	return takeProfit.kind === 'reward_risk' ? takeProfit.multiple : null;
+}
+
+/** One phrase for summaries: `take profit at 2× risk` or `no take-profit`. */
+export function takeProfitPhrase(takeProfit: TakeProfitDraft): string {
+	const multiple = takeProfitMultiple(takeProfit);
+	return multiple === null ? 'no take-profit' : `take profit at ${multiple}× risk`;
+}
 
 export type Dataset = {
 	product_id: string;

@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from thytrader.backtest.kernel import simulate_backtest
+from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.research.signal_evaluator import evaluate_signal_trace
 from thytrader.research.trace import signal_trace_fingerprint
 from thytrader.strategies.models import lockstep_product_ids
 
 if TYPE_CHECKING:
-    from thytrader.backtest.models import BacktestResult
+    from thytrader.backtest.models import BacktestDiagnostics, BacktestResult
     from thytrader.market_data.models import Candle
     from thytrader.research.models import ResearchRunSpecification
     from thytrader.research.publication import PublishedResearchRunSpecification
@@ -55,8 +55,17 @@ class PublishedStrategyReader(Protocol):
 class BacktestResultWriter(Protocol):
     """Append one verified canonical simulation result."""
 
-    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
-        """Persist one result only when the supplied canonical trace matches its identity."""
+    async def publish(
+        self,
+        result: BacktestResult,
+        *,
+        trace: SignalTrace,
+        diagnostics: BacktestDiagnostics | None = None,
+    ) -> BacktestResult:
+        """Persist one result only when the supplied canonical trace matches its identity.
+
+        ``diagnostics`` are stored beside the result, never inside its canonical bytes.
+        """
         ...
 
 
@@ -77,21 +86,21 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     # synchronous CPU-bound work. A large study run inline on the event loop would
     # delay concurrent pause/stop/status requests handled by the same API process
     # (audit F16). Run the bounded blocking segment on a worker thread instead.
-    result, trace = await asyncio.to_thread(
+    result, diagnostics, trace = await asyncio.to_thread(
         _load_and_simulate, dataset_store, specification, definition
     )
     if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
         raise RuntimeError(
             "Backtest trace identity did not match the authoritative signal evaluation."
         )
-    return await result_store.publish(result, trace=trace)
+    return await result_store.publish(result, trace=trace, diagnostics=diagnostics)
 
 
 def _load_and_simulate(
     dataset_store: VerifiedCandleReader,
     specification: ResearchRunSpecification,
     definition: StrategyDefinition,
-) -> tuple[BacktestResult, SignalTrace]:
+) -> tuple[BacktestResult, BacktestDiagnostics, SignalTrace]:
     """Reverify datasets and run the deterministic simulation off the event loop."""
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
     htf_candles = _optional_htf_candles(dataset_store, specification)
@@ -110,7 +119,7 @@ def _load_and_simulate(
             additional_htf.get(product_id, ()),
             additional_indicator.get(product_id),
         )
-    result = simulate_backtest(
+    result, diagnostics = simulate_backtest_with_diagnostics(
         specification,
         definition,
         candles,
@@ -120,7 +129,7 @@ def _load_and_simulate(
         additional_htf,
         additional_indicator,
     )
-    return result, trace
+    return result, diagnostics, trace
 
 
 def _optional_htf_candles(

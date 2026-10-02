@@ -118,11 +118,15 @@ bar.
 
 Entries are sized at the limit price from the signal bar's ATR: stop distance
 `atr * initial_stop.multiple`, stop at `limit - distance` (`+` for shorts), target at
-`limit + distance * take_profit.multiple` (`-` for shorts). Risk quantity
+`limit + distance * take_profit.multiple` (`-` for shorts), or no target when
+`take_profit` is `{"kind": "none"}`. Risk quantity
 `cash * risk_fraction / distance` is bounded by `max_quote_notional`, portfolio exposure
 fraction, available quote cash including the maker fee, and `min_quote_notional`. A
 non-positive stop distance, a non-positive stop or target, or an unavailable minimum notional
-skips the entry. Shorts sell to open (credit quote cash) and buy to cover; there is no borrow,
+skips the entry **with a named reason** (`stop_distance_not_positive`, `stop_not_positive`,
+`target_not_positive`, `notional_below_minimum`, `insufficient_cash`) from the same
+`execution/geometry.entry_levels` that paper and live use
+([ADR 0090](../decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). Shorts sell to open (credit quote cash) and buy to cover; there is no borrow,
 margin, or funding model (`spot_short_synthetic`).
 
 Pyramiding adds (when `entry.pyramiding` is enabled and `max_open_positions` allows) size against
@@ -166,6 +170,19 @@ For a raw reference price `p` and total fraction `s = spread_bps / 10,000`, the 
 Spread-stressed taker fills record `reference_price`, `executable_side` (`ask`/`bid`), and
 per-unit `spread_cost`; the summary records `total_spread_cost`. With `spread_bps = 0` none of
 those fields appear and results are byte-identical to runs that omit the field.
+
+## Diagnostics
+
+Every simulation also returns a `thytrader-backtest-diagnostics-v1` entry funnel, stored in
+`published_backtest_results.diagnostics_json` **beside** the canonical result (not in its bytes or
+fingerprint): `signals_matched`, `entries_rested`, `entries_filled`, `entries_expired`,
+`entries_repriced`, `entries_refused_at_fill` (shared cash no longer covered a fill),
+`entries_unfilled_at_end`, `entries_size_capped` (a notional cap clamped the size; caps never skip),
+`warmup_bars` (evaluation bars whose rule was undefined), and `skipped[{reason, count}]` with the
+gates `pending_entry`, `cooldown`, `max_positions`, `in_position` and every geometry/sizing reason.
+The model rejects an incoherent funnel: `signals_matched = entries_rested + Σ skipped` and
+`entries_rested = filled + expired + refused_at_fill + unfilled_at_end`. Results published before
+Alembic 0055 report `diagnostics: null` until an identical run is published again.
 
 ## Result fields
 

@@ -644,11 +644,13 @@ export async function mockPortfolioApi(page: Page, state: MockState): Promise<vo
 					source: 'coinbase',
 					suggested_maker_fee_rate: '0.004',
 					suggested_taker_fee_rate: '0.006',
-					suggestion_source: 'coinbase_fee_schedule',
+					suggestion_source: 'coinbase_account',
 					suggestion_fee_tier: 'Intro 1',
 					suggestion_schedule_tier_id: 'intro-1',
 					suggestion_schedule_version: '2026-09',
 					suggestion_schedule_as_of: '2026-09-01',
+					schedule_maker_fee_rate: '0.004',
+					schedule_taker_fee_rate: '0.006',
 					suggestion_fetched_at: '2026-10-02T09:00:00Z'
 				}
 			})

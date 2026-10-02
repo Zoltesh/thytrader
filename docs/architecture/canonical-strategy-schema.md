@@ -484,7 +484,13 @@ with the same multiple bounds as the initial stop. The named indicator must be a
 | Kind | Parameters | Description |
 |------|-----------|-------------|
 | `reward_risk` | `multiple` (0.5–10.0) | Target = entry ± (stop_distance × multiple). |
+| `none` | — | No take-profit: exit on the stop, the optional ATR trail, or the time exit. Canonical JSON is only `{"kind": "none"}` ([ADR 0090](../decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). Paper rests no TP order; live rests a venue stop-limit at the stop. |
 | `percentage` | `percentage` (0.001–0.50) | Target = entry ± (entry × percentage). |
+
+A short's reward/risk target is `entry − stop_distance × multiple`; when that is at or below zero
+the entry is skipped with `target_not_positive` (never silently), and strategy responses warn at
+save time (`short_target_may_be_non_positive`) when plausible volatility can reach that point
+(a stressed ATR of 20% of price per day, scaled by the square root of the bar length).
 
 ### Design distinction
 

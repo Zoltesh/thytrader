@@ -13,8 +13,12 @@ import pytest
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as postgres_insert
 
-from thytrader.backtest.kernel import simulate_backtest
-from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
+from thytrader.backtest.kernel import simulate_backtest, simulate_backtest_with_diagnostics
+from thytrader.backtest.models import (
+    BacktestDiagnostics,
+    BacktestResult,
+    backtest_result_fingerprint,
+)
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_backtests import (
@@ -361,3 +365,53 @@ async def _seed_sources(
             )
             .on_conflict_do_nothing()
         )
+
+
+def test_postgres_store_keeps_diagnostics_beside_the_canonical_result() -> None:
+    """ADR 0090: diagnostics persist in their own column and never change result identity."""
+    database_url = os.environ.get("THYTRADER_INTEGRATION_DATABASE_URL")
+    if database_url is None:
+        pytest.skip("THYTRADER_INTEGRATION_DATABASE_URL is not configured")
+    strategy = _strategy()
+    specification = _run(strategy)
+    result, diagnostics = simulate_backtest_with_diagnostics(specification, strategy, _candles())
+    asyncio.run(
+        _assert_postgres_diagnostics(database_url, result, diagnostics, strategy, specification)
+    )
+
+
+async def _assert_postgres_diagnostics(
+    database_url: str,
+    result: BacktestResult,
+    diagnostics: BacktestDiagnostics,
+    strategy: StrategyDefinition,
+    specification: ResearchRunSpecification,
+) -> None:
+    """A pre-0055 row (no diagnostics) is backfilled by an identical republish, never rewritten."""
+    engine = create_engine(SecretStr(database_url))
+    try:
+        await _seed_sources(engine, result, strategy, specification)
+        store = _result_store(engine, specification)
+        trace = evaluate_signal_trace(specification, strategy, _candles())
+        fingerprint = backtest_result_fingerprint(result)
+        await store.publish(result, trace=trace)
+        assert await store.load_diagnostics(fingerprint) is None
+        republished = await store.publish(result, trace=trace, diagnostics=diagnostics)
+        assert republished == result
+        assert backtest_result_fingerprint(republished) == fingerprint
+        assert await store.load_diagnostics(fingerprint) == diagnostics
+        replacement = diagnostics.model_copy(update={"warmup_bars": diagnostics.warmup_bars + 7})
+        await store.publish(result, trace=trace, diagnostics=replacement)
+        assert await store.load_diagnostics(fingerprint) == diagnostics
+        async with engine.connect() as connection:
+            canonical = (
+                await connection.execute(
+                    select(published_backtest_results.c.canonical_result).where(
+                        published_backtest_results.c.result_fingerprint == fingerprint
+                    )
+                )
+            ).scalar_one()
+        assert "diagnostics" not in canonical
+    finally:
+        await _cleanup_seeded_sources(engine, result)
+        await dispose(engine)

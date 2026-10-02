@@ -30,7 +30,7 @@ marks; maker fills stay at their limit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from decimal import (
     ROUND_HALF_EVEN,
@@ -48,9 +48,12 @@ from pydantic import ValidationError
 
 from thytrader.backtest.broker import FillModel, FillQuote
 from thytrader.backtest.models import (
+    BacktestDiagnostics,
     BacktestExitFill,
     BacktestFill,
+    BacktestGateReason,
     BacktestResult,
+    BacktestSkipCount,
     BacktestSummary,
     BacktestTrade,
     EquityPoint,
@@ -59,6 +62,8 @@ from thytrader.backtest.research_validity import (
     ResearchValidityLimitCode,
     collect_backtest_validity_limits,
 )
+from thytrader.execution.geometry import EntrySkipReason, entry_levels
+from thytrader.execution.models import PositionSide as RuntimePositionSide
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
@@ -85,6 +90,7 @@ from thytrader.strategies.models import (
     atr_trailing_stop,
     can_pyramid_add,
     lockstep_product_ids,
+    reward_risk_multiple,
     strategy_fingerprint,
 )
 
@@ -112,30 +118,90 @@ class BacktestSimulationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class _PendingEntry:
-    """A close-limit entry (or same-side add) resting until a later bar trades through it."""
+    """A close-limit entry (or same-side add) resting until a later bar trades through it.
+
+    ``target_price`` is None when the strategy declares no take-profit.
+    """
 
     signal: SignalTraceRecord
     limit_price: Decimal
     quantity: Decimal
     stop_price: Decimal
-    target_price: Decimal
+    target_price: Decimal | None
     waited_bars: int
     side: PositionSide = "long"
     is_pyramid_add: bool = False
+    size_capped: bool = False
 
 
 @dataclass(frozen=True, slots=True)
 class _Position:
-    """An open position whose take-profit rests only after the fill bar, matching the worker."""
+    """An open position whose exits arm only after the fill bar, matching the worker.
+
+    ``take_profit_resting`` means post-fill-bar exit management is armed; a position with
+    ``target_price`` None (no take-profit) still stops, trails, and time-exits normally.
+    """
 
     entry: BacktestFill
     stop_price: Decimal
-    target_price: Decimal
+    target_price: Decimal | None
     entered_bar_index: int
     take_profit_resting: bool = False
     trail_extreme: Decimal | None = None
     side: PositionSide = "long"
     add_count: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class _SizedNotional:
+    """ATR-risk notional after the strategy, exposure, and cash caps, and whether one bound."""
+
+    notional: Decimal
+    capped: bool
+
+
+@dataclass(slots=True)
+class _Tally:
+    """Mutable entry-funnel counters for one simulation; frozen into ``BacktestDiagnostics``."""
+
+    signals_matched: int = 0
+    entries_rested: int = 0
+    entries_filled: int = 0
+    entries_expired: int = 0
+    entries_repriced: int = 0
+    entries_refused_at_fill: int = 0
+    entries_unfilled_at_end: int = 0
+    entries_size_capped: int = 0
+    warmup_bars: int = 0
+    skipped: dict[BacktestGateReason | EntrySkipReason, int] = field(default_factory=dict)
+
+    def skip(self, reason: BacktestGateReason | EntrySkipReason) -> None:
+        """Count one matched signal that rested no entry for ``reason``."""
+        self.skipped[reason] = self.skipped.get(reason, 0) + 1
+
+    def rested(self, pending: _PendingEntry) -> None:
+        """Count one rested entry and whether a notional cap bound its size."""
+        self.entries_rested += 1
+        if pending.size_capped:
+            self.entries_size_capped += 1
+
+    def diagnostics(self) -> BacktestDiagnostics:
+        """Freeze the counters, with skip reasons in stable lexicographic order."""
+        return BacktestDiagnostics(
+            signals_matched=self.signals_matched,
+            entries_rested=self.entries_rested,
+            entries_filled=self.entries_filled,
+            entries_expired=self.entries_expired,
+            entries_repriced=self.entries_repriced,
+            entries_refused_at_fill=self.entries_refused_at_fill,
+            entries_unfilled_at_end=self.entries_unfilled_at_end,
+            entries_size_capped=self.entries_size_capped,
+            warmup_bars=self.warmup_bars,
+            skipped=tuple(
+                BacktestSkipCount(reason=reason, count=count)
+                for reason, count in sorted(self.skipped.items(), key=lambda item: item[0].value)
+            ),
+        )
 
 
 @dataclass(slots=True)
@@ -184,6 +250,30 @@ def simulate_backtest(
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
 ) -> BacktestResult:
     """Simulate under a private Decimal64 context that ignores ambient process settings."""
+    result, _diagnostics = simulate_backtest_with_diagnostics(
+        specification,
+        strategy,
+        candles,
+        htf_candles,
+        indicator_timeframe_candles,
+        additional_instrument_candles,
+        additional_htf_candles,
+        additional_indicator_candles,
+    )
+    return result
+
+
+def simulate_backtest_with_diagnostics(
+    specification: ResearchRunSpecification,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_instrument_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_htf_candles: Mapping[str, Sequence[Candle]] | None = None,
+    additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
+) -> tuple[BacktestResult, BacktestDiagnostics]:
+    """Simulate and also return the entry-funnel counters kept outside the canonical result."""
     try:
         with localcontext(_SIMULATION_CONTEXT):
             return _simulate_backtest(
@@ -213,7 +303,7 @@ def _simulate_backtest(
     additional_instrument_candles: Mapping[str, Sequence[Candle]],
     additional_htf_candles: Mapping[str, Sequence[Candle]],
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]],
-) -> BacktestResult:
+) -> tuple[BacktestResult, BacktestDiagnostics]:
     """Verify inputs, evaluate every covered product's trace, and run the shared-cash loop."""
     specification, strategy = _validated_inputs(specification, strategy)
     primary = strategy.instrument.product_id
@@ -257,8 +347,9 @@ def _simulate_books(
     strategy: StrategyDefinition,
     candles_by_product: Mapping[str, Sequence[Candle]],
     traces: Mapping[str, SignalTrace],
-) -> BacktestResult:
+) -> tuple[BacktestResult, BacktestDiagnostics]:
     """Run every product book in lexicographic order on each shared bar with one quote book."""
+    tally = _Tally()
     interval = _bar_interval(specification, strategy)
     bar = interval.duration
     product_ids = lockstep_product_ids(strategy)
@@ -297,6 +388,7 @@ def _simulate_books(
                 cash=cash,
                 bar_duration=bar,
                 trades=trades,
+                tally=tally,
             )
             _maybe_rest_entry(
                 book,
@@ -306,6 +398,7 @@ def _simulate_books(
                 cash=cash,
                 limit_price=book.candle_by_start[starts_at].close,
                 may_open_book=sum(1 for item in books.values() if item.is_open) < max_books,
+                tally=tally,
             )
         equity_curve.append(
             _equity_point(
@@ -320,6 +413,8 @@ def _simulate_books(
     ends_at = specification.evaluation.ends_at
     for product_id in product_ids:
         book = books[product_id]
+        if book.pending is not None:
+            tally.entries_unfilled_at_end += 1
         book.pending = None
         if book.position is None:
             continue
@@ -345,7 +440,7 @@ def _simulate_books(
         )
     )
 
-    return BacktestResult(
+    result = BacktestResult(
         schema_version="1.0",
         engine=BACKTEST_ENGINE,
         run_fingerprint=research_run_fingerprint(specification),
@@ -364,6 +459,7 @@ def _simulate_books(
             validity_limits=collect_backtest_validity_limits(strategy),
         ),
     )
+    return result, tally.diagnostics()
 
 
 def _process_bar(
@@ -376,6 +472,7 @@ def _process_bar(
     cash: Decimal,
     bar_duration: timedelta,
     trades: list[BacktestTrade],
+    tally: _Tally,
 ) -> Decimal:
     """Match the resting entry, then manage the open position (stop first), then the target.
 
@@ -384,7 +481,9 @@ def _process_bar(
     """
     if book.cooldown_bars > 0:
         book.cooldown_bars -= 1
-    cash = _match_entry(book, candle, offset=offset, strategy=strategy, costs=costs, cash=cash)
+    cash = _match_entry(
+        book, candle, offset=offset, strategy=strategy, costs=costs, cash=cash, tally=tally
+    )
     trade, cash = _stop_out(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
     if trade is None:
         trade, cash = _match_take_profit(
@@ -414,6 +513,7 @@ def _match_entry(
     strategy: StrategyDefinition,
     costs: _Costs,
     cash: Decimal,
+    tally: _Tally,
 ) -> Decimal:
     """Fill a resting limit when the closed bar trades through, else wait, cancel, or reprice."""
     pending = book.pending
@@ -428,22 +528,51 @@ def _match_entry(
     )
     if traded_through:
         book.pending = None
-        if book.position is not None:
-            book.position, cash = _scale_in(pending, position=book.position, cash=cash, costs=costs)
-            return cash
-        book.position, cash = _open_position(
-            pending, candle, cash=cash, entry_bar_index=offset, costs=costs
+        return _fill_resting_entry(
+            book, pending, candle, offset=offset, costs=costs, cash=cash, tally=tally
         )
-        return cash
     waited = pending.waited_bars + 1
     if waited < strategy.execution.max_entry_wait_bars:
         book.pending = replace(pending, waited_bars=waited)
         return cash
     if strategy.execution.on_unfilled_entry == "reprice":
         book.pending = replace(pending, limit_price=candle.close, waited_bars=0)
+        tally.entries_repriced += 1
         return cash
     book.pending = None
     book.cooldown_bars = max(strategy.entry.cooldown_bars, 1)
+    tally.entries_expired += 1
+    return cash
+
+
+def _fill_resting_entry(
+    book: _Book,
+    pending: _PendingEntry,
+    candle: Candle,
+    *,
+    offset: int,
+    costs: _Costs,
+    cash: Decimal,
+    tally: _Tally,
+) -> Decimal:
+    """Open or scale into the book; a fill the shared cash can no longer fund is refused."""
+    position = book.position
+    if position is not None:
+        scaled, cash = _scale_in(pending, position=position, cash=cash, costs=costs)
+        # ``_scale_in`` hands back the unchanged position when cash cannot fund the add.
+        if scaled is position:
+            tally.entries_refused_at_fill += 1
+        else:
+            tally.entries_filled += 1
+        book.position = scaled
+        return cash
+    book.position, cash = _open_position(
+        pending, candle, cash=cash, entry_bar_index=offset, costs=costs
+    )
+    if book.position is None:
+        tally.entries_refused_at_fill += 1
+    else:
+        tally.entries_filled += 1
     return cash
 
 
@@ -486,22 +615,24 @@ def _match_take_profit(
     cash: Decimal,
     bar_duration: timedelta,
 ) -> tuple[BacktestTrade | None, Decimal]:
-    """Fill a resting take-profit at the target, as a maker, when a later bar touches it."""
+    """Fill a resting take-profit at the target, as a maker, when a later bar touches it.
+
+    A position without a target (``take_profit: {"kind": "none"}``) never fills here.
+    """
     position = book.position
     if position is None or not position.take_profit_resting:
         return None, cash
-    hit = (
-        candle.low <= position.target_price
-        if position.side == "short"
-        else candle.high >= position.target_price
-    )
+    target = position.target_price
+    if target is None:
+        return None, cash
+    hit = candle.low <= target if position.side == "short" else candle.high >= target
     if not hit:
         return None, cash
     trade, cash = _close_position(
         position,
         candle,
         cash=cash,
-        quote=costs.fill_model.maker(position.target_price),
+        quote=costs.fill_model.maker(target),
         reason="take_profit",
         fee_rate=costs.maker_fee_rate,
         bar_duration=bar_duration,
@@ -589,37 +720,76 @@ def _maybe_rest_entry(
     cash: Decimal,
     limit_price: Decimal,
     may_open_book: bool,
+    tally: _Tally,
 ) -> None:
-    """Rest a post-only entry at the signal bar close when matched, off cooldown, and allowed."""
-    if book.pending is not None or book.cooldown_bars > 0:
+    """Rest a post-only entry at the signal bar close when matched, off cooldown, and allowed.
+
+    Every matched signal either rests an entry or is counted under exactly one skip
+    reason, so a zero-trade result explains itself (ADR 0090). The checks are pure and
+    decide exactly as before; only the counting is new.
+    """
+    if record.entry_condition is EntryConditionOutcome.UNDEFINED:
+        tally.warmup_bars += 1
         return
     if record.entry_condition is not EntryConditionOutcome.MATCHED:
         return
-    if book.position is None:
-        if may_open_book:
-            book.pending = _size_entry(
-                record,
-                strategy=strategy,
-                cash=cash,
-                limit_price=limit_price,
-                maker_fee_rate=costs.maker_fee_rate,
-            )
+    tally.signals_matched += 1
+    gate = _entry_gate(
+        book, strategy=strategy, limit_price=limit_price, may_open_book=may_open_book
+    )
+    if gate is not None:
+        tally.skip(gate)
         return
-    if can_pyramid_add(
-        strategy=strategy,
-        side=book.position.side,
-        entry_price=Decimal(book.position.entry.price),
-        mark=limit_price,
-        add_count=book.position.add_count,
-    ):
-        book.pending = _size_pyramid_add(
+    position = book.position
+    sized = (
+        _size_entry(
             record,
             strategy=strategy,
             cash=cash,
             limit_price=limit_price,
             maker_fee_rate=costs.maker_fee_rate,
-            position=book.position,
         )
+        if position is None
+        else _size_pyramid_add(
+            record,
+            strategy=strategy,
+            cash=cash,
+            limit_price=limit_price,
+            maker_fee_rate=costs.maker_fee_rate,
+            position=position,
+        )
+    )
+    if isinstance(sized, EntrySkipReason):
+        tally.skip(sized)
+        return
+    book.pending = sized
+    tally.rested(sized)
+
+
+def _entry_gate(
+    book: _Book,
+    *,
+    strategy: StrategyDefinition,
+    limit_price: Decimal,
+    may_open_book: bool,
+) -> BacktestGateReason | None:
+    """Name the book state that prevents resting an entry, or None when sizing may proceed."""
+    if book.pending is not None:
+        return BacktestGateReason.PENDING_ENTRY
+    if book.cooldown_bars > 0:
+        return BacktestGateReason.COOLDOWN
+    position = book.position
+    if position is None:
+        return None if may_open_book else BacktestGateReason.MAX_POSITIONS
+    if can_pyramid_add(
+        strategy=strategy,
+        side=position.side,
+        entry_price=Decimal(position.entry.price),
+        mark=limit_price,
+        add_count=position.add_count,
+    ):
+        return None
+    return BacktestGateReason.IN_POSITION
 
 
 def _bounded_notional(
@@ -629,7 +799,7 @@ def _bounded_notional(
     stop_distance: Decimal,
     limit_price: Decimal,
     maker_fee_rate: Decimal,
-) -> Decimal | None:
+) -> _SizedNotional | EntrySkipReason:
     """Return ATR-risk notional bounded by strategy, exposure, and cash limits, if tradable."""
     risk_quantity = cash * Decimal(strategy.sizing.risk_fraction) / stop_distance
     maximum_notional = min(
@@ -637,10 +807,11 @@ def _bounded_notional(
         cash * Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
         cash / (Decimal("1") + maker_fee_rate),
     )
-    notional = min(risk_quantity * limit_price, maximum_notional)
+    requested = risk_quantity * limit_price
+    notional = min(requested, maximum_notional)
     if notional < Decimal(strategy.sizing.min_quote_notional):
-        return None
-    return notional
+        return EntrySkipReason.NOTIONAL_BELOW_MINIMUM
+    return _SizedNotional(notional=notional, capped=requested > maximum_notional)
 
 
 def _size_entry(
@@ -650,41 +821,41 @@ def _size_entry(
     cash: Decimal,
     limit_price: Decimal,
     maker_fee_rate: Decimal,
-) -> _PendingEntry | None:
-    """Size a resting entry at the signal close using ATR risk, without filling yet."""
+) -> _PendingEntry | EntrySkipReason:
+    """Size a resting entry at the signal close using ATR risk, without filling yet.
+
+    Geometry is the shared ``entry_levels`` that paper and live use (without venue
+    increments): a short whose target would be at or below zero is ``target_not_positive``.
+    """
     atr = _indicator_value(signal, strategy.exits.initial_stop.atr_indicator)
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
-    if stop_distance <= 0 or limit_price <= 0:
-        return None
     side: PositionSide = strategy.entry.side
-    reward = stop_distance * Decimal(strategy.exits.take_profit.multiple)
-    if side == "short":
-        stop_price = limit_price + stop_distance
-        target_price = limit_price - reward
-        if target_price <= 0:
-            return None
-    else:
-        stop_price = limit_price - stop_distance
-        if stop_price <= 0:
-            return None
-        target_price = limit_price + reward
-    notional = _bounded_notional(
+    levels = entry_levels(
+        side=RuntimePositionSide(side),
+        entry_price=limit_price,
+        stop_distance=stop_distance,
+        reward_multiple=reward_risk_multiple(strategy.exits),
+    )
+    if isinstance(levels, EntrySkipReason):
+        return levels
+    sized = _bounded_notional(
         strategy,
         cash=cash,
         stop_distance=stop_distance,
         limit_price=limit_price,
         maker_fee_rate=maker_fee_rate,
     )
-    if notional is None:
-        return None
+    if isinstance(sized, EntrySkipReason):
+        return sized
     return _PendingEntry(
         signal=signal,
         limit_price=limit_price,
-        quantity=notional / limit_price,
-        stop_price=stop_price,
-        target_price=target_price,
+        quantity=sized.notional / limit_price,
+        stop_price=levels.stop_price,
+        target_price=levels.target_price,
         waited_bars=0,
         side=side,
+        size_capped=sized.capped,
     )
 
 
@@ -696,33 +867,38 @@ def _size_pyramid_add(
     limit_price: Decimal,
     maker_fee_rate: Decimal,
     position: _Position,
-) -> _PendingEntry | None:
+) -> _PendingEntry | EntrySkipReason:
     """Size a same-side add against the existing stop without worsening the target."""
     stop_distance = (
         limit_price - position.stop_price
         if position.side == "long"
         else position.stop_price - limit_price
     )
-    if stop_distance <= 0 or limit_price <= 0 or cash <= 0:
-        return None
-    notional = _bounded_notional(
+    if limit_price <= 0:
+        return EntrySkipReason.ENTRY_PRICE_NOT_POSITIVE
+    if stop_distance <= 0:
+        return EntrySkipReason.STOP_DISTANCE_NOT_POSITIVE
+    if cash <= 0:
+        return EntrySkipReason.INSUFFICIENT_CASH
+    sized = _bounded_notional(
         strategy,
         cash=cash,
         stop_distance=stop_distance,
         limit_price=limit_price,
         maker_fee_rate=maker_fee_rate,
     )
-    if notional is None:
-        return None
+    if isinstance(sized, EntrySkipReason):
+        return sized
     return _PendingEntry(
         signal=signal,
         limit_price=limit_price,
-        quantity=notional / limit_price,
+        quantity=sized.notional / limit_price,
         stop_price=position.stop_price,
         target_price=position.target_price,
         waited_bars=0,
         side=position.side,
         is_pyramid_add=True,
+        size_capped=sized.capped,
     )
 
 

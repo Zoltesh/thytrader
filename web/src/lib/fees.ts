@@ -1,5 +1,8 @@
 /**
- * Typed API client for Coinbase fee tiers and research maker/taker suggestions.
+ * Typed API client for Coinbase fee tiers and research/paper maker/taker suggestions.
+ *
+ * With credentials the suggestion is the account's own reported Coinbase rates (what
+ * live fills are billed at); the pinned public schedule band is context only (ADR 0090).
  */
 
 import { compareDecimalStrings } from './portfolio';
@@ -21,12 +24,14 @@ export interface FeeProfile {
 	source: 'coinbase';
 	suggested_maker_fee_rate?: string | null;
 	suggested_taker_fee_rate?: string | null;
-	suggestion_source?: 'coinbase_fee_schedule' | 'unavailable';
+	suggestion_source?: 'coinbase_account' | 'unavailable';
 	suggestion_unavailable_reason?: 'demo_or_missing_credentials' | null;
 	suggestion_fee_tier?: string | null;
 	suggestion_schedule_tier_id?: string | null;
 	suggestion_schedule_version?: string | null;
 	suggestion_schedule_as_of?: string | null;
+	schedule_maker_fee_rate?: string | null;
+	schedule_taker_fee_rate?: string | null;
 	suggestion_fetched_at?: string | null;
 }
 
@@ -37,6 +42,8 @@ export interface ResearchFeeSuggestion {
 	scheduleTierId: string;
 	scheduleVersion: string;
 	scheduleAsOf: string;
+	scheduleMakerFeeRate: string;
+	scheduleTakerFeeRate: string;
 	fetchedAt: string;
 }
 
@@ -65,10 +72,10 @@ export function formatFeeProfileAsOf(asOf: string): string | null {
 }
 
 /**
- * Read a schedule-backed research suggestion, or null when the payload is unavailable.
+ * Read the account-rate suggestion, or null when the payload is unavailable (demo, no keys).
  */
 export function readResearchFeeSuggestion(profile: FeeProfile): ResearchFeeSuggestion | null {
-	if (profile.suggestion_source !== 'coinbase_fee_schedule') {
+	if (profile.suggestion_source !== 'coinbase_account') {
 		return null;
 	}
 	const maker = profile.suggested_maker_fee_rate?.trim() ?? '';
@@ -92,8 +99,22 @@ export function readResearchFeeSuggestion(profile: FeeProfile): ResearchFeeSugge
 		scheduleTierId: profile.suggestion_schedule_tier_id?.trim() ?? '',
 		scheduleVersion,
 		scheduleAsOf: profile.suggestion_schedule_as_of?.trim() ?? '',
+		scheduleMakerFeeRate: profile.schedule_maker_fee_rate?.trim() ?? '',
+		scheduleTakerFeeRate: profile.schedule_taker_fee_rate?.trim() ?? '',
 		fetchedAt
 	};
+}
+
+/**
+ * Context line for the public schedule band; the account rates are what gets prefilled.
+ */
+export function formatScheduleContext(suggestion: ResearchFeeSuggestion): string {
+	const band = suggestion.scheduleTierId === '' ? '' : ` ${suggestion.scheduleTierId}`;
+	const rates =
+		suggestion.scheduleMakerFeeRate === '' || suggestion.scheduleTakerFeeRate === ''
+			? ''
+			: `: ${suggestion.scheduleMakerFeeRate} maker / ${suggestion.scheduleTakerFeeRate} taker`;
+	return `Account rates (${suggestion.feeTier}). Public schedule band${band}${rates} — context only, ${suggestion.scheduleVersion}.`;
 }
 
 /**
@@ -154,19 +175,19 @@ export function formatResearchFeeSourceChip(
 	asOfLabel: string | null
 ): string {
 	if (source === 'loading') {
-		return 'Loading fee-tier suggestion…';
+		return 'Loading your Coinbase fee rates…';
 	}
 	if (source === 'unavailable') {
-		return 'Coinbase fee-tier suggestion unavailable. Enter modeled rates.';
+		return 'Coinbase account fee rates unavailable. Enter modeled rates.';
 	}
 	if (source === 'custom') {
 		return 'Custom';
 	}
 	const asOf = asOfLabel !== null ? ` (as of ${asOfLabel})` : '';
 	if (source === 'stale-suggestion') {
-		return `Suggested from Coinbase fee tier${asOf} — stale`;
+		return `Suggested from your Coinbase account rates${asOf} — stale`;
 	}
-	return `Suggested from Coinbase fee tier${asOf}`;
+	return `Suggested from your Coinbase account rates${asOf}`;
 }
 
 /**
@@ -187,7 +208,7 @@ export function shouldPrefillResearchFeeRates(input: {
 }
 
 /**
- * Prefill paper deploy fields from a fee-tier suggestion without overwriting edits.
+ * Prefill paper deploy fields from the account-rate suggestion without overwriting edits.
  * Documented 0.001 / 0.002 defaults count as untouched until the operator types.
  */
 export function shouldPrefillPaperFeeRates(input: {

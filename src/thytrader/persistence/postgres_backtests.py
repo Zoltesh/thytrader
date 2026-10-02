@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import logging
 import re
 from typing import TYPE_CHECKING, Protocol, cast
 from uuid import UUID
 
 from pydantic import ValidationError
 from pydantic_core import PydanticSerializationError
-from sqlalchemy import JSON, cast as sql_cast, select
+from sqlalchemy import JSON, cast as sql_cast, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.backtest.models import (
+    BacktestDiagnostics,
     BacktestResult,
     BacktestSummary,
     backtest_result_fingerprint,
+    canonical_backtest_diagnostics_bytes,
     canonical_backtest_result_bytes,
 )
 from thytrader.persistence.backtest_results import (
@@ -40,6 +43,7 @@ if TYPE_CHECKING:
     from thytrader.research.publication import PublishedResearchRunSpecification
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_logger = logging.getLogger(__name__)
 
 
 class BacktestPublicationError(RuntimeError):
@@ -74,26 +78,52 @@ class PostgresBacktestResultStore:
         self._research_run_store = research_run_store
         self._dataset_store = dataset_store
 
-    async def publish(self, result: BacktestResult, *, trace: SignalTrace) -> BacktestResult:
-        """Idempotently append one result after canonical source and trace verification."""
+    async def publish(
+        self,
+        result: BacktestResult,
+        *,
+        trace: SignalTrace,
+        diagnostics: BacktestDiagnostics | None = None,
+    ) -> BacktestResult:
+        """Idempotently append one result after canonical source and trace verification.
+
+        Diagnostics live in ``diagnostics_json`` beside the canonical bytes. Republishing
+        an identical result only fills diagnostics a pre-0055 row never recorded; it never
+        rewrites the canonical result or replaces recorded diagnostics.
+        """
         validated = _validated_result(result)
         _verify_trace_identity(validated, trace)
         await self._verify_source_identity(validated)
         canonical = canonical_backtest_result_bytes(validated).decode("utf-8")
         fingerprint = backtest_result_fingerprint(validated)
+        diagnostics_json = (
+            None
+            if diagnostics is None
+            else canonical_backtest_diagnostics_bytes(diagnostics).decode("utf-8")
+        )
+        inserted = insert(published_backtest_results).values(
+            result_fingerprint=fingerprint,
+            run_fingerprint=validated.run_fingerprint,
+            strategy_fingerprint=validated.strategy_fingerprint,
+            strategy_id=snapshot_owner(validated.strategy_fingerprint),
+            dataset_fingerprint=validated.dataset_fingerprint,
+            signal_trace_fingerprint=validated.signal_trace_fingerprint,
+            canonical_result=canonical,
+            published_at=datetime.now(UTC),
+            diagnostics_json=diagnostics_json,
+        )
         statement = (
-            insert(published_backtest_results)
-            .values(
-                result_fingerprint=fingerprint,
-                run_fingerprint=validated.run_fingerprint,
-                strategy_fingerprint=validated.strategy_fingerprint,
-                strategy_id=snapshot_owner(validated.strategy_fingerprint),
-                dataset_fingerprint=validated.dataset_fingerprint,
-                signal_trace_fingerprint=validated.signal_trace_fingerprint,
-                canonical_result=canonical,
-                published_at=datetime.now(UTC),
+            inserted.on_conflict_do_nothing()
+            if diagnostics_json is None
+            else inserted.on_conflict_do_update(
+                index_elements=[published_backtest_results.c.result_fingerprint],
+                set_={
+                    "diagnostics_json": func.coalesce(
+                        published_backtest_results.c.diagnostics_json,
+                        inserted.excluded.diagnostics_json,
+                    )
+                },
             )
-            .on_conflict_do_nothing()
         )
         try:
             async with self._engine.begin() as connection:
@@ -106,6 +136,29 @@ class PostgresBacktestResultStore:
                 "Published backtest result content failed integrity verification."
             )
         return loaded
+
+    async def load_diagnostics(self, result_fingerprint: str) -> BacktestDiagnostics | None:
+        """Return the entry-funnel counters stored beside one result, or None when absent.
+
+        Diagnostics explain a result; they never authenticate it. A row written before
+        Alembic 0055, or a column that no longer validates, reads as None (logged).
+        """
+        _validate_fingerprint(result_fingerprint)
+        statement = select(published_backtest_results.c.diagnostics_json).where(
+            published_backtest_results.c.result_fingerprint == result_fingerprint
+        )
+        try:
+            async with self._engine.connect() as connection:
+                stored = (await connection.execute(statement)).scalar_one_or_none()
+        except SQLAlchemyError as error:
+            raise BacktestPublicationError("Backtest result storage is unavailable.") from error
+        if stored is None:
+            return None
+        try:
+            return BacktestDiagnostics.model_validate_json(cast("str", stored))
+        except ValidationError:
+            _logger.warning("Stored backtest diagnostics failed validation; reporting none.")
+            return None
 
     async def load(self, result_fingerprint: str) -> BacktestResult:
         """Load one result and reverify canonical bytes, identity rows, and source linkage."""

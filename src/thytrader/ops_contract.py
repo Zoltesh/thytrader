@@ -36,14 +36,17 @@ operator ``indicators`` report shape, indicator bar-lag (``offset``) evaluation,
 per-bar decision journal (``bar_decisions``, Alembic 0053, ADR 0087), the portfolio model
 (portfolios, sleeves, shared limits, manager settings, the portfolio journal, and the
 portfolio backtest contract; ADR 0088, Alembic 0054), research dataset auto-binding,
-cross-market product variants, the sync/async study budgets, or the operator ``products``
-constraint fields (ADR 0089) change.
+cross-market product variants, the sync/async study budgets, the operator ``products``
+constraint fields (ADR 0089), optional take-profit (``take_profit.kind: none``), live
+stop-only protection (``stop_limit``), backtest diagnostics, account-rate fee
+suggestions, or the HTTP signal-trace route (Alembic 0055, ADR 0090) change.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.models import (
@@ -58,8 +61,8 @@ from thytrader.strategies.models import IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v49"
-EXPECTED_SCHEMA_REVISION = "0054"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v50"
+EXPECTED_SCHEMA_REVISION = "0055"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -128,6 +131,10 @@ STUDY_BUDGETS: dict[str, dict[str, int]] = {
     "sync": {"candidates": MAX_SYNC_CANDIDATES, "windows": 128},
     "async": {"candidates": MAX_CANDIDATES, "windows": 512},
 }
+TAKE_PROFIT_KINDS: tuple[str, ...] = ("reward_risk", "none")
+LIVE_PROTECTION_KINDS: tuple[str, ...] = ("trigger_bracket", "stop_limit")
+BACKTEST_DIAGNOSTICS: tuple[str, ...] = (BACKTEST_DIAGNOSTICS_VERSION,)
+FEE_SUGGESTION_SOURCE = "coinbase_account"
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -157,6 +164,10 @@ def expected_ops_contract() -> dict[str, object]:
         "lifecycle_commands": list(LIFECYCLE_COMMANDS),
         "deployment_capital_fields": list(DEPLOYMENT_CAPITAL_FIELDS),
         "breaker_latch_reset": list(BREAKER_LATCH_RESET),
+        "take_profit_kinds": list(TAKE_PROFIT_KINDS),
+        "live_protection_kinds": list(LIVE_PROTECTION_KINDS),
+        "backtest_diagnostics": list(BACKTEST_DIAGNOSTICS),
+        "fee_suggestion_source": FEE_SUGGESTION_SOURCE,
         "async_backtest_job_statuses": list(RESEARCH_JOB_STATUSES),
         "research_job_statuses": list(RESEARCH_JOB_STATUSES),
         "max_concurrent_research_jobs": MAX_CONCURRENT_RESEARCH_JOBS,

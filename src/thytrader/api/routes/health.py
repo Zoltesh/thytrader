@@ -42,6 +42,10 @@ class HealthOpsContract(BaseModel):
     lifecycle_commands: list[str]
     deployment_capital_fields: list[str]
     breaker_latch_reset: list[str]
+    take_profit_kinds: list[str]
+    live_protection_kinds: list[str]
+    backtest_diagnostics: list[str]
+    fee_suggestion_source: str
     async_backtest_job_statuses: list[str]
     research_job_statuses: list[str]
     max_concurrent_research_jobs: int

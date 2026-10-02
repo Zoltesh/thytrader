@@ -243,17 +243,28 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v49` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v50` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
 [ADR 0086](decisions/0086-indicator-catalog-expansion-and-offset.md),
 [ADR 0087](decisions/0087-per-bar-decision-timeline.md),
 [ADR 0088](decisions/0088-portfolio-model-and-portfolio-backtest.md),
-[ADR 0089](decisions/0089-agent-research-ergonomics.md); `backtest_engine:
+[ADR 0089](decisions/0089-agent-research-ergonomics.md),
+[ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md); `backtest_engine:
 "thytrader-backtest"`; `indicator_kinds` and `indicator_offset_runtimes`;
 `decision_journals: ["paper", "live"]`; `portfolio_model`; `research_dataset_autobind` and
-`study_budgets`; expected Alembic revision `0054`).
+`study_budgets`; `take_profit_kinds`, `live_protection_kinds`,
+`backtest_diagnostics`, `fee_suggestion_source`; expected Alembic revision `0055`).
+
+Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
+`exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase
+stop-limit); strategy responses carry advisory `validation.warnings`; `GET
+/api/v1/backtests/{fp}` returns `diagnostics` (the entry funnel, outside the result
+fingerprint); `GET /api/v1/backtests/{fp}/signal-trace` pages the result's entry-condition trace
+(`thytrader-research-evaluate`); `GET /api/v1/fees` suggests the account's reported Coinbase
+rates (`suggestion_source: coinbase_account`) with the public schedule as context; and the
+decision timeline records geometry/sizing refusals as `skipped` with exact reason codes.
 
 **YOLO mode (shipped, default OFF)** is an operator-enabled opt-in so agents can skip per-action
 confirmation on **allowed** surfaces when the operator wants maximum automation friction removed.

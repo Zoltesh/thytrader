@@ -282,6 +282,15 @@ published_backtest_results = Table(
     Column("signal_trace_fingerprint", String(71), nullable=False),
     Column("canonical_result", Text(), nullable=False),
     Column("published_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "diagnostics_json",
+        Text(),
+        nullable=True,
+        comment=(
+            "thytrader-backtest-diagnostics-v1 entry-funnel counters; outside the "
+            "canonical result bytes and fingerprint (ADR 0090)."
+        ),
+    ),
     ForeignKeyConstraint(
         ["run_fingerprint"],
         ["published_research_run_specs.run_fingerprint"],
@@ -735,7 +744,7 @@ order_intents = Table(
     UniqueConstraint("idempotency_key", name="ux_order_intents_idempotency_key"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_order_intents_side"),
     CheckConstraint(
-        "kind IN ('post_only_limit', 'marketable', 'trigger_bracket')",
+        "kind IN ('post_only_limit', 'marketable', 'trigger_bracket', 'stop_limit')",
         name="ck_order_intents_kind",
     ),
     CheckConstraint(
@@ -814,7 +823,12 @@ execution_positions = Table(
     Column("quantity", String(64), nullable=False),
     Column("entry_price", String(64), nullable=False),
     Column("stop_price", String(64), nullable=False),
-    Column("target_price", String(64), nullable=False),
+    Column(
+        "target_price",
+        String(64),
+        nullable=True,
+        comment="Take-profit price; NULL when the strategy declares no take-profit (ADR 0090).",
+    ),
     Column("entered_bar", DateTime(timezone=True), nullable=False),
     Column("trail_extreme", String(64), nullable=True),
     Column("side", String(8), nullable=False, server_default="long"),

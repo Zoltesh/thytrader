@@ -32,14 +32,18 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v49"
+    assert expected["id"] == "thytrader-ops-contract-v50"
     assert expected["indicator_offset_runtimes"] == ["research", "paper", "live"]
     kinds = expected["indicator_kinds"]
     assert isinstance(kinds, list)
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0054"
+    assert expected["expected_schema_revision"] == "0055"
+    assert expected["take_profit_kinds"] == ["reward_risk", "none"]
+    assert expected["live_protection_kinds"] == ["trigger_bracket", "stop_limit"]
+    assert expected["backtest_diagnostics"] == ["thytrader-backtest-diagnostics-v1"]
+    assert expected["fee_suggestion_source"] == "coinbase_account"
     assert expected["bounded_deployment_reads"] == ["list", "summary", "fills", "orders"]
     assert expected["deployment_ledger_pagination"] == ["cursor"]
     assert expected["multi_book_ledger"] == ["paper", "live"]

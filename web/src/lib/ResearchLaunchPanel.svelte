@@ -9,6 +9,7 @@
 		fetchFeeProfile,
 		formatFeeProfileAsOf,
 		formatResearchFeeSourceChip,
+		formatScheduleContext,
 		readResearchFeeSuggestion,
 		researchFeeFieldSource,
 		shouldPrefillResearchFeeRates,
@@ -584,7 +585,7 @@
 				class:stale={feeFieldSource === 'stale-suggestion'}
 				data-testid="research-fee-source"
 				title={latestFeeSuggestion !== null
-					? `Schedule ${latestFeeSuggestion.scheduleVersion}${latestFeeSuggestion.scheduleTierId === '' ? '' : `, band ${latestFeeSuggestion.scheduleTierId}`}`
+					? formatScheduleContext(latestFeeSuggestion)
 					: undefined}>{feeSourceChip}</span
 			>
 			<button

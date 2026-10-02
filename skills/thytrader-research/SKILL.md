@@ -52,6 +52,16 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   `validation: {valid, issues:[{loc, message}]}` and `current_fingerprint: null`. Backtest,
   study, and deployment starts require a currently valid definition and fail closed with HTTP
   422 `strategy_invalid` (the `issues` list says what to fix).
+- Valid documents may also carry advisory `validation.warnings:[{code, loc, message}]`
+  ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
+  `short_target_may_be_non_positive` means a short's reward/risk target
+  (`entry − stop_multiple × ATR × take_profit.multiple`) reaches zero at plausible volatility, so
+  those entries will be skipped as `target_not_positive`; `long_stop_may_be_non_positive` is the
+  same for a long's ATR stop. Warnings never block a save, backtest, or deployment. Report them to
+  the operator; lower the multiples or set `exits.take_profit` to `{"kind": "none"}` only when asked.
+- `exits.take_profit` is `{"kind": "reward_risk", "multiple": "2"}` or `{"kind": "none"}` (no
+  target: exit on the stop, the optional ATR trail, or the time exit). `none` has no `multiple`;
+  `take_profit_multiple` sweep axes fail on it.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they
@@ -96,6 +106,10 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   paper, live): `execution.entry_preference` must be `maker_only`. A save with the retired
   `marketable_limit` is stored invalid with an issue at `execution.entry_preference` and cannot be
   backtested or deployed until it is changed to `maker_only`.
+- **No silent skips.** A matched signal that cannot rest an entry is counted with its reason
+  (cooldown, max positions, a resting entry, an open position, or geometry/sizing such as
+  `target_not_positive`, `stop_not_positive`, `notional_below_minimum`, `insufficient_cash`).
+  `show-result` returns those counts as `diagnostics` (see below).
 - **Stops and targets on bar extremes.** On the fill candle only the stop can trigger (stop-first).
   From the next candle the take-profit rests. The stop is always checked first: a candle that
   touches both the stop and the take-profit is resolved as the stop (conservative; paper does the
@@ -142,6 +156,7 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | Show one persisted study summary | `uv run thytrader-research show-study --study-fingerprint sha256:…` |
 | List result summaries | `uv run thytrader-research list-results [--strategy-id UUID \| --strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
+| Trace the entry rule bar by bar for one result | `uv run thytrader-research-evaluate sha256:… [--outcome matched] [--limit 200] [--cursor CURSOR] [--pretty]` |
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
 
 `list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
@@ -332,15 +347,37 @@ submitting again, or re-run with `--async` ([ADR 0085](../../docs/decisions/0085
 Required assumptions: `initial_quote_balance`, `maker_fee_rate`, `taker_fee_rate`,
 `fixed_slippage_bps`; optional `spread_bps` stress. Never send `engine_contract_version`.
 
-`show-result` returns the result summary, derived `metrics`, and the published `costs`
-(including `spread_bps`). It copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
+`show-result` returns the result summary, derived `metrics`, the published `costs`
+(including `spread_bps`), and `diagnostics` — the entry funnel
+`thytrader-backtest-diagnostics-v1` (`signals_matched`, `entries_rested`, `entries_filled`,
+`entries_expired`, `entries_repriced`, `entries_refused_at_fill`, `entries_unfilled_at_end`,
+`entries_size_capped`, `warmup_bars`, and `skipped[{reason, count}]`). Use it to explain few or
+zero trades before changing rules: `signals_matched` equals `entries_rested` plus every skipped
+count. `diagnostics` is `null` for results published before ADR 0090; re-running the same
+backtest records it without changing the result fingerprint.
+
+`thytrader-research-evaluate <result_fingerprint>` (a `run_fingerprint` of a completed backtest
+also works) asks the API to re-evaluate that result's run and prints one bounded page of the
+entry-condition trace: per-bar `indicator_values` and `entry_condition`
+(`matched` / `not_matched` / `undefined`), outcome `counts`, `total_records`, and `next_cursor`
+(`GET /api/v1/backtests/{result_fingerprint}/signal-trace`). It is read-only, needs no
+`--confirm`, and fails with the API's reason (for example `signal_trace_unavailable` when the
+re-evaluated trace does not reproduce the result) instead of a generic message. It does not need
+`THYTRADER_DATABASE_URL` or local Parquet files. It copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
 `4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
 ## Maker/taker rates
 
-`GET /api/v1/fees` includes `suggested_maker_fee_rate` / `suggested_taker_fee_rate` when Coinbase
-credentials are present (`suggestion_source=coinbase_fee_schedule`, plus tier id, schedule version,
-and `fetched_at`). Copy those into `submit-backtest` JSON unless the operator supplied custom rates.
+`GET /api/v1/fees` (or `thytrader-operator fees`) includes `suggested_maker_fee_rate` /
+`suggested_taker_fee_rate` when Coinbase credentials are present. They are the **account's own
+reported Coinbase rates** (`suggestion_source=coinbase_account`; for example 0.005 / 0.009 on an
+Intro tier) — what live fills are billed at
+([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
+`schedule_maker_fee_rate` / `schedule_taker_fee_rate` with `suggestion_schedule_tier_id` and
+`suggestion_schedule_version` are the pinned public band for the same volume, **context only**:
+never copy them as defaults. Copy `suggested_*` into `submit-backtest` / `submit-study` JSON (and
+pass them as `--maker-fee-rate` / `--taker-fee-rate` on paper starts) unless the operator supplied
+custom rates.
 Demo or missing credentials set `suggestion_source=unavailable` — do **not** use dashboard demo
 `maker_fee_rate` / `taker_fee_rate` as research defaults, and do not invent a tier. The request must
 still include explicit rates; submitted runs fingerprint those values. They are modeled

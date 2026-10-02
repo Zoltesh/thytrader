@@ -121,6 +121,11 @@ controls above.
 - Synthetic trailing stops require continuously persisted state and a healthy worker/data feed.
 
 A stop-limit order can remain unfilled in a fast market. The UI and strategy schema must distinguish guaranteed execution intent from price-limited execution.
+Live books whose strategy declares `take_profit: {"kind": "none"}` are protected by one Coinbase
+stop-limit triggered at the working stop with its limit 5% through it — the same offset Coinbase
+applies to the stop leg of a TP/SL bracket, so their gap risk equals every other live book's
+([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). The worker
+never invents a take-profit price to obtain a bracket.
 
 ## Idempotency and reconciliation
 

@@ -1282,6 +1282,22 @@ class RewardRiskTakeProfit(_FrozenModel):
         return value
 
 
+class NoTakeProfit(_FrozenModel):
+    """Declare no take-profit: exits are the stop, the optional ATR trail, and the time exit.
+
+    Canonical JSON is only ``{"kind": "none"}``. Paper and live rest no take-profit order;
+    live protects the book with a venue stop-limit instead of a TP/SL bracket (ADR 0090).
+    """
+
+    kind: Literal["none"]
+
+
+TakeProfitDefinition = Annotated[
+    RewardRiskTakeProfit | NoTakeProfit,
+    Field(discriminator="kind"),
+]
+
+
 class DisabledTrailingStop(_FrozenModel):
     """Explicitly disable trailing stops. Canonical JSON is only ``enabled: false``."""
 
@@ -1318,10 +1334,10 @@ class TimeExit(_FrozenModel):
 
 
 class ExitDefinition(_FrozenModel):
-    """Declare initial-stop, take-profit, optional ATR trailing, and time-exit policy."""
+    """Declare initial-stop, optional take-profit, optional ATR trailing, and time-exit policy."""
 
     initial_stop: AtrMultipleStop
-    take_profit: RewardRiskTakeProfit
+    take_profit: TakeProfitDefinition
     trailing_stop: TrailingStopDefinition
     time_exit: TimeExit
 
@@ -1331,6 +1347,14 @@ def atr_trailing_stop(exits: ExitDefinition) -> AtrTrailingStop | None:
     stop = exits.trailing_stop
     if isinstance(stop, AtrTrailingStop):
         return stop
+    return None
+
+
+def reward_risk_multiple(exits: ExitDefinition) -> Decimal | None:
+    """Return the take-profit reward-to-risk multiple, or None when the strategy has no TP."""
+    take_profit = exits.take_profit
+    if isinstance(take_profit, RewardRiskTakeProfit):
+        return Decimal(take_profit.multiple)
     return None
 
 

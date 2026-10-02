@@ -523,3 +523,27 @@ test('position sizing labels and the summary follow the product quote currency',
 		'between 10 USDC and 100 USDC'
 	);
 });
+
+test('take profit can be none and saves the canonical {kind: none} (ADR 0090)', async ({
+	page
+}) => {
+	let saved = null as { document: { exits: { take_profit: unknown } } } | null;
+	await page.route(`**/api/v1/strategies/${strategyId}`, async (route) => {
+		if (route.request().method() === 'PUT') {
+			saved = (await route.request().postDataJSON()) as typeof saved;
+			await route.fulfill({ json: record(draft, 2) });
+			return;
+		}
+		await route.fulfill({ json: record() });
+	});
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Exit conditions and protective stops' }).click();
+	await expect(page.getByLabel('Take profit — reward/risk multiple')).toHaveValue('2');
+	await page.getByLabel('Take profit kind').selectOption('none');
+	await expect(page.getByLabel('Take profit — reward/risk multiple')).toHaveCount(0);
+	await expect(page.getByText('No take-profit order rests.')).toBeVisible();
+	await page.getByRole('button', { name: 'Save', exact: true }).click();
+	await expect.poll(() => saved?.document.exits.take_profit).toEqual({ kind: 'none' });
+	await page.getByLabel('Take profit kind').selectOption('reward_risk');
+	await expect(page.getByLabel('Take profit — reward/risk multiple')).toHaveValue('2');
+});

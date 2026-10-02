@@ -121,15 +121,17 @@ def _project_entry(
     side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
     cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
     stop = deployment.pending_stop_price
+    # A None target is legal: the strategy declares no take-profit (ADR 0090), and the
+    # book is protected by its stop alone. The stop is always required.
     target = deployment.pending_target_price
     product_id = resolved_product_id(order.product_id, deployment)
-    if stop is None or target is None:
+    if stop is None:
         paused = with_runtime(
             deployment,
             updated_at=now,
             cash=cash,
             status=DeploymentStatus.PAUSED,
-            mismatch_detail="Entry fill is missing stored stop/target prices.",
+            mismatch_detail="Entry fill is missing its stored stop price.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
         )

@@ -209,8 +209,8 @@ def test_fees_endpoint_rejects_forged_zero_offset_non_utc_datetime() -> None:
     assert response.json()["detail"]["code"] == "fees_unavailable"
 
 
-def test_fees_endpoint_live_service_returns_schedule_suggestions() -> None:
-    """With credentials, GET /api/v1/fees prefills research rates from the pinned schedule."""
+def test_fees_endpoint_live_service_returns_account_rate_suggestions() -> None:
+    """With credentials, GET /api/v1/fees prefills the account's rates plus schedule context."""
 
     class LiveFeeExchange:
         async def list_balances(self) -> Any:
@@ -246,10 +246,12 @@ def test_fees_endpoint_live_service_returns_schedule_suggestions() -> None:
     assert data["taker_fee_rate"] == "0.0040"
     assert data["suggested_maker_fee_rate"] == "0.0025"
     assert data["suggested_taker_fee_rate"] == "0.0040"
-    assert data["suggestion_source"] == "coinbase_fee_schedule"
+    assert data["suggestion_source"] == "coinbase_account"
     assert data["suggestion_unavailable_reason"] is None
     assert data["suggestion_fee_tier"] == "Tier 2 ($10k-$50k)"
     assert data["suggestion_schedule_tier_id"] == "usd-10k-50k"
+    assert data["schedule_maker_fee_rate"] == "0.0025"
+    assert data["schedule_taker_fee_rate"] == "0.0040"
     assert data["suggestion_schedule_version"] == "coinbase-advanced-spot-fees-v1"
     assert data["suggestion_schedule_as_of"] == "2026-09-13"
     assert data["suggestion_fetched_at"] == "2026-09-13T16:00:00Z"

@@ -100,7 +100,9 @@ half-open evaluation period, exact initial capital, maker/taker fees, and fixed 
 optional **Spread stress (bps)** under Advanced options (default 0). There is no engine picker. It can launch a single
 window or a composed OOS / walk-forward / parameter-sweep / WFO study (cross-market stays on the
 research CLI). Maker/taker fields prefill from `GET /api/v1/fees` suggested rates when Coinbase
-credentials exist (`suggestion_source=coinbase_fee_schedule`); the operator may override. Demo or
+credentials exist: the account's reported Coinbase rates (`suggestion_source=coinbase_account`,
+[ADR 0090](../decisions/0090-research-correctness-optional-take-profit-diagnostics.md)), with the
+pinned public schedule band as context only; the operator may override. Demo or
 missing credentials leave the fields blank. Submitted rates are the research-run CostAssumptions, not
 observed Coinbase fills. Test lists this strategy's results (`GET /api/v1/backtests?strategy_id=`); each row
 shows **Current rules** when its snapshot `strategy_fingerprint` equals the strategy's

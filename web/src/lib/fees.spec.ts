@@ -4,6 +4,7 @@ import {
 	feeRatesMatch,
 	formatFeeProfileAsOf,
 	formatResearchFeeSourceChip,
+	formatScheduleContext,
 	readResearchFeeSuggestion,
 	researchFeeFieldSource,
 	shouldPrefillPaperFeeRates,
@@ -21,12 +22,14 @@ const suggestedProfile: FeeProfile = {
 	source: 'coinbase',
 	suggested_maker_fee_rate: '0.0025',
 	suggested_taker_fee_rate: '0.0040',
-	suggestion_source: 'coinbase_fee_schedule',
+	suggestion_source: 'coinbase_account',
 	suggestion_unavailable_reason: null,
 	suggestion_fee_tier: 'Tier 2 ($10k-$50k)',
 	suggestion_schedule_tier_id: 'usd-10k-50k',
 	suggestion_schedule_version: 'coinbase-advanced-spot-fees-v1',
 	suggestion_schedule_as_of: '2026-09-13',
+	schedule_maker_fee_rate: '0.0025',
+	schedule_taker_fee_rate: '0.0040',
 	suggestion_fetched_at: '2026-09-13T16:00:00Z'
 };
 
@@ -37,8 +40,42 @@ const suggestion: ResearchFeeSuggestion = {
 	scheduleTierId: 'usd-10k-50k',
 	scheduleVersion: 'coinbase-advanced-spot-fees-v1',
 	scheduleAsOf: '2026-09-13',
+	scheduleMakerFeeRate: '0.0025',
+	scheduleTakerFeeRate: '0.0040',
 	fetchedAt: '2026-09-13T16:00:00Z'
 };
+
+describe('account-rate suggestions (ADR 0090)', () => {
+	it('prefills the account rates, not the cheaper public schedule band', () => {
+		const intro = readResearchFeeSuggestion({
+			...suggestedProfile,
+			maker_fee_rate: '0.005',
+			taker_fee_rate: '0.009',
+			usd_volume_30d: '24',
+			fee_tier: 'Intro 1',
+			suggested_maker_fee_rate: '0.005',
+			suggested_taker_fee_rate: '0.009',
+			suggestion_fee_tier: 'Intro 1',
+			suggestion_schedule_tier_id: 'usd-0-10k',
+			schedule_maker_fee_rate: '0.0040',
+			schedule_taker_fee_rate: '0.0060'
+		});
+		expect(intro?.makerFeeRate).toBe('0.005');
+		expect(intro?.takerFeeRate).toBe('0.009');
+		expect(intro === null ? '' : formatScheduleContext(intro)).toBe(
+			'Account rates (Intro 1). Public schedule band usd-0-10k: 0.0040 maker / 0.0060 taker — context only, coinbase-advanced-spot-fees-v1.'
+		);
+	});
+
+	it('ignores a retired schedule-sourced payload', () => {
+		expect(
+			readResearchFeeSuggestion({
+				...suggestedProfile,
+				suggestion_source: 'coinbase_fee_schedule' as unknown as 'coinbase_account'
+			})
+		).toBeNull();
+	});
+});
 
 describe('formatFeeProfileAsOf', () => {
 	it('formats a present UTC as_of with the locale timestamp', () => {
@@ -160,11 +197,11 @@ describe('research fee field source', () => {
 		expect(
 			formatResearchFeeSourceChip('suggested', formatFeeProfileAsOf('2026-09-13T16:00:00Z'))
 		).toBe(
-			`Suggested from Coinbase fee tier (as of ${new Date('2026-09-13T16:00:00Z').toLocaleString()})`
+			`Suggested from your Coinbase account rates (as of ${new Date('2026-09-13T16:00:00Z').toLocaleString()})`
 		);
 		expect(formatResearchFeeSourceChip('custom', null)).toBe('Custom');
 		expect(formatResearchFeeSourceChip('unavailable', null)).toBe(
-			'Coinbase fee-tier suggestion unavailable. Enter modeled rates.'
+			'Coinbase account fee rates unavailable. Enter modeled rates.'
 		);
 	});
 });

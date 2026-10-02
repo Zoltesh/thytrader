@@ -20,6 +20,7 @@ from thytrader.execution.decision_scope import (
     note_breaker,
     note_entry_block,
     note_entry_gate,
+    note_entry_skip,
     note_evaluation,
     note_evaluation_error,
     note_freshness,
@@ -48,11 +49,13 @@ from thytrader.execution.exit_guards import (
 from thytrader.execution.fill_ledger import ingest_fill, prior_fills_for_order
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
 from thytrader.execution.geometry import (
+    EntrySkipReason,
     entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_fill_price,
     paper_stop_hit,
+    protective_stop_limit_price,
 )
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE, effective_paper_fee_rates
@@ -71,6 +74,7 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
+    is_venue_protection,
     resolved_product_id,
     snapshot_positions,
     with_runtime,
@@ -78,7 +82,11 @@ from thytrader.execution.models import (
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import import_attached_children, ingest_order_fills
 from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr, named_atr
-from thytrader.execution.sizing import SizedEntry, size_entry, size_pyramid_add
+from thytrader.execution.sizing import (
+    SizedEntry,
+    size_entry_or_skip,
+    size_pyramid_add_or_skip,
+)
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
@@ -113,6 +121,9 @@ if TYPE_CHECKING:
 
 _ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+STOP_LIMIT_PRICE_DETAIL = (
+    "Stop-only protection limit price is not positive at the venue price increment."
+)
 _STALE_SIGNAL_VERDICT = RiskVerdict(
     decision=RiskDecision.DENY,
     reason_code=RiskReasonCode.SIGNAL_STALE,
@@ -180,12 +191,12 @@ async def cancel_risk_increasing_orders(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Cancel working entries while leaving protective brackets in place."""
+    """Cancel working entries while leaving protective brackets and stop-limits in place."""
     entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
     for order in tuple(snapshot.orders):
         if order.status not in _ACTIVE:
             continue
-        if order.kind is OrderKind.TRIGGER_BRACKET:
+        if is_venue_protection(order.kind):
             continue
         if entry_ids and order.intent_id not in entry_ids:
             continue
@@ -417,14 +428,16 @@ async def _apply_entry_fill(
     side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
     cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
     stop = deployment.pending_stop_price
+    # A None target is legal: the strategy declares no take-profit (ADR 0090), and the
+    # book is protected by its stop alone. The stop is always required.
     target = deployment.pending_target_price
-    if stop is None or target is None:
+    if stop is None:
         paused = with_runtime(
             deployment,
             updated_at=now,
             cash=cash,
             status=DeploymentStatus.PAUSED,
-            mismatch_detail="Entry fill is missing stored stop/target prices.",
+            mismatch_detail="Entry fill is missing its stored stop price.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
         )
@@ -621,7 +634,7 @@ def split_pending_entry(snapshot: DeploymentSnapshot) -> bool:
 def _split_state_detail(snapshot: DeploymentSnapshot) -> str:
     """Return the operator-facing reason a pending-entry book failed closed."""
     if any(
-        order.status is OrderStatus.FILLED and order.kind is not OrderKind.TRIGGER_BRACKET
+        order.status is OrderStatus.FILLED and not is_venue_protection(order.kind)
         for order in snapshot.orders
     ):
         return (
@@ -935,13 +948,16 @@ async def _ensure_live_bracket(
 
 
 def _bracket_matches(order: Order, position: Position) -> bool:
-    """Whether one resting order is a venue OCO covering exactly this position."""
-    return (
-        order.kind is OrderKind.TRIGGER_BRACKET
-        and order.price == position.target_price
-        and order.stop_trigger_price == position.stop_price
-        and order.quantity == position.quantity
-    )
+    """Whether one resting order is the venue protection covering exactly this position.
+
+    A book with a take-profit needs the TP/SL OCO; a book without one (ADR 0090) needs a
+    stop-limit triggered at the working stop.
+    """
+    if order.stop_trigger_price != position.stop_price or order.quantity != position.quantity:
+        return False
+    if position.target_price is None:
+        return order.kind is OrderKind.STOP_LIMIT
+    return order.kind is OrderKind.TRIGGER_BRACKET and order.price == position.target_price
 
 
 async def _submit_live_bracket(
@@ -953,11 +969,28 @@ async def _submit_live_bracket(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Submit one live OCO unless an identical rejection is still latched."""
+    """Submit one live protective order unless an identical rejection is still latched.
+
+    With a take-profit this is the ``trigger_bracket_gtc`` OCO (limit = target). Without
+    one (ADR 0090) it is a ``stop_limit_stop_limit_gtc`` triggered at the stop whose
+    limit sits 5% through it, the same offset Coinbase applies to a bracket's stop leg.
+    """
     rejection = bracket_rejection(snapshot, position)
     if rejection is not None and rejection_latched(snapshot, rejection, now=utc_now()):
         return await _pause_bracket_rejected(snapshot, store=store, position=position)
     cover = exit_order_side(position.side)
+    target = position.target_price
+    kind = OrderKind.TRIGGER_BRACKET
+    price = target
+    if target is None:
+        kind = OrderKind.STOP_LIMIT
+        price = protective_stop_limit_price(
+            cover_side=cover,
+            stop_price=position.stop_price,
+            price_increment=product.price_increment,
+        )
+        if price <= 0:
+            return await _pause(snapshot, store=store, detail=STOP_LIMIT_PRICE_DETAIL)
     order = await submit_intent(
         store=store,
         broker=broker,
@@ -965,9 +998,9 @@ async def _submit_live_bracket(
         product_id=product.product_id,
         purpose=IntentPurpose.BRACKET,
         side=cover,
-        kind=OrderKind.TRIGGER_BRACKET,
+        kind=kind,
         quantity=position.quantity,
-        price=position.target_price,
+        price=price,
         stop_trigger_price=position.stop_price,
         candle=candle,
     )
@@ -1171,7 +1204,8 @@ async def _reprice_entry(
         side=side,
         is_pyramid_add=is_pyramid,
     )
-    if sized is None:
+    if isinstance(sized, EntrySkipReason):
+        note_entry_skip(sized)
         return snapshot
     stop_price, target_price = _legal_reprice_geometry(
         side=side,
@@ -1225,7 +1259,11 @@ async def _reprice_entry(
         target_price=target_price,
         is_pyramid=is_pyramid,
         phase=phase,
-        attach=not is_pyramid and atr_trailing_stop(strategy.exits) is None,
+        attach=(
+            not is_pyramid
+            and target_price is not None
+            and atr_trailing_stop(strategy.exits) is None
+        ),
     )
 
 
@@ -1240,7 +1278,7 @@ async def _submit_repriced_entry(
     remaining_qty: Decimal,
     entry_price: Decimal,
     stop_price: Decimal,
-    target_price: Decimal,
+    target_price: Decimal | None,
     is_pyramid: bool,
     phase: RuntimePhase,
     attach: bool,
@@ -1248,12 +1286,7 @@ async def _submit_repriced_entry(
     """Persist pending levels and rest the replacement maker order."""
     reset = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
     if not is_pyramid:
-        reset = with_runtime(
-            reset,
-            updated_at=utc_now(),
-            pending_stop_price=stop_price,
-            pending_target_price=target_price,
-        )
+        reset = _with_pending_levels(reset, stop_price=stop_price, target_price=target_price)
     await store.save_deployment(reset)
     order = await submit_intent(
         store=store,
@@ -1289,9 +1322,14 @@ def _legal_reprice_geometry(
     side: PositionSide,
     entry_price: Decimal,
     stop_price: Decimal,
-    target_price: Decimal,
-) -> tuple[Decimal, Decimal]:
-    """Preserve remaining qty's legal stop/target; drop an obsolete target below a new buy."""
+    target_price: Decimal | None,
+) -> tuple[Decimal, Decimal | None]:
+    """Preserve remaining qty's legal stop/target; drop an obsolete target below a new buy.
+
+    A strategy without a take-profit keeps ``None``: there is no target to repair.
+    """
+    if target_price is None:
+        return stop_price, None
     if side is PositionSide.LONG and target_price <= entry_price:
         width = entry_price - stop_price
         if width <= 0:
@@ -1513,9 +1551,13 @@ async def _ensure_take_profit(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Rest a post-only take-profit when the position has none."""
+    """Rest a post-only take-profit when the position has none.
+
+    A book without a target (``take_profit: {"kind": "none"}``) rests nothing: paper
+    enforces its stop synthetically on closed bars and exits on the trail or time exit.
+    """
     position = snapshot.position
-    if position is None:
+    if position is None or position.target_price is None:
         return snapshot
     cover = exit_order_side(position.side)
     if _active_side(snapshot.orders, cover) is not None:
@@ -1730,14 +1772,14 @@ def _size_entry_or_add(
     side: PositionSide,
     is_pyramid_add: bool,
     fee_profile: FeeProfile | None = None,
-) -> SizedEntry | None:
-    """Size a new book or a same-side add against remaining quote cash."""
+) -> SizedEntry | EntrySkipReason:
+    """Size a new book or a same-side add against remaining quote cash, or name the skip."""
     fee_rate = _entry_fee_rate(snapshot.deployment, fee_profile=fee_profile)
     sizing_cash = live_sizing_cash(snapshot.deployment)
     if sizing_cash is None:
-        return None
+        return EntrySkipReason.SIZING_CASH_UNAVAILABLE
     if not is_pyramid_add:
-        return size_entry(
+        return size_entry_or_skip(
             strategy=strategy,
             cash=sizing_cash,
             entry_price=entry_price,
@@ -1748,8 +1790,8 @@ def _size_entry_or_add(
         )
     position = snapshot.position
     if position is None:
-        return None
-    return size_pyramid_add(
+        return EntrySkipReason.NO_OPEN_POSITION
+    return size_pyramid_add_or_skip(
         strategy=strategy,
         cash=sizing_cash,
         entry_price=entry_price,
@@ -1768,7 +1810,11 @@ def _runtime_for_admitted_entry(
     strategy: StrategyDefinition,
     is_pyramid_add: bool,
 ) -> tuple[Deployment, bool]:
-    """Stamp pending-entry or keep OPEN, and decide whether live brackets attach."""
+    """Stamp pending-entry or keep OPEN, and decide whether live brackets attach.
+
+    A Coinbase attached ``trigger_bracket_gtc`` needs a take-profit limit, so an entry
+    without a target never attaches; its stop-only protection rests after the fill.
+    """
     if is_pyramid_add:
         pending = with_runtime(
             deployment,
@@ -1778,14 +1824,28 @@ def _runtime_for_admitted_entry(
         )
         return pending, False
     pending = with_runtime(
-        deployment,
+        _with_pending_levels(
+            deployment, stop_price=sized.stop_price, target_price=sized.target_price
+        ),
         updated_at=utc_now(),
         phase=RuntimePhase.PENDING_ENTRY,
         pending_entry_bars=0,
-        pending_stop_price=sized.stop_price,
-        pending_target_price=sized.target_price,
     )
-    return pending, atr_trailing_stop(strategy.exits) is None
+    attach = sized.target_price is not None and atr_trailing_stop(strategy.exits) is None
+    return pending, attach
+
+
+def _with_pending_levels(
+    deployment: Deployment, *, stop_price: Decimal, target_price: Decimal | None
+) -> Deployment:
+    """Replace both pending levels; a None target (no take-profit) clears any stale one."""
+    cleared = with_runtime(deployment, updated_at=utc_now(), clear_pending_levels=True)
+    return with_runtime(
+        cleared,
+        updated_at=utc_now(),
+        pending_stop_price=stop_price,
+        pending_target_price=target_price,
+    )
 
 
 async def _submit_sized_entry(
@@ -1828,11 +1888,8 @@ async def _submit_sized_entry(
         is_pyramid_add=is_pyramid_add,
         fee_profile=fee_profile,
     )
-    if sized is None:
-        note_entry_block(
-            "SIZING_UNAVAILABLE",
-            "Sizing produced no order (sizing cash unknown, below venue minimums, or zero).",
-        )
+    if isinstance(sized, EntrySkipReason):
+        note_entry_skip(sized)
         return snapshot
     if (
         side is PositionSide.SHORT

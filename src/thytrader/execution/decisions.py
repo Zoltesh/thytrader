@@ -69,7 +69,12 @@ class DecisionAction(StrEnum):
 
 
 class DecisionSkipReason(StrEnum):
-    """Why the entry rule was not evaluated (or could not decide) on this bar."""
+    """Why the entry rule was not evaluated, or why a matched rule rested no entry.
+
+    ``entry_geometry`` and ``entry_sizing`` (ADR 0090) mark a matched signal whose
+    stop/target geometry or cash/venue-minimum sizing refused the order; the row's
+    ``reason_code`` names the exact cause (for example ``TARGET_NOT_POSITIVE``).
+    """
 
     COOLDOWN = "cooldown"
     MAX_OPEN_POSITIONS = "max_open_positions"
@@ -81,6 +86,8 @@ class DecisionSkipReason(StrEnum):
     USER_FEED_GATE = "user_feed_gate"
     CATCH_UP = "catch_up"
     ENTRIES_DISABLED = "entries_disabled"
+    ENTRY_GEOMETRY = "entry_geometry"
+    ENTRY_SIZING = "entry_sizing"
 
 
 class DecisionExitReason(StrEnum):
@@ -181,13 +188,13 @@ class DecisionRisk(_FrozenDecisionModel):
 
 
 class DecisionPosition(_FrozenDecisionModel):
-    """The product book at the end of the bar."""
+    """The product book at the end of the bar (``target_price`` null: no take-profit)."""
 
     side: PositionSide
     quantity: DecisionDecimal
     entry_price: DecisionDecimal
     stop_price: DecisionDecimal
-    target_price: DecisionDecimal
+    target_price: DecisionDecimal | None = None
 
 
 class DecisionOrder(_FrozenDecisionModel):

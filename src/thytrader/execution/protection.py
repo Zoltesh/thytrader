@@ -15,12 +15,13 @@ from thytrader.execution.attached import (
     filled_attached_entry,
 )
 from thytrader.execution.models import (
+    DeploymentMode,
     DeploymentSnapshot,
     IntentPurpose,
     Order,
-    OrderKind,
     OrderStatus,
     Position,
+    is_venue_protection,
     resolved_product_id,
 )
 
@@ -58,6 +59,10 @@ def book_protection_status(
     """
     if position is None:
         return ProtectionStatus.FLAT
+    if position.target_price is None and snapshot.deployment.mode is DeploymentMode.PAPER:
+        # Paper books without a take-profit rest no order by design (ADR 0090): the
+        # worker enforces the stop synthetically on every closed bar.
+        return ProtectionStatus.COVERED
     if attached_entry_covers(snapshot, position):
         entry = filled_attached_entry(snapshot, position)
         if entry is not None:
@@ -98,6 +103,6 @@ def _protective_orders(snapshot: DeploymentSnapshot, product_id: str) -> tuple[O
         if order.status not in _ACTIVE_STATUSES:
             continue
         purpose = purposes.get(order.intent_id)
-        if purpose is not None or order.kind is OrderKind.TRIGGER_BRACKET:
+        if purpose is not None or is_venue_protection(order.kind):
             matching.append(order)
     return tuple(matching)

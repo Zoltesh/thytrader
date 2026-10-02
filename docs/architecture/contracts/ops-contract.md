@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0054`):
+Current checkout (Alembic `0055`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v49` |
-| `expected_schema_revision` | `0054` |
+| `id` | `thytrader-ops-contract-v50` |
+| `expected_schema_revision` | `0055` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)) |
 | `portfolio_modes` | `paper`, `live` |
@@ -51,11 +51,15 @@ Current checkout (Alembic `0054`):
 | `breaker_latch_reset` | `paper`, `live` |
 | `research_dataset_autobind` | `backtest`, `study` — omitted dataset fingerprints bind the newest complete catalog dataset ([ADR 0089](../../decisions/0089-agent-research-ergonomics.md)) |
 | `study_budgets` | `sync`: 8 candidates / 128 child windows; `async`: 64 candidates / 512 child windows (ADR 0089) |
+| `take_profit_kinds` | `reward_risk`, `none` — optional take-profit ([ADR 0090](../../decisions/0090-research-correctness-optional-take-profit-diagnostics.md)) |
+| `live_protection_kinds` | `trigger_bracket`, `stop_limit` — a no-take-profit live book rests a venue stop-limit (ADR 0090) |
+| `backtest_diagnostics` | `thytrader-backtest-diagnostics-v1` — entry funnel stored beside results (ADR 0090) |
+| `fee_suggestion_source` | `coinbase_account` — fee prefills are the account's reported rates (ADR 0090) |
 
 ```mermaid
 classDiagram
   class OpsContractPayload {
-    id thytrader-ops-contract-v49
+    id thytrader-ops-contract-v50
     max_historical_interval_count
     backtest_engine
     paper_timeframes
@@ -78,6 +82,10 @@ classDiagram
     lifecycle_commands
     deployment_capital_fields
     breaker_latch_reset
+    take_profit_kinds
+    live_protection_kinds
+    backtest_diagnostics
+    fee_suggestion_source
     strategy_model
     portfolio_model
     portfolio_modes
@@ -94,7 +102,7 @@ classDiagram
     multi_book_ledger
     research_dataset_autobind
     study_budgets
-    expected_schema_revision 0054
+    expected_schema_revision 0055
   }
   class HealthPayload {
     api_probed

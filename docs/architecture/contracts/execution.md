@@ -22,7 +22,9 @@ flowchart TD
   Mode -->|live| Live["CoinbaseBroker REST v3\nspot only"]
   Live --> Attach{"SL/TP known and\ntrailing disabled?"}
   Attach -->|yes| Attached["attached_order_configuration\ntrigger_bracket_gtc"]
-  Attach -->|no| PostFill["post-fill OCO\nADR 0036"]
+  Attach -->|no, take-profit known| PostFill["post-fill OCO\nADR 0036"]
+  Attach -->|no take-profit| StopOnly["post-fill stop_limit_stop_limit_gtc\nlimit 5% through stop, ADR 0090"]
+  StopOnly --> Order
   Paper --> Order["Order + Fill + Position"]
   Attached --> Order
   PostFill --> Order
@@ -47,7 +49,7 @@ classDiagram
     client_order_id
     purpose entry|take_profit|stop|time_exit|bracket
     side buy|sell
-    kind post_only_limit|marketable|trigger_bracket
+    kind post_only_limit|marketable|trigger_bracket|stop_limit
     quantity Decimal
     origin human|agent|runtime
     idempotency_key?

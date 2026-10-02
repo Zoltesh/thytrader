@@ -249,12 +249,14 @@ export function suggestedFeeProfile(
 		source: 'coinbase',
 		suggested_maker_fee_rate: '0.0025',
 		suggested_taker_fee_rate: '0.0040',
-		suggestion_source: 'coinbase_fee_schedule',
+		suggestion_source: 'coinbase_account',
 		suggestion_unavailable_reason: null,
 		suggestion_fee_tier: 'Tier 2 ($10k-$50k)',
 		suggestion_schedule_tier_id: 'usd-10k-50k',
 		suggestion_schedule_version: 'coinbase-advanced-spot-fees-v1',
 		suggestion_schedule_as_of: '2026-09-13',
+		schedule_maker_fee_rate: '0.0025',
+		schedule_taker_fee_rate: '0.0040',
 		suggestion_fetched_at: '2026-09-13T16:00:00Z',
 		...overrides
 	};
@@ -533,7 +535,23 @@ export async function mockBacktestDetail(
 					equity_curve: curve,
 					trades: []
 				},
-				costs
+				costs,
+				diagnostics: {
+					diagnostics_version: 'thytrader-backtest-diagnostics-v1',
+					signals_matched: 40,
+					entries_rested: 9,
+					entries_filled: 7,
+					entries_expired: 2,
+					entries_repriced: 0,
+					entries_refused_at_fill: 0,
+					entries_unfilled_at_end: 0,
+					entries_size_capped: 0,
+					warmup_bars: 120,
+					skipped: [
+						{ reason: 'in_position', count: 6 },
+						{ reason: 'target_not_positive', count: 25 }
+					]
+				}
 			}
 		});
 	});

@@ -476,6 +476,7 @@ async def test_take_profit_fill_applies_cooldown_before_reentry() -> None:
     filled, window = await _filled_long(store, strategy)
     assert filled.position is not None
     target = filled.position.target_price
+    assert target is not None
     tp_bar = _next_bar(
         window,
         open_=target - Decimal("1"),

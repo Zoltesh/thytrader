@@ -136,6 +136,10 @@ class OpsContractPayload(_FrozenModel):
     ]
     deployment_capital_fields: tuple[str, ...]
     breaker_latch_reset: tuple[Literal["paper", "live"], ...]
+    take_profit_kinds: tuple[Literal["reward_risk", "none"], ...]
+    live_protection_kinds: tuple[Literal["trigger_bracket", "stop_limit"], ...]
+    backtest_diagnostics: tuple[str, ...]
+    fee_suggestion_source: Literal["coinbase_account"]
     async_backtest_job_statuses: tuple[
         Literal["queued", "running", "completed", "failed", "cancelled", "expired"],
         ...,
@@ -346,7 +350,7 @@ class PortfoliosReport(OperatorEnvelope):
 
 
 class FeesPayload(_FrozenModel):
-    """Coinbase fee tier plus research-only suggested maker/taker rates."""
+    """Coinbase fee tier plus the research/paper prefill (account rates) and schedule context."""
 
     taker_fee_rate: str
     maker_fee_rate: str
@@ -356,12 +360,14 @@ class FeesPayload(_FrozenModel):
     source: Literal["coinbase"]
     suggested_maker_fee_rate: str | None = None
     suggested_taker_fee_rate: str | None = None
-    suggestion_source: Literal["coinbase_fee_schedule", "unavailable"]
+    suggestion_source: Literal["coinbase_account", "unavailable"]
     suggestion_unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
     suggestion_fee_tier: str | None = None
     suggestion_schedule_tier_id: str | None = None
     suggestion_schedule_version: str | None = None
     suggestion_schedule_as_of: str | None = None
+    schedule_maker_fee_rate: str | None = None
+    schedule_taker_fee_rate: str | None = None
     suggestion_fetched_at: datetime | None = None
 
     @field_validator("as_of", "suggestion_fetched_at")

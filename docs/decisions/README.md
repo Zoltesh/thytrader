@@ -41,7 +41,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted |
 | [0034](0034-phase-12-agent-orchestration-yolo.md) | Phase 12 playbook over existing CLIs and default-off YOLO confirmation opt-in | Accepted — superseded in part by 0043 and 0082 |
 | [0035](0035-phase-11-research-rigor.md) | Phase 11 walk-forward, OOS, and cross-market research studies; richer templates; V1/V2/V3 matrix | Accepted — superseded in part by 0082 and 0083 |
-| [0036](0036-phase-13-live-extras.md) | Phase 13 5m live, ATR trailing stops, user-order WS, native OCO brackets | Accepted |
+| [0036](0036-phase-13-live-extras.md) | Phase 13 5m live, ATR trailing stops, user-order WS, native OCO brackets | Accepted — amended by 0090 |
 | [0037](0037-phase-14-experiential-memory.md) | Phase 14 journals, sentiment/pattern hooks, monitor, and config-gated notify | Accepted |
 | [0038](0038-complete-only-1m-2h-4h-datasets.md) | Complete-only 1m, 2h, and 4h historical datasets; this slice does not widen clocks | Accepted — superseded in part by 0040 (clocks) |
 | [0039](0039-on-demand-discretionary-trades.md) | On-demand long-only discretionary trades with required SL/TP via intent + risk | Accepted |
@@ -50,7 +50,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0042](0042-per-indicator-timeframes.md) | Optional per-indicator timeframes on LTF-list indicators; last-completed overlay | Accepted |
 | [0043](0043-yolo-live-skip-confirm.md) | Operator-enabled YOLO `live` tier skips `--confirm` on live start/pause/resume/stop; `--i-understand-live` remains | Accepted |
 | [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted — superseded in part by 0082 |
-| [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted |
+| [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted — amended by 0090 |
 | [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted |
 | [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted — extended by 0086 |
 | [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted |
@@ -94,6 +94,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0087](0087-per-bar-decision-timeline.md) | Durable per-bar decision timeline (`thytrader-bar-decision-v1`, `bar_decisions`) for paper and live bots: outcome, rule values versus thresholds, risk verdict, linked orders; never blocks trading; bounded retention; deployment/strategy HTTP pages, operator `decisions`, `thytrader-runtime decisions`; ops contract v47 / Alembic 0053; amends 0054, 0080, 0081 | Accepted |
 | [0088](0088-portfolio-model-and-portfolio-backtest.md) | Portfolios foundation: sleeves (one strategy each, capital weights) plus a cash reserve, shared limits, and order-free manager settings, paper or live and never mixed; revision-guarded mutations with an append-only journal; strategy deletion removes its sleeves; async portfolio backtests (`thytrader-portfolio-backtest-v1`) that run each sleeve independently on `weight × capital` over one common window and combine on the union grid (return, drawdown, contribution, correlation, overlap, idle capital, equal-weight basket); `/api/v1/portfolios`, `thytrader-portfolio`, operator `portfolios`; no deployment; ops contract v48 / Alembic 0054 | Accepted |
 | [0089](0089-agent-research-ergonomics.md) | Agent research ergonomics: omitted backtest/study datasets bind the newest complete catalog dataset (echoed as `bound_datasets`, 422 `datasets_missing` otherwise), omitted study bounds use the common covered window, cross-market studies from one strategy plus `markets[].product_id`, sync 8 / async 64 sweep candidates, operator `products` order constraints, retryable 503 for an unverifiable product catalog, and CLIs that name what failed; ops contract v49 | Accepted |
+| [0090](0090-research-correctness-optional-take-profit-diagnostics.md) | Optional take-profit (`kind: none`; live stop-only protection via a Coinbase stop-limit), named entry skip reasons shared by backtest/paper/live (no silent skips; `skipped` decision rows), save-time geometry warnings, backtest entry-funnel diagnostics stored beside results (fingerprints unchanged), account-rate fee suggestions, and an HTTP signal trace behind `thytrader-research-evaluate`; ops contract v48 / Alembic 0055; amends 0008, 0036, 0045 | Accepted |
 
 ## Status values
 

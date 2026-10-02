@@ -6,7 +6,7 @@ import {
 	readParameter
 } from './indicator-catalog';
 import type { BuilderModel, ConditionDraft, IndicatorDraft } from './strategies';
-import { quoteLabelFor } from './strategies';
+import { quoteLabelFor, takeProfitMultiple } from './strategies';
 
 export type FieldChange = {
 	path: string;
@@ -279,8 +279,8 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 	);
 	changed(
 		'exits.take_profit.multiple',
-		before.exits.take_profit.multiple,
-		after.exits.take_profit.multiple
+		takeProfitMultiple(before.exits.take_profit) ?? 'none',
+		takeProfitMultiple(after.exits.take_profit) ?? 'none'
 	);
 	changed(
 		'exits.time_exit.max_bars_held',

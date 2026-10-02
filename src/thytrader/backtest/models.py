@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 from hashlib import sha256
 import json
 import re
@@ -20,6 +21,7 @@ from pydantic import (
 )
 
 from thytrader.backtest.research_validity import ResearchValidityLimitCode  # noqa: TC001
+from thytrader.execution.geometry import EntrySkipReason  # noqa: TC001 - Pydantic field type.
 from thytrader.research.models import (
     BACKTEST_ENGINE,
     BacktestEngine,
@@ -199,6 +201,81 @@ class BacktestResult(_FrozenBacktestModel):
     trades: tuple[BacktestTrade, ...]
     equity_curve: tuple[EquityPoint, ...] = Field(min_length=1)
     summary: BacktestSummary
+
+
+BACKTEST_DIAGNOSTICS_VERSION: Literal["thytrader-backtest-diagnostics-v1"] = (
+    "thytrader-backtest-diagnostics-v1"
+)
+
+
+class BacktestGateReason(StrEnum):
+    """Why a matched signal could not rest an entry before sizing was attempted."""
+
+    PENDING_ENTRY = "pending_entry"
+    COOLDOWN = "cooldown"
+    MAX_POSITIONS = "max_positions"
+    IN_POSITION = "in_position"
+
+
+class BacktestSkipCount(_FrozenBacktestModel):
+    """How many matched signals one reason prevented from resting an entry."""
+
+    reason: BacktestGateReason | EntrySkipReason
+    count: int = Field(ge=1)
+
+
+class BacktestDiagnostics(_FrozenBacktestModel):
+    """Bounded per-result entry funnel counters, stored beside (never inside) the result.
+
+    The counters are not part of ``canonical_backtest_result_bytes``, so every result
+    fingerprint is unchanged (ADR 0090). Invariants: ``signals_matched`` equals
+    ``entries_rested`` plus every ``skipped`` count, and ``entries_rested`` equals
+    ``entries_filled + entries_expired + entries_refused_at_fill + entries_unfilled_at_end``.
+    ``warmup_bars`` counts evaluation bars whose rule could not evaluate yet; they are not
+    matched signals. Counts aggregate every covered product.
+    """
+
+    diagnostics_version: Literal["thytrader-backtest-diagnostics-v1"] = BACKTEST_DIAGNOSTICS_VERSION
+    signals_matched: int = Field(ge=0)
+    entries_rested: int = Field(ge=0)
+    entries_filled: int = Field(ge=0)
+    entries_expired: int = Field(ge=0)
+    entries_repriced: int = Field(ge=0)
+    entries_refused_at_fill: int = Field(ge=0)
+    entries_unfilled_at_end: int = Field(ge=0)
+    entries_size_capped: int = Field(ge=0)
+    warmup_bars: int = Field(ge=0)
+    skipped: tuple[BacktestSkipCount, ...] = Field(default=(), max_length=32)
+
+    @model_validator(mode="after")
+    def require_coherent_funnel(self) -> Self:
+        """Keep the funnel internally consistent so a zero-trade result explains itself."""
+        skipped = sum(item.count for item in self.skipped)
+        if self.signals_matched != self.entries_rested + skipped:
+            raise ValueError("signals_matched must equal entries_rested plus skipped counts")
+        settled = (
+            self.entries_filled
+            + self.entries_expired
+            + self.entries_refused_at_fill
+            + self.entries_unfilled_at_end
+        )
+        if self.entries_rested != settled:
+            raise ValueError("entries_rested must equal filled, expired, refused, and unfilled")
+        if len({item.reason for item in self.skipped}) != len(self.skipped):
+            raise ValueError("skipped reasons must be unique")
+        return self
+
+
+def canonical_backtest_diagnostics_bytes(diagnostics: BacktestDiagnostics) -> bytes:
+    """Encode diagnostics as sorted compact JSON for storage beside the canonical result."""
+    validated = BacktestDiagnostics.model_validate(diagnostics.model_dump(mode="python"))
+    return json.dumps(
+        validated.model_dump(mode="json"),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        allow_nan=False,
+    ).encode("utf-8")
 
 
 class BacktestBenchmark(_FrozenBacktestModel):

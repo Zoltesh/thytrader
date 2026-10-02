@@ -12,6 +12,7 @@ from thytrader.execution.models import (
     OrderKind,
     OrderStatus,
     Position,
+    is_venue_protection,
     resolved_product_id,
 )
 
@@ -79,7 +80,7 @@ def working_entry_orders(snapshot: DeploymentSnapshot) -> tuple[Order, ...]:
         order
         for order in snapshot.orders
         if order.status in _ACTIVE
-        and order.kind is not OrderKind.TRIGGER_BRACKET
+        and not is_venue_protection(order.kind)
         and (order.quantity - order.filled_quantity) > 0
         and _is_entry_order(snapshot, order)
     )
