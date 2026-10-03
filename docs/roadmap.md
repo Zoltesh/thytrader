@@ -1044,3 +1044,12 @@ server-derived tag-filtered counts before pagination. Ops contract v63, Alembic 
 [ADR 0105](decisions/0105-rule-equivalent-clone-twins.md) completes existing twin linking for
 separately authored clones: server-verified exact pinned trading rules, independent snapshot
 identities in each comparison side, and unchanged comparison-only authority.
+
+## Portfolio accounting corrections — ✅ Shipped
+
+The manager briefing now supplies the same journal-based marks and paid-entry-fee PnL as
+portfolio deployment reads, including when recent decisions are omitted. Working entry exposure
+and capital reservations exclude verified exit intents, including paper take-profit limits;
+partial entry remainders and orders missing intent evidence remain counted. These fixes restore
+the existing ADRs 0058, 0091, 0098, and 0100 contracts without changing schemas, migrations,
+confirmation gates, or configured limits.

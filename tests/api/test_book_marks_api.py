@@ -163,6 +163,29 @@ def test_sleeve_books_carry_entry_stop_target_state_and_last_bar_pnl(world: Worl
     }
 
 
+@pytest.mark.parametrize("decision_limit", [0, 5])
+@pytest.mark.parametrize("close", [None, "60200"])
+@pytest.mark.parametrize("applied", [False, True])
+def test_manager_briefing_marks_agree_with_portfolio_deployment(
+    world: World, decision_limit: int, close: str | None, applied: bool
+) -> None:
+    """Marks and verified fees are available even when recent decisions are not requested."""
+    portfolio_id, bot = _started_portfolio(world)
+    _open_long(world, bot, close=close)
+    _record_entry(world, bot, fee="3", applied=applied)
+    deployment = world.client.get(f"/api/v1/portfolios/{portfolio_id}/deployment")
+    briefing = world.client.get(
+        f"/api/v1/portfolios/{portfolio_id}/briefing?decisions_per_sleeve={decision_limit}"
+    )
+    assert deployment.status_code == briefing.status_code == 200
+    expected = deployment.json()["sleeves"][0]["deployment"]["books"][0]
+    actual = briefing.json()["sleeves"][0]["deployment"]["books"][0]
+    assert actual == expected
+    assert actual["mark_price"] == close
+    assert actual["unrealized_pnl_net"] == ("-1" if close is not None and applied else None)
+    assert len(briefing.json()["sleeves"][0]["recent_decisions"]) == (decision_limit > 0)
+
+
 def test_bot_detail_positions_carry_the_last_bar_mark(world: World) -> None:
     """``GET /deployments/{id}`` marks positions on summary and full reads alike."""
     _portfolio_id, bot = _started_portfolio(world)

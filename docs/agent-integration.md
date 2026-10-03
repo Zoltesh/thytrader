@@ -111,8 +111,15 @@ research traces add `id@N` / `id.series@N` for positive operand lags
 - `thytrader-portfolio` — portfolio list/show/create/update/delete, add-sleeve/add-sleeves/remove-sleeve/set-weights, portfolio backtests (backtest/show-backtest/list-backtests), the journal, and the manager loop: read-only `deployment` and `briefing` (`thytrader-portfolio-briefing-v1`), `propose` (rebalance, pause_sleeve, resume_sleeve, add_sleeve; rationale plus cited evidence), `proposals` / `show-proposal`, and a person's `approve` / `decline` (`--confirm` on every mutation; YOLO never covers this lane; creation starts at revision 1; later edits name the current `revision`). It has no deployment or order authority ([ADR 0088](decisions/0088-portfolio-model-and-portfolio-backtest.md), [ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)): proposals auto-apply only inside the manager's permissions (pause a running sleeve; a paper rebalance within the rolling weekly budget), live rebalances, resumes, and new sleeves always wait for a person, and there is no order proposal. Portfolio backtests run each sleeve through the unified model on `weight × capital` over one common window and combine them; sleeves are simulated independently and portfolio caps are not simulated.
 - `thytrader-runtime portfolio-*` — deploy a portfolio: `portfolio-start --revision N` (one bot per sleeve tagged `portfolio_id`; paper cash or live allocated capital = weight × capital; planned for every sleeve, so one refusal starts nothing; live `--i-understand-live`), `portfolio-pause|resume|stop [--sleeve-id] [--flatten]`, `portfolio-reset-breaker` (always `--confirm`), and read-only `portfolio-status`. A live portfolio's sleeve allocations count as risk-policy allocation membership for its bots; portfolio caps and latched daily-loss / drawdown stops bind every sleeve with explicit reason codes (`PORTFOLIO_TOTAL_EXPOSURE_LIMIT`, `PORTFOLIO_ASSET_EXPOSURE_LIMIT`, `PORTFOLIO_BREAKER_LATCHED`, `PORTFOLIO_DAILY_LOSS_STOP`, `PORTFOLIO_DRAWDOWN_STOP`) in risk verdicts and the decision timeline ([ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)).
 - `thytrader-playbook` — sequences existing CLIs for data → research → optional paper (`--confirm` forwarded; never live).
+
 - `thytrader-memory` — journals, why-trade review, sentiment/pattern hooks, monitor, notify, and
   fail-closed experiential training (`--confirm`; YOLO never covers this lane).
+
+Portfolio `briefing` marks open sleeve books from the same decision journal as deployment reads,
+with verified entry fees and net unrealized PnL even when `--decisions-per-sleeve 0` omits recent
+decisions. Missing marks or fee evidence remain null. Exposure and reserved buying power count
+entry remainders, excluding verified exit intents; missing intent evidence stays conservatively
+counted. These corrections preserve the existing response schemas and confirmation gates.
 
 In-app operator chat is a loopback UI (the Agent side panel on every page, or `/chat` as the full
 page; [ADR 0079](decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)) and

@@ -60,6 +60,12 @@ Live capital fields stay on `thytrader-runtime show` / `GET /api/v1/deployments/
 `capital` block ([ADR 0065](../../../docs/decisions/0065-deployment-capital-accounting-http.md));
 this operator payload still omits cash.
 
+Portfolio exposure and runtime reserved buying power exclude orders with verified non-entry
+intent purposes, including paper take-profit limits. Remaining entry quantities still count;
+missing intent evidence stays conservatively counted. The manager briefing marks sleeve books
+from the decision journal even with zero recent decisions requested, with null marks or fee
+fields when their respective evidence is unavailable. Existing response shapes are unchanged.
+
 Sub-hour live (`1m`, `5m`, `15m`, `30m`) pauses when `user_order_feed.state` is not `connected`
 and fresh; a pause whose only reason is the feed clears automatically once it is healthy (audit
 `user_feed_pause_cleared`). The runtime report adds component `execution_market_data` with

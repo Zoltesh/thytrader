@@ -72,6 +72,13 @@ It gates paper and live **entries** (not exits) with:
 - an optional absolute `max_portfolio_exposure_quote` ceiling (live only) alongside the portfolio
   exposure fraction.
 
+Exposure counts inventory and working entry remainders; reserved buying power counts the entry
+remainders alone. Orders with
+verified non-entry intent purposes (take-profit, stop, time exit, signal exit, or bracket) do not
+reserve entry quote, including paper limit exits. Missing intent evidence remains conservatively
+occupied; venue-native protective kinds remain excluded ([ADR 0058](decisions/0058-protection-lifecycle-accounting.md),
+[ADR 0091](decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)).
+
 Compiled default when no published row is active: eight running slots and eight open positions per
 mode, unit exposure and breaker fractions, 60 orders/cancels per minute, collar `0.5`, empty
 allowlist/allocations, paper book `100000`, and no absolute caps or venue budget set. This default

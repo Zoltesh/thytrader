@@ -7,6 +7,7 @@ migration test creates and drops its own scratch database.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Context, Decimal, localcontext
 import os
@@ -299,7 +300,9 @@ def test_portfolio_backtest_runs_real_child_backtests_end_to_end(tmp_path: Path)
                 strategies=strategies,
                 datasets=dataset_store,
             )
-            job = await store.create_job(plan, context=_CONTEXT)
+            # Keep queue admission current independently of historical simulation timestamps.
+            job_context = replace(_CONTEXT, occurred_at=datetime.now(UTC))
+            job = await store.create_job(plan, context=job_context)
             assert await store.claim_next() == job.job_id
             runner = PortfolioBacktestRunner(
                 store=store,

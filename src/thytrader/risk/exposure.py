@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,
-    OrderSide,
+    IntentPurpose,
     OrderStatus,
     RuntimePhase,
     is_venue_protection,
@@ -27,8 +27,13 @@ _ACTIVE_ORDER = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 
 
 def working_entry_notional(snapshot: DeploymentSnapshot, product_id: str) -> Decimal:
-    """Return the sum of remaining quote on active non-bracket orders for one product."""
+    """Sum active entry remainders, excluding verified exit intents and venue protection.
+
+    Missing intent evidence conservatively reserves quote rather than hiding an entry.
+    Both buy and sell entries count, since spot shorts also occupy capital.
+    """
     total = Decimal("0")
+    purposes = {intent.id: intent.purpose for intent in snapshot.intents}
     for order in snapshot.orders:
         if order.status not in _ACTIVE_ORDER or order.price is None:
             continue
@@ -37,10 +42,12 @@ def working_entry_notional(snapshot: DeploymentSnapshot, product_id: str) -> Dec
         remaining = order.quantity - order.filled_quantity
         if remaining <= 0:
             continue
-        if is_venue_protection(order.kind):
+        if (
+            is_venue_protection(order.kind)
+            or purposes.get(order.intent_id, IntentPurpose.ENTRY) is not IntentPurpose.ENTRY
+        ):
             continue
-        if order.side is OrderSide.BUY or order.side is OrderSide.SELL:
-            total += remaining * order.price
+        total += remaining * order.price
     return total
 
 

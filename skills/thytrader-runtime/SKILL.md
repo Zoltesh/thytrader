@@ -376,7 +376,9 @@ ADR 0058 lifecycle fields
 `inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`,
 `high_water_mark_equity`, and `utc_day_open_equity`
 ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
-ledger fill accounting only; live sizing uses `capital.allocated_capital` or
+ledger fill accounting only. `reserved_buying_power` counts working entry remainders;
+known protective or other exit intents never reserve entry quote, including paper limit exits.
+Missing intent evidence stays conservatively counted. Live sizing uses `capital.allocated_capital` or
 `capital.venue_available_quote` (null when unknown). The singular `position` field is
 compatibility-only (focused book, always includes `product_id` and `compatibility_focus`). Read
 `positions` for inventory. `--i-understand-live` is unchanged. `set-risk-policy` optional breaker

@@ -436,6 +436,11 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   pause a sleeve (applied on its own when allowed), propose sleeves (each waits for you); it never
   places orders — and the append-only journal of every change, with who made it. The manager agent
   runs outside ThyTrader (Hermes or Claude through the portfolio skill).
+
+  The agent briefing marks open books at their latest journaled close and includes verified
+  entry fees and net unrealized PnL, even when recent decisions are omitted. Unknown marks or
+  fee evidence remain null. Portfolio exposure counts inventory cost and working entry
+  remainders; verified exit orders, including paper take-profits, do not add entry exposure.
 - **Limits** — max total exposure, max per asset, optional daily loss and drawdown stops, and the
   **breakers**: equity this run, today's change against the daily loss stop, drawdown from the
   run's peak against the drawdown stop, and exposure per asset against the caps. On a deployed

@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v62`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v63`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -121,7 +121,9 @@ sleeves, and every change goes through a proposal. Each cycle:
    the rolling weekly budget (`permissions.weight_moved_this_week`, `weight_budget_remaining`,
    `rebalance_auto_applies`), the deployment `state`, run `performance` (equity, net PnL, daily
    PnL, drawdown), `breaker` and `exposure` against the caps, every sleeve with its bot (status,
-   net PnL, return, drawdown, exposure, whether it runs the strategy's current rules), its newest
+   net PnL, return, drawdown, exposure, whether it runs the strategy's current rules), open books
+   marked from the decision journal with verified entry fees and net unrealized PnL (even when
+   `--decisions-per-sleeve 0` hides recent decisions), its newest
    portfolio-backtest evidence and `drawdown_vs_backtest` (1.5 = live drawdown 1.5 times the
    backtest's), and its recent per-bar decisions with citable `ref`s, the pending and recent
    proposals, the journal, and the disclosures.
@@ -195,6 +197,12 @@ and your auto-applied changes, `operator` for a person) and your rationale.
 `thytrader-research` or remove the sleeve. Deleting a strategy removes its sleeves; each removal
 is journaled (`sleeve_removed`, actor `system`, reason `strategy_deleted`) and
 `delete-strategy` reports `portfolio_sleeves`.
+
+Exposure counts inventory plus active entry remainders; reserved buying power counts the entry
+remainders alone. Orders whose stored intent names a take-profit, stop, time exit, signal exit,
+or bracket do not reserve new
+entry capital, including paper limit exits. Missing intent evidence stays conservatively counted;
+venue-native protective kinds remain excluded.
 
 `allocation` reports allocated, reserve, and unallocated capital and the **largest single asset**
 against `limits.max_per_asset_fraction` (a multi-product sleeve counts toward each of its assets).
@@ -288,8 +296,10 @@ means open with its TP/SL (or stop) resting, even though `phase` reads `pending_
 ### Paper vs live fills
 
 `thytrader-operator portfolios` (`GET /api/v1/operator/portfolios`) adds
-`paper_live_fill_comparisons[]`. Each row compares an explicitly linked paper/live pair running the same strategy snapshot
-(equal `strategy_fingerprint`, whether sleeves or standalone bots; ADR 0102). Shared rules alone
+`paper_live_fill_comparisons[]`. Each row compares an explicitly linked paper/live pair with
+server-verified identical pinned trading rules (whether sleeves or standalone bots; ADRs 0102
+and 0105). Cloned strategy roots may have different fingerprints; each comparison side reports
+its actual `strategy_fingerprint`. Shared rules alone
 never infer a partner. Multiple saved pairs can share the same fingerprint. Select or remove a
 partner with the separate `thytrader-runtime show-twin` / `link-twin` / `unlink-twin` commands
 ([runtime skill](../thytrader-runtime/SKILL.md)); this portfolio lane stays read-only for links.

@@ -13,6 +13,11 @@ description: >-
 
 Read-only diagnostics for a running instance. Do not scrape logs, query PostgreSQL, or import private internals.
 
+Portfolio exposure counts inventory cost plus working entry remainders. Verified protective and
+other exit intents, including paper limit exits, do not add entry exposure. Orders without intent
+evidence stay conservatively counted. The portfolio manager briefing marks open books from the
+same decision journal as bot detail, with verified entry fees and net PnL when available.
+
 Schema version: `thytrader-operator-report-v1` (`schema_version` on every JSON report).
 
 Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the

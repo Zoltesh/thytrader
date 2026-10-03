@@ -61,3 +61,6 @@ The library shows Mine / Research / All counts. A settling newest decision candl
 Explicit twins may be strategy clones with server-verified identical pinned trading rules
 (ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
 comparison metadata, never bot lifecycle or trading rules.
+
+Manager briefings include the same journal-based open-book marks and paid-entry-fee PnL as bot
+detail. Entry exposure and capital reservations count working entries, excluding verified exits.

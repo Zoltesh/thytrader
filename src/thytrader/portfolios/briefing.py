@@ -16,6 +16,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, Field
 
+from thytrader.execution.book_marks import marks_by_deployment
 from thytrader.execution.decision_store import DecisionStoreError
 from thytrader.portfolios.backtest import portfolio_backtest_fingerprint
 from thytrader.portfolios.models import (
@@ -194,7 +195,8 @@ async def build_manager_briefing(
         portfolio_id, status=None, limit=_RECENT_PROPOSALS, offset=0
     )
     pending = tuple(item for item in proposals.proposals if item.status == "pending")
-    deployment = deployment_response(snapshot, pending_proposals=len(pending))
+    marks = await marks_by_deployment(decisions, snapshot.snapshots)
+    deployment = deployment_response(snapshot, pending_proposals=len(pending), marks=marks)
     backtest = await _latest_backtest(portfolios, portfolio_id)
     journal = await portfolios.journal(portfolio_id, limit=journal_entries, offset=0)
     sleeves = tuple(

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import os
 import signal
@@ -424,9 +425,11 @@ def test_portfolio_backtest_in_the_worker_matches_the_in_process_runner(
                 strategies=strategies,
                 datasets=DatasetStore(datasets.root),
             )
-            first = await store.create_job(plan, context=_CONTEXT)
+            # Keep queue admission current independently of historical simulation timestamps.
+            job_context = replace(_CONTEXT, occurred_at=datetime.now(UTC))
+            first = await store.create_job(plan, context=job_context)
             assert await store.claim_next() == first.job_id
-            second = await store.create_job(plan, context=_CONTEXT)
+            second = await store.create_job(plan, context=job_context)
             dataset_store = DatasetStore(datasets.root)
             await PortfolioBacktestRunner(
                 store=store,
