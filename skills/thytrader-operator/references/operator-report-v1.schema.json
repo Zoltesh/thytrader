@@ -112,7 +112,12 @@
             "runtime_observability": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "v62 adds explicit_deployment_twins: fill comparisons use saved one-to-one paper/live links only. v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
+              "description": "v64 adds capital_normalized_performance: pinned performance capital and durable observed maximum drawdown; Alembic 0061. v62 adds explicit_deployment_twins: fill comparisons use saved one-to-one paper/live links only. v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
+            },
+            "deployment_capital_fields": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Names available in deployment HTTP capital. v64 adds nullable decimal strings performance_capital_quote and performance_maximum_drawdown_fraction; the pinned percentage budget and worst verified worker-observed drawdown, separate from ledger cash and allocation sizing."
             },
             "indicator_operand_offset_runtimes": {
               "type": "array",

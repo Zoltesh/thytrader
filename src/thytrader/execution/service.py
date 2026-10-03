@@ -113,6 +113,7 @@ async def create_deployment(
         created_at=now,
         updated_at=now,
         allocated_capital=allocated,
+        performance_capital_quote=(cash if mode is DeploymentMode.PAPER else allocated),
         initial_equity=initial,
         baseline_equity=initial,
         high_water_mark_equity=initial,

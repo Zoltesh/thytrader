@@ -411,6 +411,12 @@ strategy semantics or placing orders.
 
 ## Daily-loss, drawdown, rate limits, and collars — ✅ Shipped
 
+[ADR 0107](decisions/0107-capital-normalized-live-performance.md) corrects live percentages and
+drawdown enforcement for zero-based PnL ledgers. Separate pinned capital and observed maximum
+drawdown persist across recovery, rebalance, and restart, without rewriting economic evidence.
+HTTP, UI, operator, and portfolio readers share the calculation; ops contract v64 / Alembic
+`0061`. Full historical candle equity reconstruction remains outside this slice.
+
 The Phase 10 registry now gates risk-increasing **entries** (not exits) with UTC-day daily-loss
 and per-strategy fill-ledger drawdown breakers, rolling 60-second order/cancel caps, and a
 last-close reference-price collar ([ADR 0050](decisions/0050-daily-loss-drawdown-rate-collars.md)).

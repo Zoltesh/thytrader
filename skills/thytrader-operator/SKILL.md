@@ -209,10 +209,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v63`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v64`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0060`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
+   Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
    (native-clock operand lags; [ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)),
    `portfolio_sleeve_operations` `batch_add`/`create_with_sleeves` (atomic portfolio definition
    creation at revision 1 in the portfolio lane;
@@ -287,6 +287,13 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
    unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
    do not treat a truncated or failed fill page as a complete ledger.
+   `runtime_observability: capital_normalized_performance` means return/drawdown use the bot's
+   pinned budget (`capital.performance_capital_quote` on runtime `show UUID`). Allocations and
+   venue balances can change without resetting that denominator. Reported maximum drawdown
+   includes fill-event marks and persisted worker observations, surviving recovery/restart;
+   it is not a complete historical candle curve. Missing capital or marks leave percentages
+   unknown. The runtime breaker measures current drawdown from its durable peak, and latch
+   reset preserves history. See [ADR 0107](../../docs/decisions/0107-capital-normalized-live-performance.md).
 6. Treat `partial_result_warnings` as incomplete evidence, not as health. A report that fails with
    `Timed out after N s waiting for the ThyTrader API to answer GET …` hit a busy API, not a
    failed one; reads are safe to repeat after a short wait.

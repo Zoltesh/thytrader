@@ -260,6 +260,8 @@ class Deployment:
     reserved_buying_power: Decimal | None = None
     inventory_cost: Decimal | None = None
     performance_equity: Decimal | None = None
+    performance_capital_quote: Decimal | None = None
+    performance_maximum_drawdown_fraction: Decimal | None = None
     initial_equity: Decimal | None = None
     baseline_equity: Decimal | None = None
     utc_day_open_equity: Decimal | None = None

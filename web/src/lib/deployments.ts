@@ -86,6 +86,8 @@ export type DeploymentCapital = {
 	reserved_buying_power?: string | null;
 	inventory_cost?: string | null;
 	performance_equity?: string | null;
+	performance_capital_quote?: string | null;
+	performance_maximum_drawdown_fraction?: string | null;
 	initial_equity?: string | null;
 	baseline_equity?: string | null;
 	high_water_mark_equity?: string | null;

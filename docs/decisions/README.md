@@ -1,5 +1,9 @@
 # Architecture Decision Records
 
+[ADR 0107](0107-capital-normalized-live-performance.md) is accepted: pinned performance capital
+and durable observed drawdown correct zero-based live percentages without rewriting ledger cash
+or historical baselines. It amends ADRs 0050/0058 and preserves ADR 0106's account risk scope.
+
 [ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md) is accepted and supersedes
 ADR 0058's capital-base scope: account risk capital, separate bot allocations, and live startup
 baselines. Protection, reconciliation, leases, and lifecycle rules remain unchanged.
@@ -111,6 +115,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0100](0100-fee-adjusted-open-book-pnl.md) | Marked open-book PnL after allocated paid entry fees, bounded verified fill evidence, explicit net/gross UI basis; future exit fees excluded; ops contract v60 / no migration | Accepted |
 | [0101](0101-atomic-portfolio-creation-with-sleeves.md) | Optional initial sleeves in portfolio create API/CLI; full validation and atomic portfolio, sleeves, and journal at revision 1; ops contract v61 / no migration | Accepted |
 | [0102](0102-explicit-paper-live-twin-links.md) | Durable one-to-one paper/live comparison links; metadata-only runtime controls; saved pairs replace inference | Accepted — amends 0097 and 0098 |
+| [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
 
 ## Status values
 

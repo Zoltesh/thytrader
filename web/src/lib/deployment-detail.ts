@@ -474,7 +474,8 @@ export function capitalBreakdown(deployment: Deployment): CapitalRow[] | null {
 		quoteAmountLabel(value, deployment.product_id);
 	const rows: CapitalRow[] = [
 		{ label: 'Allocated capital', value: label(capital.allocated_capital) },
-		{ label: 'Performance equity', value: label(capital.performance_equity) },
+		{ label: 'Ledger equity', value: label(capital.performance_equity) },
+		{ label: 'Performance capital (pinned)', value: label(capital.performance_capital_quote) },
 		{ label: 'Reserved buying power', value: label(capital.reserved_buying_power) },
 		{ label: 'Inventory cost', value: label(capital.inventory_cost) },
 		{ label: 'Initial equity', value: label(capital.initial_equity) },

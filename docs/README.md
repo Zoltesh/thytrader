@@ -28,6 +28,10 @@ you are operating a **running** instance (not changing source).
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 
+Live return and drawdown use a pinned performance budget, including losses before the first
+profit. Bot detail shows this budget separately from ledger cash; observed maximum drawdown
+survives recovery and restart. See [performance accounting](user/operate.md#live-performance-accounting).
+
 ## What it is (and isn't)
 
 **Isn't:** another hosted trading UI you rent.

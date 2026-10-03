@@ -904,6 +904,10 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "reserved_buying_power": _text(deployment.reserved_buying_power),
         "inventory_cost": _text(deployment.inventory_cost),
         "performance_equity": _text(deployment.performance_equity),
+        "performance_capital_quote": _text(deployment.performance_capital_quote),
+        "performance_maximum_drawdown_fraction": _text(
+            deployment.performance_maximum_drawdown_fraction
+        ),
         "initial_equity": _text(deployment.initial_equity),
         "baseline_equity": _text(deployment.baseline_equity),
         "utc_day_open_equity": _text(deployment.utc_day_open_equity),
@@ -979,6 +983,10 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         reserved_buying_power=_decimal(row.get("reserved_buying_power")),
         inventory_cost=_decimal(row.get("inventory_cost")),
         performance_equity=_decimal(row.get("performance_equity")),
+        performance_capital_quote=_decimal(row.get("performance_capital_quote")),
+        performance_maximum_drawdown_fraction=_decimal(
+            row.get("performance_maximum_drawdown_fraction")
+        ),
         initial_equity=_decimal(row.get("initial_equity")),
         baseline_equity=_decimal(row.get("baseline_equity")),
         utc_day_open_equity=_decimal(row.get("utc_day_open_equity")),

@@ -8,6 +8,9 @@ Capital-base scope is superseded by [ADR 0106](0106-account-risk-capital-and-liv
 mode-wide risk uses account quote and managed holdings, while per-bot allocations remain sizing
 and strategy limits. The ledger, reconciliation, protection, lease, and lifecycle decisions remain.
 
+Performance percentages are amended by [ADR 0107](0107-capital-normalized-live-performance.md):
+zero-based live PnL uses separate pinned capital, preserving ledger cash and historical baselines.
+
 ## Context
 
 The 2026-09-16 external audit left protection, concurrency, and accounting defects after

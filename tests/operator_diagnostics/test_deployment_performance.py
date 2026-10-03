@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from tests.execution.test_performance_capital import _live_snapshot
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -144,6 +145,31 @@ def _diagnostics(
 def _now() -> datetime:
     """Return a UTC instant used by fixtures."""
     return datetime(2026, 1, 1, tzinfo=UTC)
+
+
+def test_live_performance_reports_capital_normalized_loss_including_recorded_fees() -> None:
+    """Operator reports expose the same live return and drawdown as deployment detail."""
+
+    async def scenario() -> None:
+        """Read the complete live fill ledger through the shipped diagnostics service."""
+        snapshot = _live_snapshot()
+        store = InMemoryExecutionStore()
+        await store.create_deployment(snapshot.deployment)
+        for order in snapshot.orders:
+            await store.save_order(order)
+        for fill in snapshot.fills:
+            await store.save_fill(fill)
+        assert snapshot.position is not None
+        await store.save_position(snapshot.position, deployment_id=snapshot.deployment.id)
+        report = await _diagnostics(
+            execution=store, market_data=MarketDataService(_CloseProvider(Decimal("45")))
+        ).performance(deployment_id=snapshot.deployment.id)
+        assert report.payload.mode == "live"
+        assert report.payload.total_net_pnl == "-5.5"
+        assert report.payload.total_return_fraction == "-0.055"
+        assert report.payload.maximum_drawdown_fraction == "0.055"
+
+    asyncio.run(scenario())
 
 
 def _deployment(

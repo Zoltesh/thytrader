@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -13,6 +14,7 @@ from pydantic import SecretStr
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api.app import create_app
 from thytrader.config import Environment, Settings
+from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
@@ -89,6 +91,45 @@ def _published_risk_policy_store() -> InMemoryRiskPolicyStore:
     return store
 
 
+def test_live_detail_reports_pinned_performance_capital_without_funding_ledger_cash() -> None:
+    """The HTTP response uses the new percentage basis while preserving dollar PnL."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = StrategySnapshot(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    deployment = Deployment(
+        id=uuid7(utc_now()),
+        strategy_id=definition.strategy_id,
+        strategy_fingerprint=fingerprint,
+        product_id="BTC-USD",
+        timeframe="1h",
+        mode=DeploymentMode.LIVE,
+        status=DeploymentStatus.RUNNING,
+        phase=RuntimePhase.FLAT,
+        cash=Decimal("-0.5"),
+        initial_equity=Decimal("0"),
+        high_water_mark_equity=Decimal("0"),
+        performance_capital_quote=Decimal("100"),
+        performance_maximum_drawdown_fraction=Decimal("0.005"),
+        created_at=utc_now(),
+        updated_at=utc_now(),
+    )
+    asyncio.run(execution.create_deployment(deployment))
+    with _client(publication, execution) as client:
+        response = client.get(f"/api/v1/deployments/{deployment.id}")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["cash"] == "-0.5"
+    assert payload["capital"]["performance_capital_quote"] == "100"
+    assert payload["capital"]["initial_equity"] == "0"
+    assert payload["capital"]["performance_maximum_drawdown_fraction"] == "0.005"
+    assert payload["ledger"]["total_net_pnl"] == "-0.5"
+    assert payload["ledger"]["total_return_fraction"] == "-0.005"
+
+
 def test_live_start_initializes_sibling_daily_loss_baselines() -> None:
     """Fresh flat peers have exact zero ledger baselines before any worker cycle runs."""
     publication = InMemoryPublicationStore()
@@ -117,7 +158,11 @@ def test_live_start_initializes_sibling_daily_loss_baselines() -> None:
             assert snapshot.deployment.initial_equity == Decimal("0")
             assert snapshot.deployment.utc_day_open_equity == Decimal("0")
             assert snapshot.deployment.utc_day_open_at is not None
-            snapshots.append(snapshot)
+            # The worker observes and pins an unallocated book's venue budget before entry.
+            observed = apply_venue_quote(
+                snapshot.deployment, available=Decimal("100"), now=utc_now()
+            )
+            snapshots.append(replace(snapshot, deployment=observed))
     verdict = evaluate_new_entry(
         compiled_default_risk_policy(),
         mode=DeploymentMode.LIVE,

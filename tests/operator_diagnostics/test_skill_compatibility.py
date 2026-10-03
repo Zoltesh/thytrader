@@ -74,7 +74,10 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v63" in skill
+    assert "thytrader-ops-contract-v64" in skill
+    assert "capital_normalized_performance" in skill
+    assert "performance_capital_quote" in schemas
+    assert "performance_maximum_drawdown_fraction" in schemas
     assert "fee_adjusted_book_pnl" in skill
     assert "entry_fees" in schemas
     assert "unrealized_pnl_net" in schemas

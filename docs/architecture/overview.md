@@ -6,6 +6,13 @@ Do not substitute one sleeve's allocation or add its ledger cash to an account b
 [ADR 0106](../decisions/0106-account-risk-capital-and-live-startup-baselines.md) corrects this scope
 and initializes new live strategy fill-ledger baselines at zero before worker supervision.
 
+Performance percentages use separate pinned capital while ledger cash/equity keep their dollar
+PnL meaning ([ADR 0107](../decisions/0107-capital-normalized-live-performance.md)). The shared
+execution ledger normalizes return and drawdown for HTTP, operator, and portfolio readers.
+Workers persist the budget and maximum observed drawdown independently of the ledger peak;
+restart and rebalance retain both. Alembic `0061` adds nullable columns without historical
+backfill; ops contract v64 exposes their HTTP fields and capability.
+
 ## System shape
 
 ThyTrader is a modular monolith deployed as multiple supervised processes. Domain packages share one

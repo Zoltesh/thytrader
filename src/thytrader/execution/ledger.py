@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -13,6 +13,11 @@ from thytrader.execution.models import (
     PositionSide,
     resolved_product_id,
     snapshot_positions,
+)
+from thytrader.execution.performance import (
+    current_drawdown,
+    ledger_starting_equity,
+    performance_capital,
 )
 from thytrader.research.indicators import canonical_decimal
 
@@ -214,7 +219,7 @@ def ledger_from_snapshot(
     positions = snapshot_positions(snapshot)
     marks_map = _resolve_marks(deployment, marks, mark_price, positions)
     if len(positions) <= 1:
-        return _single_book_ledger(
+        ledger = _single_book_ledger(
             snapshot,
             starting_cash=starting,
             cash=cash,
@@ -222,22 +227,80 @@ def ledger_from_snapshot(
             marks_map=marks_map,
             mark_price=mark_price,
         )
-    return _multi_book_ledger(
-        snapshot,
-        starting_cash=starting,
-        cash=cash,
-        positions=positions,
-        marks_map=marks_map,
+    else:
+        ledger = _multi_book_ledger(
+            snapshot,
+            starting_cash=starting,
+            cash=cash,
+            positions=positions,
+            marks_map=marks_map,
+        )
+    return _capital_normalized_ledger(snapshot, ledger)
+
+
+def _capital_normalized_ledger(
+    snapshot: DeploymentSnapshot, ledger: DeploymentLedger
+) -> DeploymentLedger:
+    """Normalize percentages while preserving cash, equity, fees, and dollar PnL.
+
+    Fill-event marks and the current close are disclosed evidence. The persisted
+    maximum additionally retains losses observed between fills, across recovery and
+    restarts; unavailable historical intrabar marks are never reconstructed.
+    """
+    deployment = snapshot.deployment
+    capital = performance_capital(deployment)
+    if capital is None or not ledger.mark_complete or ledger.equity is None:
+        return replace(ledger, total_return_fraction=None, maximum_drawdown_fraction=None)
+    fill_equities = _capital_fill_equities(snapshot, capital)
+    curve = (*fill_equities, capital + ledger.equity - ledger.starting_cash)
+    absolute, fraction = _drawdown(curve)
+    observed = current_drawdown(deployment, ledger_equity=ledger.equity)
+    maximum = max(
+        fraction or Decimal("0"),
+        observed or Decimal("0"),
+        deployment.performance_maximum_drawdown_fraction or Decimal("0"),
     )
+    return replace(
+        ledger,
+        total_return_fraction=(
+            None if ledger.total_net_pnl is None else ledger.total_net_pnl / capital
+        ),
+        maximum_drawdown=absolute,
+        maximum_drawdown_fraction=maximum,
+    )
+
+
+def _capital_fill_equities(snapshot: DeploymentSnapshot, capital: Decimal) -> tuple[Decimal, ...]:
+    """Replay shared cash with each product marked at its own last observed fill price.
+
+    A fill only provides a price for its product. Other inventory retains its most
+    recent fill-event mark; these points do not reconstruct historical candle closes.
+    """
+    cash = capital
+    quantities: dict[str, Decimal] = {}
+    prices: dict[str, Decimal] = {}
+    orders = {order.id: order for order in snapshot.orders}
+    equities = [capital]
+    for fill in sorted(snapshot.fills, key=_fill_sort_key):
+        order = orders.get(fill.order_id)
+        if order is None:
+            continue
+        product_id = resolved_product_id(order.product_id, snapshot.deployment)
+        signed_quantity = fill.quantity if order.side is OrderSide.BUY else -fill.quantity
+        cash -= signed_quantity * fill.price + fill.fee
+        quantities[product_id] = quantities.get(product_id, Decimal("0")) + signed_quantity
+        prices[product_id] = fill.price
+        inventory = sum(
+            (quantity * prices[product] for product, quantity in quantities.items()),
+            start=Decimal("0"),
+        )
+        equities.append(cash + inventory)
+    return tuple(equities)
 
 
 def _starting_cash(deployment: Deployment) -> Decimal:
     """Return the deployment starting equity baseline."""
-    if deployment.initial_equity is not None:
-        return deployment.initial_equity
-    if deployment.paper_starting_cash is not None:
-        return deployment.paper_starting_cash
-    return Decimal("0")
+    return ledger_starting_equity(deployment)
 
 
 def _resolve_marks(

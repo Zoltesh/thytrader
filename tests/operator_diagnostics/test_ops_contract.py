@@ -32,7 +32,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v63"
+    assert expected["id"] == "thytrader-ops-contract-v64"
     assert expected["same_bar_exit_precedence"] == [
         "stop",
         "take_profit",
@@ -49,6 +49,7 @@ def test_ops_contract_matches_requires_payload() -> None:
         "portfolio_fill_comparisons",
         "explicit_deployment_twins",
         "rule_matched_deployment_twins",
+        "capital_normalized_performance",
     ]
     assert expected["research_honesty"] == [
         "result_window",
@@ -77,7 +78,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0060"
+    assert expected["expected_schema_revision"] == "0061"
     assert expected["async_study_planning"] == "worker"
     assert expected["newest_bar_settle_seconds"] == 120
     assert expected["take_profit_kinds"] == ["reward_risk", "none"]
@@ -161,6 +162,8 @@ def test_ops_contract_matches_requires_payload() -> None:
         "reserved_buying_power",
         "inventory_cost",
         "performance_equity",
+        "performance_capital_quote",
+        "performance_maximum_drawdown_fraction",
         "initial_equity",
         "baseline_equity",
         "high_water_mark_equity",

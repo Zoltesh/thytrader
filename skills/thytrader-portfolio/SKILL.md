@@ -38,7 +38,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v63`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v64`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -284,7 +284,14 @@ the same routes and its Manager tab shows proposals with Approve / Decline / Ask
 (`deployment_id`, `status`, `phase`, `position_state`, `exit_in_flight`, `lifecycle_command`,
 `allocated_capital`, `net_pnl`, `return_fraction`, `drawdown_fraction`, `exposure_quote`,
 `open_books`, `books[]`, `strategy_fingerprint`, `running_current_rules`) or `null` before the
-sleeve is started. Each `books[]` row is one open book: `product_id`, `side`, `quantity`,
+sleeve is started. `return_fraction` and `drawdown_fraction` use the bot's pinned performance
+budget, which survives rebalance/restart; today's `allocated_capital` controls sizing separately.
+Missing capital or marks leave percentages unknown. Read the pinned budget and worst observed
+fraction through `thytrader-runtime show DEPLOYMENT_ID` (`capital.performance_capital_quote`,
+`capital.performance_maximum_drawdown_fraction`; ops contract v64 / Alembic `0061`,
+[ADR 0107](../../docs/decisions/0107-capital-normalized-live-performance.md)). The portfolio
+run's shared breaker still uses run capital plus sleeve PnL; this change does not reset it.
+Each `books[]` row is one open book: `product_id`, `side`, `quantity`,
 `entry_price`, `stop_price`, `target_price`, `entered_bar`, `position_state`, and `mark_price` /
 `marked_at` / `unrealized_pnl` (the last evaluated bar's close from the decision journal, and gross
 unrealized PnL before exit fees; null without a journaled close;

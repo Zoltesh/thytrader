@@ -6,6 +6,27 @@ agent can do the same loop **100%** through the shipped skills. Nothing requires
 When an agent is operating a **running** instance, open [`ops/`](../../ops/README.md) rather than
 the git root. Skills of record: [`skills/README.md`](../../skills/README.md).
 
+## Live performance accounting
+
+Bot detail and `uv run thytrader-operator performance --deployment-id UUID` report return and
+maximum drawdown against the bot's pinned performance capital. Read the budget with
+`uv run thytrader-runtime show UUID`: `capital.performance_capital_quote` is fixed when the
+bot starts with an allocation, or at its first known positive sizing balance when unallocated.
+Existing books adopt their recorded opening balance or first verified budget after upgrade.
+Later rebalances change sizing without resetting performance percentages.
+
+Ledger equity remains trading PnL for a zero-based live bot. For example, a 100-quote budget
+and a 5.5-quote loss (including paid fees) mean −5.5% return and 5.5% drawdown before any profit.
+`capital.performance_maximum_drawdown_fraction` retains the worst observed fraction through
+recovery and restart. It combines fill-event and worker observations, not a complete historical
+candle equity curve. Unknown capital or missing marks show unknown percentage metrics and
+block new risk. Breaker reset clears the latch without erasing the peak or performance history;
+it leaves the bot paused and a continuing breach can trip again.
+
+See [ADR 0107](../decisions/0107-capital-normalized-live-performance.md). The strategy drawdown
+breaker measures the current loss from its durable peak; account daily-loss and exposure limits
+continue to use their separate account capital.
+
 ## In the browser
 
 After [setup](setup.md), open http://127.0.0.1:5175.

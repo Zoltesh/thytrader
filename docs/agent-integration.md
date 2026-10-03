@@ -6,7 +6,17 @@ buy-entry reservations; per-bot allocations and portfolio caps remain separate. 
 `risk.detail` strings expose exact exposure/capital/cap values and identify missing inventory marks
 versus equity/day-open baselines. Protective bracket/TP maintenance with inventory is `holding`,
 with orders linked, rather than a canceled entry. Historical rows are not rewritten. No API shape,
-CLI invocation, confirmation, or live-arming change is required; ops contract remains v63.
+CLI invocation, confirmation, or live-arming change is required by ADR 0106.
+
+[ADR 0107](decisions/0107-capital-normalized-live-performance.md) adds pinned performance capital
+and durable observed maximum drawdown. Health advertises ops contract v64 / Alembic `0061` and
+`runtime_observability: capital_normalized_performance`. Runtime `show UUID` exposes
+`capital.performance_capital_quote` and `capital.performance_maximum_drawdown_fraction`.
+Operator `performance --deployment-id UUID` and portfolio sleeve metrics use that pinned budget;
+rebalances do not reset it. Ledger cash and dollar PnL are unchanged. Missing capital or marks
+leave percentage metrics unknown and block new entries. Maximum drawdown covers recorded fill
+and worker observations, not an invented historical candle curve. The breaker uses current
+drawdown; reset clears its latch without erasing the peak/history or resuming the bot.
 
 ## Recommendation
 
@@ -284,7 +294,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v63` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v64` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -318,8 +328,9 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 [ADR 0097](decisions/0097-runtime-parity-and-observability.md); plus `paper_protection_covered`,
 `book_marks` and `portfolio_fill_comparisons`, with `strategy_library` adding `origin_filter`;
 [ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md); plus
-`fee_adjusted_book_pnl`, [ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md)); expected Alembic
-revision `0060`).
+`fee_adjusted_book_pnl`, [ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md), and
+`capital_normalized_performance`, [ADR 0107](decisions/0107-capital-normalized-live-performance.md));
+expected Alembic revision `0061`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
 `exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase

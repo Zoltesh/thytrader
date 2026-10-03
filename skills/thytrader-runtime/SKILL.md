@@ -386,7 +386,8 @@ ADR 0058 lifecycle fields
 (`lifecycle_command`, `daily_loss_latched`, `drawdown_latched`, `revision`, `worker_lease_held`;
 [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md)), and a
 `capital` block with `allocated_capital`, `venue_available_quote`, `reserved_buying_power`,
-`inventory_cost`, `performance_equity`, `initial_equity`, `baseline_equity`,
+`inventory_cost`, `performance_equity`, `performance_capital_quote`,
+`performance_maximum_drawdown_fraction`, `initial_equity`, `baseline_equity`,
 `high_water_mark_equity`, and `utc_day_open_equity`
 ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
 ledger fill accounting only. `reserved_buying_power` counts working entry remainders;
@@ -406,6 +407,19 @@ policy bytes stable. Schema-enabled pyramiding without this flag is denied
 requires `--confirm` and does **not** require `--i-understand-live`. `reset-breaker-latches`
 always requires `--confirm`; YOLO never skips it.
 
+Ops contract v64 / Alembic `0061` advertises `capital_normalized_performance`
+([ADR 0107](../../docs/decisions/0107-capital-normalized-live-performance.md)).
+`show UUID` exposes `capital.performance_capital_quote`, the pinned budget for percentage
+returns/drawdown, and `capital.performance_maximum_drawdown_fraction`, the worst verified
+fraction observed. Live ledger equity remains PnL from zero. Allocated starts pin their budget;
+unallocated starts pin the first known positive venue sizing balance before entry. Legacy books
+pin their positive opening balance or first verified budget after upgrade. Rebalance and venue
+balance changes do not reset it. Compare `thytrader-operator performance --deployment-id UUID`
+against this budget, not today's allocation. Missing positive capital or marks deny new entries
+(`BREAKER_MARK_MISSING`). The drawdown breaker uses current loss from its durable peak; the
+reported maximum retains fill-event and worker observations across recovery/restart. Latch
+reset does not erase the peak/history or resume the bot; a continuing breach can trip again.
+
 **Live start and live on-demand orders require a published policy** ([ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)):
 the compiled default is a wide **paper** research envelope, not a live-safe default. A fresh
 install's `start --mode live` or `place-order --mode live` is denied
@@ -424,7 +438,7 @@ activity no longer exhausts it and blocks an unrelated new entry.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
 ([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v63` with `indicator_operand_offset_runtimes` including the deployment
+`thytrader-ops-contract-v64` with `indicator_operand_offset_runtimes` including the deployment
 mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research

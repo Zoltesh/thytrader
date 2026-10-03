@@ -1,5 +1,9 @@
 # 0050: Daily-loss, drawdown, order-rate, and reference-price collars
 
+The drawdown calculation is amended by [ADR 0107](0107-capital-normalized-live-performance.md):
+the breaker uses current loss from the durable ledger peak on a pinned performance-capital
+basis, and reports preserve the maximum observed fraction across restart and recovery.
+
 - Status: Accepted
 - Date: 2026-09-16
 - Relates to: [0004](0004-safe-execution-and-access.md),

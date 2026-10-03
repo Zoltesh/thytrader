@@ -17,6 +17,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.performance import current_drawdown
 from thytrader.risk.exposure import snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
@@ -161,6 +162,12 @@ def _drawdown_verdict(
             "Drawdown cannot be computed without a last-close mark on open inventory.",
         )
     fraction = _durable_drawdown_fraction(target, equity=ledger.equity)
+    if fraction is None:
+        return _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            f"Drawdown unavailable for deployment {target.deployment.id}: "
+            "missing positive performance-capital basis.",
+        )
     if fraction < Decimal(policy.max_strategy_drawdown_fraction):
         return None
     return _deny(
@@ -329,15 +336,9 @@ def _drawdown_target(
     return next((item for item in occupied if item.deployment.product_id == product_id), None)
 
 
-def _durable_drawdown_fraction(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal:
+def _durable_drawdown_fraction(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal | None:
     """Return peak-to-current drawdown using the persisted high-water mark."""
-    high_water = snapshot.deployment.high_water_mark_equity
-    if high_water is None:
-        high_water = snapshot.deployment.initial_equity or snapshot.deployment.paper_starting_cash
-    peak = equity if high_water is None else max(high_water, equity)
-    if peak <= 0:
-        return Decimal("0")
-    return (peak - equity) / peak
+    return current_drawdown(snapshot.deployment, ledger_equity=equity)
 
 
 def _occupied_mode(

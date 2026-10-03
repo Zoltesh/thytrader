@@ -229,6 +229,7 @@ class OpsContractPayload(_FrozenModel):
             "portfolio_fill_comparisons",
             "explicit_deployment_twins",
             "rule_matched_deployment_twins",
+            "capital_normalized_performance",
         ],
         ...,
     ]

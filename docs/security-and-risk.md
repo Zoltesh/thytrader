@@ -10,6 +10,14 @@ sizing/exposure; portfolio caps and published absolute limits remain unchanged. 
 balances and missing marks/baselines deny entries. New live strategy ledgers start at exact zero,
 which is valid baseline evidence, not missing data.
 
+Strategy drawdown uses pinned performance capital separately from that account capital
+([ADR 0107](decisions/0107-capital-normalized-live-performance.md)). A zero-based live ledger
+therefore counts losses before its first profit. The budget and worst observed drawdown survive
+restart/rebalance. The breaker compares current loss from the durable peak; unknown positive
+capital or incomplete marks deny new risk. Explicit latch reset does not erase the peak or
+observed maximum and does not resume the bot. Cash, recorded fees, and UTC-day loss retain their
+existing accounting meanings.
+
 ## Credential rules
 
 - Coinbase credentials remain server-side.

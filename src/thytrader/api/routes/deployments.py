@@ -221,9 +221,9 @@ class DeploymentBookTotalsResponse(BaseModel):
 class DeploymentCapitalResponse(BaseModel):
     """Capital accounting separate from ledger ``cash``.
 
-    Ledger ``cash`` on the parent body is fill accounting. Live sizing and breaker
-    fractions use allocated capital or venue available quote. Unknown venue quote is
-    ``null`` so callers disable entries instead of reusing a stale balance.
+    Ledger balances stay in fill-accounting units. Performance capital is a pinned
+    percentage-metric budget; current sizing allocations and account risk are separate.
+    Unknown venue quote is ``null`` so callers disable entries.
     """
 
     allocated_capital: str | None = None
@@ -231,6 +231,8 @@ class DeploymentCapitalResponse(BaseModel):
     reserved_buying_power: str | None = None
     inventory_cost: str | None = None
     performance_equity: str | None = None
+    performance_capital_quote: str | None = None
+    performance_maximum_drawdown_fraction: str | None = None
     initial_equity: str | None = None
     baseline_equity: str | None = None
     high_water_mark_equity: str | None = None
@@ -861,6 +863,10 @@ def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
         reserved_buying_power=_optional_decimal_string(deployment.reserved_buying_power),
         inventory_cost=_optional_decimal_string(deployment.inventory_cost),
         performance_equity=_optional_decimal_string(deployment.performance_equity),
+        performance_capital_quote=_optional_decimal_string(deployment.performance_capital_quote),
+        performance_maximum_drawdown_fraction=_optional_decimal_string(
+            deployment.performance_maximum_drawdown_fraction
+        ),
         initial_equity=_optional_decimal_string(deployment.initial_equity),
         baseline_equity=_optional_decimal_string(deployment.baseline_equity),
         high_water_mark_equity=_optional_decimal_string(deployment.high_water_mark_equity),

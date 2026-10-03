@@ -15,6 +15,7 @@ from thytrader.execution.models import (
     Position,
     snapshot_positions,
 )
+from thytrader.execution.performance import performance_capital
 from thytrader.risk.exposure import working_entry_notional
 
 if TYPE_CHECKING:
@@ -34,11 +35,19 @@ def apply_venue_quote(
     allocated = deployment.allocated_capital
     if allocated is None and deployment.mode is DeploymentMode.PAPER:
         allocated = deployment.paper_starting_cash
-    return replace(
+    observed = replace(
         deployment,
         venue_available_quote=available,
         allocated_capital=allocated,
         updated_at=now,
+    )
+    return replace(
+        observed,
+        performance_capital_quote=(
+            deployment.performance_capital_quote
+            if deployment.performance_capital_quote is not None
+            else performance_capital(observed)
+        ),
     )
 
 
@@ -111,6 +120,16 @@ def refresh_performance(
         inventory_cost=inventory_cost,
         reserved_buying_power=reserved,
         performance_equity=equity,
+        performance_capital_quote=(
+            deployment.performance_capital_quote
+            if deployment.performance_capital_quote is not None
+            else performance_capital(deployment)
+        ),
+        performance_maximum_drawdown_fraction=(
+            ledger.maximum_drawdown_fraction
+            if ledger.maximum_drawdown_fraction is not None
+            else deployment.performance_maximum_drawdown_fraction
+        ),
         initial_equity=initial,
         baseline_equity=baseline,
         high_water_mark_equity=high_water,
