@@ -384,8 +384,12 @@ previous bar's channel for a breakout. An indicator operand may independently ad
 `offset` (0–500), for example `{"indicator":"bands","series":"upper","offset":1}`.
 It reads completed bars on that indicator's own clock before decision-clock alignment and adds
 to any declaration offset. Use one declaration for current and prior reads so parameter sweeps
-keep both synchronized. Literals reject offsets; `constant` rejects positive offsets. Zero is
-omitted from canonical JSON. Include the largest operand lag in warmup, including signal exits
+keep both synchronized. Read the strategy `summary` returned by show/create/save/import/clone
+to check each entry and signal-exit operand's combined lag: declaration offset 2 plus operand
+offset 3 appears as `(5 bars ago)`. Unlagged reads omit this suffix, and reference labels retain
+their clock, for example `BTC · SMA(2) (3 bars ago) [1d]`. Literals reject offsets;
+`constant` rejects positive offsets. Zero is omitted from canonical JSON. Include the largest
+operand lag in warmup, including signal exits
 and HTF-filter rules. The server derives extra-clock/reference warmup and validates supplied
 decision/filter warmup. Save/import with the existing confirmation gates; require ops contract
 v59 for operand lags. New squeeze templates expose `bands.period`, `bands.stdev_multiplier`,

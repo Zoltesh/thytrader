@@ -201,6 +201,10 @@ band/channel parameters updates both reads together. Increase warmup to cover th
 Build's checks include entry and signal-exit reads. Backtests and bots use the same interpretation
 ([ADR 0099](../decisions/0099-operand-level-indicator-offsets.md)).
 
+Saved-strategy summaries show the combined lag on each entry and signal-exit operand:
+declaration offset 2 plus operand offset 3 reads `(5 bars ago)`. A current read has no lag suffix;
+reference reads retain their native clock, for example `BTC · SMA(2) (3 bars ago) [1d]`.
+
 **Snapshots.** Starting a backtest, study, or bot takes an automatic snapshot of the saved rules
 (a `sha256:` fingerprint). Every result and bot row shows **Current rules** when it used the rules
 you have now, or **Earlier edit** when the strategy changed since; **What changed** shows a

@@ -232,9 +232,9 @@ def _indicator_operand_summary(
     operand: IndicatorOperand,
     indicator: IndicatorDefinition,
 ) -> str:
-    """Render one indicator reference, including multi-series ids and any bar lag."""
+    """Render the indicator read with its combined declaration and operand native-clock lag."""
     text = _unlagged_operand_summary(operand, indicator)
-    offset = indicator_offset(indicator)
+    offset = indicator_offset(indicator) + (operand.offset or 0)
     if offset == 0:
         return text
     return f"{text} ({offset} bar{'' if offset == 1 else 's'} ago)"
