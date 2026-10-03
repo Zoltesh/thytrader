@@ -25,6 +25,9 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 Skills of record: [`skills/README.md`](../skills/README.md). Open [`ops/`](../ops/README.md) when
 you are operating a **running** instance (not changing source).
 
+The Decisions timeline distinguishes protective-order maintenance from canceled entries and
+explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
+
 ## What it is (and isn't)
 
 **Isn't:** another hosted trading UI you rent.

@@ -62,6 +62,19 @@ a 45s fenced lease; writes are revision-checked. UTC day-open and high-water bas
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
 on `thytrader-runtime show`.
 
+Account exposure and daily-loss fractions use one observed venue quote balance plus managed
+long inventory cost and working buy-entry quote reservations across live risk-bearing books;
+they never use one bot's allocation as the account denominator. Short proceeds and protective
+orders do not add capital again. Bot allocations and portfolio caps still bind separately
+([ADR 0106](../../docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+An unknown venue quote balance blocks entries even when an allocation exists. New live
+strategy ledgers start with exact zero equity baselines; venue quote is not ledger cash.
+`PORTFOLIO_EXPOSURE_EXCEEDED` / `PRODUCT_EXPOSURE_EXCEEDED` details name existing exposure,
+proposed notional, account capital, and cap; `ALLOCATION_EXCEEDED` names the strategy reservation.
+`BREAKER_MARK_MISSING` details distinguish missing inventory marks from missing equity baselines
+and identify the affected deployment. Preserve the gate; diagnose through `decisions`, `show`,
+`thytrader-operator reconciliation`, and `show-risk-policy` before changing policy.
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).

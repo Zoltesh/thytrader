@@ -158,6 +158,19 @@ The journal keeps the newest 20,000 decisions per bot for at most 180 days. `sto
 means the API has no database; it is not "no decisions". A bar is journaled only once it closes
 and is processed, so the newest bar lags the clock by up to one execution-worker interval.
 
+Protective bracket/TP cancellations and replacements keep an occupied book `holding`; inspect
+linked `orders[].purpose` and statuses for maintenance. `pending_entry` cancellation refers only
+to a known entry, including partial-entry remainder cancellation, never an attached protective
+child. Historical rows retain what their worker originally reported.
+
+Risk rejection details expose the exact existing exposure, proposed notional, capital, and cap.
+Account live capital is observed quote plus managed long inventory cost and working buy-entry
+quote; per-bot allocations are separate limits. `BREAKER_MARK_MISSING` names the deployment and
+distinguishes missing inventory marks from unavailable equity/day-open baselines. A valid zero
+live ledger baseline is not missing. Use the runtime lane's `show` and `show-risk-policy` for
+capital and policy evidence; never infer that a flat bot or a healthy reconciliation permits
+bypassing a risk denial ([ADR 0106](../../docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+
 ## Portfolio vs deployment inventory
 
 Three read-only surfaces answer different questions. Do not conflate them.

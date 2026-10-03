@@ -4,6 +4,10 @@
 
 Accepted
 
+Capital-base scope is superseded by [ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md):
+mode-wide risk uses account quote and managed holdings, while per-bot allocations remain sizing
+and strategy limits. The ledger, reconciliation, protection, lease, and lifecycle decisions remain.
+
 ## Context
 
 The 2026-09-16 external audit left protection, concurrency, and accounting defects after

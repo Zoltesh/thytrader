@@ -1,5 +1,9 @@
 # Architecture Decision Records
 
+[ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md) is accepted and supersedes
+ADR 0058's capital-base scope: account risk capital, separate bot allocations, and live startup
+baselines. Protection, reconciliation, leases, and lifecycle rules remain unchanged.
+
 Architecture decision records (ADRs) capture choices that materially shape ThyTrader. They explain context and consequences so future contributors can change direction deliberately rather than accidentally.
 
 ## Accepted decisions

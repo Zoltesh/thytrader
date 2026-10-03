@@ -549,6 +549,17 @@ why-trade records stay below the ticket.
 
 ### Why
 
+Protective bracket or take-profit replacements keep a held book **Holding**. Their canceled and
+replacement orders remain linked in the bar; they are not canceled entries. Historical rows
+retain the worker's original explanation.
+
+For blocked entries, exposure details show existing exposure, the proposed amount, account
+capital, and the cap. Live account capital uses one observed quote balance plus managed long
+inventory cost and quote reserved by buy entries. Each bot's allocation and each portfolio's
+limits still bind separately. A `BREAKER_MARK_MISSING` detail identifies the bot and distinguishes
+missing inventory prices from missing equity baselines. Diagnose before changing a limit; a
+healthy bot can still have a correctly refused entry.
+
 A strategy's **Why** stage (`/strategies/{strategy_id}/why`) shows the same per-bar Decisions
 timeline across every deployment of the strategy, newest bar first, with a deployment selector
 (**All bots** or one bot, each marked Current rules or Earlier edit) and the same filters and

@@ -1,5 +1,13 @@
 # Agent and Operator Integration
 
+Runtime risk scope and diagnostic semantics follow [ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md).
+Live account fractions use one observed venue quote balance plus managed long inventory cost and
+buy-entry reservations; per-bot allocations and portfolio caps remain separate. Existing decision
+`risk.detail` strings expose exact exposure/capital/cap values and identify missing inventory marks
+versus equity/day-open baselines. Protective bracket/TP maintenance with inventory is `holding`,
+with orders linked, rather than a canceled entry. Historical rows are not rewritten. No API shape,
+CLI invocation, confirmation, or live-arming change is required; ops contract remains v63.
+
 ## Recommendation
 
 ThyTrader should ship repository-level agent skills as supported UI/API contracts become available.

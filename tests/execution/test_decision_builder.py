@@ -7,6 +7,8 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from tests.execution.decision_support import strategy
 from thytrader.execution.decision_builder import (
     USER_FEED_GATE_DETAIL,
@@ -319,6 +321,56 @@ def test_unconfirmed_entry_submit_is_intent_created() -> None:
     assert decision.outcome is DecisionOutcome.ENTRY_SIGNAL
     assert decision.action is DecisionAction.INTENT_CREATED
     assert decision.summary == "Entry: RSI(14) 61.5 ≥ 50 → buy 0.5 @ 110 (unknown)"
+
+
+@pytest.mark.parametrize("purpose", [IntentPurpose.BRACKET, IntentPurpose.TAKE_PROFIT])
+@pytest.mark.parametrize("replacement", [False, True])
+def test_protective_cancel_keeps_holding_classification(
+    purpose: IntentPurpose, replacement: bool
+) -> None:
+    """Protection maintenance links its orders without inventing a canceled entry."""
+    old_intent = _intent(purpose)
+    old_order = _order(old_intent, OrderStatus.OPEN)
+    before = DeploymentSnapshot(
+        deployment=_deployment(phase=RuntimePhase.PENDING_EXIT),
+        position=_position(),
+        intents=(old_intent,),
+        orders=(old_order,),
+    )
+    new_intent = _intent(purpose)
+    after = replace(
+        before,
+        intents=(old_intent, new_intent) if replacement else (old_intent,),
+        orders=(replace(old_order, status=OrderStatus.CANCELED),)
+        + ((_order(new_intent, OrderStatus.OPEN),) if replacement else ()),
+    )
+    decision = build_bar_decision(_context(before, after))
+    assert decision.outcome is DecisionOutcome.HOLDING
+    assert decision.skip_reason is None
+    assert decision.intent_id is None
+    assert decision.summary.startswith("Holding long")
+    assert decision.position is not None
+    canceled = next(item for item in decision.orders if item.order_id == old_order.id)
+    assert canceled.purpose is purpose
+    assert canceled.status is OrderStatus.CANCELED
+    assert len(decision.orders) == (2 if replacement else 1)
+
+
+def test_attached_entry_child_cancel_is_not_an_entry_cancel() -> None:
+    """A child inherits its entry intent but remains protective in the journal."""
+    entry = _intent(IntentPurpose.ENTRY, side=OrderSide.BUY)
+    child = _order(entry, OrderStatus.OPEN, side=OrderSide.SELL, parent_order_id=uuid4())
+    before = DeploymentSnapshot(
+        deployment=_deployment(phase=RuntimePhase.PENDING_EXIT),
+        position=_position(),
+        intents=(entry,),
+        orders=(child,),
+    )
+    after = replace(before, orders=(replace(child, status=OrderStatus.CANCELED),))
+    decision = build_bar_decision(_context(before, after))
+    assert decision.outcome is DecisionOutcome.HOLDING
+    assert decision.orders[0].purpose is IntentPurpose.BRACKET
+    assert decision.skip_reason is None
 
 
 def test_runtime_breaker_pause_is_a_paused_skip_with_the_verdict() -> None:

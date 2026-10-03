@@ -1,5 +1,11 @@
 # Architecture Overview
 
+Mode-wide live exposure and daily-loss capital is observed account quote plus managed long
+inventory cost and working buy-entry reservations; bot allocations are separate sizing limits.
+Do not substitute one sleeve's allocation or add its ledger cash to an account balance.
+[ADR 0106](../decisions/0106-account-risk-capital-and-live-startup-baselines.md) corrects this scope
+and initializes new live strategy fill-ledger baselines at zero before worker supervision.
+
 ## System shape
 
 ThyTrader is a modular monolith deployed as multiple supervised processes. Domain packages share one

@@ -94,7 +94,8 @@ async def create_deployment(
         allocated: Decimal | None = portfolio_sleeve.allocated_capital
     else:
         allocated = await _opening_allocation(risk_store, strategy_id=definition.strategy_id)
-    initial = paper_starting_cash if mode is DeploymentMode.PAPER else None
+    # A new live fill ledger starts at zero, independently of its allocated capital.
+    initial = cash
     deployment = Deployment(
         id=uuid7(now),
         strategy_fingerprint=published.strategy_fingerprint,

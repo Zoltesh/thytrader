@@ -552,12 +552,13 @@ def _evaluated(context: BarContext, rule: EntryRuleTrace | None) -> _Classified 
 
 
 def _canceled(context: BarContext, window: _Window) -> _Classified | None:
-    """A working order canceled on this bar (abandoned entry or managed shutdown)."""
+    """A known entry canceled on this bar, excluding protective order maintenance."""
     canceled = next(
         (
             order
             for order in window.orders
             if order.status is OrderStatus.CANCELED
+            and _purpose(order, window) is IntentPurpose.ENTRY
             and order.id in window.before_orders
             and window.before_orders[order.id].status in _ACTIVE
         ),

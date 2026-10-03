@@ -20,6 +20,12 @@ strategies place every trade ([ADR 0088](../../docs/decisions/0088-portfolio-mod
 [ADR 0091](../../docs/decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)).
 A portfolio is `paper` or `live`, never mixed; mode and quote currency are fixed at creation.
 
+Shared portfolio and per-sleeve allocation limits remain separate from the mode-wide risk policy.
+Live account exposure/loss fractions use observed account quote plus managed long inventory cost
+and buy-entry reservations, never one sleeve's allocation. Decision rejection details identify the
+actual cap and unavailable mark/baseline evidence; do not rebalance or enlarge allocations merely
+to suppress a rejection ([ADR 0106](../../docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+
 This lane **cannot deploy** a portfolio and never places orders. Starting, pausing, resuming, and
 stopping a portfolio (one bot per sleeve) and resetting its breaker are
 `thytrader-runtime portfolio-*` commands ([runtime skill](../thytrader-runtime/SKILL.md)); single

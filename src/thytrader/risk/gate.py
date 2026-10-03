@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -11,6 +11,8 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
+    OrderSide,
+    PositionSide,
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
@@ -194,13 +196,14 @@ def evaluate_runtime_breakers(
     observation: EntryObservation,
 ) -> RiskVerdict:
     """Pause-worthy daily-loss and drawdown checks without rate or collar gates."""
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
+    occupied = risk_bearing_snapshots(snapshots, mode)
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
         proposed_product_id=snapshot.deployment.product_id,
         proposed_strategy_id=snapshot.deployment.strategy_id,
-        snapshots=risk_bearing_snapshots(snapshots, mode),
+        snapshots=occupied,
         observation=observation,
         capital=capital,
     )
@@ -356,7 +359,7 @@ def _entry_breaker_verdict(
     """Apply daily-loss, drawdown, rate, and collar gates when observation is present."""
     if observation is None:
         return _allow()
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
@@ -435,7 +438,7 @@ def _exposure_verdict(
         (product_exposure(item, proposed.product_id) for item in occupied),
         Decimal("0"),
     )
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash)
+    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
     if capital <= 0:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
@@ -448,13 +451,17 @@ def _exposure_verdict(
     if existing_total + proposed.notional > portfolio_cap:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
-            "Proposed entry would exceed max_portfolio_exposure_fraction.",
+            f"Account exposure exceeded: existing={existing_total}, "
+            f"proposed={proposed.notional}, cap={portfolio_cap}, capital={capital}, "
+            f"fraction={policy.max_portfolio_exposure_fraction}, "
+            f"absolute={policy.max_portfolio_exposure_quote}.",
         )
     product_cap = capital * Decimal(policy.per_product_max_exposure_fraction)
     if existing_product + proposed.notional > product_cap:
         return _deny(
             RiskReasonCode.PRODUCT_EXPOSURE_EXCEEDED,
-            "Proposed entry would exceed per_product_max_exposure_fraction.",
+            f"Product exposure exceeded for {proposed.product_id}: existing={existing_product}, "
+            f"proposed={proposed.notional}, cap={product_cap}, capital={capital}.",
         )
     reserved = _allocation_for(policy, proposed.strategy_id)
     if reserved is None:
@@ -470,7 +477,8 @@ def _exposure_verdict(
     if strategy_exposure + proposed.notional > reserved:
         return _deny(
             RiskReasonCode.ALLOCATION_EXCEEDED,
-            "Proposed entry would exceed the allocation for this strategy.",
+            f"Strategy allocation exceeded: existing={strategy_exposure}, "
+            f"proposed={proposed.notional}, allocation={reserved}.",
         )
     return _allow()
 
@@ -567,13 +575,38 @@ def _capital_base(
     *,
     mode: DeploymentMode,
     live_quote_cash: Decimal | None,
+    occupied: Sequence[DeploymentSnapshot],
 ) -> Decimal:
-    """Paper uses the policy book; live uses allocated or initial equity, never venue+cash mix."""
+    """Use mode capital, never a bot allocation or duplicated live ledger cash.
+
+    Live capital is observed available quote plus managed long inventory cost and
+    working buy-entry reservations. Short sale proceeds are already in venue quote;
+    sell reservations hold base units, so neither contributes quote a second time.
+    """
     if mode is DeploymentMode.PAPER:
         return Decimal(policy.paper_capital_quote)
-    if live_quote_cash is None or live_quote_cash <= 0:
+    if live_quote_cash is None or live_quote_cash < 0:
         return Decimal("0")
-    return live_quote_cash
+    return live_quote_cash + sum((_held_quote_capital(item) for item in occupied), Decimal("0"))
+
+
+def _held_quote_capital(snapshot: DeploymentSnapshot) -> Decimal:
+    """Quote held in managed long books and buy entries, excluding exits and short proceeds."""
+    inventory = sum(
+        (
+            position.quantity * position.entry_price
+            for position in snapshot_positions(snapshot)
+            if position.side is PositionSide.LONG
+        ),
+        Decimal("0"),
+    )
+    buys = replace(
+        snapshot, orders=tuple(order for order in snapshot.orders if order.side is OrderSide.BUY)
+    )
+    reserved = sum(
+        (working_entry_notional(buys, product) for product in _book_products(buys)), Decimal("0")
+    )
+    return inventory + reserved
 
 
 def _allow() -> RiskVerdict:

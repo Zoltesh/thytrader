@@ -2,6 +2,14 @@
 
 ThyTrader can place irreversible financial orders. Security and execution safety are product behavior, not optional hardening work.
 
+Account risk capital is separate from bot allocations ([ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+Live exposure and daily-loss fractions use one observed venue quote balance plus managed long
+inventory cost and remaining quote reserved by buy entries. Ledger cash, duplicated balances,
+short proceeds, and protective exits do not inflate that base. Allocations still cap strategy
+sizing/exposure; portfolio caps and published absolute limits remain unchanged. Unknown venue
+balances and missing marks/baselines deny entries. New live strategy ledgers start at exact zero,
+which is valid baseline evidence, not missing data.
+
 ## Credential rules
 
 - Coinbase credentials remain server-side.

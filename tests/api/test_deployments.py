@@ -30,7 +30,9 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
-from thytrader.risk.models import RiskReasonCode, compiled_default_risk_policy
+from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.models import RiskDecision, RiskReasonCode, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import create_template_strategy
@@ -85,6 +87,51 @@ def _published_risk_policy_store() -> InMemoryRiskPolicyStore:
     store = InMemoryRiskPolicyStore()
     asyncio.run(store.publish(compiled_default_risk_policy()))
     return store
+
+
+def test_live_start_initializes_sibling_daily_loss_baselines() -> None:
+    """Fresh flat peers have exact zero ledger baselines before any worker cycle runs."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definitions = (_published_strategy(), _published_strategy())
+    for definition in definitions:
+        fingerprint = strategy_fingerprint(definition)
+        publication.published[fingerprint] = StrategySnapshot(
+            strategy_fingerprint=fingerprint, definition=definition
+        )
+    snapshots = []
+    with _client(
+        publication, execution, live_credentials=True, risk=_published_risk_policy_store()
+    ) as client:
+        for definition in definitions:
+            response = client.post(
+                "/api/v1/deployments",
+                json={
+                    "strategy_id": str(definition.strategy_id),
+                    "mode": "live",
+                    "i_understand_live": True,
+                },
+            )
+            assert response.status_code == 201
+            snapshot = asyncio.run(execution.get_deployment(UUID(response.json()["id"])))
+            assert snapshot.deployment.initial_equity == Decimal("0")
+            assert snapshot.deployment.utc_day_open_equity == Decimal("0")
+            assert snapshot.deployment.utc_day_open_at is not None
+            snapshots.append(snapshot)
+    verdict = evaluate_new_entry(
+        compiled_default_risk_policy(),
+        mode=DeploymentMode.LIVE,
+        proposed=ProposedEntry("BTC-USD", definitions[0].strategy_id, Decimal("7")),
+        snapshots=snapshots,
+        live_quote_cash=Decimal("100"),
+        observation=EntryObservation(
+            as_of=utc_now(),
+            proposed_price=Decimal("100"),
+            reference_price=Decimal("100"),
+            marks={"BTC-USD": Decimal("100")},
+        ),
+    )
+    assert verdict.decision is RiskDecision.ALLOW
 
 
 def test_paper_deployment_persists_and_updates_library_status() -> None:

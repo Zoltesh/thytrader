@@ -143,6 +143,15 @@ The support-bundle `payload` nests the other reports unchanged (it does not nest
 
 The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1.schema.json). Run `uv run thytrader-operator schema-check` to verify skill docs against `SCHEMA_VERSION`.
 
+Decision schema shape is unchanged by ADR 0106. Protective maintenance with inventory is
+`outcome: holding`, not a canceled `pending_entry`; linked order purposes/statuses explain the
+replacement. Existing historical decisions are not rewritten. Exposure verdict `detail` includes
+exact Decimal existing exposure, proposed notional, effective cap, and account capital; allocation
+denials identify the reservation. `BREAKER_MARK_MISSING` retains its code but identifies the
+deployment and whether inventory marks or equity/day-open baselines are missing. These are risk
+calculation diagnostics, not a list of account balances. The operator `risk` payload remains
+unchanged and continues omitting balances.
+
 Indicator operands may independently add `offset` (0–500; ADR 0099), including multi-series reads. Health `ops_contract.indicator_operand_offset_runtimes` names research, paper, and live. Lagged signal values use `id@N` / `id.series@N`; original output keys stay present. Rule labels show declaration plus operand lag on the indicator's native clock; missing lagged history remains unknown.
 
 Ops contract v61 adds `portfolio_sleeve_operations: ["batch_add", "create_with_sleeves"]`:

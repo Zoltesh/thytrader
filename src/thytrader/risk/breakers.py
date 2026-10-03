@@ -119,7 +119,7 @@ def _daily_loss_verdict(
     if loss is None:
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
-            "Daily-loss cannot be computed without a last-close mark on open inventory.",
+            _daily_loss_missing_detail(occupied, observation),
         )
     limit = capital * Decimal(policy.daily_loss_limit_fraction)
     # The absolute quote ceiling protects real money; paper uses the capital fraction only.
@@ -291,11 +291,26 @@ def _daily_pnl(snapshot: DeploymentSnapshot, *, marks: Mapping[str, Decimal]) ->
     pnl = daily_pnl_from_day_open(snapshot.deployment, equity=ledger.equity)
     if pnl is not None:
         return pnl
-    starting = snapshot.deployment.initial_equity or snapshot.deployment.paper_starting_cash
+    starting = snapshot.deployment.initial_equity
+    if starting is None:
+        starting = snapshot.deployment.paper_starting_cash
     equity = ledger.equity
     if starting is None or equity is None:
         return None
     return equity - starting
+
+
+def _daily_loss_missing_detail(
+    occupied: Sequence[DeploymentSnapshot], observation: EntryObservation
+) -> str:
+    """Identify the book and missing evidence without inventing an equity baseline."""
+    for snapshot in occupied:
+        identity = f"deployment {snapshot.deployment.id}"
+        if _open_inventory_missing_mark(snapshot, observation.marks):
+            return f"Daily-loss unavailable for {identity}: missing last-close inventory marks."
+        if _daily_pnl(snapshot, marks=observation.marks) is None:
+            return f"Daily-loss unavailable for {identity}: missing equity or day-open baseline."
+    return "Daily-loss unavailable: incomplete equity evidence."
 
 
 def _drawdown_target(

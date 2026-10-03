@@ -73,16 +73,14 @@ def _allocation_remaining(deployment: Deployment) -> Decimal:
 
 
 def live_capital_base(deployment: Deployment) -> Decimal | None:
-    """Portfolio capital used by live exposure and breaker fractions."""
+    """Observe account quote for mode-wide risk, separately from this bot's allocation.
+
+    The risk gate adds managed inventory and reserved entry quote exactly once. An
+    allocation or ledger baseline cannot substitute for an unknown venue balance.
+    """
     if deployment.mode is DeploymentMode.PAPER:
         return deployment.paper_starting_cash
-    if deployment.allocated_capital is not None and deployment.allocated_capital > 0:
-        return deployment.allocated_capital
-    if deployment.initial_equity is not None and deployment.initial_equity > 0:
-        return deployment.initial_equity
-    if deployment.venue_available_quote is not None and deployment.venue_available_quote > 0:
-        return deployment.venue_available_quote
-    return None
+    return deployment.venue_available_quote
 
 
 def refresh_performance(

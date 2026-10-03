@@ -446,6 +446,12 @@ Alembic `0032`.
 
 ## Per-bar decision timeline — ✅ Shipped
 
+Runtime risk corrections are shipped with [ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md):
+account capital is separate from individual bot allocations, new live strategy ledger baselines
+are initialized before the first worker cycle, and rejection details identify exact cap inputs
+or missing mark/baseline evidence. Protective maintenance stays `holding` rather than a canceled
+entry. Existing policies, portfolio limits, historical rows, and confirmation gates are preserved.
+
 Every paper and live strategy bot journals what it decided on each completed bar and why
 ([ADR 0087](decisions/0087-per-bar-decision-timeline.md)): one `thytrader-bar-decision-v1` row per
 `(deployment_id, product_id, bar_starts_at)` (upserted, so restart replays never duplicate) with the
