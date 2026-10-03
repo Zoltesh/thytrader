@@ -13,7 +13,7 @@ from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runt
 
 from pydantic import BaseModel, Field
 
-from thytrader.execution.book_marks import unrealized_pnl
+from thytrader.execution.book_marks import recorded_position_entry_fees, unrealized_pnl
 from thytrader.execution.models import (
     DeploymentMode,
     RuntimePhase,
@@ -80,6 +80,14 @@ class SleeveOpenBookResponse(BaseModel):
     unrealized_pnl: str | None = Field(
         default=None,
         description="Gross unrealized PnL at mark_price, before exit fees; null without a mark.",
+    )
+    entry_fees: str | None = Field(
+        default=None,
+        description="Paid entry fees allocated to held quantity; null without verified evidence.",
+    )
+    unrealized_pnl_net: str | None = Field(
+        default=None,
+        description="Gross PnL minus entry_fees; future exit fees excluded; null without evidence.",
     )
 
 
@@ -491,6 +499,7 @@ def open_books(
     for position in snapshot_positions(snapshot):
         product_id = resolved_product_id(position.product_id, snapshot.deployment)
         mark = marks.get(product_id)
+        fees = None if mark is None else recorded_position_entry_fees(snapshot, position)
         state = book_position_state(
             snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
         )
@@ -510,6 +519,12 @@ def open_books(
                     None
                     if mark is None
                     else canonical_decimal(unrealized_pnl(position, mark.price))
+                ),
+                entry_fees=_optional(fees),
+                unrealized_pnl_net=(
+                    None
+                    if mark is None or fees is None
+                    else canonical_decimal(unrealized_pnl(position, mark.price) - fees)
                 ),
             )
         )

@@ -2,20 +2,31 @@
 
 A book's mark is the close of the newest bar its bot evaluated for that product, read
 from the per-bar decision journal (ADR 0087). It is the price the worker itself last saw,
-so it never needs a venue or market-data call on a read. Unrealized PnL is gross: the
-signed quantity times the move from the entry price, before exit fees. A book whose
-product has no journaled close has no mark and no unrealized PnL; nothing is invented.
+so it never needs a venue or market-data call on a read. Gross PnL is signed quantity
+times the move from entry price. Verified applied fills establish paid entry fees
+allocated to held inventory for net PnL (ADR 0100), excluding future exit fees. Missing
+marks or fee evidence stay unknown; nothing is invented.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from thytrader.execution.decision_store import DecisionStoreError
-from thytrader.execution.models import PositionSide, resolved_product_id, snapshot_positions
+from thytrader.execution.ledger import (
+    MAX_POSITION_FEE_FILLS,
+    ledger_fills_for_product,
+    remaining_position_entry_fees,
+)
+from thytrader.execution.models import (
+    ExecutionStoreError,
+    PositionSide,
+    resolved_product_id,
+    snapshot_positions,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -23,6 +34,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.models import DeploymentSnapshot, Position
+    from thytrader.execution.store import ExecutionStore
 
 _LOOKAHEAD = timedelta(days=1)
 
@@ -95,3 +107,40 @@ def signed_unrealized_pnl(
     """Signed quantity (negative for a short) times the move from ``entry_price`` to ``mark``."""
     signed = -quantity if side is PositionSide.SHORT else quantity
     return signed * (mark - entry_price)
+
+
+def recorded_position_entry_fees(
+    snapshot: DeploymentSnapshot, position: Position
+) -> Decimal | None:
+    """Read the held inventory's entry fees from an already-loaded full snapshot.
+
+    Only applied fills since this position's entry bar participate. This matches the
+    bounded store read and does not turn missing fill evidence into a free entry.
+    """
+    product_id = resolved_product_id(position.product_id, snapshot.deployment)
+    current = replace(
+        snapshot,
+        fills=tuple(
+            fill
+            for fill in snapshot.fills
+            if fill.economics_applied_at is not None and fill.filled_at >= position.entered_bar
+        ),
+    )
+    fills = ledger_fills_for_product(current, product_id)
+    return remaining_position_entry_fees(position, fills[: MAX_POSITION_FEE_FILLS + 1])
+
+
+async def entry_fees_by_product(
+    store: ExecutionStore, snapshot: DeploymentSnapshot, marks: dict[str, BookMark]
+) -> dict[str, Decimal | None]:
+    """Read bounded entry-fee evidence only for marked open books; outages stay unknown."""
+    fees: dict[str, Decimal | None] = {}
+    for position in snapshot_positions(snapshot):
+        product_id = resolved_product_id(position.product_id, snapshot.deployment)
+        if product_id not in marks:
+            continue
+        try:
+            fees[product_id] = await store.get_position_entry_fees(position, product_id=product_id)
+        except ExecutionStoreError:
+            fees[product_id] = None
+    return fees

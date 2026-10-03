@@ -23,6 +23,10 @@ export type DeploymentPosition = {
 	marked_at?: string | null;
 	/** Gross unrealized PnL at `mark_price`, before exit fees; null without a mark. */
 	unrealized_pnl?: string | null;
+	/** Recorded entry fees allocated to held quantity; null if evidence is unknown. */
+	entry_fees?: string | null;
+	/** Gross PnL minus entry fees; future exit fees excluded. */
+	unrealized_pnl_net?: string | null;
 	compatibility_focus?: boolean;
 };
 

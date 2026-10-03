@@ -222,6 +222,7 @@ class OpsContractPayload(_FrozenModel):
             "paper_live_fill_comparison",
             "paper_protection_covered",
             "book_marks",
+            "fee_adjusted_book_pnl",
             "portfolio_fill_comparisons",
         ],
         ...,

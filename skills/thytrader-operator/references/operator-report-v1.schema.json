@@ -104,10 +104,15 @@
           "type": ["object", "null"],
           "description": "Health only. Missing or unequal to this CLI means a stale Compose image.",
           "properties": {
+            "runtime_observability": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
+            },
             "indicator_operand_offset_runtimes": {
               "type": "array",
               "items": { "enum": ["research", "paper", "live"] },
-              "description": "Native-clock operand offsets; advertised by ops contract v59."
+              "description": "Native-clock operand offsets; introduced by ops contract v59."
             }
           }
         },

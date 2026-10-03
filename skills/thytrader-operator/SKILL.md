@@ -191,7 +191,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v59`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v60`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0059`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -227,7 +227,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    backtest resolve a same-bar tie in that order) and `runtime_observability` (`position_state`,
    `exit_in_flight`, `paper_live_fill_comparison`;
    [ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md); plus
-   `paper_protection_covered`, `book_marks`, `portfolio_fill_comparisons`, and `strategy_library`
+   `paper_protection_covered`, `book_marks`, `fee_adjusted_book_pnl`, `portfolio_fill_comparisons`, and `strategy_library`
    `origin_filter`; [ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Mismatch means
    rebuild with `make run`.
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
@@ -309,3 +309,9 @@ extra trading authority and not a substitute for the lane skills.
 
 `chat-status` reports `llm_configured` only (`thytrader-operator-chat-v1`, not
 `thytrader-operator-report-v1`).
+
+For individual held-book fee-adjusted PnL, use the read-only `thytrader-runtime show ID` or
+`thytrader-portfolio deployment ID`. Their marked position/book rows carry `entry_fees` and
+`unrealized_pnl_net` (gross minus allocated paid entry fees; future exit fees excluded).
+Prefer net when present; null means unverified evidence, never zero costs. The operator aggregate
+ledger totals retain their existing meanings; do not subtract these per-book fees again.

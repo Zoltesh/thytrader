@@ -44,16 +44,26 @@ describe('open book readings (ADR 0098)', () => {
 	});
 
 	it('signs unrealized PnL and stays empty without a mark', () => {
-		expect(unrealizedText(book, 'USDC')).toEqual({ text: '+10.00 USDC', tone: 'pos' });
+		expect(unrealizedText(book, 'USDC')).toEqual({ text: '+10.00 USDC (gross)', tone: 'pos' });
 		expect(unrealizedText({ ...book, unrealized_pnl: '-5.5' }, 'USDC')).toEqual({
-			text: '-5.50 USDC',
+			text: '-5.50 USDC (gross)',
 			tone: 'neg'
 		});
 		expect(unrealizedText({ ...book, unrealized_pnl: null }, 'USDC')).toBeNull();
 		expect(markTitle(book)).toBe(
-			'Marked at 61000 at the 12:00 UTC bar close; gross, before exit fees.'
+			'Marked at 61000 at the 12:00 UTC bar close; gross before entry and exit fees; entry-fee evidence unavailable.'
 		);
 		expect(markTitle({ ...book, mark_price: null })).toMatch(/No evaluated bar close/);
 		expect(bookSizeText({ ...book, side: 'short' })).toBe('Short 0.01');
+	});
+
+	it('prefers paid-entry-fee net PnL even when it reverses the gross gain', () => {
+		const paid = { ...book, entry_fees: '12', unrealized_pnl_net: '-2' };
+		expect(unrealizedText(paid, 'USDC')).toEqual({ text: '-2.00 USDC (net)', tone: 'neg' });
+		expect(markTitle(paid)).toContain('net after recorded entry fees; future exit fees excluded');
+		expect(unrealizedText({ ...paid, unrealized_pnl_net: '0' }, 'USDC')?.tone).toBe('muted');
+		expect(unrealizedText({ ...paid, unrealized_pnl_net: 'invalid' }, 'USDC')?.text).toContain(
+			'(gross)'
+		);
 	});
 });

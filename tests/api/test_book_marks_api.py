@@ -25,6 +25,12 @@ from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     DeploymentMode,
+    ExecutionStoreError,
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
     Position,
     PositionSide,
 )
@@ -152,6 +158,8 @@ def test_sleeve_books_carry_entry_stop_target_state_and_last_bar_pnl(world: Worl
         "mark_price": "61000",
         "marked_at": "2026-10-01T12:00:00Z",
         "unrealized_pnl": "10",
+        "entry_fees": None,
+        "unrealized_pnl_net": None,
     }
 
 
@@ -170,6 +178,125 @@ def test_bot_detail_positions_carry_the_last_bar_mark(world: World) -> None:
             "covered",
             "open_protected",
         )
+
+
+def _record_entry(world: World, bot: UUID, *, fee: str, applied: bool = True) -> None:
+    """Seed a filled BTC entry with independently recorded fee evidence."""
+    order = Order(
+        id=uuid4(),
+        deployment_id=bot,
+        intent_id=uuid4(),
+        client_order_id=str(uuid4()),
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("60000"),
+        status=OrderStatus.FILLED,
+        created_at=_BAR,
+        updated_at=_BAR,
+        product_id="BTC-USDC",
+        filled_quantity=Decimal("0.01"),
+    )
+    asyncio.run(world.execution.save_order(order))
+    asyncio.run(
+        world.execution.save_fill(
+            Fill(
+                id=uuid4(),
+                deployment_id=bot,
+                order_id=order.id,
+                venue_fill_id=str(uuid4()),
+                price=Decimal("60000"),
+                quantity=Decimal("0.01"),
+                fee=Decimal(fee),
+                filled_at=_BAR - timedelta(hours=3),
+                economics_applied_at=_BAR if applied else None,
+            )
+        )
+    )
+
+
+@pytest.mark.parametrize("fee", ["0", "3"])
+@pytest.mark.parametrize("mode", [DeploymentMode.PAPER, DeploymentMode.LIVE])
+def test_net_books_agree_across_summary_full_and_portfolio(
+    world: World, fee: str, mode: DeploymentMode
+) -> None:
+    """Recorded entry fees can turn gross gains negative; all marked surfaces agree."""
+    portfolio, bot = _started_portfolio(world)
+    _open_long(world, bot, close="60200")
+    deployment = asyncio.run(world.execution.get_deployment(bot)).deployment
+    asyncio.run(world.execution.save_deployment(replace(deployment, mode=mode)))
+    _record_entry(world, bot, fee=fee)
+    for detail in ("summary", "full"):
+        response = world.client.get(f"/api/v1/deployments/{bot}?detail={detail}")
+        assert response.status_code == 200, response.text
+        body: JsonBody = response.json()
+        for book in (*body["positions"], body["position"]):
+            assert Decimal(book["entry_fees"]) == Decimal(fee)
+            assert Decimal(book["unrealized_pnl"]) == Decimal("2")
+            assert Decimal(book["unrealized_pnl_net"]) == Decimal("2") - Decimal(fee)
+    response = world.client.get(f"/api/v1/portfolios/{portfolio}/deployment")
+    assert response.status_code == 200, response.text
+    book = response.json()["sleeves"][0]["deployment"]["books"][0]
+    assert Decimal(book["entry_fees"]) == Decimal(fee)
+    assert Decimal(book["unrealized_pnl_net"]) == Decimal("2") - Decimal(fee)
+
+
+def test_unapplied_fill_does_not_establish_paid_entry_fees(world: World) -> None:
+    """Fill receipt alone does not prove that the current position includes its economics."""
+    portfolio, bot = _started_portfolio(world)
+    _open_long(world, bot, close="60200")
+    _record_entry(world, bot, fee="3", applied=False)
+    book = world.client.get(f"/api/v1/deployments/{bot}").json()["positions"][0]
+    sleeve = world.client.get(f"/api/v1/portfolios/{portfolio}/deployment").json()
+    for row in (book, sleeve["sleeves"][0]["deployment"]["books"][0]):
+        assert Decimal(row["unrealized_pnl"]) == Decimal("2")
+        assert row["entry_fees"] is None
+        assert row["unrealized_pnl_net"] is None
+
+
+def test_short_book_net_subtracts_paid_fees_from_signed_gain(world: World) -> None:
+    """Spot shorts use sell entry evidence and subtract fees even when the mark falls."""
+    portfolio, bot = _started_portfolio(world)
+    _open_long(world, bot, close="59800")
+    snapshot = asyncio.run(world.execution.get_deployment(bot))
+    assert snapshot.position is not None
+    asyncio.run(
+        world.execution.save_position(
+            replace(snapshot.position, side=PositionSide.SHORT), deployment_id=bot
+        )
+    )
+    _record_entry(world, bot, fee="3")
+    for order in tuple(world.execution.orders.values()):
+        if order.deployment_id == bot:
+            asyncio.run(world.execution.save_order(replace(order, side=OrderSide.SELL)))
+    for detail in ("summary", "full"):
+        book = world.client.get(f"/api/v1/deployments/{bot}?detail={detail}").json()["positions"][0]
+        assert Decimal(book["unrealized_pnl"]) == Decimal("2")
+        assert Decimal(book["unrealized_pnl_net"]) == Decimal("-1")
+    sleeve = world.client.get(f"/api/v1/portfolios/{portfolio}/deployment").json()
+    book = sleeve["sleeves"][0]["deployment"]["books"][0]
+    assert Decimal(book["unrealized_pnl_net"]) == Decimal("-1")
+
+
+def test_fee_lookup_outage_preserves_gross_mark(
+    world: World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An unavailable fee read leaves net unknown without hiding a valid gross mark."""
+    _portfolio, bot = _started_portfolio(world)
+    _open_long(world, bot, close="60200")
+
+    async def unavailable(position: Position, *, product_id: str) -> Decimal | None:
+        """Model storage failing only during fee evidence lookup."""
+        del position, product_id
+        raise ExecutionStoreError("Fill evidence unavailable.")
+
+    monkeypatch.setattr(world.execution, "get_position_entry_fees", unavailable)
+    for detail in ("summary", "full"):
+        response = world.client.get(f"/api/v1/deployments/{bot}?detail={detail}")
+        assert response.status_code == 200, response.text
+        book = response.json()["positions"][0]
+        assert Decimal(book["unrealized_pnl"]) == Decimal("2")
+        assert book["unrealized_pnl_net"] is None
 
 
 def test_books_without_a_journaled_close_stay_unmarked(world: World) -> None:

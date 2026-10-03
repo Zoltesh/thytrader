@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v59`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v60`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -239,7 +239,12 @@ sleeve is started. Each `books[]` row is one open book: `product_id`, `side`, `q
 `entry_price`, `stop_price`, `target_price`, `entered_bar`, `position_state`, and `mark_price` /
 `marked_at` / `unrealized_pnl` (the last evaluated bar's close from the decision journal, and gross
 unrealized PnL before exit fees; null without a journaled close;
-[ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Action
+[ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).
+`entry_fees` and `unrealized_pnl_net` add paid entry fees allocated to the held quantity and
+gross PnL minus those fees. Prefer net when available; future exit fees are excluded. Partial
+exits allocate entry fees proportionally; adds accumulate them. Null means no mark or unverified
+fill evidence (including more than 1000 applied current-window fills), never zero fees
+([ADR 0100](../../docs/decisions/0100-fee-adjusted-open-book-pnl.md)). Action
 responses list books without marks; read `deployment` for marked books. Describe a sleeve's book by `position_state`
 ([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)): `open_protected`
 means open with its TP/SL (or stop) resting, even though `phase` reads `pending_exit`; only

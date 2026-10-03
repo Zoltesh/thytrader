@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 PAPER_MAKER_FEE_RATE = Decimal("0.001")
 PAPER_TAKER_FEE_RATE = Decimal("0.002")
 MAX_PAPER_FEE_RATE = Decimal("0.1")
+MAX_POSITION_FEE_FILLS = 1000
+"""Maximum applied fills replayed for one current position's entry-fee evidence."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -498,6 +500,27 @@ class _LotState:
     entry_fees: Decimal
     realized: Decimal
     trade_count: int
+
+
+def remaining_position_entry_fees(
+    position: Position, fills: Sequence[LedgerFill]
+) -> Decimal | None:
+    """Return entry fees attributable to the remaining inventory, or unknown.
+
+    Callers supply applied fills from the position's entry bar, oldest first. Replay
+    allocates fees proportionally on partial exits using the existing average-cost lot
+    rules. Missing, excessive, or mismatched evidence never implies a zero fee.
+    """
+    if not fills or len(fills) > MAX_POSITION_FEE_FILLS:
+        return None
+    state = _LotState(Decimal(0), None, Decimal(0), Decimal(0), 0)
+    for fill in fills:
+        if fill.filled_at < position.entered_bar:
+            return None
+        state = _fold_buy(state, fill) if fill.side is OrderSide.BUY else _fold_sell(state, fill)
+    if state.quantity != _signed_quantity(position) or state.entry_price != position.entry_price:
+        return None
+    return state.entry_fees
 
 
 def _fill_sort_key(fill: Fill) -> tuple[datetime, str]:

@@ -7,6 +7,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.ledger import (
+    MAX_POSITION_FEE_FILLS,
+    LedgerFill,
+    remaining_position_entry_fees,
+)
 from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
@@ -35,6 +40,7 @@ from thytrader.execution.protection import working_order_count
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
+    from decimal import Decimal
 
 
 def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:
@@ -123,6 +129,38 @@ class InMemoryExecutionStore:
         if limit is not None:
             rows = rows[:limit]
         return tuple(rows)
+
+    async def get_position_entry_fees(
+        self, position: Position, *, product_id: str
+    ) -> Decimal | None:
+        """Replay at most 1,000 applied fills of the current product book for its fees."""
+        deployment = self.deployments.get(position.deployment_id)
+        if deployment is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        selected = sorted(
+            (
+                fill
+                for fill in self.fills.values()
+                if fill.deployment_id == position.deployment_id
+                and fill.economics_applied_at is not None
+                and fill.filled_at >= position.entered_bar
+                and (order := self.orders.get(fill.order_id)) is not None
+                and order.deployment_id == position.deployment_id
+                and resolved_product_id(order.product_id, deployment) == product_id
+            ),
+            key=lambda fill: (fill.filled_at, fill.venue_fill_id),
+        )[: MAX_POSITION_FEE_FILLS + 1]
+        fills = tuple(
+            LedgerFill(
+                side=self.orders[fill.order_id].side,
+                price=fill.price,
+                quantity=fill.quantity,
+                fee=fill.fee,
+                filled_at=fill.filled_at,
+            )
+            for fill in selected
+        )
+        return remaining_position_entry_fees(position, fills)
 
     async def list_fills(
         self, deployment_id: UUID, *, limit: int, cursor: str | None = None

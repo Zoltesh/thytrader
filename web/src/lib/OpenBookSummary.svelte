@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * One open book in two compact lines (ADR 0098): a state chip, the gross
+	 * One open book in two compact lines (ADR 0098): a state chip, the fee-adjusted
 	 * unrealized PnL at the last evaluated bar, and time since entry; then the
 	 * entry, stop, and target. Used on Portfolio sleeve rows. The chip's word
 	 * names the state, so color is never the only signal.

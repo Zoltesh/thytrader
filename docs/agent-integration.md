@@ -267,7 +267,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v59` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v60` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -299,8 +299,9 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `same_bar_exit_precedence` (`stop`, `take_profit`, `signal_exit`, `time_exit`) and
 `runtime_observability` (`position_state`, `exit_in_flight`, `paper_live_fill_comparison`;
 [ADR 0097](decisions/0097-runtime-parity-and-observability.md); plus `paper_protection_covered`,
-`book_marks`, and `portfolio_fill_comparisons`, with `strategy_library` adding `origin_filter`;
-[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md)); expected Alembic
+`book_marks` and `portfolio_fill_comparisons`, with `strategy_library` adding `origin_filter`;
+[ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md); plus
+`fee_adjusted_book_pnl`, [ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md)); expected Alembic
 revision `0059`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
@@ -356,6 +357,13 @@ Book marks ([ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.m
 `GET /api/v1/deployments/{id}` positions and `GET /api/v1/portfolios/{id}/deployment` sleeve
 `books[]` carry `mark_price` (the last evaluated bar's close from the decision journal),
 `marked_at`, and gross `unrealized_pnl` (null without a journaled close).
+The same marked rows add `entry_fees` and `unrealized_pnl_net`: paid entry fees allocated
+to held inventory and gross PnL minus those fees. Both summary and full deployment detail
+use a bounded local read of at most 1001 applied product fills since the entry bar; more
+than 1000 or a quantity/average-price mismatch returns null. Sleeve books use the same fold
+on their already-loaded fills. Partial exits allocate fees proportionally and adds accumulate
+them. Future exit fees are excluded; null is unknown, never assumed free execution
+([ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md)).
 Deployment detail (summary or full) derives `ledger.mark_complete`, `marked_exposure`, net PnL,
 and return from the same per-product journal marks. Operator `strategies` / `runtime` use them
 for `ledger_mark_complete`. Every open book needs its own close: a missing mark or journal

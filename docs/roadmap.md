@@ -675,7 +675,7 @@ Operator-facing polish after agent research and paper/live twins ran side by sid
 
 Ops contract `thytrader-ops-contract-v58`; Alembic stays `0059`.
 
-**Deferred:** net-of-fee unrealized PnL, origin counts on the library control, and an explicit
+**Deferred:** origin counts on the library control and an explicit
 paper/live link (twins still match by snapshot fingerprint).
 ## Operand-level indicator offsets — ✅ Shipped
 
@@ -1002,3 +1002,13 @@ Further agent E2E orchestration and YOLO opt-in are **Phase 12** and are now shi
 existing CLIs; YOLO default off; live `--confirm` skip is [ADR 0043](decisions/0043-yolo-live-skip-confirm.md)).
 They were not part of the Phase 6 exit gate. See
 [Phase 12](#phase-12-agent-orchestration--yolo-opt-in--shipped).
+
+## Open-book PnL after paid entry fees — ✅ Shipped
+
+[ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md) adds nullable `entry_fees` and
+`unrealized_pnl_net` to marked deployment positions (summary and full) and portfolio sleeve books.
+The shared UI prefers net, labels a gross fallback, and states that future exit fees are excluded.
+Applied local fills establish paid fees; partial exits retain only the surviving share and adds
+accumulate fees. Missing/mismatched evidence or more than 1000 current-window fills stays unknown.
+Existing cash/equity/risk accounting is unchanged. Ops contract `thytrader-ops-contract-v60`
+advertises `fee_adjusted_book_pnl`; Alembic remains `0059`. Exit-fee estimates remain deferred.

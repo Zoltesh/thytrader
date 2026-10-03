@@ -23,7 +23,11 @@ from thytrader.api.dependencies import (
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.data_control.service import ingestion_provider
-from thytrader.execution.book_marks import last_bar_marks, signed_unrealized_pnl
+from thytrader.execution.book_marks import (
+    entry_fees_by_product,
+    last_bar_marks,
+    signed_unrealized_pnl,
+)
 from thytrader.execution.decision_store import (
     DecisionJournalStore,  # noqa: TC001 - FastAPI Depends.
 )
@@ -173,6 +177,17 @@ class PositionResponse(BaseModel):
         ),
     )
     compatibility_focus: bool = False
+    entry_fees: str | None = Field(
+        default=None,
+        description="Paid entry fees allocated to held quantity; null without verified evidence.",
+    )
+    unrealized_pnl_net: str | None = Field(
+        default=None,
+        description=(
+            "Gross unrealized_pnl minus entry_fees; future exit fees excluded. Null without "
+            "a mark and verified current-position fill evidence."
+        ),
+    )
 
 
 class InstrumentRuntimeResponse(BaseModel):
@@ -468,7 +483,7 @@ async def get_deployment(
 ) -> DeploymentResponse:
     """Return one deployment; ``full`` includes every order and fill.
 
-    Open books carry a last-bar ``mark_price`` and gross ``unrealized_pnl`` (ADR 0098).
+    Open books carry a last-bar mark, gross PnL, and verified paid-entry-fee net PnL (ADR 0100).
     """
     if detail == "full":
         snapshot = await _require_snapshot(store, deployment_id)
@@ -478,7 +493,7 @@ async def get_deployment(
             publication_store,
             extra_product_ids=extra,
         )
-        return await _with_book_marks(response, snapshot, journal)
+        return await _with_book_marks(response, snapshot, journal, store)
     try:
         summary = await store.get_deployment_summary(deployment_id)
     except ExecutionStoreError as error:
@@ -494,20 +509,24 @@ async def get_deployment(
         publication_store,
         extra_product_ids=extra,
     )
-    return await _with_book_marks(response, _summary_as_snapshot(summary), journal)
+    return await _with_book_marks(response, _summary_as_snapshot(summary), journal, store)
 
 
 async def _with_book_marks(
     response: DeploymentResponse,
     snapshot: DeploymentSnapshot,
     journal: DecisionJournalStore | None,
+    store: ExecutionStore,
 ) -> DeploymentResponse:
     """Mark open books and their aggregate ledger from the same journaled closes."""
     marks = {} if journal is None else await last_bar_marks(journal, snapshot)
     if not marks:
         return response
-    positions = tuple(_marked_position(item, marks) for item in response.positions)
-    position = None if response.position is None else _marked_position(response.position, marks)
+    fees = await entry_fees_by_product(store, snapshot, marks)
+    positions = tuple(_marked_position(item, marks, fees) for item in response.positions)
+    position = (
+        None if response.position is None else _marked_position(response.position, marks, fees)
+    )
     ledger = ledger_from_snapshot(
         snapshot, marks={product_id: mark.price for product_id, mark in marks.items()}
     )
@@ -520,7 +539,9 @@ async def _with_book_marks(
     )
 
 
-def _marked_position(item: PositionResponse, marks: dict[str, BookMark]) -> PositionResponse:
+def _marked_position(
+    item: PositionResponse, marks: dict[str, BookMark], fees: dict[str, Decimal | None]
+) -> PositionResponse:
     """One position row with ``mark_price``, ``marked_at``, and ``unrealized_pnl`` when marked."""
     mark = marks.get(item.product_id)
     if mark is None:
@@ -531,11 +552,14 @@ def _marked_position(item: PositionResponse, marks: dict[str, BookMark]) -> Posi
         side=PositionSide(item.side),
         mark=mark.price,
     )
+    entry_fees = fees.get(item.product_id)
     return item.model_copy(
         update={
             "mark_price": format(mark.price, "f"),
             "marked_at": mark.bar_closes_at.isoformat(),
             "unrealized_pnl": format(pnl, "f"),
+            "entry_fees": None if entry_fees is None else format(entry_fees, "f"),
+            "unrealized_pnl_net": (None if entry_fees is None else format(pnl - entry_fees, "f")),
         }
     )
 

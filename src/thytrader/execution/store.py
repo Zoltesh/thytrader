@@ -21,6 +21,7 @@ from thytrader.execution.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
+    from decimal import Decimal
     from uuid import UUID
 
 
@@ -38,6 +39,12 @@ class ExecutionStore(Protocol):
 
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
+        ...
+
+    async def get_position_entry_fees(
+        self, position: Position, *, product_id: str
+    ) -> Decimal | None:
+        """Read applied current-book fills for remaining entry fees; None means unknown."""
         ...
 
     async def list_deployments(
@@ -137,6 +144,13 @@ class DisabledExecutionStore:
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Refuse deployment summary reads without durable storage."""
         del deployment_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def get_position_entry_fees(
+        self, position: Position, *, product_id: str
+    ) -> Decimal | None:
+        """Refuse entry-fee evidence reads without durable storage."""
+        del position, product_id
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def list_deployments(

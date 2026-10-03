@@ -246,6 +246,12 @@ close of the newest bar the bot evaluated for that product (from the decision jo
 `marked_at` its UTC close, and `unrealized_pnl` the gross PnL at that mark (signed quantity times
 the move from `entry_price`, before exit fees). All three are null without a journaled close;
 `list` does not mark books.
+`show` also returns `entry_fees` (paid entry fees allocated to held quantity) and
+`unrealized_pnl_net` (gross PnL minus those fees). Prefer net when available. Partial exits
+allocate entry fees proportionally; adds accumulate paid fees. Future exit fees are excluded,
+so this is not a liquidation estimate. Missing, mismatched, or over-1000 applied current-window
+fills leave both fee fields null, retaining the gross mark; never assume null means zero.
+[ADR 0100](../../docs/decisions/0100-fee-adjusted-open-book-pnl.md).
 On `show` (both summary and full HTTP detail), `ledger.mark_complete`, `marked_exposure`,
 `total_net_pnl`, and `total_return_fraction` use the same per-product journaled closes as the
 positions. Every open book needs its own mark; a missing close or unavailable journal leaves
@@ -400,7 +406,7 @@ activity no longer exhausts it and blocks an unrelated new entry.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
 ([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v59` with `indicator_operand_offset_runtimes` including the deployment
+`thytrader-ops-contract-v60` with `indicator_operand_offset_runtimes` including the deployment
 mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research

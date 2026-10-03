@@ -138,3 +138,12 @@ The support-bundle `payload` nests the other reports unchanged (it does not nest
 The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1.schema.json). Run `uv run thytrader-operator schema-check` to verify skill docs against `SCHEMA_VERSION`.
 
 Indicator operands may independently add `offset` (0–500; ADR 0099), including multi-series reads. Health `ops_contract.indicator_operand_offset_runtimes` names research, paper, and live. Lagged signal values use `id@N` / `id.series@N`; original output keys stay present. Rule labels show declaration plus operand lag on the indicator's native clock; missing lagged history remains unknown.
+
+Ops contract v60 adds `runtime_observability: fee_adjusted_book_pnl`. Deployment detail
+(`thytrader-runtime show`) position rows, including compatibility `position`, and portfolio
+deployment (`thytrader-portfolio deployment`) sleeve `books[]` add nullable decimal strings:
+`entry_fees` for paid fees allocated to held inventory and `unrealized_pnl_net` for gross
+`unrealized_pnl` minus those fees. Future exit fees are excluded. Null means no mark or
+unverified fill evidence (missing/mismatched or above the 1000 applied-fill window cap), not zero.
+Partial exits allocate fees proportionally; adds accumulate them. Operator aggregate ledger
+fields keep their existing semantics. See [ADR 0100](../../../docs/decisions/0100-fee-adjusted-open-book-pnl.md).

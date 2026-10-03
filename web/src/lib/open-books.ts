@@ -24,6 +24,10 @@ export type OpenBook = {
 	marked_at?: string | null;
 	/** Gross unrealized PnL at `mark_price`, before exit fees. */
 	unrealized_pnl?: string | null;
+	/** Recorded entry fees allocated to the held quantity; null if evidence is unknown. */
+	entry_fees?: string | null;
+	/** Gross PnL minus entry fees; future exit fees are excluded. */
+	unrealized_pnl_net?: string | null;
 };
 
 export type BookTone = 'ok' | 'warn' | 'bad' | 'muted';
@@ -74,10 +78,12 @@ export function unrealizedText(
 	book: OpenBook,
 	quote: string
 ): { text: string; tone: 'pos' | 'neg' | 'muted' } | null {
-	const value = book.unrealized_pnl;
+	const net = book.unrealized_pnl_net;
+	const hasNet = net !== null && net !== undefined && DECIMAL.test(net);
+	const value = hasNet ? net : book.unrealized_pnl;
 	if (value === null || value === undefined || !DECIMAL.test(value)) return null;
 	const sign = compareDecimalStrings(value, '0');
-	const text = `${sign > 0 ? '+' : ''}${formatQuoteAmount(value)} ${quote}`;
+	const text = `${sign > 0 ? '+' : ''}${formatQuoteAmount(value)} ${quote} (${hasNet ? 'net' : 'gross'})`;
 	return { text, tone: sign > 0 ? 'pos' : sign < 0 ? 'neg' : 'muted' };
 }
 
@@ -85,7 +91,12 @@ export function unrealizedText(
 export function markTitle(book: OpenBook): string {
 	if (!book.mark_price) return 'No evaluated bar close for this product yet.';
 	const at = book.marked_at ? ` at the ${book.marked_at.slice(11, 16)} UTC bar close` : '';
-	return `Marked at ${book.mark_price}${at}; gross, before exit fees.`;
+	const net = book.unrealized_pnl_net;
+	const basis =
+		net !== null && net !== undefined && DECIMAL.test(net)
+			? 'net after recorded entry fees; future exit fees excluded'
+			: 'gross before entry and exit fees; entry-fee evidence unavailable';
+	return `Marked at ${book.mark_price}${at}; ${basis}.`;
 }
 
 /** `Long 0.01` or `Short 2`. */

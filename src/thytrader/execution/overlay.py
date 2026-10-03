@@ -28,6 +28,7 @@ from thytrader.execution.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
+    from decimal import Decimal
     from uuid import UUID
 
     from thytrader.execution.store import ExecutionStore
@@ -142,6 +143,12 @@ class InstrumentScopedStore:
     ) -> PaginatedFills:
         """Return one descending page of fills for one deployment."""
         return await self._inner.list_fills(deployment_id, limit=limit, cursor=cursor)
+
+    async def get_position_entry_fees(
+        self, position: Position, *, product_id: str
+    ) -> Decimal | None:
+        """Forward an explicit product's fee evidence without rewriting the book."""
+        return await self._inner.get_position_entry_fees(position, product_id=product_id)
 
     async def list_orders(
         self, deployment_id: UUID, *, limit: int, cursor: str | None = None

@@ -321,8 +321,11 @@ Each open book also shows its **unrealized PnL** at the close of the last bar th
 and how long it has been held. On bot detail these are the **Unrealized** and **Held** columns of
 Positions & protection, plus a uPnL line on the Position card. On Portfolio sleeve rows each open
 book shows a state chip (Protected, Unprotected, Unverified, or Exiting), its uPnL, time held, and
-entry / SL / TP. The figure is gross (before exit fees), and the tooltip names the bar close it
-used. Without an evaluated bar it shows `—`, never an estimate.
+entry / SL / TP. The figure labeled **net** subtracts recorded entry fees allocated to the
+quantity still held, including after partial exits or added entries. Future exit fees are excluded;
+the tooltip states the fee basis and the bar close used. When entry-fee evidence is unavailable,
+the figure is explicitly labeled **gross** (before entry and exit fees). Without an evaluated bar
+it shows `—`, never an estimate.
 
 Bot detail's aggregate ledger uses those same per-product bar closes for PnL and exposure.
 If any open book lacks a journaled close, the aggregate stays unknown even when another book

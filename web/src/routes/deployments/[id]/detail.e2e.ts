@@ -581,19 +581,23 @@ test.describe('deployment detail', () => {
 						exit_in_flight: false,
 						mark_price: '10.5',
 						marked_at: '2026-09-22T01:00:00+00:00',
-						unrealized_pnl: '2.5'
+						unrealized_pnl: '2.5',
+						entry_fees: '3',
+						unrealized_pnl_net: '-0.5'
 					}
 				]
 			})
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		await expect(page.getByTestId('position-upnl')).toHaveText('+2.50 USDC');
+		await expect(page.getByTestId('position-upnl')).toHaveText('-0.50 USDC (net)');
 		await expect(page.getByTestId('position-upnl')).toHaveAttribute(
 			'title',
-			'Marked at 10.5 at the 01:00 UTC bar close; gross, before exit fees.'
+			'Marked at 10.5 at the 01:00 UTC bar close; net after recorded entry fees; future exit fees excluded.'
 		);
 		await expect(page.getByTestId('position-held')).toHaveText('5h 30m');
-		await expect(page.getByTestId('kpi-position-pnl')).toHaveText('uPnL +2.50 USDC · held 5h 30m');
+		await expect(page.getByTestId('kpi-position-pnl')).toHaveText(
+			'uPnL -0.50 USDC (net) · held 5h 30m'
+		);
 	});
 
 	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {

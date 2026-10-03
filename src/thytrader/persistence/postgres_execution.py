@@ -13,6 +13,11 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
 from thytrader.execution.ids import utc_now
+from thytrader.execution.ledger import (
+    MAX_POSITION_FEE_FILLS,
+    LedgerFill,
+    remaining_position_entry_fees,
+)
 from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
@@ -159,6 +164,44 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
+
+    async def get_position_entry_fees(
+        self, position: Position, *, product_id: str
+    ) -> Decimal | None:
+        """Replay bounded applied fills since entry for one product's remaining entry fees."""
+        statement = (
+            select(execution_fills, execution_orders.c.side)
+            .join(execution_orders, execution_fills.c.order_id == execution_orders.c.id)
+            .join(deployments, execution_fills.c.deployment_id == deployments.c.id)
+            .where(
+                execution_fills.c.deployment_id == position.deployment_id,
+                execution_orders.c.deployment_id == position.deployment_id,
+                execution_fills.c.filled_at >= position.entered_bar,
+                execution_fills.c.economics_applied_at.is_not(None),
+                func.coalesce(
+                    func.nullif(execution_orders.c.product_id, ""), deployments.c.product_id
+                )
+                == product_id,
+            )
+            .order_by(execution_fills.c.filled_at.asc(), execution_fills.c.venue_fill_id.asc())
+            .limit(MAX_POSITION_FEE_FILLS + 1)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        fills = tuple(
+            LedgerFill(
+                side=OrderSide(row["side"]),
+                price=Decimal(row["price"]),
+                quantity=Decimal(row["quantity"]),
+                fee=Decimal(row["fee"]),
+                filled_at=row["filled_at"],
+            )
+            for row in rows
+        )
+        return remaining_position_entry_fees(position, fills)
 
     async def list_fills(
         self, deployment_id: UUID, *, limit: int, cursor: str | None = None

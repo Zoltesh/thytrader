@@ -376,14 +376,14 @@ test('sleeve rows show each open book and the paper vs live fill panel', async (
 	const ema = '5eee0000-0000-7000-8000-000000000001';
 	state.bots[ema] = 'running';
 	state.bots['5eee0000-0000-7000-8000-000000000002'] = 'running';
-	state.books[ema] = [openBookFixture()];
+	state.books[ema] = [openBookFixture({ entry_fees: '8', unrealized_pnl_net: '-0.41' })];
 	state.fillComparisons = [fillComparisonFixture('deee0000-0000-7000-8000-000000000001')];
 	await mockPortfolioApi(page, state);
 	await page.goto('/deployments');
 	const book = page.getByTestId('open-book');
 	await expect(book).toHaveCount(1);
 	await expect(book.getByTestId('open-book-state')).toHaveText('Protected');
-	await expect(book.getByTestId('open-book-pnl')).toHaveText('+7.59 USDC');
+	await expect(book.getByTestId('open-book-pnl')).toHaveText('-0.41 USDC (net)');
 	await expect(book.getByTestId('open-book-levels')).toContainText('60,125.5');
 	await expect(book.getByTestId('open-book-levels')).toContainText('TP63,800');
 	await expect(page.getByTestId('sleeve-twin')).toHaveText('Paper twin · fills');
