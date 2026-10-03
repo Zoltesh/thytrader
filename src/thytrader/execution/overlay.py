@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.store import ExecutionStore
     from thytrader.execution.twins import DeploymentTwinLink
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 
 def overlay_snapshot(snapshot: DeploymentSnapshot, product_id: str) -> DeploymentSnapshot:
@@ -128,9 +129,15 @@ class InstrumentScopedStore:
         """Forward the explicit pair inventory."""
         return await self._inner.list_twin_links()
 
-    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+    async def link_twins(
+        self,
+        deployment_id: UUID,
+        counterpart_id: UUID,
+        *,
+        snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
+    ) -> DeploymentTwinLink:
         """Forward metadata edits independently of worker state."""
-        return await self._inner.link_twins(deployment_id, counterpart_id)
+        return await self._inner.link_twins(deployment_id, counterpart_id, snapshots=snapshots)
 
     async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
         """Forward an expected-partner removal without touching the leased book."""

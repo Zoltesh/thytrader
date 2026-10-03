@@ -69,6 +69,7 @@ from thytrader.strategies.library import (
     StrategyLibraryError,
     StrategyNotFoundError,
     StrategyOrigin,
+    StrategyOriginCounts,
     StrategyPage,
     StrategyRecord,
     StrategyRevisionConflictError,
@@ -189,23 +190,40 @@ class PostgresStrategyStore:
             .limit(limit)
             .offset(offset)
         )
-        counted = select(func.count()).select_from(strategies)
+        research = _research_tagged()
+        counted = select(
+            func.count().label("all"), func.count().filter(research).label("research")
+        ).select_from(strategies)
         if tag is not None:
             tagged = sql_cast(strategies.c.document, JSONB)["metadata"]["tags"].contains([tag])
             statement = statement.where(tagged)
             counted = counted.where(tagged)
         if origin is not StrategyOrigin.ALL:
-            research = _research_tagged()
             scoped = research if origin is StrategyOrigin.RESEARCH else not_(research)
             statement = statement.where(scoped)
-            counted = counted.where(scoped)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
-                total = (await connection.execute(counted)).scalar_one()
+                counts = (await connection.execute(counted)).mappings().one()
         except SQLAlchemyError as error:
             raise StrategyStorageUnavailableError(_UNAVAILABLE) from error
-        return StrategyPage(records=tuple(_record_from_row(row) for row in rows), total=int(total))
+        origins = StrategyOriginCounts(
+            operator=int(counts["all"]) - int(counts["research"]),
+            research=int(counts["research"]),
+            all=int(counts["all"]),
+        )
+        total = (
+            origins.all
+            if origin is StrategyOrigin.ALL
+            else origins.research
+            if origin is StrategyOrigin.RESEARCH
+            else origins.operator
+        )
+        return StrategyPage(
+            records=tuple(_record_from_row(row) for row in rows),
+            total=total,
+            origin_counts=origins,
+        )
 
     async def save(
         self, strategy_id: UUID, document: StrategyDocument, *, expected_revision: int

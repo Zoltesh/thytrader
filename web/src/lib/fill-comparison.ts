@@ -9,6 +9,8 @@ import { compareDecimalStrings } from './portfolio';
 export type EntryFillDigest = {
 	deployment_id: string;
 	portfolio_id: string | null;
+	/** Each side keeps its pinned snapshot identity, including equivalent clones. */
+	strategy_fingerprint?: string | null;
 	status: string;
 	entries_rested: number;
 	entries_filled: number;

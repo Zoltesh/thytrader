@@ -44,6 +44,8 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from decimal import Decimal
 
+    from thytrader.strategies.snapshots import StrategySnapshot
+
 
 def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:
     """Return the in-memory key for one product book."""
@@ -86,13 +88,19 @@ class InMemoryExecutionStore:
             )
         )
 
-    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+    async def link_twins(
+        self,
+        deployment_id: UUID,
+        counterpart_id: UUID,
+        *,
+        snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
+    ) -> DeploymentTwinLink:
         """Validate and link without yielding, so competing mutations are atomic."""
         first = self.deployments.get(deployment_id)
         second = self.deployments.get(counterpart_id)
         if first is None or second is None:
             raise ExecutionStoreError("Deployment was not found.")
-        paper, live = comparable_twins(first, second)
+        paper, live = comparable_twins(first, second, snapshots=snapshots)
         for current in self.twin_links.values():
             if current.paper_deployment_id == paper.id and current.live_deployment_id == live.id:
                 return current

@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.twins import DeploymentTwinLink
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 
 @runtime_checkable
@@ -39,7 +40,13 @@ class ExecutionStore(Protocol):
         """Read saved pairs newest-linked first without loading execution histories."""
         ...
 
-    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+    async def link_twins(
+        self,
+        deployment_id: UUID,
+        counterpart_id: UUID,
+        *,
+        snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
+    ) -> DeploymentTwinLink:
         """Atomically link comparable unoccupied books; the same pair is idempotent."""
         ...
 
@@ -158,9 +165,15 @@ class DisabledExecutionStore:
         """Read saved pairs newest-linked first without loading execution histories."""
         raise ExecutionStoreError("Execution storage is unavailable.")
 
-    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+    async def link_twins(
+        self,
+        deployment_id: UUID,
+        counterpart_id: UUID,
+        *,
+        snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
+    ) -> DeploymentTwinLink:
         """Atomically link comparable unoccupied books; the same pair is idempotent."""
-        del deployment_id, counterpart_id
+        del deployment_id, counterpart_id, snapshots
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:

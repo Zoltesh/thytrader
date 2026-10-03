@@ -54,6 +54,8 @@ class HealthOpsContract(BaseModel):
     research_job_statuses: list[str]
     research_job_expiry_hours: int
     research_worker_pool: list[str]
+    async_study_planning: Literal["worker"]
+    newest_bar_settle_seconds: int
     spot_quote_currencies: list[str]
     catalog_health: list[str]
     bounded_deployment_reads: list[str]

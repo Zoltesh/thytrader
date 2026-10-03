@@ -338,7 +338,7 @@ through the stop exits as a stop even if the time exit is also due on that bar.
 
 To see why a live bot entered quickly while its paper twin waited, read
 `uv run thytrader-operator portfolios`: `paper_live_fill_comparisons` pairs paper and live bots
-explicitly linked to run the same strategy snapshot and reports entries rested, filled, and expired, the fill
+explicitly linked with identical pinned trading rules and reports entries rested, filled, and expired, the fill
 against the limit, and the time to fill. A paper post-only entry fills only when a closed candle
 trades through the limit. Live fills whenever Coinbase matches it. The Portfolio page shows the
 same comparison for a portfolio's own sleeves (see **Paper vs live** below).
@@ -415,7 +415,7 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   strategies and existing sleeves are disabled). **Edit weights** edits every weight and the cash
   reserve at once and refuses more than 100%. The aside shows allocation bars, the largest single
   asset against the per-asset limit, and the cash reserve. When a sleeve's bot has a paper or live
-  saved twin (a deliberately linked opposite-mode bot running the same rules snapshot), the row links to a **Paper vs live** panel
+  saved twin (a deliberately linked opposite-mode bot with identical pinned trading rules), the row links to a **Paper vs live** panel
   below the table. For each twin it shows a paper row and a live row with the share of entries
   that filled, the average fill against the posted limit in bps (positive is worse), the median
   wait to fill, and how much sooner one side fills
@@ -676,3 +676,13 @@ re-evaluates the exact run and refuses to answer unless the trace reproduces the
 recorded trace fingerprint. It does not publish a run, create an order intent, apply cooldown,
 simulate entries or exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
 separate runtime (the workspace Run stage or `thytrader-runtime`), not this CLI.
+
+The Mine / Research / All badges count all matching strategies, including rows beyond the
+visible page, and respect the selected tag. Async study acceptance pins inputs; poll the job
+for planning failures or run `plan-study` first. A bot's newest decision candle may settle for
+up to two minutes after its UTC close: the activity reads "newest candle settling", entries
+wait, and protection/reconciliation continue. An expired wait or older gap still pauses the bot.
+
+Explicit twins may be strategy clones with server-verified identical pinned trading rules
+(ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
+comparison metadata, never bot lifecycle or trading rules.

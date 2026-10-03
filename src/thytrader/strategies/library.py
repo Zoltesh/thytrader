@@ -183,11 +183,21 @@ def matches_origin(document: StrategyDocument, origin: StrategyOrigin) -> bool:
 
 
 @dataclass(frozen=True, slots=True)
+class StrategyOriginCounts:
+    """Tag-filtered library counts independent of the selected origin or page."""
+
+    operator: int
+    research: int
+    all: int
+
+
+@dataclass(frozen=True, slots=True)
 class StrategyPage:
     """One newest-updated-first page of strategies plus the library total."""
 
     records: tuple[StrategyRecord, ...]
     total: int
+    origin_counts: StrategyOriginCounts | None = None
 
 
 @dataclass(frozen=True, slots=True)

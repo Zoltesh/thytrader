@@ -70,6 +70,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
+from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.models import (
@@ -87,7 +88,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v62"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v63"
 EXPECTED_SCHEMA_REVISION = "0060"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -200,6 +201,7 @@ STRATEGY_LIBRARY: tuple[str, ...] = (
     "bulk_delete_by_tag",
     "clone_name",
     "origin_filter",
+    "origin_counts",
 )
 PORTFOLIO_SLEEVE_OPERATIONS: tuple[str, ...] = ("batch_add", "create_with_sleeves")
 SAME_BAR_EXIT_PRECEDENCE: tuple[str, ...] = ("stop", "take_profit", "signal_exit", "time_exit")
@@ -212,6 +214,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "fee_adjusted_book_pnl",
     "portfolio_fill_comparisons",
     "explicit_deployment_twins",
+    "rule_matched_deployment_twins",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
@@ -254,6 +257,8 @@ def expected_ops_contract() -> dict[str, object]:
         "research_job_statuses": list(RESEARCH_JOB_STATUSES),
         "research_job_expiry_hours": RESEARCH_JOB_EXPIRY_HOURS,
         "research_worker_pool": list(RESEARCH_WORKER_POOL),
+        "async_study_planning": "worker",
+        "newest_bar_settle_seconds": NEWEST_BAR_SETTLE_SECONDS,
         "spot_quote_currencies": list(SPOT_QUOTE_CURRENCIES_FIELD),
         "catalog_health": list(CATALOG_HEALTH),
         "bounded_deployment_reads": list(BOUNDED_DEPLOYMENT_READS),

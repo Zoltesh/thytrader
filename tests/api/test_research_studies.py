@@ -6,12 +6,15 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 import json
 from pathlib import Path
+import time
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
+from thytrader.api.routes.research_studies import _study_service
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
@@ -22,6 +25,13 @@ from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
 from thytrader.research.http import find_study_by_request
 from thytrader.research.jobs import ResearchExecutionMode
+from thytrader.research.studies import (
+    ASYNC_STUDY_BUDGET,
+    ResearchStudyPlan,
+    ResearchStudyRequest,
+    ResearchStudyService,
+    StudyBudget,
+)
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
@@ -503,3 +513,64 @@ def test_find_study_by_request_reads_back_through_the_real_route() -> None:
             row = json.loads(find_study_by_request("http://127.0.0.1:8000", request_fp))
         assert row["study_fingerprint"] == submitted.json()["study_fingerprint"]
         assert row["request_fingerprint"] == request_fp
+
+
+class _NoApiPlanning(ResearchStudyService):
+    """Dependency used only by API submits to forbid expensive inline planning."""
+
+    async def plan(
+        self,
+        request: ResearchStudyRequest,
+        *,
+        budget: StudyBudget = ASYNC_STUDY_BUDGET,
+    ) -> ResearchStudyPlan:
+        """Fail if the async handler tries to plan before persisting its job."""
+        del request, budget
+        raise AssertionError("Async submit must leave planning to the research worker.")
+
+
+def test_async_submit_does_not_call_api_planner() -> None:
+    """A 202 still echoes pinned inputs even when inline planning is forbidden."""
+    client, publications, submitter = _client()
+    assert isinstance(client.app, FastAPI)
+
+    def api_service() -> ResearchStudyService:
+        """Return the API-only planner guard; the worker keeps its own composition."""
+        return _NoApiPlanning(
+            publications=publications, submitter=submitter, results=_StudyResults()
+        )
+
+    client.app.dependency_overrides[_study_service] = api_service
+    with client:
+        identity = _publish_reference(client)
+        response = client.post("/api/v1/research/studies?async=true", json=_holdout_body(identity))
+        assert response.status_code == 202, response.text
+        body = response.json()
+        assert body["strategy_fingerprint"].startswith("sha256:")
+        assert body["evaluation_start"] == "2026-01-01T00:00:00Z"
+        assert body["evaluation_end"] == "2026-01-11T00:00:00Z"
+
+
+def test_async_infeasible_plan_is_a_durable_job_failure() -> None:
+    """Planning errors move to the queued job, retaining a typed phase and error code."""
+    client, _, _ = _client()
+    with client:
+        identity = _publish_reference(client)
+        payload = _holdout_body(identity)
+        payload.pop("oos_fraction")
+        payload.update(
+            kind="walk_forward", in_sample_bars=10000, out_of_sample_bars=1000, step_bars=1000
+        )
+        response = client.post("/api/v1/research/studies?async=true", json=payload)
+        assert response.status_code == 202, response.text
+        job_id = response.json()["job_id"]
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            job = client.get(f"/api/v1/research/jobs/{job_id}").json()
+            if job["status"] == "failed":
+                break
+            time.sleep(0.01)
+        assert job["status"] == "failed", job
+        assert job["failed_phase"] == "plan"
+        assert job["error_code"] == "study_window_rejected"
+        assert job["failed_detail"]

@@ -210,8 +210,11 @@ class OpsContractPayload(_FrozenModel):
         ...,
     ]
     strategy_library: tuple[
-        Literal["tag_filter", "bulk_delete_by_tag", "clone_name", "origin_filter"], ...
+        Literal["tag_filter", "bulk_delete_by_tag", "clone_name", "origin_filter", "origin_counts"],
+        ...,
     ]
+    async_study_planning: Literal["worker"]
+    newest_bar_settle_seconds: int = Field(ge=0)
     portfolio_max_sleeves: int = Field(ge=1)
     portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...]
     same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
@@ -225,6 +228,7 @@ class OpsContractPayload(_FrozenModel):
             "fee_adjusted_book_pnl",
             "portfolio_fill_comparisons",
             "explicit_deployment_twins",
+            "rule_matched_deployment_twins",
         ],
         ...,
     ]
@@ -452,6 +456,7 @@ class EntryFillDigest(_FrozenModel):
 
     deployment_id: UUID
     portfolio_id: UUID | None = None
+    strategy_fingerprint: str | None = None
     status: str
     entries_rested: int = Field(ge=0)
     entries_filled: int = Field(ge=0)
@@ -466,9 +471,9 @@ class EntryFillDigest(_FrozenModel):
 
 
 class PaperLiveFillComparison(_FrozenModel):
-    """A paper and a live book running the same strategy snapshot, side by side (ADR 0097).
+    """Explicit twins running verified identical rules, side by side (ADR 0105).
 
-    Twins are explicitly linked (ADR 0102) and share ``strategy_fingerprint``. Paper
+    ``strategy_fingerprint`` references the paper side; each digest names its own snapshot. Paper
     waits run to the fill bar's close (a candle must trade through the limit); live waits
     end at the venue fill.
     """
@@ -484,8 +489,8 @@ class PaperLiveFillComparison(_FrozenModel):
 class PortfoliosPayload(_FrozenModel):
     """Every portfolio (sleeves, allocation, limits, manager settings, newest backtest).
 
-    ``paper_live_fill_comparisons`` pairs paper and live books bound to the same strategy
-    snapshot (sleeves or standalone) and compares their entry fills (ADR 0097).
+    ``paper_live_fill_comparisons`` compares the entry fills of explicitly linked paper
+    and live books with identical pinned trading rules (sleeves or standalone; ADR 0105).
     """
 
     portfolio_storage: Literal["available", "unavailable"]

@@ -235,9 +235,11 @@ Research runs in the `research-worker` service, never in the API
 ([ADR 0092](decisions/0092-research-worker-pool.md)). Every backtest, study, and portfolio backtest
 is a durable job: `queued` (waiting for one of `THYTRADER_RESEARCH_WORKER_COUNT` workers, default
 2), then `running` under a renewed lease, then `completed`, `failed`, `cancelled`, or `expired`.
-`?async=true` answers 202 once the API has planned the request and bound its datasets (a large
-study can take several seconds; `thytrader-research submit-study --async` waits up to 30 s, and
-`--submit-timeout-seconds` overrides it; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)). A synchronous `POST /api/v1/backtests` or
+`?async=true` answers 202 once the API has pinned the strategy snapshots, datasets, and bounds.
+Async study planning runs in the leased worker; acceptance is not plan validation. Inspect a
+failed job's `failed_phase: plan`, `error_code`, and `failed_detail`, or call `plan-study` first
+([ADR 0103](decisions/0103-worker-planned-async-studies.md)); `thytrader-research submit-study --async` waits up to 30 s, and
+`--submit-timeout-seconds` overrides it ([ADR 0097](decisions/0097-runtime-parity-and-observability.md)). A synchronous `POST /api/v1/backtests` or
 `POST /api/v1/research/studies` waits up to `THYTRADER_RESEARCH_SYNC_WAIT_SECONDS` (25 s) and then
 answers 201 with the same body as before, the same 422 (`backtest_window_rejected`,
 `study_window_rejected`, `study_budget_exceeded`) or 503, or 202 with the still-running job and
@@ -267,7 +269,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v62` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v63` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -537,7 +539,8 @@ The key principle: **agents should diagnose and explain first; trading authority
 
 ### Explicit paper/live twin metadata (ADR 0102)
 
-Ops contract v62 advertises `runtime_observability: explicit_deployment_twins`, schema `0060`.
+Ops contract v63 advertises `runtime_observability: explicit_deployment_twins` and
+`rule_matched_deployment_twins`, schema `0060`.
 `GET /api/v1/deployments/{id}/twin` reads `{deployment_id, twin}` (null or the two member UUIDs
 and `linked_at`). `PUT` takes only `{counterpart_deployment_id}`; `DELETE` requires the expected
 counterpart UUID as `?counterpart_deployment_id=...`. Both directions address the same pair.
@@ -545,10 +548,14 @@ counterpart UUID as `?counterpart_deployment_id=...`. Both directions address th
 Agents invoke `thytrader-runtime show-twin ID`, `link-twin ID --counterpart-deployment-id ID
 --confirm`, and `unlink-twin ID --counterpart-deployment-id ID --confirm`. These mutations are
 always confirmation-gated, outside YOLO, and require no live acknowledgement. They grant no
-lifecycle, arming, or order authority. Use the same snapshot, primary market, and timeframe on
+lifecycle, arming, or order authority. Use identical pinned trading rules, primary market, and timeframe on
 opposite-mode strategy bots. Incompatible pairs return 422; another partner or stale unlink 409;
 missing deployment 404; storage outage 503. Repeating the same link/unlink is idempotent; after
 an ambiguous response read the pair before retrying. Reports compare only saved pairs, up to 10
 newest-linked first, including multiple pairs sharing a fingerprint. Read-only operator and
 portfolio lanes cannot edit links. See the [runtime skill](../skills/thytrader-runtime/SKILL.md)
 and [ADR 0102](decisions/0102-explicit-paper-live-twin-links.md).
+
+Explicit twins may be strategy clones with server-verified identical pinned trading rules
+(ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
+comparison metadata, never bot lifecycle or trading rules.

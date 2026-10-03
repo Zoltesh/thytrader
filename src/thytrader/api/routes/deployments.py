@@ -67,7 +67,12 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, TwinValidationError
+from thytrader.execution.twins import (
+    DeploymentTwinLink,
+    TwinConflictError,
+    TwinValidationError,
+    load_twin_snapshots,
+)
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
 )
@@ -1205,12 +1210,23 @@ async def link_deployment_twin(
     request: LinkTwinRequest,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
 ) -> DeploymentTwinResponse:
     """Save a comparable one-to-one pairing without deployment or order authority."""
+    first = await _require_deployment_row(store, deployment_id)
+    second = await _require_deployment_row(store, request.counterpart_deployment_id)
     try:
-        link = await store.link_twins(deployment_id, request.counterpart_deployment_id)
+        snapshots = await load_twin_snapshots(first, second, publications)
+        link = await store.link_twins(
+            deployment_id, request.counterpart_deployment_id, snapshots=snapshots
+        )
     except (ExecutionStoreError, TwinConflictError, TwinValidationError) as error:
         raise _twin_http_error(error) from None
+    except StrategySnapshotError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Twin strategy snapshots could not be verified.",
+        ) from None
     await _append_twin_audit(
         audit, "link_deployment_twins", deployment_id, request.counterpart_deployment_id
     )

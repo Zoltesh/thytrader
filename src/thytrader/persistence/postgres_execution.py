@@ -68,6 +68,8 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+    from thytrader.strategies.snapshots import StrategySnapshot
+
 
 def _decimal(value: str | None) -> Decimal | None:
     """Parse one stored decimal string, preserving absence."""
@@ -140,12 +142,20 @@ class PostgresExecutionStore:
             raise ExecutionStoreError("Twin link storage is unavailable.") from error
         return tuple(_twin_link_from_row(row) for row in rows)
 
-    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+    async def link_twins(
+        self,
+        deployment_id: UUID,
+        counterpart_id: UUID,
+        *,
+        snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
+    ) -> DeploymentTwinLink:
         """Serialize competing partners with ordered row locks in a short transaction."""
         try:
             async with self._engine.begin() as conn:
                 books = await _lock_twin_books(conn, deployment_id, counterpart_id)
-                paper, live = comparable_twins(books[deployment_id], books[counterpart_id])
+                paper, live = comparable_twins(
+                    books[deployment_id], books[counterpart_id], snapshots=snapshots
+                )
                 rows = (
                     (
                         await conn.execute(

@@ -61,6 +61,13 @@
 	let origin = $state<StrategyOrigin>(readStoredOrigin());
 	/** Matches in the current view, from the server's `total`. */
 	let total = $state<number | null>(null);
+	let originCounts = $state<Record<StrategyOrigin, number> | null>(null);
+	const originOptions = $derived(
+		STRATEGY_ORIGIN_OPTIONS.map((option) => ({
+			...option,
+			count: originCounts?.[option.id]
+		}))
+	);
 	let pageIndex = $state(0);
 	let pageCursors = $state<(string | undefined)[]>([undefined]);
 	let nextCursor = $state<string | null>(null);
@@ -132,6 +139,7 @@
 			entries = page.entries;
 			nextCursor = page.nextCursor;
 			total = page.total;
+			originCounts = page.originCounts;
 			const onPage = new Set(page.entries.map((entry) => entry.strategy_id));
 			selected = selected.filter((id) => onPage.has(id));
 		} catch (caught) {
@@ -470,7 +478,7 @@
 	<div class="library-filters">
 		<Segmented
 			label="Whose strategies"
-			options={STRATEGY_ORIGIN_OPTIONS}
+			options={originOptions}
 			value={origin}
 			onchange={chooseOrigin}
 			testId="library-origin"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
 import logging
@@ -11,6 +12,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import execution_audit_scope, record_execution_audit
+from thytrader.execution.candle_wait import newest_bar_settling
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.decision_journal import (
     PRUNE_INTERVAL,
@@ -518,6 +520,7 @@ async def _advance_strategy(
         last_evaluated_bar=deployment.last_evaluated_bar,
         expected_last_start=expected_last,
         bar_duration=interval.duration,
+        allow_settling=True,
     )
     if due is None:
         detail = "Market-data window is gapped or missing the latest closed bar."
@@ -549,6 +552,34 @@ async def _advance_strategy(
         )
         return
     if not due:
+        if newest_bar_settling(
+            candles, expected_last_start=expected_last, bar_duration=interval.duration
+        ):
+            await record_gate_skip(
+                snapshot=snapshot,
+                strategy=strategy,
+                product_ids=lockstep_product_ids(strategy),
+                bar_starts_at=expected_last,
+                reason=DecisionSkipReason.BAR_SETTLING,
+                detail="Waiting for the newest closed candle; no new entries (two-minute limit).",
+            )
+            if len(lockstep_product_ids(strategy)) > 1:
+                await _advance_multi_instrument(
+                    snapshot,
+                    strategy=strategy,
+                    store=store,
+                    market_data=market_data,
+                    paper_broker=paper_broker,
+                    live_broker=live_broker,
+                    quote_reader=quote_reader,
+                    risk_policy=risk_policy,
+                    portfolio=portfolio,
+                    primary_product=product,
+                    primary_candles=candles,
+                    due=(),
+                    memory_store=memory_store,
+                )
+                return
         await _maintain_between_bars(
             snapshot,
             strategy=strategy,
@@ -647,7 +678,7 @@ async def _advance_multi_instrument(
 ) -> None:
     """Evaluate covered products in lexicographic order on each shared closed bar."""
     covered = lockstep_product_ids(strategy)
-    windows = await _load_lockstep_product_windows(
+    loaded = await _load_lockstep_product_windows(
         snapshot,
         strategy=strategy,
         store=store,
@@ -656,12 +687,18 @@ async def _advance_multi_instrument(
         primary_product=primary_product,
         primary_candles=primary_candles,
     )
-    if windows is None:
+    decision_start = (
+        due[-1].starts_at
+        if due
+        else parse_candle_interval(strategy.timeframe).align_closed_end(utc_now())
+        - parse_candle_interval(strategy.timeframe).duration
+    )
+    if loaded is None:
         await record_gate_skip(
             snapshot=snapshot,
             strategy=strategy,
             product_ids=covered,
-            bar_starts_at=due[-1].starts_at,
+            bar_starts_at=decision_start,
             reason=DecisionSkipReason.DATA_GAP,
             detail="A covered product's market-data window is gapped.",
         )
@@ -675,6 +712,27 @@ async def _advance_multi_instrument(
             quote_reader=quote_reader,
             product=primary_product,
             candles=primary_candles,
+        )
+        return
+    windows = loaded.windows
+    if loaded.settling:
+        await record_gate_skip(
+            snapshot=snapshot,
+            strategy=strategy,
+            product_ids=covered,
+            bar_starts_at=decision_start,
+            reason=DecisionSkipReason.BAR_SETTLING,
+            detail="A covered product's newest closed candle is settling; no new entries.",
+        )
+        await _maintain_multi_between_bars(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            covered=covered,
+            windows=windows,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
         )
         return
     deployment = snapshot.deployment
@@ -766,6 +824,14 @@ async def _advance_multi_instrument(
             return
 
 
+@dataclass(frozen=True, slots=True)
+class LockstepProductWindows:
+    """Covered decision-clock windows and whether any newest candle is settling."""
+
+    windows: dict[str, tuple[MarketProduct, tuple[Candle, ...]]]
+    settling: bool
+
+
 async def _load_lockstep_product_windows(
     snapshot: DeploymentSnapshot,
     *,
@@ -775,12 +841,28 @@ async def _load_lockstep_product_windows(
     covered: tuple[str, ...],
     primary_product: MarketProduct,
     primary_candles: Sequence[Candle],
-) -> dict[str, tuple[MarketProduct, tuple[Candle, ...]]] | None:
+) -> LockstepProductWindows | None:
     """Load closed LTF windows for every covered product, or pause on a gap."""
     windows: dict[str, tuple[MarketProduct, tuple[Candle, ...]]] = {
         primary_product.product_id: (primary_product, tuple(primary_candles))
     }
     interval = parse_candle_interval(strategy.timeframe)
+    expected = interval.align_closed_end(utc_now()) - interval.duration
+    if (
+        new_closed_bars(
+            primary_candles,
+            last_evaluated_bar=snapshot.deployment.last_evaluated_bar,
+            expected_last_start=expected,
+            bar_duration=interval.duration,
+            allow_settling=True,
+        )
+        is None
+    ):
+        await _pause_coverage_gap(snapshot, store=store, product_id=primary_product.product_id)
+        return None
+    settling = newest_bar_settling(
+        primary_candles, expected_last_start=expected, bar_duration=interval.duration
+    )
     for product_id in covered:
         if product_id in windows:
             continue
@@ -796,12 +878,16 @@ async def _load_lockstep_product_windows(
             last_evaluated_bar=snapshot.deployment.last_evaluated_bar,
             expected_last_start=extra_expected,
             bar_duration=interval.duration,
+            allow_settling=True,
         )
         if extra_due is None:
             await _pause_coverage_gap(snapshot, store=store, product_id=product_id)
             return None
         windows[product_id] = (extra_product, extra_candles)
-    return windows
+        settling = settling or newest_bar_settling(
+            extra_candles, expected_last_start=extra_expected, bar_duration=interval.duration
+        )
+    return LockstepProductWindows(windows=windows, settling=settling)
 
 
 async def _load_lockstep_filter_windows(
@@ -1281,6 +1367,7 @@ async def _process_discretionary(
         last_evaluated_bar=deployment.last_evaluated_bar,
         expected_last_start=expected_last,
         bar_duration=interval.duration,
+        allow_settling=True,
     )
     if due is None:
         await _pause_gapped_discretionary(
@@ -1499,12 +1586,32 @@ def new_closed_bars(
     last_evaluated_bar: datetime | None,
     expected_last_start: datetime,
     bar_duration: timedelta,
+    allow_settling: bool = False,
+    now: datetime | None = None,
 ) -> tuple[Candle, ...] | None:
-    """Return newly closed bars in order, or None when the window is gapped or stale."""
+    """Return due bars, an empty bounded publication wait, or None for unsafe gaps.
+
+    ``allow_settling`` is for decision clocks only. The wait never hides an older
+    cursor gap or advances evaluation; consumers must maintain inventory without entries.
+    """
     if not candles or not _contiguous(candles, bar_duration):
         return None
     latest = candles[-1]
     if latest.starts_at != expected_last_start:
+        if (
+            allow_settling
+            and newest_bar_settling(
+                candles, expected_last_start=expected_last_start, bar_duration=bar_duration, now=now
+            )
+            and new_closed_bars(
+                candles,
+                last_evaluated_bar=last_evaluated_bar,
+                expected_last_start=expected_last_start - bar_duration,
+                bar_duration=bar_duration,
+            )
+            is not None
+        ):
+            return ()
         return None
     if last_evaluated_bar is None:
         return (latest,)
@@ -1722,7 +1829,8 @@ async def _closed_window_for(
     Coinbase returns no candle for an interval without trades. A bar missing between two
     real candles, and still missing on one re-fetch, is a confirmed no-trade interval and
     becomes a flat zero-volume bar, exactly as research datasets publish it (ADR 0095).
-    A missing newest bar is never filled: the gapped window still pauses the book.
+    A missing newest bar is never filled; decision clocks may wait for ADR 0104's
+    bounded publication window before pausing. Required filter clocks remain fail-closed.
     """
     now = datetime.now(UTC)
     interval = parse_candle_interval(timeframe)

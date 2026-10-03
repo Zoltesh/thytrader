@@ -110,3 +110,50 @@ def test_new_closed_bars_returns_none_on_five_minute_gap() -> None:
         bar_duration=_FIVE_MINUTES,
     )
     assert due is None
+
+
+def test_only_newest_bar_wait_is_bounded_to_its_absolute_close() -> None:
+    """Repeated cycles and a restarted process get the same fixed two-minute deadline."""
+    expected = datetime(2026, 1, 1, 3, tzinfo=UTC)
+    history = tuple(_bar(hour) for hour in range(3))
+    for seconds in (0, 60, 119, 120, 121):
+        due = new_closed_bars(
+            history,
+            last_evaluated_bar=history[-1].starts_at,
+            expected_last_start=expected,
+            bar_duration=_HOUR,
+            allow_settling=True,
+            now=expected + _HOUR + timedelta(seconds=seconds),
+        )
+        assert due == (() if seconds < 120 else None)
+    published = (*history, _bar(3))
+    assert new_closed_bars(
+        published,
+        last_evaluated_bar=history[-1].starts_at,
+        expected_last_start=expected,
+        bar_duration=_HOUR,
+        allow_settling=True,
+        now=expected + _HOUR + timedelta(seconds=61),
+    ) == (_bar(3),)
+
+
+def test_settling_never_hides_older_or_cursor_gaps() -> None:
+    """Interior gaps, two absent newest bars, and an uncovered evaluation cursor fail closed."""
+    expected = datetime(2026, 1, 1, 3, tzinfo=UTC)
+    for history, cursor in (
+        ((_bar(0), _bar(2)), None),
+        ((_bar(0), _bar(1)), None),
+        ((_bar(2),), _bar(0).starts_at),
+        ((), None),
+    ):
+        assert (
+            new_closed_bars(
+                history,
+                last_evaluated_bar=cursor,
+                expected_last_start=expected,
+                bar_duration=_HOUR,
+                allow_settling=True,
+                now=expected + _HOUR,
+            )
+            is None
+        )

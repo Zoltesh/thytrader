@@ -63,7 +63,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
-| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins of one strategy snapshot; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
+| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins with verified identical trading rules; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
@@ -133,7 +133,7 @@ digits — exact values stay in `rule.signal.indicator_values` — and `true`/`f
 and the HTF filter (labels mark another clock as `[4h]` and combined declaration/operand offsets as `(1 bar ago)`;
 the value is the lagged one the runtime compared); `risk` is the risk or freshness verdict; `action`, `intent_id`, `orders`, and
 `fills` link what was sent; `skip_reason` (`cooldown`, `max_open_positions`, `warmup`,
-`pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`,
+`pending_entry`, `paused`, `stopped`, `data_gap`, `bar_settling`, `user_feed_gate`, `catch_up`,
 `entries_disabled`, `entry_geometry`, `entry_sizing`, `reference_data_stale`,
 `reference_data_missing`) and `exit_reason` (`stop`, `trail`,
 `target`, `time`, `flatten`, `signal`) name the cause. `signal` is the strategy's
@@ -191,7 +191,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v62`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v63`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0060`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -326,3 +326,15 @@ is saved, the comparison is absent; unavailable link storage warns instead of gu
 Use `uv run thytrader-runtime show-twin BOT_ID` to read pairing metadata. Linking/unlinking belongs
 in the [runtime skill](../thytrader-runtime/SKILL.md), always with `--confirm`, never in this
 read-only operator lane. At most 10 saved pairs appear, newest-linked first.
+
+Ops contract v63 also advertises `async_study_planning: worker`, `newest_bar_settle_seconds: 120`,
+and `strategy_library: origin_counts`. Decision `skip_reason: bar_settling` means the newest decision
+candle alone is still within its fixed publication wait; no entries are evaluated, and inventory
+maintenance continues. `data_gap` after the deadline remains a paused book requiring the usual
+runtime lane action; do not automatically resume it.
+
+Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
+([ADR 0105](../../docs/decisions/0105-rule-equivalent-clone-twins.md)). Intended paper/live clones
+can link when their pinned rules match exactly; the server ignores only root id, name, description,
+creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;
+the top-level fingerprint remains the paper-side reference. This never changes a bot or its rules.

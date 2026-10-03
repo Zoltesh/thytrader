@@ -381,7 +381,7 @@ def submit_study(
     """POST one composed research study through the research API.
 
     ``timeout_seconds`` overrides the client wait: 30 s for an async submit (the API
-    plans and binds datasets before queueing) and 60 s for a synchronous one.
+    pins snapshots and dataset bindings before queueing) and 60 s for a synchronous one.
     """
     url = f"{base_url}/api/v1/research/studies"
     if async_submission:

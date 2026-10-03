@@ -278,8 +278,11 @@ not look ahead from OOS.
 child windows are required. `submit-study --confirm` snapshots every named strategy and any derived axis
 variants, then submits ordinary backtests, then persists a catalog row. Equivalent effective plans dedupe through
 `plan_fingerprint` even when request bounds differ. Long WFO batches should use
-`submit-study --async --confirm` and poll `show-research-job`. The API plans the study and binds
-its datasets before it answers 202, so an async submit waits up to 30 s for that answer (a
+`submit-study --async --confirm` and poll `show-research-job`. The API pins strategy snapshots, datasets, and evaluation bounds before answering 202; the
+research worker plans and validates async studies (ADR 0103). Acceptance does not mean the plan
+is feasible: poll `show-research-job` and inspect `failed_phase: plan`, `error_code`, and
+`failed_detail` on failure. Use `plan-study` for an explicit preflight. An async submit waits
+up to 30 s for the acceptance (a
 synchronous one 60 s); pass `--submit-timeout-seconds N` (1-300) to change the wait
 ([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). If any `submit-study`
 fails with a timeout or unreachable-API error, the study may already be persisted: the CLI error
@@ -443,8 +446,10 @@ series; a market in a different quote currency than the reference is refused (`q
 of every child backtest's default window (each market of a cross-market study, and every sweep/WFO
 candidate, whose derived warmup may be longer). Plan, submit, and async 202 responses echo
 `evaluation_start` / `evaluation_end` and `bound_datasets`; the request fingerprint covers the filled
-bounds. An async submit is planned before it is queued, so an oversized or infeasible study returns
-422 immediately instead of failing in the worker.
+bounds. An async submit validates and pins those inputs before queueing; the worker plans it.
+An oversized or infeasible async study fails with `failed_phase: plan` and a structured
+`error_code` / `failed_detail` on `show-research-job`. Use `plan-study` for an immediate read-only
+preflight. Synchronous submission retains its small-budget planning preflight and immediate 422s.
 
 `submit-backtest` may omit both `evaluation_start` and `evaluation_end`. The server fills the
 common covered intersection of the LTF dataset and every bound extra clock (HTF filter dataset,
@@ -533,8 +538,9 @@ are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees st
 ## Where research runs (research worker queue)
 
 Every backtest, study, and portfolio backtest runs in the `research-worker` service, never in the
-API ([ADR 0092](../../docs/decisions/0092-research-worker-pool.md)). The API validates, plans, and
-queues; the pool runs at most `THYTRADER_RESEARCH_WORKER_COUNT` jobs at once (default 2), oldest
+API ([ADR 0092](../../docs/decisions/0092-research-worker-pool.md)). The API validates, pins inputs,
+and queues async studies; the worker plans and executes them (ADR 0103). Synchronous studies keep
+their small-budget planning preflight. The pool runs at most `THYTRADER_RESEARCH_WORKER_COUNT` jobs at once (default 2), oldest
 first, so heavy research no longer slows other API calls.
 
 - **`queued` means waiting for a free research worker.** It is neither stuck nor failed. Read the
@@ -638,3 +644,6 @@ first, so heavy research no longer slows other API calls.
 - Editing application source to change strategy or backtest semantics on a running instance
 
 Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when health is unknown. Coverage and ingest are `skills/thytrader-data/SKILL.md`. Paper/live control is `skills/thytrader-runtime/SKILL.md`. Strategy `timeframe` may be any ingested venue clock for backtests, paper, and live. A strategy's `htf_filter` is executable in paper and live.
+
+Library pages add `origin_counts` (`operator`, `research`, `all`), counting all rows matching the
+current tag before pagination or origin filtering. These power the UI's Mine / Research / All badges.

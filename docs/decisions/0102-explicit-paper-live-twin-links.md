@@ -63,3 +63,6 @@ Downgrade refuses while links exist. Ops contract `thytrader-ops-contract-v62` a
   and keeping both fields consistent would complicate the runtime revision contract.
 - Study planning, quiet-bar behavior, automatic twin deployment, and order management remain
   separate work.
+
+Follow-up: [0105](0105-rule-equivalent-clone-twins.md) allows different snapshot identities only
+when the server verifies identical pinned trading rules across clones.

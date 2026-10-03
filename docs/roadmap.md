@@ -604,8 +604,8 @@ pin these behaviors: a sparse forward chunk keeps history, a backward walk past 
 a floor, a forward gap never moves it, quiet days are skipped with daily probes, a bogus floor is
 repaired on the first visit, and catalog completeness is judged against the lookback.
 
-**Deferred:** a quiet newest bar still pauses a paper or live book (`data_gap`). A non-pausing wait
-for a settling newest bar is a risk-policy change and needs its own ADR.
+**Shipped follow-up:** ADR 0104 adds a fixed 120-second wait for only a settling newest decision
+candle. No entries run during the wait; older gaps and expired waits still pause.
 
 ## Reference instruments — ✅ Shipped
 
@@ -652,8 +652,9 @@ Ops contract `thytrader-ops-contract-v57`; Alembic stays `0059`.
 **Exit gate met:** parity tests prove the backtest and paper take the same exit, on the same bar, at
 the same price for every same-bar combination.
 
-**Remaining:** moving study planning into the research worker. Portfolio fill comparison UI
-shipped in ADR 0098, and explicit paper/live links shipped in ADR 0102 below.
+**Shipped follow-up:** async study planning runs in the research worker (ADR 0103); synchronous
+preflight stays compatible. Portfolio fill comparison UI shipped in ADR 0098, and explicit
+paper/live links shipped in ADR 0102 below.
 
 
 ## Library and Portfolio polish — ✅ Shipped
@@ -675,8 +676,8 @@ Operator-facing polish after agent research and paper/live twins ran side by sid
 
 Ops contract `thytrader-ops-contract-v58`; Alembic stays `0059`.
 
-**Deferred:** origin counts on the library control. Explicit paper/live links shipped in
-ADR 0102 below.
+**Shipped follow-up:** origin counts on Mine / Research / All reflect all tag-filtered matches
+before pagination. Explicit paper/live links shipped in ADR 0102 below.
 ## Operand-level indicator offsets — ✅ Shipped
 
 [ADR 0099](decisions/0099-operand-level-indicator-offsets.md) adds independent operand offsets
@@ -1032,3 +1033,14 @@ Comparisons use saved pairs only, including several pairs on one snapshot; worke
 restarts preserve the relationship. Existing bots remain unlinked until selected.
 Ops contract `thytrader-ops-contract-v62` advertises `explicit_deployment_twins`; Alembic `0060`.
 Study planning in the worker, quiet-bar policy, and library origin counts remain separate work.
+
+## October handoff completion — ✅ Shipped
+
+[ADR 0103](decisions/0103-worker-planned-async-studies.md) moves async study planning into the leased
+research worker. [ADR 0104](decisions/0104-bounded-newest-candle-wait.md) adds a bounded decision-candle
+publication wait with entries blocked and maintenance continuing. Mine / Research / All show
+server-derived tag-filtered counts before pagination. Ops contract v63, Alembic remains 0060.
+
+[ADR 0105](decisions/0105-rule-equivalent-clone-twins.md) completes existing twin linking for
+separately authored clones: server-verified exact pinned trading rules, independent snapshot
+identities in each comparison side, and unchanged comparison-only authority.

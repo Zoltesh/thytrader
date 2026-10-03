@@ -17,12 +17,12 @@ from sqlalchemy import text
 from tests.execution.test_fill_comparison import _deployment
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
 from thytrader.execution.models import DeploymentMode, DeploymentStatus
-from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError
+from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, TwinValidationError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
+from thytrader.strategies.library import clone_strategy, create_strategy_from_definition
 
 __all__ = ["scratch_database"]
 pytestmark = pytest.mark.skipif(
@@ -124,3 +124,58 @@ def _downgrade(database_url: str) -> subprocess.CompletedProcess[str]:
         check=False,
         timeout=300,
     )
+
+
+@pytest.mark.anyio
+async def test_cloned_twins_require_bound_rule_proof_and_survive_restart(
+    scratch_database: str,
+) -> None:
+    """Different root identities link only with verified pinned rules inside the locked write."""
+    migrated = _alembic(scratch_database, "head")
+    assert migrated.returncode == 0, migrated.stderr
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        strategies = PostgresStrategyStore(engine)
+        live_root = await create_strategy_from_definition(
+            strategies, create_template_strategy(product_id="ETH-USD")
+        )
+        clone_id, clone_created_at = new_strategy_identity()
+        paper_root = await clone_strategy(
+            strategies,
+            live_root.strategy_id,
+            name="Research paper clone",
+            strategy_id=clone_id,
+            created_at=clone_created_at,
+        )
+        live_snapshot = await strategies.snapshot(live_root.strategy_id)
+        paper_snapshot = await strategies.snapshot(paper_root.strategy_id)
+        store = PostgresExecutionStore(engine)
+        live = replace(
+            _deployment(DeploymentMode.LIVE),
+            strategy_id=live_root.strategy_id,
+            strategy_fingerprint=live_snapshot.strategy_fingerprint,
+        )
+        paper = replace(
+            _deployment(DeploymentMode.PAPER),
+            strategy_id=paper_root.strategy_id,
+            strategy_fingerprint=paper_snapshot.strategy_fingerprint,
+            paper_maker_fee_rate=Decimal("0.001"),
+            paper_taker_fee_rate=Decimal("0.002"),
+        )
+        for bot in (paper, live):
+            await store.create_deployment(bot)
+        with pytest.raises(TwinValidationError):
+            await store.link_twins(paper.id, live.id)
+        with pytest.raises(TwinValidationError):
+            await store.link_twins(paper.id, live.id, snapshots=(live_snapshot, paper_snapshot))
+        link = await store.link_twins(paper.id, live.id, snapshots=(paper_snapshot, live_snapshot))
+        assert link.paper_deployment_id == paper.id
+        assert link.live_deployment_id == live.id
+        assert (await store.get_deployment(paper.id)).deployment.status is paper.status
+    finally:
+        await dispose(engine)
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        assert await PostgresExecutionStore(engine).get_twin_link(live.id) == link
+    finally:
+        await dispose(engine)

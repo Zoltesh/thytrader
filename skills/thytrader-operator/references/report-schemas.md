@@ -95,7 +95,7 @@ filters, `decisions[]`, `next_cursor`, `retention_max_rows_per_deployment` (2000
 | `bar_starts_at`, `bar_closes_at`, `evaluated_at` | The completed bar (UTC) and when the worker journaled it |
 | `outcome` | `entry_signal` (rule matched; see `action`), `no_signal`, `holding`, `exit`, `entry_blocked` (risk/freshness/sizing refused a matched rule), `skipped` (rule not evaluated), `error` |
 | `reason_code`, `summary` | Stable code (`SIGNAL_MATCHED`, `CONDITIONS_NOT_MET`, `HTF_FILTER_NOT_MET`, `HOLDING`, `EXIT_STOP`/`EXIT_TRAIL`/`EXIT_TARGET`/`EXIT_TIME`/`EXIT_FLATTEN`/`EXIT_SIGNAL`, a risk code such as `PRODUCT_NOT_ALLOWLISTED`, a skip code such as `COOLDOWN`, `EVALUATION_ERROR`, `CYCLE_ERROR`) and one human line |
-| `skip_reason` | `cooldown`, `max_open_positions`, `warmup`, `pending_entry`, `paused`, `stopped`, `data_gap`, `user_feed_gate`, `catch_up`, `entries_disabled`, `entry_geometry`, `entry_sizing` (a matched signal whose stop/target geometry or sizing rested no order; `reason_code` is the exact cause such as `TARGET_NOT_POSITIVE`, ADR 0090), `reference_data_stale` / `reference_data_missing` (a read-only reference instrument had no usable closed bar or warmup, so no entry was attempted; `summary` names the series, ADR 0096), or `null` |
+| `skip_reason` | `cooldown`, `max_open_positions`, `warmup`, `pending_entry`, `paused`, `stopped`, `data_gap`, `bar_settling` (only the newest decision candle is within its fixed 120-second publication wait; no entries), `user_feed_gate`, `catch_up`, `entries_disabled`, `entry_geometry`, `entry_sizing` (a matched signal whose stop/target geometry or sizing rested no order; `reason_code` is the exact cause such as `TARGET_NOT_POSITIVE`, ADR 0090), `reference_data_stale` / `reference_data_missing` (a read-only reference instrument had no usable closed bar or warmup, so no entry was attempted; `summary` names the series, ADR 0096), or `null` |
 | `exit_reason` | `stop`, `trail`, `target`, `time`, `flatten`, `signal` (`exits.signal_exit`, ADR 0093), or `null` |
 | `exit_rule` | Evaluated `exits.signal_exit` rule (`outcome`, `condition` tree) on post-fill bars of an open book; absent or `null` otherwise |
 | `action`, `intent_id`, `order_ids`, `orders[]`, `fills[]` | `none` / `intent_created` / `order_submitted` / `order_canceled` / `repriced`, the primary intent, and orders/fills created, changed, or applied in this bar's window (a venue bracket filled between bars belongs to the next bar) |
@@ -160,3 +160,14 @@ rows may have the same fingerprint: identify a pair by its paper and live deploy
 `GET /api/v1/deployments/{id}/twin` returns `{deployment_id, twin}`; `twin` is null or an object
 with UUID `paper_deployment_id`, UUID `live_deployment_id`, and UTC timestamp `linked_at`.
 Link/unlink are confirmed runtime metadata controls; they confer no trading authority.
+
+Ops contract v63 adds `async_study_planning: "worker"`, `newest_bar_settle_seconds: 120`, and
+`origin_counts` in `strategy_library`. Strategy-library HTTP pages add `origin_counts` with
+nonnegative `operator`, `research`, `all` counts after the tag filter and before origin filtering
+or pagination. Async 202 echoes stay unchanged; planning failure appears on the durable job.
+
+For rule-equivalent clone twins (ADR 0105), each `paper` / `live` fill digest adds its actual
+`strategy_fingerprint` (nullable when unavailable). The compatibility top-level fingerprint is
+the paper side's identity; it does not claim the two identities match. The server verifies pinned
+rules before storing an explicit link; report selection remains persisted-link-only.
+Ops contract v63 advertises `runtime_observability: rule_matched_deployment_twins`.

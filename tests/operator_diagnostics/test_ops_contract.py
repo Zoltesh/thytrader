@@ -32,7 +32,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v62"
+    assert expected["id"] == "thytrader-ops-contract-v63"
     assert expected["same_bar_exit_precedence"] == [
         "stop",
         "take_profit",
@@ -48,6 +48,7 @@ def test_ops_contract_matches_requires_payload() -> None:
         "fee_adjusted_book_pnl",
         "portfolio_fill_comparisons",
         "explicit_deployment_twins",
+        "rule_matched_deployment_twins",
     ]
     assert expected["research_honesty"] == [
         "result_window",
@@ -62,6 +63,7 @@ def test_ops_contract_matches_requires_payload() -> None:
         "bulk_delete_by_tag",
         "clone_name",
         "origin_filter",
+        "origin_counts",
     ]
     assert expected["portfolio_max_sleeves"] == 32
     assert expected["portfolio_sleeve_operations"] == ["batch_add", "create_with_sleeves"]
@@ -76,6 +78,8 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
     assert expected["expected_schema_revision"] == "0060"
+    assert expected["async_study_planning"] == "worker"
+    assert expected["newest_bar_settle_seconds"] == 120
     assert expected["take_profit_kinds"] == ["reward_risk", "none"]
     assert expected["live_protection_kinds"] == ["trigger_bracket", "stop_limit"]
     assert expected["backtest_diagnostics"] == ["thytrader-backtest-diagnostics-v1"]

@@ -85,6 +85,7 @@ class DecisionSkipReason(StrEnum):
     PAUSED = "paused"
     STOPPED = "stopped"
     DATA_GAP = "data_gap"
+    BAR_SETTLING = "bar_settling"
     USER_FEED_GATE = "user_feed_gate"
     CATCH_UP = "catch_up"
     ENTRIES_DISABLED = "entries_disabled"

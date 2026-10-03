@@ -37,7 +37,7 @@
 				bot.mode !== deployment.mode &&
 				bot.kind === 'strategy' &&
 				!!deployment.strategy_fingerprint &&
-				bot.strategy_fingerprint === deployment.strategy_fingerprint &&
+				!!bot.strategy_fingerprint &&
 				bot.product_id === deployment.product_id &&
 				bot.timeframe === deployment.timeframe
 		)
@@ -161,7 +161,8 @@
 			{/if}
 		{/if}
 		<p class="muted">
-			Links choose comparison partners. They do not start, stop, or arm either bot.
+			Links choose comparison partners. They do not start, stop, or arm either bot. The server
+			verifies identical snapshotted trading rules, including across clones.
 		</p>
 	</section>
 {/if}

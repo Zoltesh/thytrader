@@ -63,7 +63,6 @@ from thytrader.research.jobs import (
 )
 from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
 from thytrader.research.studies import (
-    ASYNC_STUDY_BUDGET,
     SYNC_STUDY_BUDGET,
     ResearchStudy,
     ResearchStudyError,
@@ -293,28 +292,28 @@ async def submit_research_study(
     execution: Annotated[ResearchExecutionMode, Depends(get_research_execution)],
     async_submission: Annotated[bool, Query(alias="async")] = False,
 ) -> ResearchStudySubmitResponse | Response:
-    """Snapshot every named strategy, plan within budget, and queue the study.
+    """Pin strategy and dataset bindings, then queue an asynchronously planned study.
 
     A synchronous submit allows at most 8 candidates and 128 child windows; an async
-    job (``?async=true``) may use the larger async budget. Either is planned here, so an
-    oversized or infeasible study fails with 422 before it is queued. The research
+    job (``?async=true``) may use the larger async budget. Async planning failures are
+    recorded on the durable job; synchronous submissions retain their 422 preflight. The research
     worker runs the children (ADR 0092); a synchronous submit waits up to
     ``research_sync_wait_seconds`` and answers 201 with the study, or 202 with the
     still-running job.
     """
     bound = await _bound_study(start, strategies, publications, datasets, runtime)
     request = bound.request
-    budget = ASYNC_STUDY_BUDGET if async_submission else SYNC_STUDY_BUDGET
-    try:
-        await service.plan(request, budget=budget)
-    except StudyPlanningError as error:
-        raise _planning_http_error(error) from None
-    except (ResearchStudyError, StrategySnapshotError) as error:
-        _logger.warning("research_study_queue_failed error_class=%s", type(error).__name__)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=_STUDY_UNAVAILABLE,
-        ) from None
+    if not async_submission:
+        try:
+            await service.plan(request, budget=SYNC_STUDY_BUDGET)
+        except StudyPlanningError as error:
+            raise _planning_http_error(error) from None
+        except (ResearchStudyError, StrategySnapshotError) as error:
+            _logger.warning("research_study_queue_failed error_class=%s", type(error).__name__)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=_STUDY_UNAVAILABLE,
+            ) from None
     require_research_execution(execution, detail=_STUDY_UNAVAILABLE)
     primary = start.primary_strategy_id()
     record = await job_store.create_study(request, strategy_id=primary)

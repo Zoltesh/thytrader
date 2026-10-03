@@ -172,3 +172,8 @@ mutations use `thytrader-research` with `--confirm`. On-demand trades use the sa
 and risk boundary as strategy-driven orders; they never call Coinbase directly from a skill
 ([ADR 0039](decisions/0039-on-demand-discretionary-trades.md),
 [ADR 0046](decisions/0046-shipped-vs-remaining-0031-destination.md)).
+
+A missing newest decision candle receives only ADR 0104's absolute 120-second publication wait
+when prior history and the persisted evaluation cursor are contiguous. New entries remain
+blocked; reconciliation and protection continue. The deadline survives restart. Older gaps,
+required-clock/feed failures, operator pauses, and breakers keep their fail-closed behavior.

@@ -129,9 +129,12 @@ not reached it. Then come the `risk` verdict, `action` with `intent_id`/`orders`
 close price, and the end-of-bar position. `no_trade_bar: true` marks a flat zero-volume bar for an
 interval without trades (its summary ends "(no-trade bar: no trades, flat at the prior close)"):
 paper and live fill a bar Coinbase omitted between two traded bars exactly as research datasets do,
-then evaluate it like any bar. A missing **newest** closed bar is never filled; the book still
-pauses with `skip_reason: data_gap`
-([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). A matched
+then evaluate it like any bar. A missing **newest** decision candle is never filled. When only
+that candle is missing and history/cursor are contiguous, the worker waits until its UTC close
+plus 120 seconds, with `skip_reason: bar_settling` and no new entries. Reconciliation and protection
+maintenance continue; covered products wait together. At the deadline, or for older gaps, it
+pauses with `data_gap`. Required HTF/indicator clocks and feed gates keep their existing policy
+([ADR 0104](../../docs/decisions/0104-bounded-newest-candle-wait.md)). A matched
 signal whose stop/target geometry or
 sizing rested no order is `outcome: skipped` with `skip_reason` `entry_geometry` or `entry_sizing`
 and a precise `reason_code` such as `TARGET_NOT_POSITIVE` (a short's target would be at or below
@@ -406,7 +409,7 @@ activity no longer exhausts it and blocks an unrelated new entry.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
 ([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v62` with `indicator_operand_offset_runtimes` including the deployment
+`thytrader-ops-contract-v63` with `indicator_operand_offset_runtimes` including the deployment
 mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research
@@ -550,8 +553,9 @@ linked_at}}`. Mutations **always require `--confirm`; YOLO never covers twin lin
 `--i-understand-live` is needed: this selects comparison metadata and cannot start, stop, resume,
 arm, or submit orders. Leave deployment authority in its existing commands.
 
-Choose one paper and one live **strategy** bot with the same nonempty strategy snapshot,
-primary product, and timeframe. Status, portfolio membership, capital, and fees may differ.
+Choose one paper and one live **strategy** bot on the same primary product and timeframe.
+They must share a snapshot or have server-verified identical pinned trading rules across clones
+(ADR 0105): only root identity, name, description, creation time, and metadata may differ. Status, portfolio membership, capital, and fees may differ.
 Discretionary books and different rules return 422; missing ids return 404. A bot has at most
 one partner: another partner returns 409. Unlink the current pair before selecting a replacement.
 The same link is idempotent and retains `linked_at`. Unlinking an already absent pair is
@@ -561,3 +565,9 @@ Comparisons in `thytrader-operator portfolios` and `thytrader-portfolio fill-com
 saved links only (newest-linked first, up to 10); unlinked books have no comparison. Existing
 bots are not automatically linked by the migration. Linking survives worker saves and restarts.
 The UI offers the same confirmed controls on Bot detail under **Paper/live twin**.
+
+Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
+([ADR 0105](../../docs/decisions/0105-rule-equivalent-clone-twins.md)). Intended paper/live clones
+can link when their pinned rules match exactly; the server ignores only root id, name, description,
+creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;
+the top-level fingerprint remains the paper-side reference. This never changes a bot or its rules.

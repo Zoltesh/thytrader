@@ -153,6 +153,14 @@ class StrategyLibraryEntryResponse(BaseModel):
     active_deployment_count: int = Field(ge=0)
 
 
+class StrategyOriginCountsResponse(BaseModel):
+    """Whole-library origin counts after the current tag filter, before pagination."""
+
+    operator: int = Field(ge=0)
+    research: int = Field(ge=0)
+    all: int = Field(ge=0)
+
+
 class StrategyListResponse(BaseModel):
     """One bounded newest-updated-first page of the strategy library."""
 
@@ -160,6 +168,7 @@ class StrategyListResponse(BaseModel):
     limit: int
     returned: int
     total: int
+    origin_counts: StrategyOriginCountsResponse | None = None
     has_more: bool
     next_cursor: str | None = None
 
@@ -294,6 +303,15 @@ async def list_strategies(
         limit=limit,
         returned=len(entries),
         total=page.total,
+        origin_counts=(
+            None
+            if page.origin_counts is None
+            else StrategyOriginCountsResponse(
+                operator=page.origin_counts.operator,
+                research=page.origin_counts.research,
+                all=page.origin_counts.all,
+            )
+        ),
         has_more=has_more,
         next_cursor=encode_offset_cursor(start + limit) if has_more else None,
     )

@@ -34,6 +34,7 @@ export type DecisionSkipReason =
 	| 'paused'
 	| 'stopped'
 	| 'data_gap'
+	| 'bar_settling'
 	| 'user_feed_gate'
 	| 'catch_up'
 	| 'entries_disabled'
@@ -600,6 +601,8 @@ export function skipReasonLabel(reason: DecisionSkipReason): string {
 			return 'bot stopped';
 		case 'data_gap':
 			return 'market data gap';
+		case 'bar_settling':
+			return 'newest candle settling';
 		case 'user_feed_gate':
 			return 'user-order feed not connected';
 		case 'catch_up':

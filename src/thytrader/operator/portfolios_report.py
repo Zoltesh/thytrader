@@ -5,7 +5,7 @@ allocation and largest single asset against ``max_per_asset_fraction``, the stor
 and manager settings, the deployment state (not deployed, running, partially running,
 paused, stopped), a latched portfolio breaker, the pending manager proposals, the newest
 stored portfolio backtest, and queued/running backtest jobs. It also compares the entry
-fills of paper and live books bound to the same strategy snapshot (ADR 0097).
+fills of explicitly linked paper and live books with identical pinned trading rules (ADR 0105).
 """
 
 from __future__ import annotations
@@ -168,6 +168,7 @@ def _fill_digest(stats: EntryFillStats, by_id: dict[UUID, Deployment]) -> EntryF
     deployment = by_id.get(stats.deployment_id)
     return EntryFillDigest(
         deployment_id=stats.deployment_id,
+        strategy_fingerprint=None if deployment is None else deployment.strategy_fingerprint,
         portfolio_id=None if deployment is None else deployment.portfolio_id,
         status=stats.status,
         entries_rested=stats.entries_rested,

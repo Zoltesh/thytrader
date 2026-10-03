@@ -69,8 +69,9 @@ Both modes run in the research worker ([ADR 0092](../decisions/0092-research-wor
 the API never runs a child backtest. A queued study waits for a free research worker.
 
 A synchronous submit over budget is HTTP 422 `study_budget_exceeded` naming `--async`. An async
-submit is planned (snapshots, derived candidates, dataset bounds, window budget) before it is
-queued, so it fails with the same 422s instead of failing later in the worker. `plan-study` plans
+submit pins snapshots, datasets, and evaluation bounds before queueing; the leased worker plans
+and enforces its budget ([ADR 0103](../decisions/0103-worker-planned-async-studies.md)). An
+infeasible plan becomes a failed job with `failed_phase: plan`, `error_code`, and `failed_detail`. `plan-study` plans
 against the async budget. Plans for studies above the synchronous budget carry a warning that they
 run only as async jobs, and grids above 8 candidates also carry a data-snooping warning: searching
 more candidates makes it likelier that the best in-sample result is luck, so honest claims stay on

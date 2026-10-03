@@ -926,3 +926,48 @@ def test_library_origin_filter_matches_research_tags_in_sql() -> None:
             await dispose(engine)
 
     asyncio.run(exercise())
+
+
+def test_origin_counts_are_tag_scoped_and_independent_of_page() -> None:
+    """SQL counts use one aggregate across all origins, including rows off the page."""
+    marker = f"count-{uuid4().hex[:8]}"
+
+    async def exercise() -> None:
+        """Seed disjoint origins and clean up every owned row."""
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        created: list[StrategyRecord] = []
+        try:
+            for tags in ((marker,), (marker, "claude-research"), (marker, "research-axis"), ()):
+                payload = create_template_strategy().model_dump(mode="python")
+                payload["metadata"] = {"tags": tags, "notes": ()}
+                created.append(
+                    await create_strategy_from_definition(
+                        store, StrategyDefinition.model_validate(payload)
+                    )
+                )
+            for origin in StrategyOrigin:
+                page = await store.list_page(limit=1, offset=1, tag=marker, origin=origin)
+                assert page.origin_counts is not None
+                assert (
+                    page.origin_counts.operator,
+                    page.origin_counts.research,
+                    page.origin_counts.all,
+                ) == (1, 2, 3)
+                assert (
+                    page.total
+                    == {
+                        StrategyOrigin.OPERATOR: 1,
+                        StrategyOrigin.RESEARCH: 2,
+                        StrategyOrigin.ALL: 3,
+                    }[origin]
+                )
+            empty = await store.list_page(limit=1, offset=0, tag=f"{marker}-absent")
+            assert empty.origin_counts is not None
+            assert empty.origin_counts.all == 0
+        finally:
+            for record in created:
+                await store.delete(record.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())

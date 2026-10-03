@@ -61,7 +61,7 @@ class EntryFillStats:
 
 @dataclass(frozen=True, slots=True)
 class PaperLiveTwin:
-    """One paper and one live strategy book bound to the same strategy snapshot."""
+    """Explicit rule-matched twins, with the paper fingerprint as compatibility identity."""
 
     strategy_fingerprint: str
     strategy_id: UUID | None

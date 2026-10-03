@@ -838,6 +838,7 @@ export function researchWindowHint(
 }
 
 type StrategyLibraryResponse = {
+	origin_counts?: Record<StrategyOrigin, number> | null;
 	strategies: StrategyLibraryEntry[];
 	total?: number;
 	has_more?: boolean;
@@ -1039,7 +1040,12 @@ export async function fetchStrategyPage(
 	cursor?: string,
 	tag?: string | null,
 	origin: StrategyOrigin = 'all'
-): Promise<{ entries: StrategyLibraryEntry[]; nextCursor: string | null; total: number | null }> {
+): Promise<{
+	entries: StrategyLibraryEntry[];
+	nextCursor: string | null;
+	total: number | null;
+	originCounts: Record<StrategyOrigin, number> | null;
+}> {
 	const params = new URLSearchParams({ limit: String(limit) });
 	if (cursor !== undefined) params.set('cursor', cursor);
 	if (tag) params.set('tag', tag);
@@ -1055,7 +1061,8 @@ export async function fetchStrategyPage(
 	return {
 		entries: body.strategies,
 		nextCursor: hasMore ? body.next_cursor! : null,
-		total: typeof body.total === 'number' ? body.total : null
+		total: typeof body.total === 'number' ? body.total : null,
+		originCounts: body.origin_counts ?? null
 	};
 }
 

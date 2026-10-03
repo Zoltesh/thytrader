@@ -507,3 +507,23 @@ def test_canonical_document_round_trips_through_storage_text() -> None:
     document = parse_document_text(text)
     rebuilt = StrategyDefinition.model_validate(cast("dict[str, object]", document))
     assert strategy_fingerprint(rebuilt) == strategy_fingerprint(definition)
+
+
+def test_origin_counts_cover_all_matches_before_pagination(
+    client: TestClient,
+    store: InMemoryStrategyStore,
+) -> None:
+    """Counts respect tags while staying independent of the selected origin and page."""
+    for tags in (("counts",), ("counts", "claude-research"), ("counts", "research-grid"), ()):
+        payload = create_template_strategy().model_dump(mode="python")
+        payload["metadata"] = {"tags": tags, "notes": ()}
+        _seed(store, StrategyDefinition.model_validate(payload))
+    for origin in ("operator", "research", "all"):
+        response = client.get(f"/api/v1/strategies?limit=1&tag=counts&origin={origin}")
+        assert response.status_code == 200
+        body = response.json()
+        assert body["returned"] == 1
+        assert body["origin_counts"] == {"operator": 1, "research": 2, "all": 3}
+        assert body["total"] == {"operator": 1, "research": 2, "all": 3}[origin]
+    absent = client.get("/api/v1/strategies?tag=absent").json()
+    assert absent["origin_counts"] == {"operator": 0, "research": 0, "all": 0}

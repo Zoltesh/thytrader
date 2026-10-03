@@ -53,3 +53,11 @@ Safety that outlives any one screen: [Safety](user/safety.md) and the
 To select intended paper/live comparison partners, use **Paper/live twin** on Bot detail or
 `thytrader-runtime link-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm`.
 See [operating guide](user/operate.md) and the [runtime skill](../skills/thytrader-runtime/SKILL.md).
+
+Async studies pin inputs before queueing and plan in workers ([ADR 0103](decisions/0103-worker-planned-async-studies.md)).
+The library shows Mine / Research / All counts. A settling newest decision candle waits at most
+120 seconds without new entries ([ADR 0104](decisions/0104-bounded-newest-candle-wait.md)).
+
+Explicit twins may be strategy clones with server-verified identical pinned trading rules
+(ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
+comparison metadata, never bot lifecycle or trading rules.

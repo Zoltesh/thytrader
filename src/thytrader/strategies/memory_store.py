@@ -26,6 +26,7 @@ from thytrader.strategies.library import (
     StrategyLibraryError,
     StrategyNotFoundError,
     StrategyOrigin,
+    StrategyOriginCounts,
     StrategyPage,
     StrategyRecord,
     StrategyRevisionConflictError,
@@ -82,16 +83,25 @@ class InMemoryStrategyStore:
     ) -> StrategyPage:
         """Return one newest-updated-first page, optionally by ``tag`` and ``origin``."""
         async with self._lock:
+            tagged = tuple(
+                item
+                for item in self._records.values()
+                if tag is None or tag in document_tags(item.document)
+            )
+            research_count = sum(
+                matches_origin(item.document, StrategyOrigin.RESEARCH) for item in tagged
+            )
             ordered = sorted(
-                (
-                    item
-                    for item in self._records.values()
-                    if (tag is None or tag in document_tags(item.document))
-                    and matches_origin(item.document, origin)
-                ),
+                (item for item in tagged if matches_origin(item.document, origin)),
                 key=lambda item: (-item.updated_at.timestamp(), str(item.strategy_id)),
             )
-            return StrategyPage(records=tuple(ordered[offset : offset + limit]), total=len(ordered))
+            return StrategyPage(
+                records=tuple(ordered[offset : offset + limit]),
+                total=len(ordered),
+                origin_counts=StrategyOriginCounts(
+                    operator=len(tagged) - research_count, research=research_count, all=len(tagged)
+                ),
+            )
 
     async def save(
         self, strategy_id: UUID, document: StrategyDocument, *, expected_revision: int

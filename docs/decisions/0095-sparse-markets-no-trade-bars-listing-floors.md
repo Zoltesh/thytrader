@@ -156,3 +156,5 @@ Williams %R, CCI, %B, Choppiness), so such conditions evaluate `unknown`, never 
 - **Clear only floors written by forward walks.** Worker state never recorded the writing walk, and
   backward walks also wrote floors at interior gaps. Rejected in favor of clearing all floors and
   re-proving.
+
+Follow-up: [0104](0104-bounded-newest-candle-wait.md) amends the deferred publication-wait / async-planning behavior above.

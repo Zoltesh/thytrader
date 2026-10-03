@@ -112,3 +112,5 @@ Live waits end at the venue fill. The report is read-only and never touches orde
   stop the bar traded through is optimistic and contradicts ADR 0083's conservative rule.
 - **Move study planning into the worker.** Rejected for now: it is a larger change to the submit
   contract than this problem needs.
+
+Follow-up: [0103](0103-worker-planned-async-studies.md) amends the deferred publication-wait / async-planning behavior above.

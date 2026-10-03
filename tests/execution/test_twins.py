@@ -1,5 +1,6 @@
 """Explicit comparison identity, conflicts, restart-independent saves, and HTTP safety."""
 
+import asyncio
 from dataclasses import replace
 from uuid import uuid4
 
@@ -13,8 +14,12 @@ from thytrader.config import Environment, Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import DeploymentKind, DeploymentMode, DeploymentStatus
 from thytrader.execution.twins import TwinConflictError, TwinValidationError, comparable_twins
+from thytrader.operator.portfolios_report import paper_live_fill_comparisons
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
+from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
+from thytrader.strategies.library import clone_strategy, create_strategy_from_definition
+from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 
 @pytest.mark.anyio
@@ -134,4 +139,119 @@ def test_browser_mutation_requires_the_existing_csrf_boundary() -> None:
         )
     assert response.status_code == 401
     assert "CSRF" in response.json()["detail"]
+    assert not store.twin_links
+
+
+def test_http_clones_link_by_pinned_rules_and_expose_each_snapshot() -> None:
+    """Separate identities with identical rules link, even after one root is edited."""
+    publications = InMemoryStrategyStore()
+    live_root = asyncio.run(
+        create_strategy_from_definition(
+            publications,
+            create_template_strategy(product_id="ETH-USD"),
+        )
+    )
+    clone_id, clone_created_at = new_strategy_identity()
+    paper_root = asyncio.run(
+        clone_strategy(
+            publications,
+            live_root.strategy_id,
+            strategy_id=clone_id,
+            created_at=clone_created_at,
+            name="Paper clone",
+        )
+    )
+    live_snapshot = asyncio.run(publications.snapshot(live_root.strategy_id))
+    paper_snapshot = asyncio.run(publications.snapshot(paper_root.strategy_id))
+    assert live_snapshot.strategy_fingerprint != paper_snapshot.strategy_fingerprint
+    live = replace(
+        _deployment(DeploymentMode.LIVE),
+        strategy_id=live_root.strategy_id,
+        strategy_fingerprint=live_snapshot.strategy_fingerprint,
+    )
+    paper = replace(
+        _deployment(DeploymentMode.PAPER),
+        strategy_id=paper_root.strategy_id,
+        strategy_fingerprint=paper_snapshot.strategy_fingerprint,
+    )
+    edited = dict(paper_root.document)
+    edited["execution"] = {
+        "entry_preference": "maker_only",
+        "max_entry_wait_bars": 8,
+        "on_unfilled_entry": "cancel",
+    }
+    asyncio.run(publications.save(paper_root.strategy_id, edited, expected_revision=1))
+    store = InMemoryExecutionStore()
+    store.deployments = {paper.id: paper, live.id: live}
+    with TestClient(
+        create_app(Settings(_env_file=None), execution_store=store, strategy_store=publications)
+    ) as client:
+        path = f"/api/v1/deployments/{paper.id}/twin"
+        response = client.put(path, json={"counterpart_deployment_id": str(live.id)})
+        assert response.status_code == 200, response.text
+        assert (
+            client.put(path, json={"counterpart_deployment_id": str(live.id)}).json()
+            == response.json()
+        )
+        comparison = asyncio.run(paper_live_fill_comparisons(store, (paper, live), []))[0]
+        assert comparison.paper.strategy_fingerprint == paper_snapshot.strategy_fingerprint
+        assert comparison.live.strategy_fingerprint == live_snapshot.strategy_fingerprint
+    assert store.deployments[paper.id] == paper
+    assert store.deployments[live.id] == live
+    assert not store.intents and not store.orders
+
+
+def test_http_rule_change_and_client_proof_are_rejected() -> None:
+    """Only the server's pinned snapshots prove equality; different execution rules fail."""
+    publications = InMemoryStrategyStore()
+    live_root = asyncio.run(
+        create_strategy_from_definition(
+            publications,
+            create_template_strategy(product_id="ETH-USD"),
+        )
+    )
+    clone_id, clone_created_at = new_strategy_identity()
+    paper_root = asyncio.run(
+        clone_strategy(
+            publications,
+            live_root.strategy_id,
+            strategy_id=clone_id,
+            created_at=clone_created_at,
+            name="Different paper",
+        )
+    )
+    edited = dict(paper_root.document)
+    edited["execution"] = {
+        "entry_preference": "maker_only",
+        "max_entry_wait_bars": 8,
+        "on_unfilled_entry": "cancel",
+    }
+    asyncio.run(publications.save(paper_root.strategy_id, edited, expected_revision=1))
+    live_snapshot = asyncio.run(publications.snapshot(live_root.strategy_id))
+    paper_snapshot = asyncio.run(publications.snapshot(paper_root.strategy_id))
+    live = replace(
+        _deployment(DeploymentMode.LIVE),
+        strategy_id=live_root.strategy_id,
+        strategy_fingerprint=live_snapshot.strategy_fingerprint,
+    )
+    paper = replace(
+        _deployment(DeploymentMode.PAPER),
+        strategy_id=paper_root.strategy_id,
+        strategy_fingerprint=paper_snapshot.strategy_fingerprint,
+    )
+    store = InMemoryExecutionStore()
+    store.deployments = {paper.id: paper, live.id: live}
+    with TestClient(
+        create_app(Settings(_env_file=None), execution_store=store, strategy_store=publications)
+    ) as client:
+        path = f"/api/v1/deployments/{paper.id}/twin"
+        response = client.put(path, json={"counterpart_deployment_id": str(live.id)})
+        assert response.status_code == 422, response.text
+        assert "identical" in response.json()["detail"]
+        assert (
+            client.put(
+                path, json={"counterpart_deployment_id": str(live.id), "snapshots": []}
+            ).status_code
+            == 422
+        )
     assert not store.twin_links

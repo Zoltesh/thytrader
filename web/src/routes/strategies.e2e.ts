@@ -807,3 +807,31 @@ test('an empty Mine view points at Research instead of looking empty', async ({ 
 	await page.getByTestId('library-empty-mine').getByRole('button', { name: 'Research' }).click();
 	await expect(page.locator('tbody tr')).toHaveCount(1);
 });
+
+test('origin badges show totals beyond the visible page and respect tag filters', async ({
+	page
+}) => {
+	await page.route(isStrategyLibraryRequest, async (route) => {
+		const tagged = new URL(route.request().url()).searchParams.has('tag');
+		await route.fulfill({
+			json: {
+				strategies: [{ ...libraryEntry, tags: ['counts'] }],
+				total: tagged ? 1 : 12,
+				origin_counts: tagged
+					? { operator: 1, research: 2, all: 3 }
+					: { operator: 12, research: 29, all: 41 },
+				has_more: false,
+				next_cursor: null
+			}
+		});
+	});
+	await page.goto('/strategies');
+	const views = page.getByTestId('library-origin');
+	await expect(views.getByRole('button', { name: /Mine/ }).locator('.count')).toHaveText('12');
+	await expect(views.getByRole('button', { name: /Research/ }).locator('.count')).toHaveText('29');
+	await expect(views.getByRole('button', { name: /All/ }).locator('.count')).toHaveText('41');
+	await page.getByTestId('library-tag-chip').filter({ hasText: 'counts' }).click();
+	await expect(views.getByRole('button', { name: /Mine/ }).locator('.count')).toHaveText('1');
+	await expect(views.getByRole('button', { name: /Research/ }).locator('.count')).toHaveText('2');
+	await expect(views.getByRole('button', { name: /All/ }).locator('.count')).toHaveText('3');
+});
