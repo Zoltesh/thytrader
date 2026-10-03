@@ -64,7 +64,7 @@ Current checkout (Alembic `0059`):
 | `research_honesty` | `result_window`, `study_axis_values`, `study_candidate_aggregates`, `study_stitched_points`, `document_issue_paths`, `json_number_decimals` ([ADR 0094](../../decisions/0094-research-honesty-and-agent-ergonomics.md)) |
 | `strategy_library` | `tag_filter`, `bulk_delete_by_tag`, `clone_name` (ADR 0094); `origin_filter` — `GET /api/v1/strategies?origin=operator\|research\|all` (ADR 0098) |
 | `portfolio_max_sleeves` | `32` (ADR 0094) |
-| `portfolio_sleeve_operations` | `batch_add` — `POST /api/v1/portfolios/{id}/sleeves/batch`, one revision (ADR 0094) |
+| `portfolio_sleeve_operations` | `batch_add` — `POST /api/v1/portfolios/{id}/sleeves/batch`, one revision (ADR 0094); `create_with_sleeves` — optional initial sleeves in `POST /api/v1/portfolios`, atomic revision 1 (ADR 0101) |
 | `same_bar_exit_precedence` | `stop`, `take_profit`, `signal_exit`, `time_exit` — paper and the backtest resolve a same-bar exit tie in this order ([ADR 0097](../../decisions/0097-runtime-parity-and-observability.md)) |
 | `runtime_observability` | `position_state`, `exit_in_flight`, `paper_live_fill_comparison` — deployment/operator/sleeve position state beside the raw `phase`, and the operator `portfolios` twin fill comparison (ADR 0097); `paper_protection_covered` (an open paper book's `protection_status` is `covered` on every read), `book_marks` (`mark_price` / `marked_at` / `unrealized_pnl` on deployment positions and sleeve `books[]`), `portfolio_fill_comparisons` (`GET /api/v1/portfolios/{id}/fill-comparisons`) (ADR 0098) |
 

@@ -35,6 +35,8 @@ from thytrader.portfolios.models import (
     PortfolioCreateRequest,
     PortfolioRevisionConflictError,
     PortfolioSleeveExistsError,
+    PortfolioStorageUnavailableError,
+    PortfolioStrategyNotFoundError,
     PortfolioValidationError,
     SetWeightsRequest,
     SleeveAddRequest,
@@ -46,10 +48,12 @@ from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+    from thytrader.portfolios.models import JournalEntry
     from thytrader.strategies.library import StrategyRecord
 
 __all__ = ["scratch_database"]
@@ -385,6 +389,137 @@ def test_batch_sleeve_add_is_one_revision_and_all_or_nothing() -> None:
             await store.delete(pid, expected_revision=(await store.get(pid)).portfolio.revision)
             for item in records:
                 await strategies.delete(item.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_create_with_sleeves_is_atomic_and_journaled_at_revision_one() -> None:
+    """Creation validates all sleeves first and commits the definition at revision 1."""
+
+    async def exercise() -> None:
+        """Exercise rejected and successful creation against durable storage."""
+        engine = _engine()
+        strategies = PostgresStrategyStore(engine)
+        store = PostgresPortfolioStore(engine)
+        records = [
+            await _strategy(strategies, product) for product in ("BTC-USDC", "ETH-USDC", "SOL-USD")
+        ]
+        initial = (await store.list_page(limit=100, offset=0)).total
+        document = {
+            "name": "Atomic",
+            "mode": "paper",
+            "capital_quote": "1000",
+            "cash_reserve_fraction": "0.2",
+            "sleeves": [
+                {
+                    "strategy_id": str(records[0].strategy_id),
+                    "weight_fraction": "0.5",
+                    "note": "Core",
+                },
+                {"strategy_id": str(records[1].strategy_id), "weight_fraction": "0.3"},
+            ],
+        }
+        try:
+            for identity, weight, error_type in (
+                (str(records[1].strategy_id), "0.5", PortfolioValidationError),
+                (str(records[2].strategy_id), "0.3", PortfolioValidationError),
+                ("01a0f000-0000-7000-8000-000000000999", "0.3", PortfolioStrategyNotFoundError),
+            ):
+                bad = PortfolioCreateRequest.model_validate(
+                    {
+                        **document,
+                        "sleeves": [
+                            {"strategy_id": str(records[0].strategy_id), "weight_fraction": "0.5"},
+                            {"strategy_id": identity, "weight_fraction": weight},
+                        ],
+                    }
+                )
+                with pytest.raises(error_type):
+                    await store.create(bad, context=_CONTEXT)
+                assert (await store.list_page(limit=100, offset=0)).total == initial
+            created = await store.create(
+                PortfolioCreateRequest.model_validate(document), context=_CONTEXT
+            )
+            pid = created.portfolio.portfolio_id
+            try:
+                assert created.portfolio.revision == 1
+                assert [view.sleeve.strategy_id for view in created.sleeves] == [
+                    record.strategy_id for record in records[:2]
+                ]
+                assert [view.sleeve.note for view in created.sleeves] == ["Core", None]
+                assert await store.get(pid) == created
+                journal = await store.journal(pid, limit=10, offset=0)
+                assert [entry.kind for entry in reversed(journal.entries)] == [
+                    "created",
+                    "sleeve_added",
+                    "sleeve_added",
+                ]
+                assert {entry.revision for entry in journal.entries} == {1}
+            finally:
+                await store.delete(pid, expected_revision=1)
+        finally:
+            for record in records:
+                await strategies.delete(record.strategy_id)
+            await dispose(engine)
+
+    asyncio.run(exercise())
+
+
+def test_create_rolls_back_portfolio_and_sleeves_when_journal_write_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A PostgreSQL error after portfolio and sleeve inserts leaves no partial rows."""
+
+    async def fail_journal(connection: AsyncConnection, entries: Sequence[JournalEntry]) -> None:
+        """Raise an actual database error at the final write stage of creation."""
+        assert len(entries) == 3
+        await connection.execute(text("SELECT 1 / 0"))
+
+    monkeypatch.setattr(
+        "thytrader.persistence.postgres_portfolio_rows.insert_journal", fail_journal
+    )
+
+    async def exercise() -> None:
+        """Compare row counts before and after the aborted transaction."""
+        engine = _engine()
+        strategies = PostgresStrategyStore(engine)
+        store = PostgresPortfolioStore(engine)
+        records = [await _strategy(strategies, product) for product in ("BTC-USDC", "ETH-USDC")]
+
+        async def counts() -> tuple[int, ...]:
+            """Count only the operational tables this create transaction writes."""
+            async with engine.connect() as connection:
+                row = (
+                    await connection.execute(
+                        text(
+                            "SELECT (SELECT count(*) FROM portfolios), "
+                            "(SELECT count(*) FROM portfolio_sleeves), "
+                            "(SELECT count(*) FROM portfolio_journal_entries)"
+                        )
+                    )
+                ).one()
+                return (int(row[0]), int(row[1]), int(row[2]))
+
+        try:
+            before = await counts()
+            request = PortfolioCreateRequest.model_validate(
+                {
+                    "name": "Rollback",
+                    "mode": "paper",
+                    "capital_quote": "1000",
+                    "sleeves": [
+                        {"strategy_id": str(record.strategy_id), "weight_fraction": "0.4"}
+                        for record in records
+                    ],
+                }
+            )
+            with pytest.raises(PortfolioStorageUnavailableError):
+                await store.create(request, context=_CONTEXT)
+            assert await counts() == before
+        finally:
+            for record in records:
+                await strategies.delete(record.strategy_id)
             await dispose(engine)
 
     asyncio.run(exercise())

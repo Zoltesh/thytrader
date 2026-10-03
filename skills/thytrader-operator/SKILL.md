@@ -191,11 +191,14 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v60`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v61`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0059`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
    (native-clock operand lags; [ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)),
+   `portfolio_sleeve_operations` `batch_add`/`create_with_sleeves` (atomic portfolio definition
+   creation at revision 1 in the portfolio lane;
+   [ADR 0101](../../docs/decisions/0101-atomic-portfolio-creation-with-sleeves.md)),
    `research_worker_pool` (leased research worker pool;
    [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `signal_exit_runtimes`
    `research`/`paper`/`live` (`exits.signal_exit`;

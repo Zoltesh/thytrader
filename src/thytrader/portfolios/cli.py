@@ -160,9 +160,10 @@ def _add_create_update(
 ) -> None:
     """Register create and update."""
     create_help = (
-        "Create a paper or live portfolio (one revision), with optional limits, mandate, "
-        "and manager permissions. Mode and quote currency are then fixed. Add sleeves "
-        f"next with add-sleeves --file. {_SLEEVE_CAP_HELP}"
+        "Create a paper or live portfolio at revision 1, with optional sleeves in --file, "
+        "limits, mandate, and manager permissions. All sleeves are created or nothing is. "
+        "Mode and quote currency are then fixed. Creation does not deploy or place orders. "
+        f"{_SLEEVE_CAP_HELP}"
     )
     create = commands.add_parser(
         "create", parents=[trailing], help=create_help, description=create_help
@@ -172,7 +173,8 @@ def _add_create_update(
         default=None,
         help=(
             "Portfolio JSON: name, mode, quote_currency, capital_quote, cash_reserve_fraction, "
-            "limits, manager (the POST /api/v1/portfolios body). Flags override its fields."
+            "limits, manager, sleeves (strategy_id, weight_fraction, optional note; max 32). "
+            "The POST /api/v1/portfolios body; flags override its fields."
         ),
     )
     create.add_argument("--name", default=None, help="Required unless --file names it.")
@@ -366,17 +368,12 @@ def _portfolio(base_url: str, portfolio_id: UUID) -> PortfolioResponse:
 
 
 def _create(base_url: str, args: argparse.Namespace) -> object:
-    """Create one portfolio from --file and/or flags, with limits and manager settings."""
+    """Create a complete portfolio from --file and/or flags with one HTTP mutation."""
     document: dict[str, object] = {}
     if args.file is not None:
         loaded = json.loads(Path(args.file).read_text(encoding="utf-8"))
         if not isinstance(loaded, dict):
             raise PortfolioCliError("--file must hold one JSON object (a portfolio document).")
-        if "sleeves" in loaded:
-            raise PortfolioCliError(
-                "create --file takes no sleeves: create the portfolio, then add them all in one "
-                "revision with add-sleeves --file."
-            )
         document = {str(key): value for key, value in loaded.items()}
     for field, value in (
         ("name", args.name),

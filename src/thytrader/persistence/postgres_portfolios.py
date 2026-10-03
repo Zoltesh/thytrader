@@ -134,11 +134,26 @@ class PostgresPortfolioStore:
     async def create(
         self, request: PortfolioCreateRequest, *, context: MutationContext
     ) -> PortfolioAggregate:
-        """Insert one portfolio at revision 1 with its ``created`` journal entry."""
+        """Create a portfolio, sleeves, and journal atomically at revision 1.
+
+        Lock strategy rows FOR SHARE in id order before planning or writing, matching
+        batch-add lock order and preventing strategy edits or deletion during creation.
+        """
         context = _millisecond_context(context)
-        plan = plan_create(request, portfolio_id=uuid7(context.occurred_at), context=context)
+        sleeve_ids = tuple(sorted(uuid7(context.occurred_at) for _ in request.sleeves))
         try:
             async with self._engine.begin() as connection:
+                shared = {
+                    identity: await _shared_strategy(connection, identity)
+                    for identity in sorted((item.strategy_id for item in request.sleeves), key=str)
+                }
+                plan = plan_create(
+                    request,
+                    portfolio_id=uuid7(context.occurred_at),
+                    context=context,
+                    strategies=tuple(shared[item.strategy_id] for item in request.sleeves),
+                    sleeve_ids=sleeve_ids,
+                )
                 await apply_plan(connection, plan, previous=None)
                 return await load_aggregate(connection, plan.portfolio.portfolio_id, lock=False)
         except SQLAlchemyError as error:

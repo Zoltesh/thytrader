@@ -586,8 +586,22 @@ class InMemoryPortfolioStore:
     async def create(
         self, request: PortfolioCreateRequest, *, context: MutationContext
     ) -> PortfolioAggregate:
-        """Create one portfolio at revision 1 and journal it."""
-        plan = plan_create(request, portfolio_id=uuid7(context.occurred_at), context=context)
+        """Create a complete portfolio at revision 1, or persist nothing."""
+        strategies: list[SleeveStrategy] = []
+        for item in request.sleeves:
+            try:
+                record = await self.strategies.get(item.strategy_id)
+            except StrategyNotFoundError as error:
+                raise PortfolioStrategyNotFoundError("Strategy was not found.") from error
+            strategies.append(sleeve_strategy_from_record(record))
+        sleeve_ids = tuple(sorted(uuid7(context.occurred_at) for _ in request.sleeves))
+        plan = plan_create(
+            request,
+            portfolio_id=uuid7(context.occurred_at),
+            context=context,
+            strategies=strategies,
+            sleeve_ids=sleeve_ids,
+        )
         async with self._lock:
             self._apply(plan)
         return await self.get(plan.portfolio.portfolio_id)

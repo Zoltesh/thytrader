@@ -35,7 +35,9 @@ prices are never interpolated (an interval without trades is a flat no-trade bar
 Group strategies into **portfolios** — sleeves with their own capital weights, a cash reserve, and
 shared limits — backtest them together, then start the portfolio as one bot per sleeve under its
 shared caps and loss stops. A manager agent can propose rebalances and pauses with its reasons;
-you approve or decline anything outside its permissions, and it never places orders.
+you approve or decline anything outside its permissions, and it never places orders. Agents can
+[create a complete portfolio with sleeves](user/operate.md#create-a-portfolio-from-a-file) in one
+confirmed call; creation saves the definition and does not start trading.
 
 You can:
 

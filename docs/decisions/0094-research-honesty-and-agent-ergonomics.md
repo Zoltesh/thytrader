@@ -1,6 +1,7 @@
 # 0094: Research honesty and agent ergonomics
 
-- Status: Accepted
+- Status: Accepted (the `create --file` with sleeves deferral is superseded by
+  [0101](0101-atomic-portfolio-creation-with-sleeves.md))
 - Date: 2026-10-02
 - Amends: [0044](0044-parameter-sweeps-wfo-stitched-equity.md) (study summaries carry axis
   values, per-candidate sums, and a thinned stitched path), [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md)
@@ -155,5 +156,7 @@ ignore it. Alembic stays `0058` (from ADR 0093); no schema change.
 - **`create --file` with sleeves.** Deferred: creating a portfolio and its sleeves in one revision
   needs a combined planner; `create` then `add-sleeves --file` is two calls and two revisions, each
   atomic.
+  [ADR 0101](0101-atomic-portfolio-creation-with-sleeves.md) subsequently ships this as one
+  transaction at revision 1.
 - **Server-side bulk delete by tag.** Rejected: the existing per-strategy bulk route and its safety
   checks are reused unchanged; the CLI only resolves the ids.

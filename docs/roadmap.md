@@ -1003,6 +1003,15 @@ existing CLIs; YOLO default off; live `--confirm` skip is [ADR 0043](decisions/0
 They were not part of the Phase 6 exit gate. See
 [Phase 12](#phase-12-agent-orchestration--yolo-opt-in--shipped).
 
+## Atomic portfolio creation with sleeves — ✅ Shipped
+
+[ADR 0101](decisions/0101-atomic-portfolio-creation-with-sleeves.md) closes ADR 0094's deferred
+`create --file` with sleeves: the existing portfolio-create API and confirmed CLI accept up to
+32 distinct initial sleeves. Shared batch validation, sorted strategy locks, and one transaction
+persist the portfolio, sleeves, and journal at revision 1 or nothing. Empty creation remains
+supported. Creation saves definitions only; deploying and arming remain separate runtime actions.
+Ops contract `thytrader-ops-contract-v61` advertises `create_with_sleeves`; Alembic stays `0059`.
+
 ## Open-book PnL after paid entry fees — ✅ Shipped
 
 [ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md) adds nullable `entry_fees` and

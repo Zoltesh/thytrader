@@ -3,14 +3,15 @@
 Decision records: [ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md)
 (model and backtests) and [ADR 0091](../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)
 (deployment, portfolio limits, manager proposals). This page maps the code and data flow; the ADRs
-own the semantics.
+own the semantics. [ADR 0101](../decisions/0101-atomic-portfolio-creation-with-sleeves.md)
+extends creation to include optional initial sleeves at revision 1.
 
 ## Modules
 
 | Module | Role |
 |---|---|
 | `thytrader.portfolios.models` | Domain records (`Portfolio`, `Sleeve`, `SleeveStrategy`, `JournalEntry`), validated decimal value types, request commands, errors |
-| `thytrader.portfolios.rules` | Pure planning: every mutation becomes a `MutationPlan` (next row at revision + 1, full next sleeve set, journal entries); allocation summary |
+| `thytrader.portfolios.rules` | Pure planning: every mutation becomes a `MutationPlan` (creation at revision 1, edits at revision + 1, full next sleeve set, journal entries); allocation summary |
 | `thytrader.portfolios.store` | `PortfolioStore` / `PortfolioBacktestStore` protocols, in-memory (tests) and disabled (no database) stores |
 | `thytrader.persistence.postgres_portfolio_rows` | In-transaction row mapping, plan application, and the strategy-deletion hook (no backtest imports, so `postgres_strategies` can call it) |
 | `thytrader.persistence.postgres_portfolios` | `PostgresPortfolioStore`: transactions, row locks, revision-guarded writes, job queue, canonical results |
@@ -45,6 +46,20 @@ creation, excluded from runtime UPDATEs), `portfolio_runtime` (one row per deplo
 start, breaker latch, day-open / high-water / last equity, a compare-and-set `revision`), and
 `portfolio_proposals` (kind, status, rationale, change and evidence JSON, base revision, approval
 reason, weight moved, decision columns), and widens the journal kinds.
+
+## Atomic creation
+
+`POST /api/v1/portfolios` accepts an optional `sleeves` array using `SleeveBatchItem`, also used by
+batch-add. `plan_create` and `plan_add_sleeves` share `_plan_sleeves` for the quote, allocation,
+and sleeve-cap checks. Request validation rejects duplicate strategies and malformed values.
+Creation writes revision 1, `created`, and one `sleeve_added` journal entry per sleeve at revision 1.
+
+`PostgresPortfolioStore.create` locks every referenced strategy row `FOR SHARE` in sorted id order
+inside one short transaction, then plans before writing. `apply_plan(previous=None)` inserts the
+portfolio, all sleeves, and journal; a validation or storage failure rolls everything back.
+Sorted sleeve ids preserve request order on reads. No schema migration is needed (head `0059`),
+and creation never writes deployments or grants runtime authority. Omitted/empty sleeves preserve
+the empty-portfolio flow. The in-memory test store applies only a fully validated plan.
 
 ## Deployment and supervision flow
 

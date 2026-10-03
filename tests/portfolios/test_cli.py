@@ -11,6 +11,7 @@ import pytest
 
 from tests.http_fakes import json_urlopen_response, matching_ready_payload, stale_ready_payload
 from thytrader.portfolios.cli import main
+from thytrader.portfolios.models import PortfolioCreateRequest
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -344,15 +345,64 @@ def test_create_takes_limits_mandate_and_permissions(
     assert body["manager"]["permissions"]["may_rebalance"] is True
 
 
-def test_create_file_refuses_sleeves(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """Sleeves go through add-sleeves --file (one revision), never a second create path."""
+def test_create_file_sends_sleeves_in_one_request(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Create preserves initial sleeves and flag overrides in one confirmed POST."""
+    document = tmp_path / "portfolio.json"
+    sleeves = [
+        {"strategy_id": _STRATEGY, "weight_fraction": "0.4000", "note": " BTC "},
+        {"strategy_id": "0199bbbb-bbbb-7bbb-bbbb-bbbbbbbbbbbb", "weight_fraction": "0.3"},
+    ]
+    document.write_text(
+        json.dumps({"name": "M", "mode": "paper", "capital_quote": "1", "sleeves": sleeves}),
+        "utf-8",
+    )
+    code, _out, recorder = _run(
+        ["create", "--file", str(document), "--capital-quote", "1000", "--confirm"],
+        {"POST /api/v1/portfolios": _portfolio()},
+        capsys,
+    )
+    assert code == 0
+    assert list(recorder.bodies) == ["POST /api/v1/portfolios"]
+    body = PortfolioCreateRequest.model_validate(recorder.bodies["POST /api/v1/portfolios"])
+    assert body.capital_quote == "1000"
+    assert [item.model_dump(mode="json") for item in body.sleeves] == [
+        {"strategy_id": _STRATEGY, "weight_fraction": "0.4", "note": "BTC"},
+        {"strategy_id": sleeves[1]["strategy_id"], "weight_fraction": "0.3", "note": None},
+    ]
+
+
+def test_create_file_with_sleeves_requires_confirmation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A complete definition never bypasses the portfolio lane's confirmation gate."""
+    document = tmp_path / "portfolio.json"
+    document.write_text("{}", "utf-8")
+    code, _out, recorder = _run(["create", "--file", str(document)], {}, capsys)
+    assert "Pass --confirm" in str(code)
+    assert recorder.bodies == {}
+
+
+def test_create_file_rejects_duplicate_sleeves_locally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Invalid sleeve input fails before a portfolio POST."""
     document = tmp_path / "portfolio.json"
     document.write_text(
-        json.dumps({"name": "M", "mode": "paper", "capital_quote": "1", "sleeves": []}), "utf-8"
+        json.dumps(
+            {
+                "name": "M",
+                "mode": "paper",
+                "capital_quote": "1",
+                "sleeves": [{"strategy_id": _STRATEGY, "weight_fraction": "0.1"}] * 2,
+            }
+        ),
+        "utf-8",
     )
     code, _out, recorder = _run(["create", "--file", str(document), "--confirm"], {}, capsys)
-    assert "add-sleeves --file" in str(code)
-    assert "POST /api/v1/portfolios" not in recorder.bodies
+    assert "Each strategy may appear once" in str(code)
+    assert recorder.bodies == {}
 
 
 def test_add_sleeves_posts_one_batch(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

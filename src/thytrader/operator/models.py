@@ -213,7 +213,7 @@ class OpsContractPayload(_FrozenModel):
         Literal["tag_filter", "bulk_delete_by_tag", "clone_name", "origin_filter"], ...
     ]
     portfolio_max_sleeves: int = Field(ge=1)
-    portfolio_sleeve_operations: tuple[Literal["batch_add"], ...]
+    portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...]
     same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
     runtime_observability: tuple[
         Literal[

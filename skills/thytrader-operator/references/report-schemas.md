@@ -139,7 +139,12 @@ The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1
 
 Indicator operands may independently add `offset` (0–500; ADR 0099), including multi-series reads. Health `ops_contract.indicator_operand_offset_runtimes` names research, paper, and live. Lagged signal values use `id@N` / `id.series@N`; original output keys stay present. Rule labels show declaration plus operand lag on the indicator's native clock; missing lagged history remains unknown.
 
-Ops contract v60 adds `runtime_observability: fee_adjusted_book_pnl`. Deployment detail
+Ops contract v61 adds `portfolio_sleeve_operations: ["batch_add", "create_with_sleeves"]`:
+optional initial sleeves on portfolio creation are validated and persisted atomically at revision 1
+([ADR 0101](../../../docs/decisions/0101-atomic-portfolio-creation-with-sleeves.md)). This is a
+definition mutation in the confirmed portfolio lane and grants no runtime authority.
+
+Ops contract v60 added `runtime_observability: fee_adjusted_book_pnl`. Deployment detail
 (`thytrader-runtime show`) position rows, including compatibility `position`, and portfolio
 deployment (`thytrader-portfolio deployment`) sleeve `books[]` add nullable decimal strings:
 `entry_fees` for paid fees allocated to held inventory and `unrealized_pnl_net` for gross

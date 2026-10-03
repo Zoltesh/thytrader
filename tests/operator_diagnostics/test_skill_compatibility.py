@@ -74,7 +74,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v60" in skill
+    assert "thytrader-ops-contract-v61" in skill
     assert "fee_adjusted_book_pnl" in skill
     assert "entry_fees" in schemas
     assert "unrealized_pnl_net" in schemas
@@ -312,6 +312,9 @@ def test_portfolio_skill_requires_confirm_and_denies_deployment() -> None:
     """The portfolio lane is confirmation-gated, names every command, and cannot deploy."""
     skill = _PORTFOLIO_SKILL.read_text(encoding="utf-8")
     assert "thytrader-portfolio" in skill
+    assert "create --file portfolio.json --confirm" in skill
+    assert "revision 1" in skill
+    assert "create_with_sleeves" in skill
     assert "--confirm" in skill
     assert "YOLO never" in skill
     for command in (
@@ -365,6 +368,20 @@ def test_portfolio_skill_requires_confirm_and_denies_deployment() -> None:
     assert (_ROOT / "ops" / ".cursor" / "skills" / "thytrader-portfolio").resolve() == (
         _PORTFOLIO_SKILL.parent.resolve()
     )
+
+
+def test_committed_schema_describes_atomic_portfolio_creation() -> None:
+    """Health schema describes the capabilities operator agents use to detect stale images."""
+    schema = json.loads(
+        (_ROOT / "skills/thytrader-operator/references/operator-report-v1.schema.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    operations = schema["properties"]["payload"]["properties"]["ops_contract"]["properties"][
+        "portfolio_sleeve_operations"
+    ]
+    assert operations["items"]["enum"] == ["batch_add", "create_with_sleeves"]
+    assert "revision 1" in operations["description"]
 
 
 def test_runtime_skill_deploys_portfolios_with_the_same_gates() -> None:

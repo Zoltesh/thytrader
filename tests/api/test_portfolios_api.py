@@ -353,3 +353,126 @@ def test_portfolios_hold_up_to_32_sleeves(harness: Harness) -> None:
     )
     assert over.status_code == 422
     assert over.json()["detail"]["code"] == "portfolio_sleeve_limit"
+
+
+@pytest.mark.parametrize("mode", ["paper", "live"])
+def test_create_with_sleeves_is_revision_one_without_deployment(
+    harness: Harness, mode: str
+) -> None:
+    """Creation returns the full definition and journals each sleeve at revision 1."""
+    records = [strategy(harness.strategies, f"{base}-USDC") for base in ("BTC", "ETH")]
+    created = harness.create(
+        mode=mode,
+        sleeves=[
+            {"strategy_id": str(records[0].strategy_id), "weight_fraction": "0.5", "note": "Core"},
+            {"strategy_id": str(records[1].strategy_id), "weight_fraction": "0.3"},
+        ],
+        limits={"max_per_asset_fraction": "0.6"},
+        manager={"mandate": "Follow trends."},
+    )
+    assert created["revision"] == 1
+    assert created["deployment_state"] == "not_deployed"
+    assert [item["strategy_id"] for item in created["sleeves"]] == [
+        str(record.strategy_id) for record in records
+    ]
+    assert [item["capital_quote"] for item in created["sleeves"]] == ["500", "300"]
+    assert created["sleeves"][0]["note"] == "Core"
+    assert created["allocation"]["unallocated_fraction"] == "0"
+    assert created["limits"]["max_per_asset_fraction"] == "0.6"
+    assert created["manager"]["mandate"] == "Follow trends."
+    pid = created["portfolio_id"]
+    journal = harness.client.get(f"/api/v1/portfolios/{pid}/journal").json()["entries"]
+    assert [item["kind"] for item in reversed(journal)] == [
+        "created",
+        "sleeve_added",
+        "sleeve_added",
+    ]
+    assert {item["revision"] for item in journal} == {1}
+    changed = harness.client.patch(f"/api/v1/portfolios/{pid}", json={"revision": 1, "name": "New"})
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["revision"] == 2
+
+
+@pytest.mark.parametrize(
+    ("second_product", "weight", "missing", "status", "code"),
+    [
+        ("ETH-USDC", "0.5", False, 422, "portfolio_allocation_exceeded"),
+        ("ETH-USD", "0.3", False, 422, "portfolio_sleeve_quote_mismatch"),
+        ("ETH-USDC", "0.3", True, 404, "strategy_not_found"),
+    ],
+)
+def test_create_with_bad_second_sleeve_leaves_no_portfolio(
+    harness: Harness, second_product: str, weight: str, missing: bool, status: int, code: str
+) -> None:
+    """A later missing strategy, quote mismatch, or reserve overflow rolls back creation."""
+    first = strategy(harness.strategies, "BTC-USDC")
+    second = strategy(harness.strategies, second_product)
+    identity = "01a0f000-0000-7000-8000-000000000999" if missing else str(second.strategy_id)
+    response = harness.client.post(
+        "/api/v1/portfolios",
+        json={
+            "name": "Bad",
+            "mode": "paper",
+            "capital_quote": "1000",
+            "cash_reserve_fraction": "0.2",
+            "sleeves": [
+                {"strategy_id": str(first.strategy_id), "weight_fraction": "0.5"},
+                {"strategy_id": identity, "weight_fraction": weight},
+            ],
+        },
+    )
+    assert response.status_code == status, response.text
+    assert response.json()["detail"]["code"] == code
+    assert harness.client.get("/api/v1/portfolios").json()["portfolios"] == []
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        {"weight_fraction": "0"},
+        {"weight_fraction": "0.10001"},
+        {"weight_fraction": 0.1},
+        {"note": "x" * 281},
+        {"strategy_id": "bad-id"},
+        {"unknown": True},
+    ],
+)
+def test_create_rejects_malformed_sleeves_without_writes(
+    harness: Harness, invalid: JsonBody
+) -> None:
+    """Initial sleeves use the same strict UUID, decimal, note, and extra-field validation."""
+    record = strategy(harness.strategies, "BTC-USDC")
+    response = harness.client.post(
+        "/api/v1/portfolios",
+        json={
+            "name": "Bad",
+            "mode": "paper",
+            "capital_quote": "1",
+            "sleeves": [
+                {"strategy_id": str(record.strategy_id), "weight_fraction": "0.1", **invalid}
+            ],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert harness.client.get("/api/v1/portfolios").json()["portfolios"] == []
+
+
+def test_create_sleeve_cap_and_duplicates_leave_no_partial_definition(harness: Harness) -> None:
+    """Creation accepts 32 distinct sleeves and refuses duplicates or a 33rd."""
+    records = [strategy(harness.strategies, f"COIN{number}-USDC") for number in range(33)]
+    sleeves = [
+        {"strategy_id": str(record.strategy_id), "weight_fraction": "0.02"} for record in records
+    ]
+    base = {"name": "Many", "mode": "paper", "capital_quote": "1000"}
+    for invalid in (sleeves, [sleeves[0], sleeves[0]]):
+        refused = harness.client.post("/api/v1/portfolios", json={**base, "sleeves": invalid})
+        assert refused.status_code == 422, refused.text
+        assert harness.client.get("/api/v1/portfolios").json()["portfolios"] == []
+    created = harness.create(sleeves=sleeves[:32])
+    assert (created["revision"], len(created["sleeves"])) == (1, 32)
+
+
+def test_create_accepts_explicit_empty_sleeves(harness: Harness) -> None:
+    """An empty sleeve array preserves the existing empty-definition creation flow."""
+    created = harness.create(sleeves=[])
+    assert (created["revision"], created["sleeves"]) == (1, [])

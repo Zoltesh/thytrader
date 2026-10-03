@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v60`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v61`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -47,7 +47,7 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 | List portfolios | `uv run thytrader-portfolio list [--limit 50] [--cursor C]` |
 | Show one (sleeves, issues, allocation, limits, manager, revision, `deployment_state`) | `uv run thytrader-portfolio show --portfolio-id ID` |
 | Create (one revision, limits and manager included) | `uv run thytrader-portfolio create --name Core --mode paper\|live --capital-quote 1000 [--quote-currency USDC] [--cash-reserve-fraction 0.1] [--max-total-exposure-fraction F] [--max-per-asset-fraction F] [--daily-loss-quote Q] [--max-drawdown-fraction F] [--mandate TEXT \| --mandate-file PATH] [--may-rebalance yes\|no] [--max-weight-change-per-week 0.1] [--may-pause-sleeves yes\|no] [--may-propose-sleeves yes\|no] --confirm` |
-| Create from a document | `uv run thytrader-portfolio create --file portfolio.json [flags override fields] --confirm` (the `POST /api/v1/portfolios` body: `name`, `mode`, `quote_currency`, `capital_quote`, `cash_reserve_fraction`, `limits`, `manager`; no `sleeves` — add them next with `add-sleeves`) |
+| Create from a document, with optional sleeves | `uv run thytrader-portfolio create --file portfolio.json --confirm` (flags override fields; the `POST /api/v1/portfolios` body: `name`, `mode`, `quote_currency`, `capital_quote`, `cash_reserve_fraction`, `limits`, `manager`, optional `sleeves`) |
 | Delete a portfolio (sleeves, journal, backtests; strategies are kept) | `uv run thytrader-portfolio delete --portfolio-id ID --revision N [--dry-run] --confirm` (`--dry-run` previews without `--confirm`) |
 | Change settings, limits, manager | `uv run thytrader-portfolio update --portfolio-id ID --revision N [--name] [--capital-quote] [--cash-reserve-fraction] [--max-total-exposure-fraction] [--max-per-asset-fraction] [--daily-loss-quote Q \| --clear-daily-loss] [--max-drawdown-fraction F \| --clear-max-drawdown] [--mandate TEXT \| --mandate-file PATH] [--may-rebalance yes\|no] [--max-weight-change-per-week 0.1] [--may-pause-sleeves yes\|no] [--may-propose-sleeves yes\|no] --confirm` |
 | Add a sleeve | `uv run thytrader-portfolio add-sleeve --portfolio-id ID --revision N --strategy-id SID --weight-fraction 0.25 [--note TEXT] --confirm` |
@@ -69,12 +69,47 @@ most four places (`0.3333` = 33.33%), quote amounts at most eight.
 | Record a person's approval | `uv run thytrader-portfolio approve --portfolio-id ID --proposal-id P [--note TEXT] [--i-understand-live] --confirm` |
 | Record a person's decline | `uv run thytrader-portfolio decline --portfolio-id ID --proposal-id P [--note TEXT] --confirm` |
 
-Every mutation needs the current `revision` from `show` (or the briefing). A stale one fails with
+Creation starts at revision 1 without a supplied revision. Later edits need the current `revision`
+from `show` (or the briefing). A stale one fails with
 `portfolio_revision_conflict` (HTTP 409, `current_revision` in the detail): read again and
 re-decide; never retry blindly. `--evidence` takes `KIND=REF`: `backtest_result`,
 `portfolio_backtest`, or `study` with a `sha256:…` fingerprint; `decision` with a decision `ref`
 exactly as the briefing prints it (`<deployment_id>/<product_id>@<bar_starts_at>`); or
 `deployment` with a bot id. ThyTrader records what you cite; it does not re-run it.
+
+## Create a complete portfolio
+
+`create --file` sends one POST, creating the portfolio and all initial sleeves atomically at
+**revision 1** ([ADR 0101](../../docs/decisions/0101-atomic-portfolio-creation-with-sleeves.md)).
+Health advertises `portfolio_sleeve_operations: ["batch_add", "create_with_sleeves"]`.
+Use existing strategy ids from `thytrader-research list-strategies` or `show-strategy`:
+
+```json
+{
+  "name": "Core",
+  "mode": "paper",
+  "quote_currency": "USDC",
+  "capital_quote": "1000",
+  "cash_reserve_fraction": "0.2",
+  "limits": {"max_per_asset_fraction": "0.6"},
+  "manager": {"mandate": "Follow trends in the majors."},
+  "sleeves": [
+    {"strategy_id": "01a0f000-0000-7000-8000-000000000101", "weight_fraction": "0.5", "note": "BTC"},
+    {"strategy_id": "01a0f000-0000-7000-8000-000000000102", "weight_fraction": "0.3"}
+  ]
+}
+```
+
+Save as `portfolio.json`, replace the example ids with your existing strategy ids, and run
+`uv run thytrader-portfolio create --file portfolio.json --confirm`. Flags override settings in
+the file. `sleeves` may be omitted or empty; otherwise at most 32 distinct strategies are allowed.
+Each has `strategy_id`, positive `weight_fraction` at most 1, and optional `note` (280 characters).
+Strategies must exist and have a readable market in the portfolio's quote currency. Weights plus
+reserve must be at most 1. An invalid sleeve or database failure leaves **no portfolio, sleeves,
+or journal entries**. Success appends `created` and one `sleeve_added` per sleeve at revision 1.
+Saved invalid strategy drafts retain the existing sleeve issue behavior; check `show` before
+backtesting or deploying. Creation changes definitions only, including when `mode` is `live`.
+It never deploys, arms live trading, or places orders. Starting remains a separate runtime action.
 
 ## Acting as the manager agent
 

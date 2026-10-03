@@ -104,6 +104,11 @@
           "type": ["object", "null"],
           "description": "Health only. Missing or unequal to this CLI means a stale Compose image.",
           "properties": {
+            "portfolio_sleeve_operations": {
+              "type": "array",
+              "items": { "enum": ["batch_add", "create_with_sleeves"] },
+              "description": "v61 adds create_with_sleeves: optional initial sleeves in portfolio creation, all-or-nothing at revision 1; no deployment authority."
+            },
             "runtime_observability": {
               "type": "array",
               "items": { "type": "string" },

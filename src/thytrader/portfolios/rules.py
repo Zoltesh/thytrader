@@ -1,8 +1,8 @@
 """Pure portfolio rules: allocation checks, mutation plans, and journal entries (ADR 0088).
 
 Every mutation is planned here from the current aggregate and a validated command. A
-plan holds the next portfolio row (revision + 1), the complete next sleeve set, and the
-journal entries the change appends. Stores persist plans inside one transaction after
+plan holds the next portfolio row (creation at revision 1, edits at revision + 1), the sleeve
+set, and the journal entries the change appends. Stores persist plans inside one transaction after
 re-checking the revision under a row lock, so the rules hold under concurrency:
 
 * sleeve weights plus the cash reserve never exceed 1 (exact decimal arithmetic);
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from uuid import UUID
 
-    from thytrader.portfolios.models import ManagerSettings
+    from thytrader.portfolios.models import ManagerSettings, SleeveBatchItem
 
 _ONE = Decimal(1)
 _HUNDRED = Decimal(100)
@@ -205,9 +205,14 @@ def journal_entry(
 
 
 def plan_create(
-    request: PortfolioCreateRequest, *, portfolio_id: UUID, context: MutationContext
+    request: PortfolioCreateRequest,
+    *,
+    portfolio_id: UUID,
+    context: MutationContext,
+    strategies: Sequence[SleeveStrategy] = (),
+    sleeve_ids: Sequence[UUID] = (),
 ) -> MutationPlan:
-    """Plan a new portfolio at revision 1 with its ``created`` journal entry."""
+    """Plan a complete portfolio and its journal at revision 1, before any writes."""
     now = context.occurred_at
     portfolio = Portfolio(
         portfolio_id=portfolio_id,
@@ -242,7 +247,10 @@ def plan_create(
         revision=1,
         detail=JournalDetail(reason="operator", changes=changes),
     )
-    return MutationPlan(portfolio=portfolio, sleeves=(), journal=(entry,))
+    sleeves = _plan_sleeves(
+        portfolio, (), strategies, request.sleeves, sleeve_ids=sleeve_ids, context=context
+    )
+    return replace(sleeves, journal=(entry, *sleeves.journal))
 
 
 def plan_update(
@@ -495,30 +503,49 @@ def plan_add_sleeves(
     """
     portfolio = current.portfolio
     require_revision(portfolio, request.revision)
-    existing = {view.sleeve.strategy_id: view.sleeve.sleeve_id for view in current.sleeves}
+    return _plan_sleeves(
+        replace(portfolio, revision=portfolio.revision + 1, updated_at=context.occurred_at),
+        current.sleeves,
+        strategies,
+        request.sleeves,
+        sleeve_ids=sleeve_ids,
+        context=context,
+    )
+
+
+def _plan_sleeves(
+    portfolio: Portfolio,
+    current: Sequence[SleeveView],
+    strategies: Sequence[SleeveStrategy],
+    items: Sequence[SleeveBatchItem],
+    *,
+    sleeve_ids: Sequence[UUID],
+    context: MutationContext,
+) -> MutationPlan:
+    """Validate and build a sleeve batch at the supplied portfolio's target revision."""
+    existing = {view.sleeve.strategy_id: view.sleeve.sleeve_id for view in current}
     for strategy in strategies:
         if strategy.strategy_id in existing:
             raise PortfolioSleeveExistsError(existing[strategy.strategy_id])
-    if len(current.sleeves) + len(request.sleeves) > MAX_SLEEVES:
+    if len(current) + len(items) > MAX_SLEEVES:
         raise PortfolioValidationError(
             "portfolio_sleeve_limit",
             f"A portfolio holds at most {MAX_SLEEVES} sleeves; it has "
-            f"{len(current.sleeves)} and the batch adds {len(request.sleeves)}.",
+            f"{len(current)} and the batch adds {len(items)}.",
         )
     for strategy in strategies:
         _require_strategy_quote(strategy, portfolio)
     require_allocation(
         (
-            *(view.sleeve.weight_fraction for view in current.sleeves),
-            *(item.weight_fraction for item in request.sleeves),
+            *(view.sleeve.weight_fraction for view in current),
+            *(item.weight_fraction for item in items),
         ),
         portfolio.cash_reserve_fraction,
     )
     now = context.occurred_at
-    revision = portfolio.revision + 1
     added: list[Sleeve] = []
     entries: list[JournalEntry] = []
-    for strategy, item, sleeve_id in zip(strategies, request.sleeves, sleeve_ids, strict=True):
+    for strategy, item, sleeve_id in zip(strategies, items, sleeve_ids, strict=True):
         added.append(
             Sleeve(
                 sleeve_id=sleeve_id,
@@ -536,13 +563,13 @@ def plan_add_sleeves(
                 strategy,
                 item.weight_fraction,
                 sleeve_id,
-                revision=revision,
+                revision=portfolio.revision,
                 context=context,
             )
         )
     return MutationPlan(
-        portfolio=replace(portfolio, revision=revision, updated_at=now),
-        sleeves=(*(view.sleeve for view in current.sleeves), *added),
+        portfolio=portfolio,
+        sleeves=(*(view.sleeve for view in current), *added),
         journal=tuple(entries),
     )
 

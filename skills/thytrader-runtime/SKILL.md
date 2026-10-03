@@ -406,7 +406,7 @@ activity no longer exhausts it and blocks an unrelated new entry.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
 ([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v60` with `indicator_operand_offset_runtimes` including the deployment
+`thytrader-ops-contract-v61` with `indicator_operand_offset_runtimes` including the deployment
 mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research

@@ -421,8 +421,16 @@ class JournalEntry(_FrozenModel):
         return utc_text(value)
 
 
+class SleeveBatchItem(_FrozenModel):
+    """One sleeve for creation or a batch add: a strategy and its capital weight."""
+
+    strategy_id: UUID
+    weight_fraction: WeightFractionText
+    note: SleeveNoteText | None = None
+
+
 class PortfolioCreateRequest(_FrozenModel):
-    """Create one paper or live portfolio; mode and quote currency are then fixed."""
+    """Create a portfolio with optional sleeves; mode and quote currency are then fixed."""
 
     name: PortfolioNameText
     mode: PortfolioMode
@@ -431,6 +439,15 @@ class PortfolioCreateRequest(_FrozenModel):
     cash_reserve_fraction: ReserveFractionText = "0"
     limits: PortfolioLimits = Field(default_factory=PortfolioLimits)
     manager: ManagerSettings = Field(default_factory=ManagerSettings)
+    sleeves: tuple[SleeveBatchItem, ...] = Field(default=(), max_length=MAX_SLEEVES)
+
+    @model_validator(mode="after")
+    def require_distinct_strategies(self) -> Self:
+        """One sleeve per strategy, including at creation."""
+        identities = [item.strategy_id for item in self.sleeves]
+        if len(set(identities)) != len(identities):
+            raise ValueError("Each strategy may appear once in sleeves.")
+        return self
 
 
 class PortfolioUpdateRequest(_FrozenModel):
@@ -475,14 +492,6 @@ class SleeveAddRequest(_FrozenModel):
     """Add one strategy as a sleeve with a capital weight."""
 
     revision: RevisionNumber
-    strategy_id: UUID
-    weight_fraction: WeightFractionText
-    note: SleeveNoteText | None = None
-
-
-class SleeveBatchItem(_FrozenModel):
-    """One sleeve of a batch add: a strategy and its capital weight."""
-
     strategy_id: UUID
     weight_fraction: WeightFractionText
     note: SleeveNoteText | None = None

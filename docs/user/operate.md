@@ -432,6 +432,33 @@ and says so. Deleting a strategy removes its sleeves (journaled). Agents use
 the manager loop) and `thytrader-runtime portfolio-*`
 ([`skills/thytrader-runtime/SKILL.md`](../../skills/thytrader-runtime/SKILL.md)) to start and stop.
 
+#### Create a portfolio from a file
+
+Agents can save a portfolio and its initial sleeves in one call at revision 1
+([ADR 0101](../decisions/0101-atomic-portfolio-creation-with-sleeves.md)). Save this as
+`portfolio.json`, replacing the example ids with existing strategy ids:
+
+```json
+{
+  "name": "Core",
+  "mode": "paper",
+  "capital_quote": "1000",
+  "cash_reserve_fraction": "0.2",
+  "sleeves": [
+    {"strategy_id": "01a0f000-0000-7000-8000-000000000101", "weight_fraction": "0.5", "note": "BTC"},
+    {"strategy_id": "01a0f000-0000-7000-8000-000000000102", "weight_fraction": "0.3"}
+  ]
+}
+```
+
+Run `uv run thytrader-portfolio create --file portfolio.json --confirm` from the repository root.
+The file also accepts `quote_currency` (default USDC), `limits`, and `manager`; CLI flags override
+those settings. Omit `sleeves` or use `[]` to create an empty portfolio. At most 32 distinct
+strategies are allowed, all with readable markets in the portfolio's quote currency; weights plus
+reserve must be at most 1. If any sleeve is refused, nothing is created. The journal records
+creation and each sleeve at revision 1. Creation only saves a definition, even for `mode: "live"`;
+starting trading remains a separate, gated `thytrader-runtime portfolio-start` action.
+
 **All bots** (below the portfolios) lists every bot: one row per deployment, grouped
 **Needs attention** (any status other than running, paused, or stopped), **Running**, **Paused**,
 and **Stopped**. An **All / Paper / Live** switch filters the rows. Each row shows the strategy name
