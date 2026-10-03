@@ -196,7 +196,8 @@ aggregate zeroes every `oos_*` field and populates `candidate_window_count`,
 - `GET /api/v1/research/templates/{template_id}` — one template's `indicator_ids`, shipped
   `defaults`, warmup, and `sweepable_axes` (404 on unknown ids).
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
-- `POST /api/v1/research/studies` — plan plus idempotent child submissions and catalog persist.
+- `POST /api/v1/research/studies` — pin inputs and queue a worker job; async planning runs in
+  the worker, while synchronous requests retain their small-budget preflight.
 - `GET /api/v1/research/studies` — newest-first catalog rows (`kind`, `limit` ≤ 100, `offset` ≥ 0).
 - `GET /api/v1/research/studies/{study_fingerprint}` — bounded study summary (`detail=summary`
   default). `?detail=full` returns child windows and stitched points.

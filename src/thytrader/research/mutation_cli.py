@@ -451,7 +451,8 @@ def _add_study_commands(
         help=(
             "Queue it (HTTP 202) and poll show-research-job. Required above the synchronous "
             "budget (8 candidates, 128 child windows); async allows 64 candidates and 512 "
-            "child windows."
+            "child windows. The worker plans async studies; acceptance is not proof of "
+            "feasibility. Check failed_phase: plan on failure."
         ),
     )
     study.add_argument(
@@ -460,7 +461,7 @@ def _add_study_commands(
         default=None,
         help=(
             "Client wait for the submit response (1-300 s). Default 30 s with --async (the "
-            "API plans the study and binds datasets before queueing) and 60 s otherwise. A "
+            "API pins strategy, datasets, and bounds before queueing) and 60 s otherwise. A "
             "timeout is ambiguous: read back with list-studies before resubmitting."
         ),
     )

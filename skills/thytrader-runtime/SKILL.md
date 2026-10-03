@@ -537,7 +537,7 @@ and applies without restart. Secrets stay out of YAML. Live still needs `--i-und
 
 ## Explicit paper/live comparison twins
 
-Ops contract v62 advertises `runtime_observability: explicit_deployment_twins` (Alembic `0060`,
+Ops contract v63 advertises `runtime_observability: explicit_deployment_twins` (Alembic `0060`,
 [ADR 0102](../../docs/decisions/0102-explicit-paper-live-twin-links.md)). Run from the repository root:
 
 ```bash
