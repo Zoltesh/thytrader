@@ -3,10 +3,9 @@
 A paper book fills its resting post-only entry only when a later closed candle trades
 through the limit; the live twin fills whenever Coinbase matches it, often within
 seconds. Both run the same rules when they bind the same content-addressed strategy
-snapshot (``strategy_fingerprint``, ADR 0082), so a paper and a live strategy book with
-equal fingerprints are twins. This module measures, per mode, how many entries rested,
-filled, expired, or were rejected, the average fill against the posted limit, and the
-time from rest to first fill. It never touches orders.
+snapshot (``strategy_fingerprint``, ADR 0082). Operators explicitly select the pair
+(ADR 0102); shared fingerprints alone never select a partner. This module measures
+entry outcomes without touching orders.
 """
 
 from __future__ import annotations
@@ -18,7 +17,6 @@ from statistics import median
 from typing import TYPE_CHECKING
 
 from thytrader.execution.models import (
-    DeploymentKind,
     DeploymentMode,
     IntentPurpose,
     OrderSide,
@@ -31,6 +29,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.models import Deployment, DeploymentSnapshot, Fill, Order
+    from thytrader.execution.twins import DeploymentTwinLink
 
 _BPS = Decimal(10000)
 _ACTIVE = frozenset({OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.UNKNOWN})
@@ -72,39 +71,30 @@ class PaperLiveTwin:
     live_deployment_id: UUID
 
 
-def paper_live_twins(deployments: Sequence[Deployment], *, limit: int) -> tuple[PaperLiveTwin, ...]:
-    """Pair the newest paper and newest live strategy book per strategy fingerprint.
-
-    Only strategy (not discretionary) books with a fingerprint pair. Pairs are ordered by
-    the newer twin's creation time, newest first, and bounded by ``limit``.
-    """
-    newest: dict[tuple[str, DeploymentMode], Deployment] = {}
-    for item in deployments:
-        if item.kind is not DeploymentKind.STRATEGY or not item.strategy_fingerprint:
+def paper_live_twins(
+    deployments: Sequence[Deployment], links: Sequence[DeploymentTwinLink], *, limit: int
+) -> tuple[PaperLiveTwin, ...]:
+    """Resolve explicit pairs in newest-linked order; never infer missing partners."""
+    by_id = {item.id: item for item in deployments}
+    pairs: list[PaperLiveTwin] = []
+    for link in sorted(
+        links, key=lambda item: (item.linked_at, item.paper_deployment_id), reverse=True
+    ):
+        paper = by_id.get(link.paper_deployment_id)
+        live = by_id.get(link.live_deployment_id)
+        if paper is None or live is None:
             continue
-        key = (item.strategy_fingerprint, item.mode)
-        current = newest.get(key)
-        if current is None or item.created_at > current.created_at:
-            newest[key] = item
-    pairs: list[tuple[Deployment, Deployment]] = []
-    for (fingerprint, mode), paper in newest.items():
-        if mode is not DeploymentMode.PAPER:
-            continue
-        live = newest.get((fingerprint, DeploymentMode.LIVE))
-        if live is not None:
-            pairs.append((paper, live))
-    pairs.sort(key=lambda pair: max(pair[0].created_at, pair[1].created_at), reverse=True)
-    return tuple(
-        PaperLiveTwin(
-            strategy_fingerprint=paper.strategy_fingerprint or "",
-            strategy_id=live.strategy_id or paper.strategy_id,
-            strategy_name=live.strategy_name or paper.strategy_name,
-            product_id=live.product_id,
-            paper_deployment_id=paper.id,
-            live_deployment_id=live.id,
+        pairs.append(
+            PaperLiveTwin(
+                strategy_fingerprint=paper.strategy_fingerprint or "",
+                strategy_id=live.strategy_id or paper.strategy_id,
+                strategy_name=live.strategy_name or paper.strategy_name,
+                product_id=live.product_id,
+                paper_deployment_id=paper.id,
+                live_deployment_id=live.id,
+            )
         )
-        for paper, live in pairs[:limit]
-    )
+    return tuple(pairs[:limit])
 
 
 def entry_fill_stats(snapshot: DeploymentSnapshot) -> EntryFillStats:

@@ -112,7 +112,7 @@
             "runtime_observability": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
+              "description": "v62 adds explicit_deployment_twins: fill comparisons use saved one-to-one paper/live links only. v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
             },
             "indicator_operand_offset_runtimes": {
               "type": "array",

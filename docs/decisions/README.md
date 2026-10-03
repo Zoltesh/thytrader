@@ -106,6 +106,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0099](0099-operand-level-indicator-offsets.md) | Per-operand native-clock indicator offsets, shared warmup across entry/exits/filter and data binding, lagged trace keys, builder controls, and squeeze template parameter axes; ops contract v59; extends 0005, 0008, 0042, 0044, 0093, 0096; supersedes the operand-lag deferral in 0086 | Accepted |
 | [0100](0100-fee-adjusted-open-book-pnl.md) | Marked open-book PnL after allocated paid entry fees, bounded verified fill evidence, explicit net/gross UI basis; future exit fees excluded; ops contract v60 / no migration | Accepted |
 | [0101](0101-atomic-portfolio-creation-with-sleeves.md) | Optional initial sleeves in portfolio create API/CLI; full validation and atomic portfolio, sleeves, and journal at revision 1; ops contract v61 / no migration | Accepted |
+| [0102](0102-explicit-paper-live-twin-links.md) | Durable one-to-one paper/live comparison links; metadata-only runtime controls; saved pairs replace inference | Accepted — amends 0097 and 0098 |
 
 ## Status values
 

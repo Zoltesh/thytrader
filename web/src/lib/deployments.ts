@@ -571,3 +571,33 @@ export function deploymentStrategyLabel(deployment: Deployment, knownName: strin
 	if (deployment.strategy_deleted === true) return `${name ?? 'Strategy'} (deleted strategy)`;
 	return name ?? 'Strategy';
 }
+
+/** Deliberate comparison metadata, independent of deployment lifecycle and orders. */
+export type DeploymentTwinLink = {
+	paper_deployment_id: string;
+	live_deployment_id: string;
+	linked_at: string;
+};
+export type DeploymentTwinResponse = { deployment_id: string; twin: DeploymentTwinLink | null };
+
+export function fetchDeploymentTwin(id: string): Promise<DeploymentTwinResponse> {
+	return request(`/api/v1/deployments/${encodeURIComponent(id)}/twin`);
+}
+export function linkDeploymentTwin(
+	id: string,
+	counterpartId: string
+): Promise<DeploymentTwinResponse> {
+	return request(`/api/v1/deployments/${encodeURIComponent(id)}/twin`, {
+		method: 'PUT',
+		body: JSON.stringify({ counterpart_deployment_id: counterpartId })
+	});
+}
+export function unlinkDeploymentTwin(
+	id: string,
+	counterpartId: string
+): Promise<DeploymentTwinResponse> {
+	return request(
+		`/api/v1/deployments/${encodeURIComponent(id)}/twin?${new URLSearchParams({ counterpart_deployment_id: counterpartId })}`,
+		{ method: 'DELETE' }
+	);
+}

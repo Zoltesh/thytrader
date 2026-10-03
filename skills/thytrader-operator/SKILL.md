@@ -63,7 +63,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
-| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
+| Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins of one strategy snapshot; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
@@ -191,10 +191,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v61`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v62`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0059`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
+   Alembic revision `0060`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
    (native-clock operand lags; [ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)),
    `portfolio_sleeve_operations` `batch_add`/`create_with_sleeves` (atomic portfolio definition
    creation at revision 1 in the portfolio lane;
@@ -318,3 +318,11 @@ For individual held-book fee-adjusted PnL, use the read-only `thytrader-runtime 
 `unrealized_pnl_net` (gross minus allocated paid entry fees; future exit fees excluded).
 Prefer net when present; null means unverified evidence, never zero costs. The operator aggregate
 ledger totals retain their existing meanings; do not subtract these per-book fees again.
+
+
+Paper/live fill comparisons require a saved one-to-one twin link (ADR 0102; capability
+`explicit_deployment_twins`). Matching fingerprints alone no longer select partners. If no pair
+is saved, the comparison is absent; unavailable link storage warns instead of guessing.
+Use `uv run thytrader-runtime show-twin BOT_ID` to read pairing metadata. Linking/unlinking belongs
+in the [runtime skill](../thytrader-runtime/SKILL.md), always with `--confirm`, never in this
+read-only operator lane. At most 10 saved pairs appear, newest-linked first.

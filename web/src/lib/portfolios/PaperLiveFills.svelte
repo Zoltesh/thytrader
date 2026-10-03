@@ -54,7 +54,7 @@
 >
 	<div class="head">
 		<h2 id="plf-title">Paper vs live</h2>
-		<span class="faint small">Entry fills of twins on the same rules snapshot</span>
+		<span class="faint small">Entry fills of linked twins on the same rules snapshot</span>
 	</div>
 	<div class="table-wrap">
 		<table>
@@ -71,7 +71,7 @@
 					<th scope="col">Median wait</th>
 				</tr>
 			</thead>
-			{#each rows as row (row.strategy_fingerprint)}
+			{#each rows as row (row.paper.deployment_id + row.live.deployment_id)}
 				{@const gap = waitGapText(row)}
 				{@const own = portfolioSide(row, portfolioId)}
 				<tbody data-testid="plf-row">

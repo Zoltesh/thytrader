@@ -24,10 +24,28 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
+    from thytrader.execution.twins import DeploymentTwinLink
+
 
 @runtime_checkable
 class ExecutionStore(Protocol):
     """Persist deployments, intents, orders, fills, and the single position."""
+
+    async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
+        """Read the explicit comparison partner, if any."""
+        ...
+
+    async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+        """Read saved pairs newest-linked first without loading execution histories."""
+        ...
+
+    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+        """Atomically link comparable unoccupied books; the same pair is idempotent."""
+        ...
+
+    async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
+        """Remove only the expected pair; absence is idempotent, another partner conflicts."""
+        ...
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
@@ -130,6 +148,25 @@ class ExecutionStore(Protocol):
 
 class DisabledExecutionStore:
     """Fail closed when execution storage is not configured."""
+
+    async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
+        """Read the explicit comparison partner, if any."""
+        del deployment_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+        """Read saved pairs newest-linked first without loading execution histories."""
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+        """Atomically link comparable unoccupied books; the same pair is idempotent."""
+        del deployment_id, counterpart_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
+        """Remove only the expected pair; absence is idempotent, another partner conflicts."""
+        del deployment_id, counterpart_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Refuse deployment creation without durable storage."""

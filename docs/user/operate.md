@@ -338,10 +338,27 @@ through the stop exits as a stop even if the time exit is also due on that bar.
 
 To see why a live bot entered quickly while its paper twin waited, read
 `uv run thytrader-operator portfolios`: `paper_live_fill_comparisons` pairs paper and live bots
-that run the same strategy snapshot and reports entries rested, filled, and expired, the fill
+explicitly linked to run the same strategy snapshot and reports entries rested, filled, and expired, the fill
 against the limit, and the time to fill. A paper post-only entry fills only when a closed candle
 trades through the limit. Live fills whenever Coinbase matches it. The Portfolio page shows the
 same comparison for a portfolio's own sleeves (see **Paper vs live** below).
+
+Use **Paper/live twin** on Bot detail to select a matching opposite-mode strategy bot, then
+confirm **Link twins**. **Unlink twin…** confirms removing that comparison pairing. The CLI
+provides the same controls:
+
+```bash
+uv run thytrader-runtime show-twin BOT_ID
+uv run thytrader-runtime link-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm
+uv run thytrader-runtime unlink-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm
+```
+
+Both bots must share the exact rules snapshot, primary market, and timeframe. Each bot has one
+partner; unlink before replacing it. These controls only choose comparison partners. They never
+start, stop, arm, or trade either bot. Confirmation is required even with YOLO; no live
+acknowledgement is needed. Existing bots stay unlinked until selected. Unlinked bots have no
+comparison, and several pairs can share rules. After an uncertain write, refresh/read the link
+before retrying ([ADR 0102](../decisions/0102-explicit-paper-live-twin-links.md)).
 
 On-demand trades and strategies use `entry.side` of `long` or `short`. CLI `--side`
 defaults to `long`. A short is a Coinbase **spot** sell-to-open: live fails closed without
@@ -398,7 +415,7 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   strategies and existing sleeves are disabled). **Edit weights** edits every weight and the cash
   reserve at once and refuses more than 100%. The aside shows allocation bars, the largest single
   asset against the per-asset limit, and the cash reserve. When a sleeve's bot has a paper or live
-  twin (another bot running the same rules snapshot), the row links to a **Paper vs live** panel
+  saved twin (a deliberately linked opposite-mode bot running the same rules snapshot), the row links to a **Paper vs live** panel
   below the table. For each twin it shows a paper row and a live row with the share of entries
   that filled, the average fill against the posted limit in bps (positive is worse), the median
   wait to fill, and how much sooner one side fills

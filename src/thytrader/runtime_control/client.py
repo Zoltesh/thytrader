@@ -360,3 +360,33 @@ def clear_coinbase_credentials(base_url: str, *, settings: Settings | None = Non
         url=f"{base_url}{_CREDENTIALS_PREFIX}",
         settings=settings,
     )
+
+
+def show_twin(base_url: str, deployment_id: str) -> object:
+    """Read the deliberately saved pair without changing execution."""
+    return request_json(method="GET", url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/twin")
+
+
+def link_twin(
+    base_url: str, deployment_id: str, counterpart_id: str, *, settings: Settings
+) -> object:
+    """Save comparison metadata through the authenticated mutation boundary."""
+    return request_mutation_json(
+        method="PUT",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/twin",
+        payload={"counterpart_deployment_id": counterpart_id},
+        settings=settings,
+    )
+
+
+def unlink_twin(
+    base_url: str, deployment_id: str, counterpart_id: str, *, settings: Settings
+) -> object:
+    """Remove only the expected partner; a changed partner returns a conflict."""
+    query = urlencode({"counterpart_deployment_id": counterpart_id})
+    return request_mutation_json(
+        method="DELETE",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{deployment_id}/twin?{query}",
+        payload=None,
+        settings=settings,
+    )

@@ -1,6 +1,6 @@
 # 0097: Paper follows the backtest's same-bar exit precedence; position state and paper/live fill comparison
 
-- Status: Accepted (amended by [0098](0098-library-views-book-marks-portfolio-fills.md))
+- Status: Accepted — pairing amended by [0102](0102-explicit-paper-live-twin-links.md) (amended by [0098](0098-library-views-book-marks-portfolio-fills.md))
 - Date: 2026-10-02
 - Amends: [0083](0083-unified-backtest-model.md) (paper now matches the stop-first rule on a
   time-exit bar), [0093](0093-signal-based-exits.md) (the precedence below is the one contract),

@@ -311,7 +311,7 @@ def test_books_without_a_journaled_close_stay_unmarked(world: World) -> None:
 
 
 def test_fill_comparisons_list_only_this_portfolios_twins(world: World) -> None:
-    """A live twin of a sleeve pairs; twins outside the portfolio are left out."""
+    """Explicit pairs include this portfolio only; matching snapshots alone stay unpaired."""
     portfolio_id, bot = _started_portfolio(world)
     paper = asyncio.run(world.execution.get_deployment(bot)).deployment
     live = replace(paper, id=uuid4(), mode=DeploymentMode.LIVE, portfolio_id=None, created_at=_BAR)
@@ -322,6 +322,10 @@ def test_fill_comparisons_list_only_this_portfolios_twins(world: World) -> None:
     outsider_live = replace(outsider_paper, id=uuid4(), mode=DeploymentMode.LIVE)
     for item in (outsider_paper, outsider_live):
         asyncio.run(world.execution.create_deployment(item))
+    unlinked = world.client.get(f"/api/v1/portfolios/{portfolio_id}/fill-comparisons").json()
+    assert unlinked["comparisons"] == []
+    asyncio.run(world.execution.link_twins(paper.id, live.id))
+    asyncio.run(world.execution.link_twins(outsider_paper.id, outsider_live.id))
     body = world.client.get(f"/api/v1/portfolios/{portfolio_id}/fill-comparisons").json()
     assert body["portfolio_id"] == portfolio_id
     (row,) = body["comparisons"]

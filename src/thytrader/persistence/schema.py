@@ -785,6 +785,20 @@ Index(
     & deployments.c.status.in_(("running", "paused")),
 )
 
+deployment_twin_links = Table(
+    "deployment_twin_links",
+    metadata,
+    Column("paper_deployment_id", UUID(), primary_key=True),
+    Column("live_deployment_id", UUID(), nullable=False),
+    Column("linked_at", DateTime(timezone=True), nullable=False),
+    ForeignKeyConstraint(["paper_deployment_id"], ["deployments.id"], ondelete="CASCADE"),
+    ForeignKeyConstraint(["live_deployment_id"], ["deployments.id"], ondelete="CASCADE"),
+    UniqueConstraint("live_deployment_id", name="ux_deployment_twin_links_live"),
+    CheckConstraint(
+        "paper_deployment_id <> live_deployment_id", name="ck_deployment_twin_links_distinct"
+    ),
+)
+
 order_intents = Table(
     "order_intents",
     metadata,
@@ -1595,6 +1609,7 @@ __all__ = [
     "active_risk_policy",
     "audit_events",
     "bar_decisions",
+    "deployment_twin_links",
     "deployments",
     "execution_fills",
     "execution_instrument_state",

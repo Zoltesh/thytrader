@@ -48,3 +48,8 @@ You can:
 
 Safety that outlives any one screen: [Safety](user/safety.md) and the
 [security and trading-risk baseline](security-and-risk.md).
+
+
+To select intended paper/live comparison partners, use **Paper/live twin** on Bot detail or
+`thytrader-runtime link-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm`.
+See [operating guide](user/operate.md) and the [runtime skill](../skills/thytrader-runtime/SKILL.md).

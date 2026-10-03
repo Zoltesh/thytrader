@@ -32,7 +32,7 @@ HTTP-only against the loopback API. The CLI resolves its base URL from `--base-u
 port). For raw `curl`, export `THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
 There is no `--local` mode. Mutations send `Authorization: Bearer <installation-token>` automatically
 ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)). Every command first
-checks the `/health/ready` ops contract (`thytrader-ops-contract-v61`); a mismatch means a stale
+checks the `/health/ready` ops contract (`thytrader-ops-contract-v62`); a mismatch means a stale
 Compose image — rebuild with `make run` only when the user asked or the CLI reports it.
 
 Do not edit `src/`, Alembic, tests, or Compose to work around a failure; report it.
@@ -288,8 +288,11 @@ means open with its TP/SL (or stop) resting, even though `phase` reads `pending_
 ### Paper vs live fills
 
 `thytrader-operator portfolios` (`GET /api/v1/operator/portfolios`) adds
-`paper_live_fill_comparisons[]`. Each row pairs the newest paper book and the newest live book that
-run the same strategy snapshot (equal `strategy_fingerprint`, whether sleeves or standalone bots).
+`paper_live_fill_comparisons[]`. Each row compares an explicitly linked paper/live pair running the same strategy snapshot
+(equal `strategy_fingerprint`, whether sleeves or standalone bots; ADR 0102). Shared rules alone
+never infer a partner. Multiple saved pairs can share the same fingerprint. Select or remove a
+partner with the separate `thytrader-runtime show-twin` / `link-twin` / `unlink-twin` commands
+([runtime skill](../thytrader-runtime/SKILL.md)); this portfolio lane stays read-only for links.
 It reports each side's `entries_rested`, `entries_filled`, `entries_expired`, `entries_rejected`,
 `entries_working`, `average_fill_vs_limit_bps` (positive means worse than the limit), and
 `average_seconds_to_fill` / `median_seconds_to_fill`. Paper fills only when a closed candle trades
@@ -300,6 +303,6 @@ did not (or entered later). Do not treat the gap as a fault. The report is read-
 For one portfolio, `uv run thytrader-portfolio fill-comparisons --portfolio-id UUID`
 (`GET /api/v1/portfolios/{id}/fill-comparisons`) returns `{portfolio_id, comparisons[], warnings[]}`
 with the same rows, limited to twins whose paper or live book is a sleeve bot of that portfolio
-(`paper.portfolio_id` / `live.portfolio_id` say which), newest first, at most 10. The Portfolio
+(`paper.portfolio_id` / `live.portfolio_id` say which), newest-linked first, at most 10. The Portfolio
 page's Sleeves tab shows them as the "Paper vs live" panel
 ([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).

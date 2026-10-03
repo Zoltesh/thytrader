@@ -224,6 +224,7 @@ class OpsContractPayload(_FrozenModel):
             "book_marks",
             "fee_adjusted_book_pnl",
             "portfolio_fill_comparisons",
+            "explicit_deployment_twins",
         ],
         ...,
     ]
@@ -467,7 +468,7 @@ class EntryFillDigest(_FrozenModel):
 class PaperLiveFillComparison(_FrozenModel):
     """A paper and a live book running the same strategy snapshot, side by side (ADR 0097).
 
-    Twins match by ``strategy_fingerprint`` (the content address of the exact rules). Paper
+    Twins are explicitly linked (ADR 0102) and share ``strategy_fingerprint``. Paper
     waits run to the fill bar's close (a candle must trade through the limit); live waits
     end at the venue fill.
     """

@@ -1,6 +1,6 @@
 # 0098: Library origin views, consistent paper protection, last-bar book marks, and per-portfolio fill comparisons
 
-- Status: Accepted — fee-reporting deferral amended by [0100](0100-fee-adjusted-open-book-pnl.md)
+- Status: Accepted — pairing amended by [0102](0102-explicit-paper-live-twin-links.md) — fee-reporting deferral amended by [0100](0100-fee-adjusted-open-book-pnl.md)
 - Date: 2026-10-02
 - Amends: [0094](0094-research-honesty-and-agent-ergonomics.md) (the library adds an `origin`
   filter beside `tag`), [0097](0097-runtime-parity-and-observability.md) (`protection_status` now

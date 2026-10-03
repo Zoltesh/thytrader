@@ -118,3 +118,10 @@ stores the canonical result, journals `backtest_run`, and completes the job. Por
 share the research worker pool with backtests and studies, so `THYTRADER_RESEARCH_WORKER_COUNT`
 bounds how many run at once. A job whose worker died is re-queued after its lease expires; jobs
 expire after 24 hours.
+
+
+Paper/live entry-fill comparisons use explicitly saved deployment twins (ADR 0102), including
+pairs where either member is a sleeve of this portfolio. The other member may be standalone or
+in another portfolio. Matching snapshots do not infer a pair. Runtime metadata controls and Bot
+detail select the intended pair; the portfolio lane only reads it. Worker saves cannot erase
+links because `deployment_twin_links` is independent of deployment state (Alembic `0060`).

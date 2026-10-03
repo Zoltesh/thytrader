@@ -8,12 +8,12 @@ Every HTTP agent CLI preflights `GET /health/ready` and fails closed on a
 missing or unequal contract. Rebuild with `make run`. Do not default-fill a
 missing payload.
 
-Current checkout (Alembic `0059`):
+Current checkout (Alembic `0060`):
 
 | Field | Shipped value |
 |---|---|
-| `id` | `thytrader-ops-contract-v58` |
-| `expected_schema_revision` | `0059` |
+| `id` | `thytrader-ops-contract-v62` |
+| `expected_schema_revision` | `0060` |
 | `strategy_model` | `mutable_root`, `auto_snapshot`, `hard_delete` ([ADR 0082](../../decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)) |
 | `portfolio_model` | `sleeves`, `shared_limits`, `manager_settings`, `journal`, `portfolio_backtest` ([ADR 0088](../../decisions/0088-portfolio-model-and-portfolio-backtest.md)), `deployment`, `portfolio_limits`, `manager_proposals` ([ADR 0091](../../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)) |
 | `portfolio_modes` | `paper`, `live` |
@@ -66,7 +66,7 @@ Current checkout (Alembic `0059`):
 | `portfolio_max_sleeves` | `32` (ADR 0094) |
 | `portfolio_sleeve_operations` | `batch_add` — `POST /api/v1/portfolios/{id}/sleeves/batch`, one revision (ADR 0094); `create_with_sleeves` — optional initial sleeves in `POST /api/v1/portfolios`, atomic revision 1 (ADR 0101) |
 | `same_bar_exit_precedence` | `stop`, `take_profit`, `signal_exit`, `time_exit` — paper and the backtest resolve a same-bar exit tie in this order ([ADR 0097](../../decisions/0097-runtime-parity-and-observability.md)) |
-| `runtime_observability` | `position_state`, `exit_in_flight`, `paper_live_fill_comparison` — deployment/operator/sleeve position state beside the raw `phase`, and the operator `portfolios` twin fill comparison (ADR 0097); `paper_protection_covered` (an open paper book's `protection_status` is `covered` on every read), `book_marks` (`mark_price` / `marked_at` / `unrealized_pnl` on deployment positions and sleeve `books[]`), `portfolio_fill_comparisons` (`GET /api/v1/portfolios/{id}/fill-comparisons`) (ADR 0098) |
+| `runtime_observability` | `position_state`, `exit_in_flight`, `paper_live_fill_comparison` — deployment/operator/sleeve position state beside the raw `phase`, and the operator `portfolios` twin fill comparison (ADR 0097); `paper_protection_covered` (an open paper book's `protection_status` is `covered` on every read), `book_marks` (`mark_price` / `marked_at` / `unrealized_pnl` on deployment positions and sleeve `books[]`), `portfolio_fill_comparisons` (`GET /api/v1/portfolios/{id}/fill-comparisons`) (ADR 0098); `explicit_deployment_twins` (deliberate one-to-one comparison metadata; ADR 0102) |
 
 ```mermaid
 classDiagram
@@ -122,7 +122,7 @@ classDiagram
     multi_book_ledger
     research_dataset_autobind
     study_budgets
-    expected_schema_revision 0059
+    expected_schema_revision 0060
   }
   class HealthPayload {
     api_probed

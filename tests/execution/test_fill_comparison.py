@@ -2,12 +2,13 @@
 
 A live post-only entry can fill on Coinbase within seconds while the paper twin running
 the same snapshot waits for a closed candle to trade through its limit. The comparison
-pairs the twins by strategy fingerprint and reports each side's entries rested, filled,
+uses explicitly linked twins sharing a strategy fingerprint and reports entries rested, filled,
 expired, and rejected, the fill against the limit, and the time to fill.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -16,12 +17,14 @@ import pytest
 
 from tests.portfolios.runtime_support import portfolio, world
 from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
+from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionStoreError,
     Fill,
     IntentPurpose,
     Order,
@@ -31,7 +34,11 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.operator.portfolios_report import build_portfolios_report
+from thytrader.execution.twins import DeploymentTwinLink
+from thytrader.operator.portfolios_report import (
+    build_portfolios_report,
+    paper_live_fill_comparisons,
+)
 
 _REST = datetime(2026, 10, 1, 12, 0, 5, tzinfo=UTC)
 _FINGERPRINT = "sha256:" + ("c" * 64)
@@ -186,19 +193,21 @@ def test_a_sell_entry_below_its_limit_is_adverse() -> None:
     assert entry_fill_stats(snapshot).average_fill_vs_limit_bps == Decimal(10)
 
 
-def test_twins_pair_the_newest_paper_and_live_books_per_fingerprint() -> None:
-    """Only strategy books with equal fingerprints pair; the newest of each mode wins."""
+def test_twins_resolve_only_the_explicit_pair_even_with_newer_matching_bots() -> None:
+    """A saved older pair wins; matching snapshots alone never imply a comparison partner."""
     older_paper = _deployment(DeploymentMode.PAPER, created_at=_REST - timedelta(days=2))
     paper = _deployment(DeploymentMode.PAPER)
     live = _deployment(DeploymentMode.LIVE, created_at=_REST + timedelta(minutes=1))
     lonely = _deployment(DeploymentMode.PAPER, fingerprint="sha256:" + ("d" * 64))
     discretionary = _deployment(DeploymentMode.LIVE, kind=DeploymentKind.DISCRETIONARY)
-    twins = paper_live_twins((older_paper, paper, live, lonely, discretionary), limit=10)
+    links = (DeploymentTwinLink(older_paper.id, live.id, _REST),)
+    twins = paper_live_twins((older_paper, paper, live, lonely, discretionary), links, limit=10)
     assert [(twin.paper_deployment_id, twin.live_deployment_id) for twin in twins] == [
-        (paper.id, live.id)
+        (older_paper.id, live.id)
     ]
     assert twins[0].strategy_name == "ETH trend"
-    assert paper_live_twins((paper, live), limit=0) == ()
+    assert paper_live_twins((paper, live), (), limit=10) == ()
+    assert paper_live_twins((older_paper, live), links, limit=0) == ()
 
 
 @pytest.mark.anyio
@@ -209,6 +218,7 @@ async def test_portfolios_report_carries_the_paper_live_fill_comparison() -> Non
     store = state.execution
     paper = await store.create_deployment(_deployment(DeploymentMode.PAPER))
     live = await store.create_deployment(_deployment(DeploymentMode.LIVE))
+    await store.link_twins(paper.id, live.id)
     for deployment, filled_at in (
         (paper, _REST.replace(minute=0, second=0) + timedelta(hours=1)),
         (live, _REST + timedelta(seconds=5)),
@@ -225,3 +235,52 @@ async def test_portfolios_report_carries_the_paper_live_fill_comparison() -> Non
     assert comparison.live.median_seconds_to_fill == "5"
     assert comparison.paper.median_seconds_to_fill == "7195"
     assert comparison.live.average_fill_vs_limit_bps == "0"
+
+
+@pytest.mark.anyio
+async def test_multiple_saved_pairs_share_rules_and_portfolio_filters_use_member_ids() -> None:
+    """Equal fingerprints preserve separate chosen pairs, including historical sleeve bots."""
+    store = InMemoryExecutionStore()
+    portfolio_id = uuid4()
+    paper = await store.create_deployment(
+        replace(_deployment(DeploymentMode.PAPER), portfolio_id=portfolio_id)
+    )
+    live = await store.create_deployment(_deployment(DeploymentMode.LIVE))
+    second_paper = await store.create_deployment(_deployment(DeploymentMode.PAPER))
+    second_live = await store.create_deployment(_deployment(DeploymentMode.LIVE))
+    await store.link_twins(paper.id, live.id)
+    await store.link_twins(second_paper.id, second_live.id)
+    warnings: list[str] = []
+    deployments = await store.list_deployments()
+    rows = await paper_live_fill_comparisons(store, deployments, warnings)
+    assert {(row.paper.deployment_id, row.live.deployment_id) for row in rows} == {
+        (paper.id, live.id),
+        (second_paper.id, second_live.id),
+    }
+    selected = await paper_live_fill_comparisons(
+        store, deployments, warnings, portfolio_id=portfolio_id
+    )
+    assert [(row.paper.deployment_id, row.live.deployment_id) for row in selected] == [
+        (paper.id, live.id)
+    ]
+    assert not warnings
+
+
+@pytest.mark.anyio
+async def test_unavailable_links_never_fall_back_to_matching_snapshots() -> None:
+    """A link-storage failure warns instead of fabricating a comparison partner."""
+
+    class UnavailableLinks(InMemoryExecutionStore):
+        """Isolate link-read failure while deployment reads still work."""
+
+        async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+            """Fail the metadata read without leaking underlying database errors."""
+            raise ExecutionStoreError("Twin link storage is unavailable.")
+
+    store = UnavailableLinks()
+    await store.create_deployment(_deployment(DeploymentMode.PAPER))
+    await store.create_deployment(_deployment(DeploymentMode.LIVE))
+    warnings: list[str] = []
+    rows = await paper_live_fill_comparisons(store, await store.list_deployments(), warnings)
+    assert rows == ()
+    assert warnings == ["Explicit twin links are unavailable; fill comparisons were not inferred."]

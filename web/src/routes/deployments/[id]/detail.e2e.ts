@@ -203,6 +203,10 @@ async function mockDetailRoutes(
 		(url) => url.pathname === '/api/v1/memory/trade-reasons',
 		(route) => route.fulfill({ json: { trade_reasons: [] } })
 	);
+	await page.route(
+		(url) => url.pathname === `/api/v1/deployments/${deploymentId}/twin`,
+		(route) => route.fulfill({ json: { deployment_id: deploymentId, twin: null } })
+	);
 	await page.route(`**/api/v1/deployments/${deploymentId}`, (route) =>
 		route.fulfill({ json: overrides.deployment ?? detailDeployment() })
 	);
@@ -1612,4 +1616,82 @@ test.describe('deployment detail', () => {
 		await expect(exitRule).toContainText('EMA(20)');
 		await expect(exitRule).toContainText('EMA(100)');
 	});
+});
+
+test('paper/live twin selection confirms before linking and unlinking', async ({ page }) => {
+	const liveId = '01985cf0-7b60-7000-8000-00000000beef';
+	await mockDetailRoutes(page, { inventory: [detailDeployment({ id: liveId, mode: 'live' })] });
+	let twin: { paper_deployment_id: string; live_deployment_id: string; linked_at: string } | null =
+		null;
+	let writes = 0;
+	await page.route(
+		(url) => url.pathname === `/api/v1/deployments/${deploymentId}/twin`,
+		async (route) => {
+			const method = route.request().method();
+			if (method === 'PUT') {
+				expect(route.request().postDataJSON()).toEqual({ counterpart_deployment_id: liveId });
+				twin = {
+					paper_deployment_id: deploymentId,
+					live_deployment_id: liveId,
+					linked_at: '2026-10-03T03:00:00Z'
+				};
+				writes++;
+			} else if (method === 'DELETE') {
+				expect(new URL(route.request().url()).searchParams.get('counterpart_deployment_id')).toBe(
+					liveId
+				);
+				twin = null;
+				writes++;
+			}
+			await route.fulfill({ json: { deployment_id: deploymentId, twin } });
+		}
+	);
+	await page.goto(`/deployments/${deploymentId}`);
+	const card = page.getByTestId('deployment-twin');
+	await card.getByLabel('Comparison bot').selectOption(liveId);
+	await card.getByRole('button', { name: 'Link twin…', exact: true }).click();
+	expect(writes).toBe(0);
+	const dialog = page.getByTestId('twin-dialog');
+	await expect(dialog).toContainText('Trading state and orders stay unchanged');
+	await dialog.getByRole('button', { name: 'Link twins', exact: true }).click();
+	await expect(card.getByRole('link', { name: /Live twin/ })).toHaveAttribute(
+		'href',
+		`/deployments/${liveId}`
+	);
+	expect(writes).toBe(1);
+	await card.getByRole('button', { name: 'Unlink twin…', exact: true }).click();
+	expect(writes).toBe(1);
+	await dialog.getByRole('button', { name: 'Unlink twins', exact: true }).click();
+	await expect(card).toContainText('No twin linked');
+	expect(writes).toBe(2);
+});
+
+test('a twin mutation failure requires a read before another attempt', async ({ page }) => {
+	const liveId = '01985cf0-7b60-7000-8000-00000000beef';
+	await mockDetailRoutes(page, { inventory: [detailDeployment({ id: liveId, mode: 'live' })] });
+	let reads = 0;
+	await page.route(
+		(url) => url.pathname === `/api/v1/deployments/${deploymentId}/twin`,
+		async (route) => {
+			if (route.request().method() === 'PUT') {
+				await route.fulfill({ status: 409, json: { detail: 'A bot already has a twin.' } });
+			} else {
+				reads++;
+				await route.fulfill({ json: { deployment_id: deploymentId, twin: null } });
+			}
+		}
+	);
+	await page.goto(`/deployments/${deploymentId}`);
+	const card = page.getByTestId('deployment-twin');
+	await card.getByLabel('Comparison bot').selectOption(liveId);
+	await card.getByRole('button', { name: 'Link twin…', exact: true }).click();
+	await page
+		.getByTestId('twin-dialog')
+		.getByRole('button', { name: 'Link twins', exact: true })
+		.click();
+	await expect(card).toContainText('Refresh the link before trying again');
+	await expect(card.getByRole('button', { name: 'Link twin…', exact: true })).toHaveCount(0);
+	await card.getByRole('button', { name: 'Refresh link', exact: true }).click();
+	await expect(card).toContainText('No twin linked');
+	expect(reads).toBe(2);
 });

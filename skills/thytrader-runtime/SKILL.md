@@ -406,7 +406,7 @@ activity no longer exhausts it and blocks an unrelated new entry.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
 ([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v61` with `indicator_operand_offset_runtimes` including the deployment
+`thytrader-ops-contract-v62` with `indicator_operand_offset_runtimes` including the deployment
 mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research
@@ -530,3 +530,34 @@ and applies without restart. Secrets stay out of YAML. Live still needs `--i-und
 - Re-submitting or duplicating an order whose submit is unconfirmed; follow the recovery above
 - Sending `i_understand_live` over HTTP without the user's explicit live acknowledgement
 - Editing application source to arm, pause, or change execution on a running instance
+
+
+## Explicit paper/live comparison twins
+
+Ops contract v62 advertises `runtime_observability: explicit_deployment_twins` (Alembic `0060`,
+[ADR 0102](../../docs/decisions/0102-explicit-paper-live-twin-links.md)). Run from the repository root:
+
+```bash
+uv run thytrader-runtime show-twin BOT_ID
+uv run thytrader-runtime link-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm
+uv run thytrader-runtime unlink-twin BOT_ID --counterpart-deployment-id OTHER_BOT_ID --confirm
+```
+
+Either member can be the target. Read is `GET /api/v1/deployments/{id}/twin`; linking is `PUT`
+with only `counterpart_deployment_id`; unlinking is `DELETE` with that expected id as a query
+parameter. Response: `{deployment_id, twin: null | {paper_deployment_id, live_deployment_id,
+linked_at}}`. Mutations **always require `--confirm`; YOLO never covers twin links**. No
+`--i-understand-live` is needed: this selects comparison metadata and cannot start, stop, resume,
+arm, or submit orders. Leave deployment authority in its existing commands.
+
+Choose one paper and one live **strategy** bot with the same nonempty strategy snapshot,
+primary product, and timeframe. Status, portfolio membership, capital, and fees may differ.
+Discretionary books and different rules return 422; missing ids return 404. A bot has at most
+one partner: another partner returns 409. Unlink the current pair before selecting a replacement.
+The same link is idempotent and retains `linked_at`. Unlinking an already absent pair is
+idempotent; a changed partner returns 409. After a timeout/error, read `show-twin` before retrying.
+
+Comparisons in `thytrader-operator portfolios` and `thytrader-portfolio fill-comparisons` use
+saved links only (newest-linked first, up to 10); unlinked books have no comparison. Existing
+bots are not automatically linked by the migration. Linking survives worker saves and restarts.
+The UI offers the same confirmed controls on Bot detail under **Paper/live twin**.

@@ -212,3 +212,19 @@ closed-bar call returns, each write has a 5-second timeout, failures are logged 
 every 15 minutes per bot, and no exchange call is made. Retention runs in the execution worker at
 startup and every 6 hours: rows older than 180 days and beyond the newest 20,000 per bot are deleted
 in passes of at most 5,000 rows. Rows cascade with their deployment.
+
+
+## Explicit comparison twins
+
+[ADR 0102](../../decisions/0102-explicit-paper-live-twin-links.md) stores a one-to-one paper/live
+pair in `deployment_twin_links`, separate from worker-written deployment snapshots. Both members
+must be strategy books with matching immutable snapshot, primary product, and clock. Ordered
+UUID row locks serialize conflicting edits; paper PK/live uniqueness enforce one partner per
+book. The empty `0060` migration does not infer existing pairs. Worker revisions, leases, orders,
+arming, and lifecycle are untouched. Runtime audits follow the metadata transaction using the
+existing control policy; uncertain writes require a link read before retry.
+
+The deployment `/twin` GET/PUT/DELETE surface and runtime show/link/unlink commands select
+comparison metadata only. Unlink uses an expected counterpart guard. Operator and portfolio
+comparisons resolve saved pairs newest-linked first (at most 10) without an implicit fallback;
+statistics and recognition timing remain unchanged. Multiple pairs may share a fingerprint.

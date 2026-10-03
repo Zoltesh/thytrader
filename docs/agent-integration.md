@@ -267,7 +267,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v61` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v62` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -302,7 +302,7 @@ boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `book_marks` and `portfolio_fill_comparisons`, with `strategy_library` adding `origin_filter`;
 [ADR 0098](decisions/0098-library-views-book-marks-portfolio-fills.md); plus
 `fee_adjusted_book_pnl`, [ADR 0100](decisions/0100-fee-adjusted-open-book-pnl.md)); expected Alembic
-revision `0059`).
+revision `0060`).
 
 Research correctness ([ADR 0090](decisions/0090-research-correctness-optional-take-profit-diagnostics.md)):
 `exits.take_profit` may be `{"kind": "none"}` (live protects such books with a Coinbase
@@ -533,3 +533,22 @@ The operator skill tells agents to:
 | In-app operator chat | Loopback `/chat` plus `/api/v1/operator-chat`. Uses the same HTTP skill routes. Mutations stay confirmation-gated; live still needs understand-live. LLM keys stay in the API process; Coinbase keys never go to the browser. |
 
 The key principle: **agents should diagnose and explain first; trading authority is not a natural extension of observability.** Agent E2E as the primary surface ([ADR 0030](decisions/0030-agent-e2e-primary-surface.md)) does not collapse these lanes.
+
+
+### Explicit paper/live twin metadata (ADR 0102)
+
+Ops contract v62 advertises `runtime_observability: explicit_deployment_twins`, schema `0060`.
+`GET /api/v1/deployments/{id}/twin` reads `{deployment_id, twin}` (null or the two member UUIDs
+and `linked_at`). `PUT` takes only `{counterpart_deployment_id}`; `DELETE` requires the expected
+counterpart UUID as `?counterpart_deployment_id=...`. Both directions address the same pair.
+
+Agents invoke `thytrader-runtime show-twin ID`, `link-twin ID --counterpart-deployment-id ID
+--confirm`, and `unlink-twin ID --counterpart-deployment-id ID --confirm`. These mutations are
+always confirmation-gated, outside YOLO, and require no live acknowledgement. They grant no
+lifecycle, arming, or order authority. Use the same snapshot, primary market, and timeframe on
+opposite-mode strategy bots. Incompatible pairs return 422; another partner or stale unlink 409;
+missing deployment 404; storage outage 503. Repeating the same link/unlink is idempotent; after
+an ambiguous response read the pair before retrying. Reports compare only saved pairs, up to 10
+newest-linked first, including multiple pairs sharing a fingerprint. Read-only operator and
+portfolio lanes cannot edit links. See the [runtime skill](../skills/thytrader-runtime/SKILL.md)
+and [ADR 0102](decisions/0102-explicit-paper-live-twin-links.md).

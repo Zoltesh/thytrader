@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
 from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import (
     MAX_POSITION_FEE_FILLS,
     LedgerFill,
@@ -36,6 +37,7 @@ from thytrader.execution.pagination import (
     encode_order_cursor,
 )
 from thytrader.execution.protection import working_order_count
+from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -54,6 +56,7 @@ class InMemoryExecutionStore:
     def __init__(self) -> None:
         """Start with no deployments."""
         self.deployments: dict[UUID, Deployment] = {}
+        self.twin_links: dict[UUID, DeploymentTwinLink] = {}
         self.intents: dict[UUID, OrderIntent] = {}
         self.orders: dict[UUID, Order] = {}
         self.fills: dict[UUID, Fill] = {}
@@ -61,6 +64,65 @@ class InMemoryExecutionStore:
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
+
+    async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
+        """Read a saved pair from either member."""
+        return next(
+            (
+                link
+                for link in self.twin_links.values()
+                if deployment_id in (link.paper_deployment_id, link.live_deployment_id)
+            ),
+            None,
+        )
+
+    async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+        """Return explicit pairs in deterministic newest-linked order."""
+        return tuple(
+            sorted(
+                self.twin_links.values(),
+                key=lambda link: (link.linked_at, link.paper_deployment_id),
+                reverse=True,
+            )
+        )
+
+    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+        """Validate and link without yielding, so competing mutations are atomic."""
+        first = self.deployments.get(deployment_id)
+        second = self.deployments.get(counterpart_id)
+        if first is None or second is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        paper, live = comparable_twins(first, second)
+        for current in self.twin_links.values():
+            if current.paper_deployment_id == paper.id and current.live_deployment_id == live.id:
+                return current
+            if current.paper_deployment_id == paper.id or current.live_deployment_id == live.id:
+                raise TwinConflictError(
+                    "A bot already has a twin. Unlink its current partner first."
+                )
+        link = DeploymentTwinLink(paper.id, live.id, utc_now())
+        self.twin_links[paper.id] = link
+        return link
+
+    async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
+        """Remove the expected partner atomically; protect a replacement from stale requests."""
+        if deployment_id not in self.deployments or counterpart_id not in self.deployments:
+            raise ExecutionStoreError("Deployment was not found.")
+        current = next(
+            (
+                link
+                for link in self.twin_links.values()
+                if deployment_id in (link.paper_deployment_id, link.live_deployment_id)
+            ),
+            None,
+        )
+        if current is None:
+            return
+        if current.counterpart(deployment_id) != counterpart_id:
+            raise TwinConflictError(
+                "The twin partner changed. Read the current link before unlinking."
+            )
+        del self.twin_links[current.paper_deployment_id]
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""

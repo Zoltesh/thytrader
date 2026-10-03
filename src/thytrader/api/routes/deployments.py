@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -67,6 +67,7 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, TwinValidationError
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
 )
@@ -1168,3 +1169,98 @@ def _optional_decimal(value: Decimal | None) -> str | None:
     if value is None:
         return None
     return format(value, "f")
+
+
+class LinkTwinRequest(BaseModel):
+    """Name the intended counterpart; trading instructions are rejected."""
+
+    model_config = ConfigDict(extra="forbid")
+    counterpart_deployment_id: UUID
+
+
+class DeploymentTwinResponse(BaseModel):
+    """Expose the current saved pair or an explicit unlinked state."""
+
+    deployment_id: UUID
+    twin: DeploymentTwinLink | None
+
+
+@router.get("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
+async def get_deployment_twin(
+    deployment_id: UUID,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+) -> DeploymentTwinResponse:
+    """Read the deliberate comparison pairing, with no exchange requests."""
+    await _require_deployment_row(store, deployment_id)
+    try:
+        link = await store.get_twin_link(deployment_id)
+    except ExecutionStoreError as error:
+        raise _twin_http_error(error) from None
+    return DeploymentTwinResponse(deployment_id=deployment_id, twin=link)
+
+
+@router.put("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
+async def link_deployment_twin(
+    deployment_id: UUID,
+    request: LinkTwinRequest,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> DeploymentTwinResponse:
+    """Save a comparable one-to-one pairing without deployment or order authority."""
+    try:
+        link = await store.link_twins(deployment_id, request.counterpart_deployment_id)
+    except (ExecutionStoreError, TwinConflictError, TwinValidationError) as error:
+        raise _twin_http_error(error) from None
+    await _append_twin_audit(
+        audit, "link_deployment_twins", deployment_id, request.counterpart_deployment_id
+    )
+    return DeploymentTwinResponse(deployment_id=deployment_id, twin=link)
+
+
+@router.delete("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
+async def unlink_deployment_twin(
+    deployment_id: UUID,
+    counterpart_deployment_id: UUID,
+    store: Annotated[ExecutionStore, Depends(get_execution_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> DeploymentTwinResponse:
+    """Remove only the expected partner, preserving a replacement on stale requests."""
+    await _require_deployment_row(store, deployment_id)
+    try:
+        await store.unlink_twins(deployment_id, counterpart_deployment_id)
+    except (ExecutionStoreError, TwinConflictError) as error:
+        raise _twin_http_error(error) from None
+    await _append_twin_audit(
+        audit, "unlink_deployment_twins", deployment_id, counterpart_deployment_id
+    )
+    return DeploymentTwinResponse(deployment_id=deployment_id, twin=None)
+
+
+def _twin_http_error(
+    error: ExecutionStoreError | TwinConflictError | TwinValidationError,
+) -> HTTPException:
+    """Map typed validation/conflict failures and redacted storage errors."""
+    if isinstance(error, TwinValidationError):
+        code = status.HTTP_422_UNPROCESSABLE_CONTENT
+    elif isinstance(error, TwinConflictError):
+        code = status.HTTP_409_CONFLICT
+    elif "not found" in str(error).lower():
+        code = status.HTTP_404_NOT_FOUND
+    else:
+        code = status.HTTP_503_SERVICE_UNAVAILABLE
+    return HTTPException(status_code=code, detail=str(error))
+
+
+async def _append_twin_audit(
+    audit: AuditEventStore, action: str, deployment_id: UUID, counterpart_id: UUID
+) -> None:
+    """Record metadata control with identifiers only, following runtime audit policy."""
+    await audit.append(
+        AuditEvent(
+            occurred_at=datetime.now(UTC),
+            category=AuditEventCategory.RUNTIME,
+            action=action,
+            outcome=AuditEventOutcome.SUCCESS,
+            detail=f"deployment_id={deployment_id} counterpart_deployment_id={counterpart_id}",
+        )
+    )

@@ -107,7 +107,7 @@ async def paper_live_fill_comparisons(
     *,
     portfolio_id: UUID | None = None,
 ) -> tuple[PaperLiveFillComparison, ...]:
-    """Compare entry fills of the newest paper/live twins; unreadable twins are skipped.
+    """Compare entry fills of explicitly linked twins; unreadable pairs are skipped.
 
     With ``portfolio_id`` only twins with a side that is a sleeve of that portfolio are
     compared (ADR 0098). At most ``TWIN_LIMIT`` pairs, newest first.
@@ -115,7 +115,12 @@ async def paper_live_fill_comparisons(
     if execution is None:
         return ()
     by_id = {item.id: item for item in deployments}
-    twins = paper_live_twins(deployments, limit=len(deployments))
+    try:
+        links = await execution.list_twin_links()
+    except ExecutionStoreError:
+        warnings.append("Explicit twin links are unavailable; fill comparisons were not inferred.")
+        return ()
+    twins = paper_live_twins(deployments, links, limit=len(deployments))
     if portfolio_id is not None:
         twins = tuple(twin for twin in twins if _twin_in_portfolio(twin, by_id, portfolio_id))
     rows: list[PaperLiveFillComparison] = []

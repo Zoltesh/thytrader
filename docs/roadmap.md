@@ -652,8 +652,8 @@ Ops contract `thytrader-ops-contract-v57`; Alembic stays `0059`.
 **Exit gate met:** parity tests prove the backtest and paper take the same exit, on the same bar, at
 the same price for every same-bar combination.
 
-**Deferred:** an explicit paper/live link (twins match by snapshot fingerprint), the fill
-comparison in the Portfolio UI, and moving study planning into the research worker.
+**Remaining:** moving study planning into the research worker. Portfolio fill comparison UI
+shipped in ADR 0098, and explicit paper/live links shipped in ADR 0102 below.
 
 
 ## Library and Portfolio polish — ✅ Shipped
@@ -675,8 +675,8 @@ Operator-facing polish after agent research and paper/live twins ran side by sid
 
 Ops contract `thytrader-ops-contract-v58`; Alembic stays `0059`.
 
-**Deferred:** origin counts on the library control and an explicit
-paper/live link (twins still match by snapshot fingerprint).
+**Deferred:** origin counts on the library control. Explicit paper/live links shipped in
+ADR 0102 below.
 ## Operand-level indicator offsets — ✅ Shipped
 
 [ADR 0099](decisions/0099-operand-level-indicator-offsets.md) adds independent operand offsets
@@ -1021,3 +1021,14 @@ Applied local fills establish paid fees; partial exits retain only the surviving
 accumulate fees. Missing/mismatched evidence or more than 1000 current-window fills stays unknown.
 Existing cash/equity/risk accounting is unchanged. Ops contract `thytrader-ops-contract-v60`
 advertises `fee_adjusted_book_pnl`; Alembic remains `0059`. Exit-fee estimates remain deferred.
+
+
+## Explicit paper/live twins — ✅ Shipped
+
+[ADR 0102](decisions/0102-explicit-paper-live-twin-links.md) replaces newest-by-fingerprint
+pairing with durable operator-selected one-to-one links. Bot detail and confirmed runtime CLI /
+HTTP controls link and unlink comparable strategy bots without lifecycle or order authority.
+Comparisons use saved pairs only, including several pairs on one snapshot; worker saves and
+restarts preserve the relationship. Existing bots remain unlinked until selected.
+Ops contract `thytrader-ops-contract-v62` advertises `explicit_deployment_twins`; Alembic `0060`.
+Study planning in the worker, quiet-bar policy, and library origin counts remain separate work.

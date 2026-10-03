@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.store import ExecutionStore
+    from thytrader.execution.twins import DeploymentTwinLink
 
 
 def overlay_snapshot(snapshot: DeploymentSnapshot, product_id: str) -> DeploymentSnapshot:
@@ -118,6 +119,22 @@ class InstrumentScopedStore:
         """Bind the wrapper to one Coinbase USD spot product."""
         self._inner = inner
         self._product_id = product_id
+
+    async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
+        """Forward comparison metadata without runtime overlays or revision writes."""
+        return await self._inner.get_twin_link(deployment_id)
+
+    async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+        """Forward the explicit pair inventory."""
+        return await self._inner.list_twin_links()
+
+    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+        """Forward metadata edits independently of worker state."""
+        return await self._inner.link_twins(deployment_id, counterpart_id)
+
+    async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
+        """Forward an expected-partner removal without touching the leased book."""
+        await self._inner.unlink_twins(deployment_id, counterpart_id)
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""

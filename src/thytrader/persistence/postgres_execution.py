@@ -50,7 +50,9 @@ from thytrader.execution.pagination import (
     encode_cursor,
     encode_order_cursor,
 )
+from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
 from thytrader.persistence.schema import (
+    deployment_twin_links,
     deployments,
     execution_fills,
     execution_instrument_state,
@@ -95,6 +97,126 @@ class PostgresExecutionStore:
     def __init__(self, engine: AsyncEngine) -> None:
         """Bind the store to a managed async engine."""
         self._engine = engine
+
+    async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
+        """Read the saved partner of either member without execution histories."""
+        try:
+            async with self._engine.connect() as conn:
+                row = (
+                    (
+                        await conn.execute(
+                            select(deployment_twin_links).where(
+                                or_(
+                                    deployment_twin_links.c.paper_deployment_id == deployment_id,
+                                    deployment_twin_links.c.live_deployment_id == deployment_id,
+                                )
+                            )
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Twin link storage is unavailable.") from error
+        return _twin_link_from_row(row) if row is not None else None
+
+    async def list_twin_links(self) -> tuple[DeploymentTwinLink, ...]:
+        """Read explicit pairs newest-linked first, with a stable UUID tiebreaker."""
+        try:
+            async with self._engine.connect() as conn:
+                rows = (
+                    (
+                        await conn.execute(
+                            select(deployment_twin_links).order_by(
+                                deployment_twin_links.c.linked_at.desc(),
+                                deployment_twin_links.c.paper_deployment_id.desc(),
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Twin link storage is unavailable.") from error
+        return tuple(_twin_link_from_row(row) for row in rows)
+
+    async def link_twins(self, deployment_id: UUID, counterpart_id: UUID) -> DeploymentTwinLink:
+        """Serialize competing partners with ordered row locks in a short transaction."""
+        try:
+            async with self._engine.begin() as conn:
+                books = await _lock_twin_books(conn, deployment_id, counterpart_id)
+                paper, live = comparable_twins(books[deployment_id], books[counterpart_id])
+                rows = (
+                    (
+                        await conn.execute(
+                            select(deployment_twin_links).where(
+                                or_(
+                                    deployment_twin_links.c.paper_deployment_id == paper.id,
+                                    deployment_twin_links.c.live_deployment_id == live.id,
+                                )
+                            )
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                for row in rows:
+                    current = _twin_link_from_row(row)
+                    if (
+                        current.paper_deployment_id == paper.id
+                        and current.live_deployment_id == live.id
+                    ):
+                        return current
+                    raise TwinConflictError(
+                        "A bot already has a twin. Unlink its current partner first."
+                    )
+                link = DeploymentTwinLink(paper.id, live.id, utc_now())
+                await conn.execute(
+                    insert(deployment_twin_links).values(
+                        paper_deployment_id=paper.id,
+                        live_deployment_id=live.id,
+                        linked_at=link.linked_at,
+                    )
+                )
+                return link
+        except IntegrityError as error:
+            raise TwinConflictError("A bot already has a twin. Read its current link.") from error
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Twin link storage is unavailable.") from error
+
+    async def unlink_twins(self, deployment_id: UUID, counterpart_id: UUID) -> None:
+        """Delete only the expected pair under the same ordered locks as linking."""
+        try:
+            async with self._engine.begin() as conn:
+                await _lock_twin_books(conn, deployment_id, counterpart_id)
+                row = (
+                    (
+                        await conn.execute(
+                            select(deployment_twin_links).where(
+                                or_(
+                                    deployment_twin_links.c.paper_deployment_id == deployment_id,
+                                    deployment_twin_links.c.live_deployment_id == deployment_id,
+                                )
+                            )
+                        )
+                    )
+                    .mappings()
+                    .first()
+                )
+                if row is None:
+                    return
+                link = _twin_link_from_row(row)
+                if link.counterpart(deployment_id) != counterpart_id:
+                    raise TwinConflictError(
+                        "The twin partner changed. Read the current link before unlinking."
+                    )
+                await conn.execute(
+                    delete(deployment_twin_links).where(
+                        deployment_twin_links.c.paper_deployment_id == link.paper_deployment_id
+                    )
+                )
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Twin link storage is unavailable.") from error
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
@@ -1126,4 +1248,33 @@ async def _summary_snapshot(
             fill_count=fill_count,
         ),
         open_orders=tuple(_order_from_row(row) for row in open_order_rows),
+    )
+
+
+async def _lock_twin_books(
+    conn: AsyncConnection, deployment_id: UUID, counterpart_id: UUID
+) -> dict[UUID, Deployment]:
+    """Lock both immutable identities in UUID order to avoid cross-pair deadlocks."""
+    rows = (
+        (
+            await conn.execute(
+                select(deployments)
+                .where(deployments.c.id.in_((deployment_id, counterpart_id)))
+                .order_by(deployments.c.id)
+                .with_for_update()
+            )
+        )
+        .mappings()
+        .all()
+    )
+    books = {row["id"]: _deployment_from_row(row) for row in rows}
+    if deployment_id not in books or counterpart_id not in books:
+        raise ExecutionStoreError("Deployment was not found.")
+    return books
+
+
+def _twin_link_from_row(row: RowMapping) -> DeploymentTwinLink:
+    """Restore one explicit pair from its durable row."""
+    return DeploymentTwinLink(
+        row["paper_deployment_id"], row["live_deployment_id"], row["linked_at"]
     )

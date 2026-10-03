@@ -1,6 +1,6 @@
 /**
- * Paper vs live entry fills for twin books on the same strategy snapshot
- * (ADR 0097, ADR 0098). A paper entry fills only when a later closed candle
+ * Paper vs live entry fills for explicitly linked twin books on the same strategy snapshot
+ * (ADR 0097, ADR 0098, ADR 0102). A paper entry fills only when a later closed candle
  * trades through the limit; the live twin fills when the venue matches it.
  * These helpers read one comparison row for the Portfolio page.
  */

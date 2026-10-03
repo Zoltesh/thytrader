@@ -298,7 +298,7 @@ class PortfolioFillComparisonsResponse(BaseModel):
     portfolio_id: UUID
     comparisons: tuple[PaperLiveFillComparison, ...]
     warnings: tuple[str, ...] = Field(
-        default=(), description="Twins skipped because a book could not be read."
+        default=(), description="Comparisons unavailable because links or a book could not be read."
     )
 
 
@@ -308,7 +308,7 @@ async def get_fill_comparisons(
     store: Annotated[PortfolioStore, Depends(get_portfolio_store)],
     execution: Annotated[ExecutionStore, Depends(get_execution_store)],
 ) -> PortfolioFillComparisonsResponse:
-    """Compare entry fills of paper and live books on the same snapshot as a sleeve."""
+    """Compare explicitly linked paper/live books with a sleeve in this portfolio."""
     try:
         await store.get(portfolio_id)
     except PortfolioError as error:

@@ -20,6 +20,7 @@
 	import { page as pageState } from '$app/state';
 	import EarlierEditNotice from '$lib/workspace/EarlierEditNotice.svelte';
 	import DecisionTimeline from '$lib/DecisionTimeline.svelte';
+	import DeploymentTwin from '$lib/DeploymentTwin.svelte';
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
 	import Segmented from '$lib/Segmented.svelte';
 	import { DECISION_RETENTION_NOTE, nextEvaluationText } from '$lib/decisions';
@@ -528,6 +529,8 @@
 				rules it ran are kept.
 			</p>
 		{/if}
+		<DeploymentTwin deployment={current} {inventory} disabled={stale || mutating} />
+
 		<EarlierEditNotice
 			deployment={current}
 			{currentFingerprint}

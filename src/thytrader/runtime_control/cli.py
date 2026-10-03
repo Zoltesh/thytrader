@@ -28,6 +28,7 @@ from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     clear_coinbase_credentials,
+    link_twin,
     list_decisions,
     list_deployments,
     place_discretionary_order,
@@ -39,8 +40,10 @@ from thytrader.runtime_control.client import (
     show_coinbase_credentials,
     show_deployment,
     show_risk_policy,
+    show_twin,
     show_yaml_settings,
     start_deployment,
+    unlink_twin,
 )
 from thytrader.runtime_control.portfolio_commands import (
     PORTFOLIO_COMMANDS,
@@ -96,7 +99,8 @@ def _parser() -> argparse.ArgumentParser:
             "Coinbase credentials, through the loopback HTTP API. Mutations "
             "require --confirm unless YOLO covers that tier. Live start, live "
             "resume, and live place-order also require --i-understand-live. Live place-order, "
-            "set-risk-policy, set-settings, and Coinbase credential set/clear "
+            "link-twin, unlink-twin, set-risk-policy, set-settings, and Coinbase "
+            "credential set/clear "
             "never skip --confirm. This is not the operator or research CLI."
         ),
         parents=[shared],
@@ -110,6 +114,7 @@ def _parser() -> argparse.ArgumentParser:
     show = subparsers.add_parser("show", parents=[trailing], help="Show one deployment snapshot.")
     show.add_argument("deployment_id", help="Deployment UUID.")
     _add_decisions_parser(subparsers, trailing)
+    _add_twin_parsers(subparsers, trailing)
     start = subparsers.add_parser(
         "start",
         parents=[trailing],
@@ -653,8 +658,8 @@ def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) 
         return _place_order(arguments, base_url, settings)
     if command in {"pause", "resume", "stop", "reset-breaker-latches"}:
         return _runtime_mutation(arguments, base_url, settings)
-    if command in PORTFOLIO_COMMANDS:
-        return run_portfolio_command(arguments, base_url, settings)
+    if command in {*PORTFOLIO_COMMANDS, "show-twin", "link-twin", "unlink-twin"}:
+        return _extended_runtime_command(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
         return show_risk_policy(base_url)
@@ -889,3 +894,54 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def _add_twin_parsers(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Expose metadata-only twin controls with an unconditional confirmation gate."""
+    for command in ("show-twin", "link-twin", "unlink-twin"):
+        parser = subparsers.add_parser(
+            command,
+            parents=[trailing],
+            help="Read or edit the explicit paper/live comparison pair; no trading action.",
+        )
+        parser.add_argument("deployment_id", help="Paper or live strategy bot UUID.")
+        if command != "show-twin":
+            parser.add_argument(
+                "--counterpart-deployment-id",
+                required=True,
+                help="Expected opposite-mode bot UUID.",
+            )
+            parser.add_argument(
+                "--confirm",
+                action="store_true",
+                help="Required even with YOLO; changes comparison metadata only.",
+            )
+
+
+def _twin_command(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
+    """Validate ids and gate metadata mutations before any HTTP request."""
+    deployment_id = str(_uuid_argument(arguments.deployment_id, "Deployment id"))
+    if arguments.command == "show-twin":
+        require_matching_ops_contract(base_url)
+        return show_twin(base_url, deployment_id)
+    counterpart_id = str(
+        _uuid_argument(arguments.counterpart_deployment_id, "Counterpart deployment id")
+    )
+    _require_confirm(
+        arguments.confirm, base_url=base_url, command=arguments.command, hard_gate=True
+    )
+    require_matching_ops_contract(base_url)
+    helper = link_twin if arguments.command == "link-twin" else unlink_twin
+    return helper(base_url, deployment_id, counterpart_id, settings=settings)
+
+
+def _extended_runtime_command(
+    arguments: argparse.Namespace, base_url: str, settings: Settings
+) -> object:
+    """Route portfolio lifecycle and separately gated comparison metadata controls."""
+    if arguments.command in PORTFOLIO_COMMANDS:
+        return run_portfolio_command(arguments, base_url, settings)
+    return _twin_command(arguments, base_url, settings)
