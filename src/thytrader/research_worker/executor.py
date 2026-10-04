@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from thytrader.backtest.submission import PostgresBacktestSubmitter
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
@@ -23,6 +24,7 @@ from thytrader.persistence.postgres_research_runs import PostgresResearchRunStor
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_studies import PostgresResearchStudyCatalog
 from thytrader.portfolios.jobs import PortfolioBacktestRunner
+from thytrader.research.campaign_service import CampaignService
 from thytrader.research.jobs import (
     ResearchJobErrorCode,
     ResearchJobLeaseLostError,
@@ -61,6 +63,7 @@ class ResearchWorkerServices:
     portfolios: PostgresPortfolioStore
     results: PostgresBacktestResultStore
     datasets: DatasetStore
+    campaigns: CampaignService | None = None
 
 
 def build_research_services(engine: AsyncEngine, dataset_root: Path) -> ResearchWorkerServices:
@@ -87,6 +90,13 @@ def build_research_services(engine: AsyncEngine, dataset_root: Path) -> Research
         portfolios=PostgresPortfolioStore(engine),
         results=results,
         datasets=datasets,
+        campaigns=CampaignService(
+            store=PostgresCampaignStore(engine),
+            strategies=PostgresStrategyStore(engine),
+            jobs=PostgresResearchJobStore(engine),
+            results=results,
+            datasets=datasets,
+        ),
     )
 
 

@@ -38,6 +38,8 @@ class EntrySkipReason(StrEnum):
     TARGET_NOT_POSITIVE = "target_not_positive"
     STOP_WITHIN_PRICE_INCREMENT = "stop_within_price_increment"
     TARGET_WITHIN_PRICE_INCREMENT = "target_within_price_increment"
+    NET_TARGET_BELOW_MINIMUM = "net_target_below_minimum"
+    ECONOMICS_FEE_UNAVAILABLE = "economics_fee_unavailable"
     SIZING_CASH_UNAVAILABLE = "sizing_cash_unavailable"
     NO_OPEN_POSITION = "no_open_position"
     INSUFFICIENT_CASH = "insufficient_cash"
@@ -54,6 +56,8 @@ _GEOMETRY_SKIPS = frozenset(
         EntrySkipReason.TARGET_NOT_POSITIVE,
         EntrySkipReason.STOP_WITHIN_PRICE_INCREMENT,
         EntrySkipReason.TARGET_WITHIN_PRICE_INCREMENT,
+        EntrySkipReason.NET_TARGET_BELOW_MINIMUM,
+        EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE,
     }
 )
 
@@ -207,6 +211,13 @@ def entry_bar_bucket(fill_time: datetime, timeframe: str) -> datetime:
 
 
 _SKIP_DETAILS: dict[EntrySkipReason, str] = {
+    EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE: (
+        "the economic guard requires a current live fee profile"
+    ),
+    EntrySkipReason.NET_TARGET_BELOW_MINIMUM: (
+        "the maker target after both fees does not meet the declared net return hurdle, "
+        "or no target is declared"
+    ),
     EntrySkipReason.ENTRY_PRICE_NOT_POSITIVE: "the entry price is not positive",
     EntrySkipReason.STOP_DISTANCE_NOT_POSITIVE: (
         "the ATR stop distance is not positive (ATR is zero, or an add is at or past the stop)"

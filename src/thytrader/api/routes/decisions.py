@@ -9,7 +9,7 @@ answers ``storage: "unavailable"`` with an empty page instead of an error.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Annotated, Literal
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
@@ -32,7 +32,7 @@ from thytrader.execution.decisions import (
     DecisionPage,
 )
 from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.strategies.library import (
     StrategyLibraryError,

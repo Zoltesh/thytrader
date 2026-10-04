@@ -294,13 +294,13 @@ async def _require_spot_product(market_data: MarketDataService, product_id: str)
     400: only a complete listing can prove a product is absent or disabled.
     """
     try:
-        products = await market_data.list_enabled_spot_products()
+        product = await market_data.enabled_spot_product(product_id)
     except Exception as error:
         raise ProductCatalogUnavailableError(
             "Could not verify the spot product list (the venue catalog did not load or came "
             "back incomplete). Nothing was changed; retry the same command."
         ) from error
-    if not any(product.product_id == product_id for product in products):
+    if product is None:
         raise DataControlError(
             f"{product_id} is not an enabled USD or USDC spot product. "
             "List enabled products with `uv run thytrader-operator products`."

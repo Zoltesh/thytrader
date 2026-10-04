@@ -173,7 +173,11 @@ def backtest_model_description() -> BacktestModelDescription:
                 label="Candles don't show queue position",
                 detail=(
                     "A touched limit is assumed to fill completely. Real resting orders can "
-                    "miss or partially fill when the price only touches them."
+                    "miss or partially fill when the price only touches them. Optional "
+                    "execution_stress "
+                    "adds deterministic activation latency, maker penetration, and a partial entry "
+                    "whose remainder is canceled. It is fingerprinted in costs and is not "
+                    "observed queue data."
                 ),
             ),
             BacktestModelAssumption(

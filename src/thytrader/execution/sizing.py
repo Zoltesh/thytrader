@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.economics import target_guard_allows
 from thytrader.execution.geometry import EntryLevels, EntrySkipReason, entry_levels
 from thytrader.execution.models import PositionSide
 from thytrader.strategies.models import reward_risk_multiple
@@ -140,6 +141,14 @@ def _bounded_order(
     side: PositionSide,
 ) -> SizedEntry | EntrySkipReason:
     """Risk-size against the realized stop, clamp to strategy/exposure/cash, check minimums."""
+    if not target_guard_allows(
+        strategy.entry.economic_guard,
+        side=side,
+        entry=entry_price,
+        target=levels.target_price,
+        fee=fee_rate,
+    ):
+        return EntrySkipReason.NET_TARGET_BELOW_MINIMUM
     realized_stop_distance = (
         (entry_price - levels.stop_price)
         if side is PositionSide.LONG

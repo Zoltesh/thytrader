@@ -16,10 +16,10 @@ instead of waiting for the lease to expire.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003 - Pydantic field type.
+from datetime import datetime
 import re
 from typing import Final, Literal
-from uuid import UUID  # noqa: TC003 - Pydantic field type.
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 

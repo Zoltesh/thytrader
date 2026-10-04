@@ -66,6 +66,7 @@ target-version = "py314"
 line-length = 100
 extend-exclude = [
     ".gitnexus",
+    ".claude/worktrees",
 ]
 show-fixes = true
 
@@ -132,6 +133,11 @@ known-first-party = ["thytrader"]
 [tool.ruff.lint.mccabe]
 max-complexity = 10
 
+[tool.ruff.lint.flake8-type-checking]
+# Pydantic evaluates model field annotations at runtime; these imports are required.
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+runtime-evaluated-decorators = ["fastapi.APIRouter.get", "fastapi.APIRouter.post", "fastapi.APIRouter.put", "fastapi.APIRouter.delete"]
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101", # Pytest uses assert statements by design.
@@ -147,3 +153,6 @@ line-ending = "lf"
 skip-magic-trailing-comma = false
 docstring-code-format = true
 docstring-code-line-length = "dynamic"
+
+[tool.ty.src]
+exclude = [".claude/worktrees/**", ".gitnexus/**"]

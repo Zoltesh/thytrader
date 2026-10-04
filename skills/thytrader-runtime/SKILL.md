@@ -600,3 +600,16 @@ Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
 can link when their pinned rules match exactly; the server ignores only root id, name, description,
 creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;
 the top-level fingerprint remains the paper-side reference. This never changes a bot or its rules.
+
+## Optional entry economics and protection trace (ADR 0109)
+
+An explicitly authored `entry.economic_guard` applies the frozen minimum net maker
+target return after both fees in paper/live as in research. It requires a TP; live
+requires a current fee profile. Refusals appear as `NET_TARGET_BELOW_MINIMUM` or
+`ECONOMICS_FEE_UNAVAILABLE`. Do not edit a deployed snapshot to enable the guard.
+The same observed tier reaches replacement entry sizing; repricing cannot bypass
+the optional guard. Strategies without it retain their existing behavior.
+Use the research skill to author and validate a new snapshot, then the existing runtime
+confirmation and live-acknowledgment gates to deploy only when requested. New decision
+rows display protective replacement identities and confirmed working coverage without
+rewriting historical evidence. Simulation `execution_stress` is research-only.

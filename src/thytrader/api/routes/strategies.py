@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Annotated, Literal
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, StrictBool, StrictInt
@@ -22,10 +22,10 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.strategy_http import strategy_http_error
-from thytrader.backtest.models import BacktestSummary  # noqa: TC001 - Pydantic model field.
+from thytrader.backtest.models import BacktestSummary
 from thytrader.execution.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - FastAPI Query annotation.
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -34,8 +34,8 @@ from thytrader.persistence.audit_events import (
     AuditEventStore,
 )
 from thytrader.persistence.backtest_results import (
-    BacktestResultReader,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
-    BacktestResultSummaryView,  # noqa: TC001 - FastAPI resolves this annotation at runtime.
+    BacktestResultReader,
+    BacktestResultSummaryView,
 )
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.strategies.advisories import strategy_warnings
@@ -55,7 +55,7 @@ from thytrader.strategies.library import (
     import_strategy,
     parse_document,
 )
-from thytrader.strategies.models import StrategyDefinition  # noqa: TC001 - Pydantic field.
+from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.summary import strategy_summary
 
 if TYPE_CHECKING:

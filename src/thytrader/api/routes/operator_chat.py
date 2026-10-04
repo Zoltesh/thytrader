@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from json import JSONDecodeError
 from typing import Annotated
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import ValidationError
@@ -19,8 +19,8 @@ from thytrader.operator_chat.models import (
     OperatorChatCredentialWrite,
     OperatorChatStatus,
 )
-from thytrader.operator_chat.service import OperatorChatService  # noqa: TC001 - FastAPI Depends.
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.operator_chat.service import OperatorChatService
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/operator-chat", tags=["operator-chat"])
 

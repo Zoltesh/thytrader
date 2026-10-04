@@ -46,6 +46,7 @@ from thytrader.research.publication import (
     dataset_evaluation_bounds,
     explain_evaluation_window_rejection,
 )
+from thytrader.research.stress import ExecutionStress
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
@@ -99,6 +100,9 @@ class BacktestAssumptions(BaseModel):
     taker_fee_rate: DecimalInputText
     fixed_slippage_bps: DecimalInputText
     spread_bps: DecimalInputText | None = None
+    execution_stress: ExecutionStress | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -862,6 +866,7 @@ def _cost_assumptions(request: BacktestAssumptions) -> CostAssumptions:
         taker_fee_rate=request.taker_fee_rate,
         fixed_slippage_bps=request.fixed_slippage_bps,
         spread_bps=request.spread_bps if request.spread_bps is not None else "0",
+        execution_stress=request.execution_stress,
     )
 
 

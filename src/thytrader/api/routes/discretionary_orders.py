@@ -20,27 +20,27 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.routes.deployments import DeploymentResponse, _snapshot_response
-from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001 - FastAPI Depends.
+from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
-from thytrader.execution.broker import Broker  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.broker import Broker
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.geometry import base_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.products import (
     SPOT_PRODUCT_ID_PATTERN,
     quote_currency as spot_quote_currency,
 )
-from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
-from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.market_data.service import MarketDataService
+from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.persistence.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.risk.store import RiskPolicyStore
+from thytrader.runtime import RuntimeState
 
 if TYPE_CHECKING:
     from decimal import Decimal

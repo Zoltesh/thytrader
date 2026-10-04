@@ -3,10 +3,11 @@
 # FastAPI resolves these dependency annotations at runtime.
 from typing import TYPE_CHECKING, cast
 
-from fastapi import Request  # noqa: TC002
+from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.backtest.submission import BacktestSubmitter
+from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
 from thytrader.execution.decision_store import DecisionJournalStore
@@ -24,10 +25,16 @@ from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
+from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
+from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
+from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
 from thytrader.portfolio.service import PortfolioService
 from thytrader.portfolios.store import PortfolioBacktestStore, PortfolioStorage, PortfolioStore
+from thytrader.research.campaign_service import CampaignService
 from thytrader.research.catalog import ResearchStudyCatalog
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
@@ -352,3 +359,24 @@ def get_operator_chat_service(request: Request) -> OperatorChatService:
         message = "Operator chat service is unavailable."
         raise TypeError(message)
     return service
+
+
+def get_campaign_service(request: Request) -> CampaignService:
+    """Compose research-only campaigns from the same authoritative stores as the API."""
+    engine = get_database_engine(request)
+    if engine is None:
+        raise HTTPException(
+            503,
+            detail={"code": "campaigns_unavailable", "message": "Campaigns require PostgreSQL."},
+        )
+    datasets = get_dataset_store(request)
+    return CampaignService(
+        store=PostgresCampaignStore(engine),
+        strategies=PostgresStrategyStore(engine),
+        jobs=PostgresResearchJobStore(engine),
+        results=PostgresBacktestResultStore(
+            engine, research_run_store=PostgresResearchRunStore(engine), dataset_store=datasets
+        ),
+        datasets=datasets,
+        provider=ingestion_provider(get_runtime_state(request).settings),
+    )

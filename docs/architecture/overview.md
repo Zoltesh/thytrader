@@ -283,3 +283,15 @@ inside the Coinbase account adapter, which exposes provider-neutral typed read f
 Operator reports disclose only operation, category and status. Reconciliation correlates
 known WebSocket failures and connected events in its bounded audit window, retaining
 all failures and leaving unknown order outcomes unresolved. Ops contract v65; no migration.
+
+### Shipped: research reliability and frozen validation (ADR 0109)
+
+Publication-integrity summary reads and bulk exports avoid full ledger/Parquet reads.
+Shared fresh catalog observations preserve explicit product authority. New decision
+records distinguish protective replacement identities and confirmed quantity coverage.
+Read-only economic preflight and optional shared net-target entry guards expose fee
+viability. Explicit execution stresses retain the unified engine; omitted profiles
+retain original fingerprints. PostgreSQL campaigns freeze rules/windows/costs/gates,
+atomically queue existing research jobs, and durably track prospective data readiness,
+sample outcomes and deadlines through the existing research worker. No campaign
+state grants runtime or order authority. See docs/user/research.md and skills/thytrader-research.

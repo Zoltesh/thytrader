@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 

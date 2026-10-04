@@ -6,10 +6,10 @@ results or grant paper/live trading authority.
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 - Pydantic field type.
+from datetime import datetime
 import logging
 from typing import Annotated, Literal
-from uuid import UUID  # noqa: TC003 - FastAPI path parameter binding
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.exceptions import RequestValidationError
@@ -37,9 +37,9 @@ from thytrader.api.research_execution import (
 from thytrader.api.strategy_http import strategy_http_error
 from thytrader.backtest.submission import BacktestSubmitter  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore  # noqa: TC001
-from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
-from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.datasets import DatasetStore
+from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.postgres_research_jobs import ResearchJobUnavailableError
 from thytrader.research.backtest_model import BacktestModelDescription, backtest_model_description
 from thytrader.research.catalog import (
@@ -82,7 +82,7 @@ from thytrader.research.study_start import (
     ResearchStudyStartRequest,
     bind_study_start,
 )
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
 from thytrader.strategies.library import (
     StrategyLibraryError,
     StrategyStore,

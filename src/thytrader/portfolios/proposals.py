@@ -25,7 +25,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 import re
 from typing import TYPE_CHECKING, Annotated, Final, Literal, Self
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import (
     AfterValidator,

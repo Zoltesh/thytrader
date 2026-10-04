@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal  # noqa: TC003
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, field_serializer
 
 from thytrader.api.dependencies import get_dataset_store, get_market_data_service
-from thytrader.market_data.datasets import DatasetManifest, DatasetStore  # noqa: TC001
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.market_data.models import (
     CandleRangeReport,
     DatasetTimeframe,
@@ -19,7 +19,7 @@ from thytrader.market_data.models import (
     parse_candle_interval,
 )
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.market_data.service import MarketDataService  # noqa: TC001
+from thytrader.market_data.service import MarketDataService
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
 

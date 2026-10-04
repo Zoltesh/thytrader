@@ -7,7 +7,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Request
 
 from thytrader.api.dependencies import get_trust_boundary
-from thytrader.security.boundary import TrustBoundary  # noqa: TC001 - FastAPI Depends.
+from thytrader.security.boundary import TrustBoundary
 from thytrader.security.models import SecuritySessionView, TrustBoundaryStatusView
 
 router = APIRouter(prefix="/api/v1/security", tags=["security"])

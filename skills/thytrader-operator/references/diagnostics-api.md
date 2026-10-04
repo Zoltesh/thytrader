@@ -48,3 +48,20 @@ or `DATABASE_UNREACHABLE`).
 If the CLI exits because of an application version mismatch, an ops-contract mismatch, or an agent route returns 404 while `GET /health/ready` is 200, rebuild with `make run`. Package version `0.1.0` is not enough to prove the running image matches this CLI. Do not treat a printed report plus a stderr warning as success.
 
 CLI equivalents are listed in `SKILL.md`. Process entry point: `thytrader-operator`.
+
+## Research reliability and protection tracing (ADR 0109)
+
+`products` reports `catalog_fingerprint` and UTC `catalog_observed_at` for its shared
+30-second catalog observation. Authoritative product rows precede inferred aliases;
+a disabled explicit row stays disabled. A watch mutation verifies an omitted product
+through direct provider lookup when supported. Unverifiable refreshes fail closed,
+without silently extending stale catalog authority. Read the data skill for mutations.
+
+New bar decisions include optional `protection_update`: canceled and current order
+IDs, prior/current stop, target, working coverage and position quantities, and
+`fully_covered`. Only confirmed OPEN order remainders count toward coverage; UNKNOWN
+or PENDING replacements do not prove coverage. Protective churn retains holding/exit
+classification rather than being mistaken for a canceled entry. Legacy rows are
+unchanged and may lack this trace. The runtime decision timeline displays the trace.
+Read-only campaign/economic tools and bounded exports live in the research skill;
+operator observation grants no research mutation or runtime/order authority.

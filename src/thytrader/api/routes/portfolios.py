@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import logging
 from typing import TYPE_CHECKING, Annotated, Literal
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from pydantic import BaseModel, Field
@@ -28,9 +28,9 @@ from thytrader.api.dependencies import (
 from thytrader.api.live_ack import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.api.strategy_http import strategy_http_error
 from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.operator.models import PaperLiveFillComparison  # noqa: TC001 - Pydantic field.
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.datasets import DatasetStore
+from thytrader.operator.models import PaperLiveFillComparison
 from thytrader.operator.portfolios_report import paper_live_fill_comparisons
 from thytrader.persistence.audit_events import (
     AuditEvent,

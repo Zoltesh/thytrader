@@ -8,6 +8,8 @@ from decimal import Decimal, InvalidOperation
 from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
+from requests.exceptions import RequestException
+
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -20,6 +22,7 @@ from thytrader.market_data.models import (
 )
 from thytrader.market_data.products import is_spot_product_id, parse_spot_product_id
 from thytrader.market_data.quality import CandleQualityError, analyze_candles, analyze_range
+from thytrader.market_data.service import MarketProductNotFoundError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -102,6 +105,20 @@ class CoinbaseMarketData:
             get_all_products=True,
         )
         return _parse_products(response.to_dict())
+
+    async def get_product(self, product_id: str) -> MarketProduct:
+        """Verify one product directly when the all-products response omitted it."""
+        try:
+            response = await asyncio.to_thread(self._client.get_product, product_id)
+        except RequestException as error:
+            response_status = getattr(getattr(error, "response", None), "status_code", None)
+            if response_status == 404:
+                raise MarketProductNotFoundError("The requested product was not found.") from None
+            raise CoinbaseMarketDataError("Product availability could not be verified.") from None
+        product = _parse_product(response.to_dict())
+        if product.product_id != product_id:
+            raise CoinbaseMarketDataError("Product availability returned a different identity.")
+        return product
 
     async def get_recent_preview(
         self,
@@ -305,6 +322,7 @@ def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
     _require_complete_catalog(payload, len(raw_products))
     products: list[MarketProduct] = []
     seen: set[str] = set()
+    aliases: list[tuple[MarketProduct, object]] = []
     for raw_product in raw_products:
         if not isinstance(raw_product, dict):
             message = "Coinbase product response included a non-object product."
@@ -319,8 +337,11 @@ def _parse_products(payload: dict[str, Any]) -> tuple[MarketProduct, ...]:
         if product.product_id not in seen:
             seen.add(product.product_id)
             products.append(product)
-        products.extend(_alias_spot_products(product, product_payload.get("alias_to"), seen))
-    return tuple(products)
+        aliases.append((product, product_payload.get("alias_to")))
+    # Explicit venue rows are authoritative even when an earlier row names them as aliases.
+    for product, raw_aliases in aliases:
+        products.extend(_alias_spot_products(product, raw_aliases, seen))
+    return tuple(sorted(products, key=lambda item: item.product_id))
 
 
 def _alias_spot_products(

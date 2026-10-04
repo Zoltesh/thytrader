@@ -24,6 +24,7 @@ from pydantic import (
 
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
+from thytrader.research.stress import ExecutionStress
 
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
@@ -230,6 +231,9 @@ class CostAssumptions(_FrozenModel):
     taker_fee_rate: DecimalText
     fixed_slippage_bps: DecimalText
     spread_bps: DecimalText = "0"
+    execution_stress: ExecutionStress | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @field_validator("maker_fee_rate", "taker_fee_rate")
     @classmethod

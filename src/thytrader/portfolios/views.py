@@ -7,18 +7,18 @@ responses with the same models instead of reading untyped JSON.
 from __future__ import annotations
 
 from typing import Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
-from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Pydantic field.
-from thytrader.portfolios.backtest import (  # noqa: TC001 - Pydantic field types.
+from thytrader.market_data.products import SpotQuoteCurrency
+from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestListing,
     PortfolioBacktestResult,
 )
 from thytrader.portfolios.deployment import (
-    PortfolioDeploymentState,  # noqa: TC001 - Pydantic field type.
+    PortfolioDeploymentState,
 )
 from thytrader.portfolios.models import (
     JournalEntry,

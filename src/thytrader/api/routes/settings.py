@@ -8,7 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from thytrader.api.dependencies import get_runtime_state
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
 from thytrader.settings_yaml import (
     YamlSettingsError,
     YamlSettingsView,

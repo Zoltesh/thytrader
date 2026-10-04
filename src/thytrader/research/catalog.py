@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - Pydantic field type.
-from thytrader.research.parameter_sweep import SelectionMetric  # noqa: TC001 - Pydantic field type.
+from thytrader.market_data.models import DatasetTimeframe
+from thytrader.research.parameter_sweep import SelectionMetric
 
 if TYPE_CHECKING:
     from uuid import UUID

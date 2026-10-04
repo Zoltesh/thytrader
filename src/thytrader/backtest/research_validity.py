@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from thytrader.research.stress import ExecutionStress
 
 from thytrader.strategies.models import StrategyDefinition, signal_exit_condition
 
@@ -12,6 +15,7 @@ ResearchValidityLimitCode = Literal[
     "spot_short_synthetic",
     "signal_exit_at_close",
     "synthetic_no_trade_bars",
+    "execution_stress",
 ]
 
 
@@ -19,6 +23,7 @@ def collect_backtest_validity_limits(
     strategy: StrategyDefinition,
     *,
     no_trade_bars: int = 0,
+    execution_stress: ExecutionStress | None = None,
 ) -> tuple[ResearchValidityLimitCode, ...]:
     """Return the modeling limits that apply to one unified backtest result.
 
@@ -33,9 +38,12 @@ def collect_backtest_validity_limits(
     ``synthetic_no_trade_bars``, and gap-free windows keep their exact limits.
     """
     limits: list[ResearchValidityLimitCode] = [
-        "maker_touch_full_fill",
         "stop_before_tp_same_bar",
     ]
+    if execution_stress is None:
+        limits.insert(0, "maker_touch_full_fill")
+    else:
+        limits.insert(0, "execution_stress")
     if strategy.entry.side == "short":
         limits.append("spot_short_synthetic")
     if signal_exit_condition(strategy.exits) is not None:

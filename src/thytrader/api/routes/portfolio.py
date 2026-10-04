@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 - Pydantic resolves this model field at runtime.
-from decimal import Decimal  # noqa: TC003 - Pydantic resolves and serializes this at runtime.
+from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, field_serializer
 
 from thytrader.api.dependencies import get_portfolio_service
 from thytrader.portfolio.models import Portfolio  # noqa: TC001 - resolved by Pydantic at runtime.
-from thytrader.portfolio.service import (  # noqa: TC001 - resolved by FastAPI Depends at runtime.
+from thytrader.portfolio.service import (
     PortfolioService,
 )
 

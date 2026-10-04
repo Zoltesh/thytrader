@@ -16,9 +16,9 @@ request always carries exact fingerprints and bounds.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003 - Pydantic field type.
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal, Self
-from uuid import UUID  # noqa: TC003 - Pydantic field type.
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -47,6 +47,7 @@ from thytrader.research.parameter_sweep import (
     SelectionMetric,
     derive_parameter_candidates,
 )
+from thytrader.research.stress import ExecutionStress
 from thytrader.research.studies import (
     STUDY_CONTRACT_VERSION,
     FoldMode,
@@ -113,6 +114,9 @@ class ResearchStudyStartRequest(_FrozenStartModel):
     taker_fee_rate: DecimalInputText
     fixed_slippage_bps: DecimalInputText
     spread_bps: DecimalInputText | None = None
+    execution_stress: ExecutionStress | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     strategy_id: UUID | None = None
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -426,6 +430,7 @@ def _child_window(
         taker_fee_rate=start.taker_fee_rate,
         fixed_slippage_bps=start.fixed_slippage_bps,
         spread_bps=start.spread_bps,
+        execution_stress=start.execution_stress,
     )
     try:
         return resolve_backtest_window(request, child.snapshot, datasets)

@@ -82,6 +82,7 @@ async def _work(
     flip = False
     status.idle()
     while not stop.is_set():
+        await _campaign_tick(executor)
         claimed = await _claim(queue, spec, order=_REVERSED_QUEUES if flip else RESEARCH_QUEUES)
         flip = not flip
         if claimed is None:
@@ -133,6 +134,17 @@ async def _claim(
     except ResearchQueueUnavailableError:
         _logger.warning("research_worker_claim_failed slot=%s", spec.slot)
         return None
+
+
+async def _campaign_tick(executor: ResearchJobExecutor) -> None:
+    """Bound scheduling errors to research; never prevent normal queue or lease work."""
+    campaigns = executor.services.campaigns
+    if campaigns is None:
+        return
+    try:
+        await campaigns.tick()
+    except Exception:
+        _logger.exception("research_campaign_refresh_failed")
 
 
 async def _run_or_stop(

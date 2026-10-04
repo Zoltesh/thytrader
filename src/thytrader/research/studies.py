@@ -21,8 +21,8 @@ from pydantic import (
 )
 
 from thytrader.backtest.models import (
-    BacktestResult,  # noqa: TC001 - used as a runtime result map value.
-    BacktestSummary,  # noqa: TC001 - Pydantic model field.
+    BacktestResult,
+    BacktestSummary,
 )
 from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
@@ -60,6 +60,7 @@ from thytrader.research.parameter_sweep import (
     validate_parameter_axes_candidate_budget,
 )
 from thytrader.research.publication import explain_evaluation_window_rejection
+from thytrader.research.stress import ExecutionStress
 from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:
@@ -197,6 +198,9 @@ class ResearchStudyRequest(_FrozenStudyModel):
     taker_fee_rate: str
     fixed_slippage_bps: str
     spread_bps: str | None = None
+    execution_stress: ExecutionStress | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
     htf_dataset_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT_PATTERN)
@@ -792,6 +796,7 @@ def window_submission_request(
         taker_fee_rate=request.taker_fee_rate,
         fixed_slippage_bps=request.fixed_slippage_bps,
         spread_bps=request.spread_bps,
+        execution_stress=request.execution_stress,
     )
 
 

@@ -554,7 +554,8 @@ class OperatorDiagnostics:
                 payload=ProductsPayload(provider="unknown", products=()),
             )
         try:
-            listed = await self.market_data.list_enabled_spot_products()
+            catalog = await self.market_data.catalog_snapshot()
+            listed = catalog.enabled_products
         except Exception:  # noqa: BLE001 - catalog failures stay redacted.
             component = ComponentReport(
                 name="products",
@@ -586,6 +587,8 @@ class OperatorDiagnostics:
             recommended_next_action=recommend_next_action((component,)),
             payload=ProductsPayload(
                 provider=_catalog_provider(self.settings),
+                catalog_fingerprint=catalog.fingerprint,
+                catalog_observed_at=catalog.observed_at,
                 products=tuple(
                     ProductSummary(
                         product_id=item.product_id,

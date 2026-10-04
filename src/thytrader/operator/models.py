@@ -5,32 +5,32 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from thytrader.backtest.models import (  # noqa: TC001 - Pydantic field types.
+from thytrader.backtest.models import (
     BacktestEvaluationWindow,
     BacktestPerformanceMetrics,
 )
 from thytrader.exchanges.read_errors import (
-    ExchangeReadFailure,  # noqa: TC001 - Pydantic field type.
+    ExchangeReadFailure,
 )
-from thytrader.execution.decisions import (  # noqa: TC001 - Pydantic field types.
+from thytrader.execution.decisions import (
     BarDecision,
     DecisionOutcome,
 )
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
-from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Pydantic field type.
-from thytrader.memory.models import MonitorSnapshot  # noqa: TC001 - Pydantic field type.
-from thytrader.memory.trade_reasons import TradeReasonRecord  # noqa: TC001 - Pydantic field type.
+from thytrader.market_data.products import SpotQuoteCurrency
+from thytrader.memory.models import MonitorSnapshot
+from thytrader.memory.trade_reasons import TradeReasonRecord
 from thytrader.ops_contract import expected_ops_contract
-from thytrader.portfolios.models import (  # noqa: TC001 - Pydantic field types.
+from thytrader.portfolios.models import (
     ManagerSettings,
     PortfolioLimits,
 )
-from thytrader.research.catalog import StudyCatalogSummary  # noqa: TC001 - Pydantic field type.
-from thytrader.strategies.indicator_catalog import ParameterKind  # noqa: TC001 - Pydantic field.
+from thytrader.research.catalog import StudyCatalogSummary
+from thytrader.strategies.indicator_catalog import ParameterKind
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"
@@ -911,6 +911,8 @@ class ProductsPayload(_FrozenModel):
 
     provider: str
     products: tuple[ProductSummary, ...]
+    catalog_fingerprint: str | None = None
+    catalog_observed_at: datetime | None = None
 
 
 class ProductsReport(OperatorEnvelope):

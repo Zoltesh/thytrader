@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from thytrader.api.dependencies import get_portfolio_service
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
 from thytrader.portfolio.service import (
-    PortfolioService,  # noqa: TC001 - FastAPI resolves dependency at runtime.
+    PortfolioService,
 )
 
 if TYPE_CHECKING:

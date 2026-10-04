@@ -17,7 +17,7 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryUnavailableError,
 )
 from thytrader.runtime import (
-    RuntimeState,  # noqa: TC001 - FastAPI resolves this dependency annotation at runtime.
+    RuntimeState,
 )
 
 router = APIRouter(prefix="/api/v1/portfolio", tags=["portfolio"])

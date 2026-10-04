@@ -78,3 +78,7 @@ comparison metadata, never bot lifecycle or trading rules.
 
 Manager briefings include the same journal-based open-book marks and paid-entry-fee PnL as bot
 detail. Entry exposure and capital reservations count working entries, excluding verified exits.
+
+Research reliability: [frozen campaigns, prospective validation, economic preflight,
+stress assumptions, and bounded exports](user/research.md) are shipped through the research
+HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.

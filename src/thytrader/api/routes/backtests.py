@@ -46,8 +46,9 @@ from thytrader.backtest.models import (
     backtest_evaluation_window,
     backtest_result_fingerprint,
 )
-from thytrader.backtest.submission import BacktestStartRequest  # noqa: TC001 - FastAPI body.
-from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.backtest.projections import BacktestProjection, BacktestProjectionReader
+from thytrader.backtest.submission import BacktestStartRequest
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
     BacktestBenchmarkNotFoundError,
@@ -86,9 +87,9 @@ from thytrader.research.trace_service import (
     evaluate_result_signal_trace,
     signal_trace_page,
 )
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
-from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.strategies.snapshots import (  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
+from thytrader.strategies.library import StrategyStore
+from thytrader.strategies.snapshots import (
     StrategySnapshotStore,
 )
 
@@ -161,23 +162,12 @@ class BacktestDetailResponse(BaseModel):
     window: BacktestEvaluationWindow | None = None
 
 
-class BacktestSummaryDetailResponse(BaseModel):
+class BacktestSummaryDetailResponse(BacktestProjection):
     """Bounded backtest projection without trades or equity curves.
 
     ``window`` names the evaluated bars (evaluation_start/end, warmup_bars, first and
     last evaluated bar), derived from the source run at read time (ADR 0094).
     """
-
-    model_config = ConfigDict(from_attributes=True)
-    result_fingerprint: str
-    run_fingerprint: str
-    strategy_fingerprint: str
-    dataset_fingerprint: str
-    summary: BacktestSummary
-    costs: CostAssumptions | None = None
-    metrics: BacktestPerformanceMetrics | None = None
-    diagnostics: BacktestDiagnostics | None = None
-    window: BacktestEvaluationWindow | None = None
 
 
 class BacktestMetricsResponse(BaseModel):
@@ -185,6 +175,29 @@ class BacktestMetricsResponse(BaseModel):
 
     metrics: BacktestPerformanceMetrics
     result_fingerprint: str
+
+
+class BacktestExportResponse(BaseModel):
+    """One cursor page of small research projections without full simulation ledgers."""
+
+    entries: tuple[BacktestSummaryDetailResponse, ...]
+    returned: int
+    has_more: bool
+    next_cursor: str | None = None
+
+
+async def _bounded_projection(
+    store: BacktestResultReader,
+    result_fingerprint: str,
+    detail: Literal["summary", "full"],
+) -> BacktestSummaryDetailResponse | None:
+    """Use the bounded capability when available; retain verified legacy-store behavior."""
+    if detail != "summary" or not isinstance(store, BacktestProjectionReader):
+        return None
+    projection = (await store.load_projections((result_fingerprint,)))[0]
+    if projection.result_fingerprint != result_fingerprint:
+        raise BacktestResultIntegrityError("Projection returned a different result identity.")
+    return BacktestSummaryDetailResponse.model_validate(projection.model_dump(mode="python"))
 
 
 class BacktestBenchmarkResponse(BaseModel):
@@ -259,6 +272,12 @@ def _raise_client_disconnected() -> None:
         status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
         detail={"code": "backtest_invalid", "message": "Client disconnected."},
     )
+
+
+async def _require_connected(http_request: Request) -> None:
+    """Avoid fetching further evidence after the requesting client disconnects."""
+    if await http_request.is_disconnected():
+        _raise_client_disconnected()
 
 
 def _fingerprint_or_none(value: str | None) -> str | None:
@@ -453,6 +472,47 @@ async def list_backtests(
     )
 
 
+@router.get("/export", response_model=BacktestExportResponse)
+async def export_backtests(
+    store: Annotated[BacktestResultReader, Depends(get_backtest_result_store)],
+    strategy_id: Annotated[UUID | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=_MAX_LIMIT)] = 50,
+    cursor: Annotated[str | None, Query()] = None,
+) -> BacktestExportResponse:
+    """Export publication projections without recalculating historical simulations."""
+    if not isinstance(store, BacktestProjectionReader):
+        raise HTTPException(
+            503,
+            detail={"code": "backtests_unavailable", "message": "Bounded export is unavailable."},
+        )
+    start = _list_offset(offset=0, cursor=cursor)
+    try:
+        listed = await store.list_summaries(strategy_id=strategy_id, limit=limit + 1, offset=start)
+        projections = await store.load_projections(
+            tuple(row.result_fingerprint for row in listed[:limit])
+        )
+    except BacktestResultNotFoundError:
+        raise HTTPException(
+            404,
+            detail={"code": "backtest_not_found", "message": "Backtest publication was not found."},
+        ) from None
+    except BacktestResultUnavailableError, BacktestResultIntegrityError:
+        raise HTTPException(
+            503,
+            detail={"code": "backtests_unavailable", "message": "Backtest export is unavailable."},
+        ) from None
+    has_more = len(listed) > limit
+    return BacktestExportResponse(
+        entries=tuple(
+            BacktestSummaryDetailResponse.model_validate(row.model_dump(mode="python"))
+            for row in projections
+        ),
+        returned=len(projections),
+        has_more=has_more,
+        next_cursor=encode_offset_cursor(start + limit) if has_more else None,
+    )
+
+
 @router.get(
     "/{result_fingerprint}/benchmark",
     response_model=BacktestBenchmarkResponse,
@@ -603,11 +663,12 @@ async def get_backtest(
             detail={"code": "backtest_invalid", "message": "Result fingerprint is malformed."},
         )
     try:
-        if await http_request.is_disconnected():
-            _raise_client_disconnected()
+        await _require_connected(http_request)
+        projection = await _bounded_projection(store, result_fingerprint, detail)
+        if projection is not None:
+            return projection
         result = await store.load(result_fingerprint)
-        if await http_request.is_disconnected():
-            _raise_client_disconnected()
+        await _require_connected(http_request)
         verified_result_fingerprint = backtest_result_fingerprint(result)
         costs, window = await _published_source_projection(store, result)
     except BacktestResultNotFoundError:
@@ -657,6 +718,7 @@ async def get_backtest(
             metrics=metrics,
             diagnostics=diagnostics,
             window=window,
+            verification_scope="full_artifacts",
         )
     return BacktestDetailResponse(
         result=result,

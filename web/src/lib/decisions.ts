@@ -178,6 +178,17 @@ export type DecisionFill = {
 
 /** One journaled bar decision (`thytrader-bar-decision-v1`). */
 export type BarDecision = {
+	protection_update?: {
+		kind: 'replacement' | 'canceled_without_replacement';
+		canceled_order_ids: string[];
+		active_order_ids: string[];
+		previous_stop_price: string | null;
+		stop_price: string | null;
+		target_price: string | null;
+		coverage_quantity: string;
+		position_quantity: string;
+		fully_covered: boolean;
+	} | null;
 	schema_version: typeof BAR_DECISION_SCHEMA_VERSION;
 	deployment_id: string;
 	strategy_id: string | null;

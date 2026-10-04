@@ -18,6 +18,7 @@ from thytrader import __version__
 from thytrader.api.routes.agent_orchestration import router as agent_orchestration_router
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
+from thytrader.api.routes.campaigns import router as campaigns_router
 from thytrader.api.routes.credentials import (
     router as credentials_router,
     suppress_credentials_validation_echo,
@@ -429,6 +430,7 @@ def create_app(
     app.include_router(research_studies_router)
     app.include_router(memory_router)
     app.include_router(backtests_router)
+    app.include_router(campaigns_router)
     return app
 
 

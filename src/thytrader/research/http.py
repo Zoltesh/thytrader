@@ -11,9 +11,11 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from thytrader.agent_http import AgentHttpError, request_json, request_mutation_json
+from thytrader.execution.economics import EconomicPreflightRequest
 from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
+from thytrader.research.campaigns import CampaignStart
 from thytrader.research.mutation import ResearchMutationError
 from thytrader.strategies.library import StrategyOrigin
 
@@ -668,6 +670,25 @@ def show_evidence(base_url: str, strategy_fingerprint: str) -> str:
     return _encode(body)
 
 
+def export_results(
+    base_url: str, *, limit: int = 50, cursor: str | None = None, strategy_id: UUID | None = None
+) -> str:
+    """Read a bounded page with summary, costs, window, metrics and diagnostics."""
+    query = {"limit": str(limit)}
+    if cursor is not None:
+        query["cursor"] = cursor
+    if strategy_id is not None:
+        query["strategy_id"] = str(strategy_id)
+    return _encode(
+        _as_object(
+            request_json(
+                method="GET", url=f"{base_url}/api/v1/backtests/export?{urlencode(query)}"
+            ),
+            "research export",
+        )
+    )
+
+
 def show_result(base_url: str, result_fingerprint: str) -> str:
     """Show one result summary without dumping the full trade ledger."""
     body = _as_object(
@@ -711,6 +732,8 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "costs": body.get("costs"),
             "metrics": body.get("metrics"),
             "diagnostics": body.get("diagnostics"),
+            "verification_scope": body.get("verification_scope"),
+            "warnings": body.get("warnings", []),
         }
     )
 
@@ -798,3 +821,50 @@ def _as_str(value: object, name: str) -> str:
 def _encode(payload: object) -> str:
     """Render stable JSON for agent consumption."""
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def create_campaign(base_url: str, document: object) -> str:
+    """Validate and freeze a campaign through the separately confirmed research lane."""
+    request = CampaignStart.model_validate(document)
+    return _encode(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/research/campaigns",
+            payload=request.model_dump(mode="json"),
+        )
+    )
+
+
+def economics(base_url: str, document: object) -> str:
+    """Calculate read-only economics; all POSTs still cross the installation boundary."""
+    request = EconomicPreflightRequest.model_validate(document)
+    return _encode(
+        request_mutation_json(
+            method="POST",
+            url=f"{base_url}/api/v1/research/economics",
+            payload=request.model_dump(mode="json"),
+        )
+    )
+
+
+def list_campaigns(base_url: str, *, limit: int = 20) -> str:
+    """Read a bounded campaign page."""
+    return _encode(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/campaigns?limit={limit}")
+    )
+
+
+def show_campaign(base_url: str, campaign_id: UUID) -> str:
+    """Read a frozen manifest, costs, deadlines, sample gates, and child evidence."""
+    return _encode(
+        request_json(method="GET", url=f"{base_url}/api/v1/research/campaigns/{campaign_id}")
+    )
+
+
+def refresh_campaign(base_url: str, campaign_id: UUID) -> str:
+    """Advance only the research jobs authorized by the frozen manifest."""
+    return _encode(
+        request_mutation_json(
+            method="POST", url=f"{base_url}/api/v1/research/campaigns/{campaign_id}/refresh"
+        )
+    )

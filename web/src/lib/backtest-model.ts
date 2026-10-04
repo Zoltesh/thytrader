@@ -139,9 +139,19 @@ export function backtestModelAssumptions(
 
 /** Modeling-limit codes every result discloses in `summary.validity_limits`. */
 export type ValidityLimitCode =
-	'maker_touch_full_fill' | 'stop_before_tp_same_bar' | 'spot_short_synthetic';
+	| 'maker_touch_full_fill'
+	| 'stop_before_tp_same_bar'
+	| 'spot_short_synthetic'
+	| 'signal_exit_at_close'
+	| 'synthetic_no_trade_bars'
+	| 'execution_stress';
 
 const VALIDITY_LIMIT_TEXT: Record<ValidityLimitCode, string> = {
+	execution_stress:
+		'Deterministic candle-based maker penetration, partial entry/remainder cancellation and activation latency; no observed queue position.',
+	signal_exit_at_close: 'Signal exits are simulated at the completed bar close.',
+	synthetic_no_trade_bars: 'Confirmed intervals without trades use flat zero-volume candles.',
+
 	maker_touch_full_fill: 'A touched maker limit is assumed to fill completely (no queue position).',
 	stop_before_tp_same_bar:
 		'When one candle touches both the stop and the take-profit, the stop is assumed (conservative).',

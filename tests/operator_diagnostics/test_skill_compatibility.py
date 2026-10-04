@@ -74,7 +74,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v65" in skill
+    assert "thytrader-ops-contract-v66" in skill
     assert "capital_normalized_performance" in skill
     assert "performance_capital_quote" in schemas
     assert "performance_maximum_drawdown_fraction" in schemas

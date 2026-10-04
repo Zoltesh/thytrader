@@ -209,7 +209,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v65`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v66`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -392,3 +392,20 @@ The repeated request is freshly signed on the same pagination cursor; exhausted 
 return no partial balances. Authentication, 429 rate limits, malformed responses and
 pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
 Order submissions and cancellations never use this retry helper.
+
+## Research reliability and protection tracing (ADR 0109)
+
+`products` reports `catalog_fingerprint` and UTC `catalog_observed_at` for its shared
+30-second catalog observation. Authoritative product rows precede inferred aliases;
+a disabled explicit row stays disabled. A watch mutation verifies an omitted product
+through direct provider lookup when supported. Unverifiable refreshes fail closed,
+without silently extending stale catalog authority. Read the data skill for mutations.
+
+New bar decisions include optional `protection_update`: canceled and current order
+IDs, prior/current stop, target, working coverage and position quantities, and
+`fully_covered`. Only confirmed OPEN order remainders count toward coverage; UNKNOWN
+or PENDING replacements do not prove coverage. Protective churn retains holding/exit
+classification rather than being mistaken for a canceled entry. Legacy rows are
+unchanged and may lack this trace. The runtime decision timeline displays the trace.
+Read-only campaign/economic tools and bounded exports live in the research skill;
+operator observation grants no research mutation or runtime/order authority.

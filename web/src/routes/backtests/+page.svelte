@@ -249,6 +249,7 @@
 <svelte:head><title>Backtests · ThyTrader</title></svelte:head>
 
 <main>
+	<p><a href={resolve('/research')}>Research campaigns and economic preflight</a></p>
 	<PageHead eyebrow="Research evidence" title="Backtests">
 		{#snippet intro()}
 			<p class="lede">
@@ -261,7 +262,8 @@
 				</p>{/if}
 			{#if strategyFilter !== null}
 				<p class="lede">
-					Filtered to strategy snapshot <code>{strategyFilter}</code>.
+					<a href={resolve('/research')}>Research campaigns and economic preflight</a> · Filtered to
+					strategy snapshot <code>{strategyFilter}</code>.
 					<a href={resolve('/backtests')}>Show all backtests</a>
 				</p>
 			{/if}

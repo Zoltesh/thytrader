@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.research.models import (  # noqa: TC001 - Pydantic field types.
+from thytrader.research.models import (
     BacktestEngine,
     FingerprintText,
 )

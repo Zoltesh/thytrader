@@ -35,7 +35,7 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])
 

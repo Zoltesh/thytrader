@@ -21,7 +21,7 @@ from thytrader.persistence.audit_events import (
     AuditEventStore,
     AuditEventUnavailableError,
 )
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/agent-orchestration", tags=["agent-orchestration"])
 

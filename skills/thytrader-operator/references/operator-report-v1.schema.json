@@ -163,6 +163,14 @@
           "type": ["string", "null"],
           "enum": ["USD", "USDC", "USDT", null],
           "description": "Performance only. Quote currency from the published instrument or discretionary product; null means provenance is unavailable, with a partial_result_warnings explanation."
+        },
+        "catalog_fingerprint": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$"
+        },
+        "catalog_observed_at": {
+          "type": ["string", "null"],
+          "format": "date-time"
         }
       }
     }

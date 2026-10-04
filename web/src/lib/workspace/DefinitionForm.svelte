@@ -747,6 +747,24 @@
 						/></label
 					>
 					<label>Trailing stop<input value={trailingStopText} disabled /></label>
+					<label class="field">
+						<span>Minimum net maker-target return (fraction, optional)</span>
+						<input
+							type="text"
+							value={model.economic_guard?.minimum_net_target_return_fraction ?? ''}
+							oninput={(event) => {
+								const value = event.currentTarget.value.trim();
+								model.economic_guard =
+									value === '' ? null : { minimum_net_target_return_fraction: value };
+								markDirty();
+							}}
+							placeholder="Disabled when empty"
+							disabled={readonly}
+						/>
+						<small
+							>Requires a target. Includes entry and exit maker fees; live requires a fee profile.</small
+						>
+					</label>
 				</div>
 				<div class="exit-rule" data-testid="signal-exit-section">
 					<label class="cooldown-row"

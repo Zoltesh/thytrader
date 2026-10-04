@@ -25,7 +25,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     BacktestSubmitter,
 )
-from thytrader.research.dataset_binding import BoundDataset  # noqa: TC001 - Pydantic field type.
+from thytrader.research.dataset_binding import BoundDataset
 from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyRequest,

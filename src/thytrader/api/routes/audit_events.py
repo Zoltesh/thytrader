@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 import logging
 from typing import Annotated, Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves model fields at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator

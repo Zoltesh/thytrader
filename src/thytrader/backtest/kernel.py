@@ -65,6 +65,7 @@ from thytrader.backtest.research_validity import (
     ResearchValidityLimitCode,
     collect_backtest_validity_limits,
 )
+from thytrader.execution.economics import target_guard_allows
 from thytrader.execution.geometry import EntrySkipReason, entry_levels
 from thytrader.execution.models import PositionSide as RuntimePositionSide
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
@@ -83,6 +84,7 @@ from thytrader.research.models import (
     specification_bar_interval,
 )
 from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
+from thytrader.research.stress import ExecutionStress, maker_touched
 from thytrader.research.trace import (
     EntryConditionOutcome,
     SignalTrace,
@@ -246,6 +248,7 @@ class _Costs:
     taker_fee_rate: Decimal
     slippage_bps: Decimal
     fill_model: FillModel
+    execution_stress: ExecutionStress | None = None
 
 
 class _FillEvidence(TypedDict, total=False):
@@ -398,6 +401,7 @@ def _simulate_books(
         taker_fee_rate=Decimal(specification.costs.taker_fee_rate),
         slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
         fill_model=FillModel(Decimal(specification.costs.spread_bps)),
+        execution_stress=specification.costs.execution_stress,
     )
     initial_cash = Decimal(specification.capital.initial_quote_balance)
     cash = initial_cash
@@ -491,6 +495,7 @@ def _simulate_books(
             evaluation_bars=evaluation_bars,
             validity_limits=collect_backtest_validity_limits(
                 strategy,
+                execution_stress=costs.execution_stress,
                 no_trade_bars=_evaluated_no_trade_bars(
                     [books[product_id] for product_id in product_ids],
                     specification.evaluation.starts_at,
@@ -575,22 +580,44 @@ def _match_entry(
         return cash
     if book.position is not None and not pending.is_pyramid_add:
         return cash
-    traded_through = (
-        candle.high >= pending.limit_price
-        if pending.side == "short"
-        else candle.low <= pending.limit_price
+    latency = 0 if costs.execution_stress is None else costs.execution_stress.entry_latency_bars
+    if pending.waited_bars < latency:
+        book.pending = replace(pending, waited_bars=pending.waited_bars + 1)
+        return cash
+    traded_through = maker_touched(
+        high=candle.high,
+        low=candle.low,
+        price=pending.limit_price,
+        buy=pending.side == "long",
+        stress=costs.execution_stress,
     )
     if traded_through:
         book.pending = None
+        if costs.execution_stress is not None:
+            pending = replace(
+                pending,
+                quantity=pending.quantity * Decimal(costs.execution_stress.entry_fill_fraction),
+            )
         return _fill_resting_entry(
             book, pending, candle, offset=offset, costs=costs, cash=cash, tally=tally
         )
     waited = pending.waited_bars + 1
-    if waited < strategy.execution.max_entry_wait_bars:
+    if waited - latency < strategy.execution.max_entry_wait_bars:
         book.pending = replace(pending, waited_bars=waited)
         return cash
     if strategy.execution.on_unfilled_entry == "reprice":
-        book.pending = replace(pending, limit_price=candle.close, waited_bars=0)
+        if not target_guard_allows(
+            strategy.entry.economic_guard,
+            side=pending.side,
+            entry=candle.close,
+            target=pending.target_price,
+            fee=costs.maker_fee_rate,
+        ):
+            book.pending = None
+            book.cooldown_bars = max(strategy.entry.cooldown_bars, 1)
+            tally.entries_expired += 1
+            return cash
+        book.pending = replace(pending, limit_price=candle.close, waited_bars=latency)
         tally.entries_repriced += 1
         return cash
     book.pending = None
@@ -679,7 +706,13 @@ def _match_take_profit(
     target = position.target_price
     if target is None:
         return None, cash
-    hit = candle.low <= target if position.side == "short" else candle.high >= target
+    hit = maker_touched(
+        high=candle.high,
+        low=candle.low,
+        price=target,
+        buy=position.side == "short",
+        stress=costs.execution_stress,
+    )
     if not hit:
         return None, cash
     trade, cash = _close_position(
@@ -923,6 +956,14 @@ def _size_entry(
     )
     if isinstance(levels, EntrySkipReason):
         return levels
+    if not target_guard_allows(
+        strategy.entry.economic_guard,
+        side=side,
+        entry=limit_price,
+        target=levels.target_price,
+        fee=maker_fee_rate,
+    ):
+        return EntrySkipReason.NET_TARGET_BELOW_MINIMUM
     sized = _bounded_notional(
         strategy,
         cash=cash,
@@ -954,6 +995,14 @@ def _size_pyramid_add(
     position: _Position,
 ) -> _PendingEntry | EntrySkipReason:
     """Size a same-side add against the existing stop without worsening the target."""
+    if not target_guard_allows(
+        strategy.entry.economic_guard,
+        side=position.side,
+        entry=limit_price,
+        target=position.target_price,
+        fee=maker_fee_rate,
+    ):
+        return EntrySkipReason.NET_TARGET_BELOW_MINIMUM
     stop_distance = (
         limit_price - position.stop_price
         if position.side == "long"

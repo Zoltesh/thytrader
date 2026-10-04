@@ -22,6 +22,7 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.execution.economics import EconomicEntryGuard
 from thytrader.market_data.models import (
     EXECUTION_TIMEFRAMES,
     DatasetTimeframe,
@@ -1289,6 +1290,9 @@ class EntryDefinition(_FrozenModel):
     when: ConditionGroup
     cooldown_bars: int = Field(ge=0, le=10_000)
     max_open_positions: int = Field(ge=1, le=8)
+    economic_guard: EconomicEntryGuard | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
     pyramiding: IntraStrategyPyramiding | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

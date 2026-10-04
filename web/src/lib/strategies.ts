@@ -327,6 +327,7 @@ export type BuilderModel = {
 	cooldown_bars: number;
 	max_open_positions: number;
 	pyramiding: PyramidingDraft | null;
+	economic_guard?: { minimum_net_target_return_fraction: string } | null;
 	metadata: { tags: string[]; notes: string[] };
 };
 
@@ -1115,6 +1116,7 @@ export function toBuilderModel(strategy: StrategyDefinition, revision: number): 
 		side?: 'long' | 'short';
 		max_open_positions?: number;
 		pyramiding?: PyramidingDraft | null;
+		economic_guard?: { minimum_net_target_return_fraction: string } | null;
 	};
 	const extras = (strategy.additional_instruments as CoveredInstrumentDraft[] | undefined) ?? [];
 	const exits = strategy.exits as BuilderModel['exits'];
@@ -1159,6 +1161,7 @@ export function toBuilderModel(strategy: StrategyDefinition, revision: number): 
 		cooldown_bars: entry.cooldown_bars,
 		max_open_positions: entry.max_open_positions ?? 1,
 		pyramiding: entry.pyramiding ?? null,
+		economic_guard: entry.economic_guard ?? null,
 		metadata: strategy.metadata as BuilderModel['metadata']
 	};
 }
@@ -1229,7 +1232,8 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 			when: model.entry.when,
 			cooldown_bars: model.cooldown_bars,
 			max_open_positions: model.max_open_positions,
-			...(model.pyramiding === null ? {} : { pyramiding: model.pyramiding })
+			...(model.pyramiding === null ? {} : { pyramiding: model.pyramiding }),
+			...(model.economic_guard == null ? {} : { economic_guard: model.economic_guard })
 		},
 		sizing: { kind: 'risk_fraction', ...model.sizing },
 		portfolio_limits: {

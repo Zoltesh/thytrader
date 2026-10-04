@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
 
-from thytrader.agent_orchestration.models import YoloTier  # noqa: TC001 - Pydantic field type.
+from thytrader.agent_orchestration.models import YoloTier
 from thytrader.config import Settings, parse_yolo_tiers_value
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.memory.models import NotifyProvider

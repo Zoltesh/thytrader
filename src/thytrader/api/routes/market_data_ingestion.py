@@ -35,7 +35,7 @@ from thytrader.market_data.worker_state import (
     validate_market_data_worker_state,
 )
 from thytrader.market_data_worker.service import island_covers_watch
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI resolves annotations at runtime.
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])
 _logger = logging.getLogger(__name__)

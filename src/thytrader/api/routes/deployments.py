@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated, Literal
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
@@ -29,7 +29,7 @@ from thytrader.execution.book_marks import (
     signed_unrealized_pnl,
 )
 from thytrader.execution.decision_store import (
-    DecisionJournalStore,  # noqa: TC001 - FastAPI Depends.
+    DecisionJournalStore,
 )
 from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.execution.models import (
@@ -66,7 +66,7 @@ from thytrader.execution.service import (
     resolved_deployment_timeframe,
     set_deployment_status,
 )
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.store import ExecutionStore
 from thytrader.execution.twins import (
     DeploymentTwinLink,
     TwinConflictError,
@@ -74,7 +74,7 @@ from thytrader.execution.twins import (
     load_twin_snapshots,
 )
 from thytrader.market_data.watchlist import (
-    MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
+    MarketDataWatchlistStore,
 )
 from thytrader.persistence.audit_events import (
     AuditEvent,
@@ -82,9 +82,9 @@ from thytrader.persistence.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
-from thytrader.strategies.library import StrategyStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.risk.store import RiskPolicyStore
+from thytrader.runtime import RuntimeState
+from thytrader.strategies.library import StrategyStore
 from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.snapshots import (
     StrategySnapshotError,

@@ -15,7 +15,7 @@ from decimal import Decimal
 from hashlib import sha256
 import json
 from typing import Final, Literal, Self
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -26,10 +26,10 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.backtest.models import ResultDecimalText  # noqa: TC001 - Pydantic field type.
-from thytrader.backtest.submission import BacktestSubmissionRequest  # noqa: TC001
-from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - Pydantic field type.
-from thytrader.market_data.products import SpotQuoteCurrency  # noqa: TC001 - Pydantic field.
+from thytrader.backtest.models import ResultDecimalText
+from thytrader.backtest.submission import BacktestSubmissionRequest
+from thytrader.market_data.models import DatasetTimeframe
+from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.portfolios.models import (
     MAX_SLEEVES,
     PORTFOLIO_BACKTEST_CONTRACT,

@@ -242,3 +242,11 @@ re-queue continuation after a durable hole or failure.
 - Inventing indicators that are not in `thytrader-operator indicators`
 - Interpolating missing candles or writing prices by hand (the worker's flat no-trade bars are the
   only synthetic bars, and only for confirmed intervals without trades)
+
+## Catalog authority (ADR 0109)
+
+Product reads share a bounded 30-second catalog observation whose fingerprint and
+UTC timestamp appear in `thytrader-operator products`. Explicit rows override aliases.
+Watch-add checks a missing listed product via authoritative direct lookup when the
+provider supports it. Disabled/absent markets stay blocked; unavailable observations
+fail closed rather than being called disabled. Data mutations still require --confirm.

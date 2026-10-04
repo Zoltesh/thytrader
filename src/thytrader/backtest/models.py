@@ -20,8 +20,8 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.backtest.research_validity import ResearchValidityLimitCode  # noqa: TC001
-from thytrader.execution.geometry import EntrySkipReason  # noqa: TC001 - Pydantic field type.
+from thytrader.backtest.research_validity import ResearchValidityLimitCode
+from thytrader.execution.geometry import EntrySkipReason
 from thytrader.research.models import (
     BACKTEST_ENGINE,
     BacktestEngine,

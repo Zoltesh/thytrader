@@ -608,3 +608,7 @@ The repeated request is freshly signed on the same pagination cursor; exhausted 
 return no partial balances. Authentication, 429 rate limits, malformed responses and
 pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
 Order submissions and cancellations never use this retry helper.
+
+Research reliability: [frozen campaigns, prospective validation, economic preflight,
+stress assumptions, and bounded exports](user/research.md) are shipped through the research
+HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.

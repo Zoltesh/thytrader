@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from datetime import datetime
 from enum import StrEnum
 from typing import Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 

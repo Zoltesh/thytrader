@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
 from thytrader.strategies.models import (
-    DecimalText,  # noqa: TC001 - Pydantic fields resolve this alias.
+    DecimalText,
 )
 
 RISK_POLICY_SCHEMA_VERSION: Literal["thytrader-risk-policy-v1"] = "thytrader-risk-policy-v1"

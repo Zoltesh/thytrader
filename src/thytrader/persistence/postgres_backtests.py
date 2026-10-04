@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 import logging
 import re
@@ -14,6 +15,7 @@ from sqlalchemy import JSON, cast as sql_cast, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestDiagnostics,
     BacktestEvaluationWindow,
@@ -24,6 +26,7 @@ from thytrader.backtest.models import (
     canonical_backtest_diagnostics_bytes,
     canonical_backtest_result_bytes,
 )
+from thytrader.persistence.backtest_projections import load_backtest_projections
 from thytrader.persistence.backtest_results import (
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
@@ -41,6 +44,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from thytrader.backtest.projections import BacktestProjection
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.research.publication import PublishedResearchRunSpecification
 
@@ -103,6 +107,7 @@ class PostgresBacktestResultStore:
             if diagnostics is None
             else canonical_backtest_diagnostics_bytes(diagnostics).decode("utf-8")
         )
+        metrics_json = await asyncio.to_thread(_publication_metrics_json, validated)
         inserted = insert(published_backtest_results).values(
             result_fingerprint=fingerprint,
             run_fingerprint=validated.run_fingerprint,
@@ -111,21 +116,21 @@ class PostgresBacktestResultStore:
             dataset_fingerprint=validated.dataset_fingerprint,
             signal_trace_fingerprint=validated.signal_trace_fingerprint,
             canonical_result=canonical,
+            metrics_json=metrics_json,
             published_at=datetime.now(UTC),
             diagnostics_json=diagnostics_json,
         )
-        statement = (
-            inserted.on_conflict_do_nothing()
-            if diagnostics_json is None
-            else inserted.on_conflict_do_update(
-                index_elements=[published_backtest_results.c.result_fingerprint],
-                set_={
-                    "diagnostics_json": func.coalesce(
-                        published_backtest_results.c.diagnostics_json,
-                        inserted.excluded.diagnostics_json,
-                    )
-                },
-            )
+        statement = inserted.on_conflict_do_update(
+            index_elements=[published_backtest_results.c.result_fingerprint],
+            set_={
+                "metrics_json": func.coalesce(
+                    published_backtest_results.c.metrics_json, inserted.excluded.metrics_json
+                ),
+                "diagnostics_json": func.coalesce(
+                    published_backtest_results.c.diagnostics_json,
+                    inserted.excluded.diagnostics_json,
+                ),
+            },
         )
         try:
             async with self._engine.begin() as connection:
@@ -138,6 +143,12 @@ class PostgresBacktestResultStore:
                 "Published backtest result content failed integrity verification."
             )
         return loaded
+
+    async def load_projections(
+        self, result_fingerprints: tuple[str, ...]
+    ) -> tuple[BacktestProjection, ...]:
+        """Read bounded authenticated publications without materializing their ledgers."""
+        return await load_backtest_projections(self._engine, result_fingerprints)
 
     async def load_diagnostics(self, result_fingerprint: str) -> BacktestDiagnostics | None:
         """Return the entry-funnel counters stored beside one result, or None when absent.
@@ -456,3 +467,11 @@ def _validate_fingerprint(value: str) -> None:
     """Reject malformed result identities before issuing a SQL query."""
     if not isinstance(value, str) or _FINGERPRINT_PATTERN.fullmatch(value) is None:
         raise BacktestPublicationError("Invalid backtest result fingerprint.")
+
+
+def _publication_metrics_json(result: BacktestResult) -> str | None:
+    """Leave undefined advisory ratios absent without rejecting valid ledger evidence."""
+    try:
+        return compute_performance_metrics(result).model_dump_json()
+    except ValueError:
+        return None

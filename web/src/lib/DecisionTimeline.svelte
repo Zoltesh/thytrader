@@ -382,6 +382,29 @@
 				? ''
 				: ` · intent ${decision.intent_id.slice(0, 8)}`}
 		</p>
+		{#if decision.protection_update}
+			<section class="block" aria-label="Protection update">
+				<h3>
+					Protection {decision.protection_update.kind === 'replacement'
+						? 'replacement'
+						: 'canceled'}
+				</h3>
+				<p>
+					Stop: {decision.protection_update.previous_stop_price ?? 'unknown'} → {decision
+						.protection_update.stop_price ?? 'none'}. Target: {decision.protection_update
+						.target_price ?? 'none'}.
+				</p>
+				<p>
+					Confirmed open coverage: {decision.protection_update.coverage_quantity} of {decision
+						.protection_update.position_quantity}.
+					{decision.protection_update.fully_covered
+						? 'Quantity covered.'
+						: 'Coverage is incomplete or unconfirmed.'}
+				</p>
+				<p>Canceled: {decision.protection_update.canceled_order_ids.join(', ')}.</p>
+				<p>Current: {decision.protection_update.active_order_ids.join(', ') || 'none'}.</p>
+			</section>
+		{/if}
 		{#if decision.orders.length > 0}
 			<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 			<div class="table-scroll" tabindex="0" role="region" aria-label="Orders linked to this bar">

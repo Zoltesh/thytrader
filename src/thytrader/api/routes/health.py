@@ -11,7 +11,7 @@ from thytrader.api.dependencies import get_runtime_state
 from thytrader.ops_contract import OPS_CONTRACT_ID, expected_ops_contract
 
 # FastAPI resolves this dependency annotation at runtime.
-from thytrader.runtime import RuntimeState  # noqa: TC001
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/health", tags=["health"])
 

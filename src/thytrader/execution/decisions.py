@@ -12,11 +12,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Annotated, Literal, TypeAlias
-from uuid import UUID  # noqa: TC003 - Pydantic resolves this annotation at runtime.
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from thytrader.execution.models import (  # noqa: TC001 - Pydantic field types.
+from thytrader.execution.models import (
     DeploymentMode,
     IntentPurpose,
     OrderKind,
@@ -24,13 +24,13 @@ from thytrader.execution.models import (  # noqa: TC001 - Pydantic field types.
     OrderStatus,
     PositionSide,
 )
-from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - Pydantic field type.
+from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.research.trace import (  # noqa: TC001 - Pydantic field types.
+from thytrader.research.trace import (
     EntryConditionOutcome,
     SignalTraceRecord,
 )
-from thytrader.strategies.models import ComparisonOperator  # noqa: TC001 - Pydantic field type.
+from thytrader.strategies.models import ComparisonOperator
 
 DECISION_SCHEMA_VERSION: Literal["thytrader-bar-decision-v1"] = "thytrader-bar-decision-v1"
 DECISION_RETENTION_MAX_ROWS_PER_DEPLOYMENT = 20_000
@@ -230,6 +230,9 @@ class DecisionOrder(_FrozenDecisionModel):
     price: DecisionDecimal | None = None
     filled_quantity: DecisionDecimal
     created_at: datetime
+    stop_trigger_price: DecisionDecimal | None = None
+    take_profit_price: DecisionDecimal | None = None
+    parent_order_id: UUID | None = None
 
     @field_validator("created_at")
     @classmethod
@@ -255,6 +258,20 @@ class DecisionFill(_FrozenDecisionModel):
     def require_utc_filled(cls, value: datetime) -> datetime:
         """Keep fill timestamps UTC."""
         return _require_utc(value)
+
+
+class DecisionProtectionUpdate(_FrozenDecisionModel):
+    """Observed protection changes, linked independently of entry cancellations."""
+
+    kind: Literal["replacement", "canceled_without_replacement"]
+    canceled_order_ids: tuple[UUID, ...] = Field(max_length=_MAX_LINKED)
+    active_order_ids: tuple[UUID, ...] = Field(max_length=_MAX_LINKED)
+    previous_stop_price: DecisionDecimal | None = None
+    stop_price: DecisionDecimal | None = None
+    target_price: DecisionDecimal | None = None
+    coverage_quantity: DecisionDecimal
+    position_quantity: DecisionDecimal
+    fully_covered: bool
 
 
 class BarDecision(_FrozenDecisionModel):
@@ -293,6 +310,7 @@ class BarDecision(_FrozenDecisionModel):
     risk: DecisionRisk | None = None
     position: DecisionPosition | None = None
     no_trade_bar: bool = False
+    protection_update: DecisionProtectionUpdate | None = None
 
     @field_validator("bar_starts_at", "bar_closes_at", "evaluated_at")
     @classmethod

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Annotated
-from uuid import UUID  # noqa: TC003 - FastAPI resolves this annotation at runtime.
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -17,8 +17,8 @@ from thytrader.api.dependencies import (
     get_notification_sender,
     get_runtime_state,
 )
-from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI Depends.
-from thytrader.market_data.datasets import DatasetStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.datasets import DatasetStore
 from thytrader.memory.evidence import LocalEvidenceResolver
 from thytrader.memory.models import (
     ExperientialModel,
@@ -34,7 +34,7 @@ from thytrader.memory.models import (
     SentimentSnapshot,
     SentimentWrite,
 )
-from thytrader.memory.notify import NotificationSender  # noqa: TC001 - FastAPI Depends.
+from thytrader.memory.notify import NotificationSender
 from thytrader.memory.service import (
     build_monitor,
     kind_or_none,
@@ -57,11 +57,11 @@ from thytrader.memory.trade_reasons import (
     TradeReasonRecord,
 )
 from thytrader.memory.training import ExperientialTrainingError, train_experiential_model
-from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
+from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_results import (
-    BacktestResultReader,  # noqa: TC001 - FastAPI Depends.
+    BacktestResultReader,
 )
-from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
+from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 

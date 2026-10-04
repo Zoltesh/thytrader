@@ -113,6 +113,8 @@ _MUTATIONS = frozenset(
         "submit-backtest",
         "submit-study",
         "cancel-research-job",
+        "create-campaign",
+        "refresh-campaign",
     }
 )
 
@@ -197,6 +199,7 @@ def _parser() -> argparse.ArgumentParser:
     _add_strategy_commands(subparsers, trailing)
     _add_backtest_commands(subparsers, trailing)
     _add_study_commands(subparsers, trailing)
+    _add_campaign_commands(subparsers, trailing)
     return parser
 
 
@@ -398,6 +401,33 @@ def _add_backtest_commands(
     listing.add_argument("--cursor", default=None, help="Opaque next_cursor from the last page.")
     show = subparsers.add_parser("show-result", parents=[trailing], help="Show one result summary.")
     show.add_argument("--result-fingerprint", required=True)
+    export = subparsers.add_parser(
+        "export-results", parents=[trailing], help="Export a bounded page of result evidence."
+    )
+    export.add_argument("--strategy-id", default=None)
+    export.add_argument(
+        "--limit", type=_page_limit, default=50, help="Maximum 100 results per page."
+    )
+    export.add_argument("--cursor", default=None, help="next_cursor from the previous page.")
+
+
+def _add_campaign_commands(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Expose persistent research campaigns and fee-aware read-only preflight."""
+    for command in ("create-campaign", "economics"):
+        command_parser = subparsers.add_parser(command, parents=[trailing])
+        command_parser.add_argument("--file", required=True, help="Validated request JSON.")
+        if command == "create-campaign":
+            command_parser.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    for command in ("show-campaign", "refresh-campaign"):
+        command_parser = subparsers.add_parser(command, parents=[trailing])
+        command_parser.add_argument("--campaign-id", required=True)
+        if command == "refresh-campaign":
+            command_parser.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    listing = subparsers.add_parser("list-campaigns", parents=[trailing])
+    listing.add_argument("--limit", type=_page_limit, default=20)
 
 
 def _add_study_commands(
@@ -596,6 +626,15 @@ def _http_list_results(base_url: str, arguments: argparse.Namespace) -> str:
 
 
 _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
+    "create-campaign": lambda url, args: research_http.create_campaign(url, _load_json(args.file)),
+    "economics": lambda url, args: research_http.economics(url, _load_json(args.file)),
+    "list-campaigns": lambda url, args: research_http.list_campaigns(url, limit=args.limit),
+    "show-campaign": lambda url, args: research_http.show_campaign(
+        url, _uuid(args.campaign_id, "--campaign-id")
+    ),
+    "refresh-campaign": lambda url, args: research_http.refresh_campaign(
+        url, _uuid(args.campaign_id, "--campaign-id")
+    ),
     "create-strategy": _http_create,
     "list-strategies": lambda url, args: research_http.list_strategies(
         url, limit=args.limit, cursor=args.cursor, tag=args.tag, origin=StrategyOrigin(args.origin)
@@ -637,6 +676,12 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
     ),
     "cancel-research-job": lambda url, args: research_http.cancel_research_job(url, args.job_id),
     "list-results": _http_list_results,
+    "export-results": lambda url, args: research_http.export_results(
+        url,
+        limit=args.limit,
+        cursor=args.cursor,
+        strategy_id=_optional_uuid(args.strategy_id, "--strategy-id"),
+    ),
     "show-result": lambda url, args: research_http.show_result(url, args.result_fingerprint),
     "list-studies": lambda url, args: research_http.list_studies(
         url, args.kind, args.limit, _optional_uuid(args.strategy_id, "--strategy-id")

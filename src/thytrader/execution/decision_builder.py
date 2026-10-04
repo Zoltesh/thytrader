@@ -30,6 +30,7 @@ from thytrader.execution.decisions import (
     DecisionOrder,
     DecisionOutcome,
     DecisionPosition,
+    DecisionProtectionUpdate,
     DecisionRisk,
     DecisionSkipReason,
 )
@@ -77,6 +78,9 @@ _EXIT_PURPOSES = frozenset(
     }
 )
 _MARKET_EXITS = frozenset({IntentPurpose.STOP, IntentPurpose.TIME_EXIT, IntentPurpose.SIGNAL_EXIT})
+_PROTECTION_PURPOSES = frozenset(
+    {IntentPurpose.TAKE_PROFIT, IntentPurpose.STOP, IntentPurpose.BRACKET}
+)
 _SUBMITTED = frozenset(
     {OrderStatus.OPEN, OrderStatus.FILLED, OrderStatus.REJECTED, OrderStatus.CANCELED}
 )
@@ -175,6 +179,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         risk=classified.risk,
         position=_position(after.position),
         no_trade_bar=context.no_trade_bar,
+        protection_update=_protection_update(context, window),
     )
 
 
@@ -186,6 +191,50 @@ def _bar_summary(summary: str, context: BarContext) -> str:
     if not context.no_trade_bar:
         return summary[:_SUMMARY_LIMIT]
     return summary[: _SUMMARY_LIMIT - len(_NO_TRADE_SUFFIX)] + _NO_TRADE_SUFFIX
+
+
+def _protection_update(context: BarContext, window: _Window) -> DecisionProtectionUpdate | None:
+    """Link observed protective cancellations to current coverage without inferring entries."""
+    canceled = tuple(
+        order.id
+        for order in window.orders
+        if order.status is OrderStatus.CANCELED
+        and order.kind is not OrderKind.MARKETABLE
+        and _purpose(order, window) in _PROTECTION_PURPOSES
+    )
+    if not canceled:
+        return None
+    after = context.after or context.before
+    position = after.position
+    active = tuple(
+        order
+        for order in after.orders
+        if order.status in _ACTIVE
+        and order.kind is not OrderKind.MARKETABLE
+        and _purpose(order, window) in _PROTECTION_PURPOSES
+        and resolved_product_id(order.product_id, after.deployment) == context.product_id
+    )
+    coverage = sum(
+        (
+            order.quantity - order.filled_quantity
+            for order in active
+            if order.status is OrderStatus.OPEN
+        ),
+        Decimal(0),
+    )
+    quantity = Decimal(0) if position is None else position.quantity
+    previous = context.before.position
+    return DecisionProtectionUpdate(
+        kind="replacement" if active else "canceled_without_replacement",
+        canceled_order_ids=canceled[:_MAX_LINKED],
+        active_order_ids=tuple(order.id for order in active[:_MAX_LINKED]),
+        previous_stop_price=None if previous is None else _text(previous.stop_price),
+        stop_price=None if position is None else _text(position.stop_price),
+        target_price=None if position is None else _text(position.target_price),
+        coverage_quantity=canonical_decimal(coverage),
+        position_quantity=canonical_decimal(quantity),
+        fully_covered=quantity > 0 and coverage >= quantity,
+    )
 
 
 def build_gate_skip_decision(
@@ -888,6 +937,9 @@ def _order(order: Order, window: _Window) -> DecisionOrder:
         price=_text(order.price),
         filled_quantity=canonical_decimal(order.filled_quantity),
         created_at=order.created_at,
+        stop_trigger_price=_text(order.stop_trigger_price),
+        take_profit_price=_text(order.take_profit_price),
+        parent_order_id=order.parent_order_id,
     )
 
 

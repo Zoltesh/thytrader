@@ -311,6 +311,7 @@ async def process_closed_bar(
         htf_candles=htf_candles,
         indicator_timeframe_candles=indicator_timeframe_candles,
         reference_candles=reference_candles,
+        fee_profile=fee_profile,
     )
     if snapshot.deployment.status is DeploymentStatus.RUNNING:
         snapshot = await _apply_circuit_breakers(
@@ -610,6 +611,7 @@ async def _manage_position(
     htf_candles: Sequence[Candle] = (),
     indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
     reference_candles: Mapping[str, Sequence[Candle]] | None = None,
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Exit on stop, take-profit, signal, or time, and expire working entry remainders."""
     if _active_entry(snapshot) is not None:
@@ -625,6 +627,7 @@ async def _manage_position(
             live_base_available=live_base_available,
             risk_policy=risk_policy,
             portfolio=portfolio,
+            fee_profile=fee_profile,
         )
         if snapshot.deployment.status is DeploymentStatus.STOPPED:
             return snapshot
@@ -1250,6 +1253,7 @@ async def _manage_working_entry(
     live_base_available: Decimal | None,
     risk_policy: RiskPolicyDefinition | None,
     portfolio: Sequence[DeploymentSnapshot],
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Wait, cancel, or reprice a working entry remainder in any phase."""
     deployment = snapshot.deployment
@@ -1300,6 +1304,7 @@ async def _manage_working_entry(
             phase=phase,
             risk_policy=risk_policy,
             portfolio=portfolio,
+            fee_profile=fee_profile,
         )
     if has_position:
         abandoned = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
@@ -1341,6 +1346,7 @@ async def _reprice_entry(
     phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
     risk_policy: RiskPolicyDefinition | None = None,
     portfolio: Sequence[DeploymentSnapshot] = (),
+    fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Submit a replacement post-only entry at remaining qty after sizing and risk re-admission."""
     remaining_qty = remaining_quantity(prior)
@@ -1376,6 +1382,8 @@ async def _reprice_entry(
         atr=atr,
         side=side,
         is_pyramid_add=is_pyramid,
+        # Preserve legacy reprice sizing when the strategy has not enabled the new guard.
+        fee_profile=fee_profile if strategy.entry.economic_guard is not None else None,
     )
     if isinstance(sized, EntrySkipReason):
         note_entry_skip(sized)
@@ -1955,6 +1963,12 @@ def _size_entry_or_add(
     fee_profile: FeeProfile | None = None,
 ) -> SizedEntry | EntrySkipReason:
     """Size a new book or a same-side add against remaining quote cash, or name the skip."""
+    if (
+        strategy.entry.economic_guard is not None
+        and snapshot.deployment.mode is DeploymentMode.LIVE
+        and fee_profile is None
+    ):
+        return EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE
     fee_rate = _entry_fee_rate(snapshot.deployment, fee_profile=fee_profile)
     sizing_cash = live_sizing_cash(snapshot.deployment)
     if sizing_cash is None:

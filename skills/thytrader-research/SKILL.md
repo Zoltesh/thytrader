@@ -651,3 +651,74 @@ Diagnose a running instance with `skills/thytrader-operator/SKILL.md` first when
 
 Library pages add `origin_counts` (`operator`, `research`, `all`), counting all rows matching the
 current tag before pagination or origin filtering. These power the UI's Mine / Research / All badges.
+
+## Frozen campaigns, prospective validation, and economic preflight (ADR 0109)
+
+Use the research HTTP lane for these commands; `--local` is not supported. Creation
+freezes rules and authorizes research children only. It never deploys or cancels orders.
+
+| Task | Command |
+| --- | --- |
+| Freeze a campaign | `uv run thytrader-research create-campaign --file campaign.json --confirm` |
+| List campaigns | `uv run thytrader-research list-campaigns --limit 20` |
+| Inspect frozen intent and child evidence | `uv run thytrader-research show-campaign --campaign-id UUID` |
+| Advance approved research now | `uv run thytrader-research refresh-campaign --campaign-id UUID --confirm` |
+| Export small result projections | `uv run thytrader-research export-results --limit 100 [--cursor CURSOR]` |
+| Calculate order economics | `uv run thytrader-research economics --file economics.json` |
+
+Campaign JSON has `name`, `kind: historical|prospective`, UTC `deadline`, `gates`, and
+`cases: [{key, request: BacktestStartRequest}]`. Every case requires explicit
+`evaluation_start` and `evaluation_end`; supply a `strategy_id` and the usual capital
+and cost fields. Omitted datasets bind only once, when complete verified data can
+cover the frozen window and warmup. Optionally set a case's `strategy_fingerprint`
+to an already frozen snapshot of that same strategy; otherwise creation snapshots
+its current valid rules. Later strategy edits never retune a campaign.
+
+Gates are `minimum_trades` (default 10), `minimum_net_return_fraction` (default 0;
+return must strictly exceed it), and `maximum_drawdown_fraction` (default 0.15).
+A prospective case must begin at or after freezing. The existing research worker
+advances approved campaigns automatically: `waiting_for_data` → `queued` → `running`
+→ `passed`, `failed_gate`, `insufficient_sample`, `failed`, or `expired`. Passing is
+research evidence, not permission to trade. Missing future candles never count as
+validation; expired or undersampled cases never pass. Concurrent refreshes and
+restarts queue one child identity per case. A failed child is retained; review it
+before creating a replacement campaign.
+
+Read/download one frozen report at `GET /api/v1/research/campaigns/{id}` and
+`GET /api/v1/research/campaigns/{id}/export` (CSV). The UI is `/research`, linked from
+Backtests, and offers campaign creation, status, CSV downloads, and economic preflight.
+
+Economic preflight JSON uses `side`, `entry_price`, `quantity`, `stop_price`, optional
+`target_price`, `maker_fee_rate`, `taker_fee_rate`, optional `fixed_slippage_bps` and
+`spread_bps`. `POST /api/v1/research/economics` is read-only. It reports both entry and
+exit fees, maker break-even, net TP return/PnL and stressed taker stop PnL. Supplied
+fees are modeled assumptions, not a quote or permission to submit an order.
+This read-only POST still requires installation authentication (and browser CSRF).
+The CLI sends the credential automatically; calculation does not require `--confirm`.
+
+An optional strategy field `entry.economic_guard: {minimum_net_target_return_fraction:
+"0.002"}` uses the same net maker-target calculation in backtest, paper and live.
+Absent means existing behavior and fingerprints remain unchanged. An enabled guard
+requires a target and sufficient net return after both maker fees; it records
+`NET_TARGET_BELOW_MINIMUM` without creating an order when refused. Live also requires
+a current fee profile (`ECONOMICS_FEE_UNAVAILABLE` otherwise). Paper uses its declared
+fee schedule. The guard does not bypass risk, venue sizing, or stop checks.
+Replacement entries recheck the guard. Live repricing carries the observed fee tier;
+a simulated reprice below the net hurdle expires the pending entry.
+
+Backtests and studies accept optional `execution_stress` with `entry_latency_bars`
+(additional completed bars before entry activation, 0–100), `maker_penetration_bps`
+(0–1000, entries and targets), and `entry_fill_fraction` (>0 to 1). A partial entry
+fills once at its posted limit and cancels the remainder. Latency does not consume
+active entry wait; a reprice does not repeat activation latency. The profile is
+fingerprinted in run costs and echoed in bounded results. These are deterministic
+candle stresses, not observed order-book queue/latency or partial-fill reconstruction.
+Omitting the profile preserves the original simulation semantics and fingerprints.
+
+Default result summary reads and `export-results` verify publication/source digests
+inside PostgreSQL without loading trade/equity arrays or historical Parquet.
+`verification_scope: publication` explicitly distinguishes this from `detail=full`
+artifact verification. Old publications may lack derived `metrics`; their warnings
+say so. Fetch `/metrics` or the full result when that detail is needed. General bulk
+export uses the existing offset cursor, so new concurrent publications can shift
+pages; campaign reports pin child identities and are stable for that manifest.
