@@ -27,6 +27,25 @@ See [ADR 0107](../decisions/0107-capital-normalized-live-performance.md). The st
 breaker measures the current loss from its durable peak; account daily-loss and exposure limits
 continue to use their separate account capital.
 
+## Account and reconciliation diagnostics
+
+Run `uv run thytrader-operator health`, then `uv run thytrader-operator exchange` for
+an exchange failure. `payload.failure` names the failed read (`balances`, `permissions`,
+`price`, or `fees`), its category (`http`, `timeout`, `network`, `invalid_response`),
+and an HTTP status when available. It omits provider response text and credentials.
+A price read can fail while the order feed stays connected; inspect both reports.
+An unclassified failure remains failed, with `failure: null`.
+
+`uv run thytrader-operator reconciliation` lists individual audit failures from the
+newest 20 audit events. Each `audit_event` supplies the event identity, UTC time, action,
+provider/product, and recovery evidence. A `recovered` WebSocket failure has a matching
+later connected event, identified by `recovery_event_id` and `recovered_at`. Check the
+current feed with `uv run thytrader-operator runtime`; a past recovery is not current
+health. `unresolved` means no matching recovery was observed in this window, and `unknown`
+means there is no recovery rule for the action. A later connection never proves an
+ambiguous order succeeded. Recovered failures remain visible and degraded in this
+window; historical audit records are retained.
+
 ## In the browser
 
 After [setup](setup.md), open http://127.0.0.1:5175.
@@ -727,3 +746,9 @@ wait, and protection/reconciliation continue. An expired wait or older gap still
 Explicit twins may be strategy clones with server-verified identical pinned trading rules
 (ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
 comparison metadata, never bot lifecycle or trading rules.
+
+Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
+The repeated request is freshly signed on the same pagination cursor; exhausted failures
+return no partial balances. Authentication, 429 rate limits, malformed responses and
+pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
+Order submissions and cancellations never use this retry helper.

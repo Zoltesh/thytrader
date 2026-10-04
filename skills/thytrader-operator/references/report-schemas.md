@@ -196,3 +196,25 @@ For rule-equivalent clone twins (ADR 0105), each `paper` / `live` fill digest ad
 the paper side's identity; it does not claim the two identities match. The server verifies pinned
 rules before storing an explicit link; report selection remains persisted-link-only.
 Ops contract v63 advertises `runtime_observability: rule_matched_deployment_twins`.
+
+## v65 account-read and audit evidence
+
+`runtime_observability` adds `exchange_read_failures` and `audit_failure_evidence`;
+Alembic remains `0061`. Exchange `payload.failure` is null or an object with
+`operation` (`balances`, `permissions`, `price`, `fees`), `kind` (`http`, `timeout`,
+`network`, `invalid_response`), and nullable integer `http_status`. Health component
+details carry the same safe summary. Neither response text nor exception messages appear.
+
+Reconciliation and runtime reconciliation findings add nullable `audit_event`. For
+`AUDIT_FAILURES`, it contains `event_id`, `occurred_at`, `action`, nullable provider/product,
+`recovery_status` (`recovered`, `unresolved`, `unknown`), nullable `recovery_event_id`,
+and nullable `recovered_at`. Findings inspect the newest 20 audit events. Only known
+WebSocket pairs strictly later on the same feed match. `unresolved` means no match
+in this window; `unknown` means no recovery rule. Recovered failures remain degraded
+findings. Audit event raw details are excluded, including balances and account IDs.
+
+Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
+The repeated request is freshly signed on the same pagination cursor; exhausted failures
+return no partial balances. Authentication, 429 rate limits, malformed responses and
+pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
+Order submissions and cancellations never use this retry helper.

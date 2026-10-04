@@ -9,6 +9,7 @@ import pytest
 from requests import HTTPError, Response
 
 from thytrader.exchanges.coinbase import CoinbaseAccount, CoinbasePaginationError
+from thytrader.exchanges.read_errors import ExchangeReadError
 
 
 class StubCoinbaseClient:
@@ -189,7 +190,7 @@ def test_coinbase_adapter_propagates_non_not_found_price_failures() -> None:
             response.status_code = 503
             raise HTTPError(f"Coinbase unavailable for {product_id}", response=response)
 
-    with pytest.raises(HTTPError, match="Coinbase unavailable"):
+    with pytest.raises(ExchangeReadError, match="HTTP 503"):
         asyncio.run(CoinbaseAccount(UnavailableClient()).get_usd_price("BTC"))
 
 

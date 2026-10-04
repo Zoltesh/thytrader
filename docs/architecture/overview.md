@@ -275,3 +275,11 @@ Default services bind to loopback. Remote access is an explicit deployment profi
 Rust is a future implementation option for measured hot paths such as feed handling, event processing, order-book simulation, or execution components. Extraction should occur only after profiling shows a material benefit. Stable message/domain contracts make that evolution possible; speculative microservices do not.
 
 Internet-connected Coinbase trading should not be marketed as true HFT merely because a component is written in Rust. Exchange and network latency, data quality, execution design, and risk controls dominate.
+
+## Account-read and audit diagnostics
+
+[ADR 0108](../decisions/0108-account-read-and-audit-failure-evidence.md) keeps SDK errors
+inside the Coinbase account adapter, which exposes provider-neutral typed read failures.
+Operator reports disclose only operation, category and status. Reconciliation correlates
+known WebSocket failures and connected events in its bounded audit window, retaining
+all failures and leaving unknown order outcomes unresolved. Ops contract v65; no migration.

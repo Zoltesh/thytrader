@@ -298,7 +298,7 @@ place-order also require `--i-understand-live`. Over HTTP that acknowledgement i
 boolean `i_understand_live: true` on `POST /api/v1/deployments` (mode `live`),
 `POST /api/v1/deployments/{id}/resume` (live books), and `POST /api/v1/discretionary-orders`
 (mode `live`); without it the API returns HTTP 428 `live_acknowledgement_required`. Ops contract
-`thytrader-ops-contract-v64` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
+`thytrader-ops-contract-v65` ([ADR 0078](decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
 [ADR 0082](decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md),
 [ADR 0083](decisions/0083-unified-backtest-model.md),
 [ADR 0085](decisions/0085-fast-research-ingest.md),
@@ -589,3 +589,22 @@ and [ADR 0102](decisions/0102-explicit-paper-live-twin-links.md).
 Explicit twins may be strategy clones with server-verified identical pinned trading rules
 (ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
 comparison metadata, never bot lifecycle or trading rules.
+
+## Account reads and audit recovery evidence
+
+[ADR 0108](decisions/0108-account-read-and-audit-failure-evidence.md) ships ops contract v65
+(Alembic `0061`), with `exchange_read_failures` and `audit_failure_evidence` in
+`runtime_observability`. `thytrader-operator exchange` exposes a nullable
+`payload.failure` with operation, safe category, and HTTP status; health includes the
+same safe summary. Raw exception messages and provider bodies are omitted.
+Reconciliation lists individual failures from the newest 20 audit events, linking
+`audit_event.event_id`, `occurred_at`, `action`, and matching recovery evidence.
+Only known WebSocket connected events prove historical recovery; unrelated successes
+do not resolve order failures. Recovered failures remain findings; current user-feed
+health is independently inspected through `thytrader-operator runtime`.
+
+Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
+The repeated request is freshly signed on the same pagination cursor; exhausted failures
+return no partial balances. Authentication, 429 rate limits, malformed responses and
+pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
+Order submissions and cancellations never use this retry helper.

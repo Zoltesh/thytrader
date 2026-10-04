@@ -116,6 +116,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0101](0101-atomic-portfolio-creation-with-sleeves.md) | Optional initial sleeves in portfolio create API/CLI; full validation and atomic portfolio, sleeves, and journal at revision 1; ops contract v61 / no migration | Accepted |
 | [0102](0102-explicit-paper-live-twin-links.md) | Durable one-to-one paper/live comparison links; metadata-only runtime controls; saved pairs replace inference | Accepted — amends 0097 and 0098 |
 | [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
+| [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
 
 ## Status values
 

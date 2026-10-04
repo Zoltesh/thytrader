@@ -20,20 +20,23 @@ from __future__ import annotations
 
 import ipaddress
 import os
+from pathlib import Path
 import socket
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlsplit
 
+from pydantic_settings import DotEnvSettingsSource
 import pytest
 import requests
 
 from thytrader.config import Settings
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
 _KEPT_ENVIRONMENT = frozenset({"THYTRADER_TEST_DATABASE_URL", "THYTRADER_INTEGRATION_DATABASE_URL"})
 _LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
+_CHECKOUT_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
 
 
 class NetworkAccessBlockedError(RuntimeError):
@@ -79,6 +82,18 @@ def hermetic_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     # SettingsConfigDict is a TypedDict; monkeypatch.setitem needs a plain mutable mapping.
     config = cast("dict[str, object]", Settings.model_config)
     monkeypatch.setitem(config, "env_file", None)
+    original_read = DotEnvSettingsSource._read_env_file
+
+    def isolated_read(source: DotEnvSettingsSource, file_path: Path) -> Mapping[str, str | None]:
+        """Ignore the checkout dotenv even when a settings store explicitly selects it."""
+        if (
+            file_path.absolute() == _CHECKOUT_ENV_FILE
+            or file_path.resolve() == _CHECKOUT_ENV_FILE.resolve()
+        ):
+            return {}
+        return original_read(source, file_path)
+
+    monkeypatch.setattr(DotEnvSettingsSource, "_read_env_file", isolated_read)
     for name in tuple(os.environ):
         if name.startswith("THYTRADER_") and name not in _KEPT_ENVIRONMENT:
             monkeypatch.delenv(name, raising=False)

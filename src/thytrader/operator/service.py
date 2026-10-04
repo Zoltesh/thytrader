@@ -20,6 +20,7 @@ from thytrader.backtest.models import (
 )
 from thytrader.config import Settings
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.exchanges.read_errors import ExchangeReadError
 from thytrader.execution.book_marks import last_bar_marks
 from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.execution.loop import split_pending_entry
@@ -70,6 +71,7 @@ from thytrader.market_data_worker.service import (
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
+from thytrader.operator.audit_findings import audit_failure_findings
 from thytrader.operator.decisions import decisions_report
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.models import (
@@ -1277,20 +1279,26 @@ class OperatorDiagnostics:
         configured = _credentials_configured(self.settings)
         try:
             portfolio = await self.portfolio.get_portfolio()
-        except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.
+        except Exception as error:  # noqa: BLE001 - provider failures are redacted at this boundary.
+            failure = error.failure if isinstance(error, ExchangeReadError) else None
             payload = ExchangePayload(
                 provider="coinbase",
                 connection_status="unavailable",
                 demo=not configured,
                 permissions=(),
                 live_credentials_configured=configured,
+                failure=failure,
             )
             return (
                 ComponentReport(
                     name="exchange",
                     status=ReportStatus.FAILED,
                     reason_code="EXCHANGE_UNAVAILABLE",
-                    detail="The exchange account could not be queried.",
+                    detail=(
+                        "The exchange account could not be queried."
+                        if failure is None
+                        else failure.summary()
+                    ),
                 ),
                 payload,
             )
@@ -1776,15 +1784,7 @@ class OperatorDiagnostics:
                 )
             )
         else:
-            failures = [event for event in events if event.outcome.value == "failure"]
-            if failures:
-                findings.append(
-                    ReconciliationFinding(
-                        reason_code="AUDIT_FAILURES",
-                        deployment_id=None,
-                        detail=f"{len(failures)} recent audit failure event(s) were recorded.",
-                    )
-                )
+            findings.extend(audit_failure_findings(events))
         if findings:
             components.append(
                 ComponentReport(

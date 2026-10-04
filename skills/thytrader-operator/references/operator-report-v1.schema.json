@@ -112,7 +112,7 @@
             "runtime_observability": {
               "type": "array",
               "items": { "type": "string" },
-              "description": "v64 adds capital_normalized_performance: pinned performance capital and durable observed maximum drawdown; Alembic 0061. v62 adds explicit_deployment_twins: fill comparisons use saved one-to-one paper/live links only. v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
+              "description": "v65 adds exchange_read_failures and audit_failure_evidence. v64 adds capital_normalized_performance: pinned performance capital and durable observed maximum drawdown; Alembic 0061. v62 adds explicit_deployment_twins: fill comparisons use saved one-to-one paper/live links only. v60 adds fee_adjusted_book_pnl: per-book gross minus recorded allocated entry fees; future exit fees excluded, null when evidence is unknown."
             },
             "deployment_capital_fields": {
               "type": "array",
@@ -129,12 +129,192 @@
         "applied_schema_revision": {
           "type": ["string", "null"]
         },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExchangeReadFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Exchange only. Safe failed read operation/category/status, without provider bodies or exception messages."
+        },
+        "findings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "audit_event": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AuditFailureEvidence"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Reconciliation only: one finding per failure in newest 20 audit events. Recovered failures remain findings."
+        },
         "currency": {
           "type": ["string", "null"],
           "enum": ["USD", "USDC", "USDT", null],
           "description": "Performance only. Quote currency from the published instrument or discretionary product; null means provenance is unavailable, with a partial_result_warnings explanation."
         }
       }
+    }
+  },
+  "$defs": {
+    "ExchangeReadFailureKind": {
+      "description": "Safe failure categories that never contain provider response text.",
+      "enum": [
+        "http",
+        "timeout",
+        "network",
+        "invalid_response"
+      ],
+      "title": "ExchangeReadFailureKind",
+      "type": "string"
+    },
+    "ExchangeReadOperation": {
+      "description": "Account read operations whose failures operators can distinguish.",
+      "enum": [
+        "balances",
+        "permissions",
+        "price",
+        "fees"
+      ],
+      "title": "ExchangeReadOperation",
+      "type": "string"
+    },
+    "ExchangeReadFailure": {
+      "additionalProperties": false,
+      "description": "Validated read failure evidence without URLs, bodies, or account identifiers.",
+      "properties": {
+        "operation": {
+          "$ref": "#/$defs/ExchangeReadOperation"
+        },
+        "kind": {
+          "$ref": "#/$defs/ExchangeReadFailureKind"
+        },
+        "http_status": {
+          "anyOf": [
+            {
+              "maximum": 599,
+              "minimum": 100,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Status"
+        },
+        "attempts": {
+          "default": 1,
+          "maximum": 2,
+          "minimum": 1,
+          "title": "Attempts",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "operation",
+        "kind"
+      ],
+      "title": "ExchangeReadFailure",
+      "type": "object"
+    },
+    "AuditFailureEvidence": {
+      "additionalProperties": false,
+      "description": "One historical failure and an explicitly matched later recovery, when observed.",
+      "properties": {
+        "event_id": {
+          "format": "uuid",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "occurred_at": {
+          "format": "date-time",
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Provider"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Id"
+        },
+        "recovery_status": {
+          "enum": [
+            "recovered",
+            "unresolved",
+            "unknown"
+          ],
+          "title": "Recovery Status",
+          "type": "string"
+        },
+        "recovery_event_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recovery Event Id"
+        },
+        "recovered_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recovered At"
+        }
+      },
+      "required": [
+        "event_id",
+        "occurred_at",
+        "action",
+        "provider",
+        "product_id",
+        "recovery_status"
+      ],
+      "title": "AuditFailureEvidence",
+      "type": "object"
     }
   }
 }

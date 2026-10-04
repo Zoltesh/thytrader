@@ -13,6 +13,9 @@ from thytrader.backtest.models import (  # noqa: TC001 - Pydantic field types.
     BacktestEvaluationWindow,
     BacktestPerformanceMetrics,
 )
+from thytrader.exchanges.read_errors import (
+    ExchangeReadFailure,  # noqa: TC001 - Pydantic field type.
+)
 from thytrader.execution.decisions import (  # noqa: TC001 - Pydantic field types.
     BarDecision,
     DecisionOutcome,
@@ -230,6 +233,8 @@ class OpsContractPayload(_FrozenModel):
             "explicit_deployment_twins",
             "rule_matched_deployment_twins",
             "capital_normalized_performance",
+            "exchange_read_failures",
+            "audit_failure_evidence",
         ],
         ...,
     ]
@@ -345,6 +350,7 @@ class ExchangePayload(_FrozenModel):
     demo: bool
     permissions: tuple[str, ...]
     live_credentials_configured: bool
+    failure: ExchangeReadFailure | None = None
 
 
 class ExchangeReport(OperatorEnvelope):
@@ -751,12 +757,26 @@ class RiskReport(OperatorEnvelope):
     payload: RiskPayload
 
 
+class AuditFailureEvidence(_FrozenModel):
+    """One historical failure and an explicitly matched later recovery, when observed."""
+
+    event_id: UUID
+    occurred_at: datetime
+    action: str
+    provider: str | None
+    product_id: str | None
+    recovery_status: Literal["recovered", "unresolved", "unknown"]
+    recovery_event_id: UUID | None = None
+    recovered_at: datetime | None = None
+
+
 class ReconciliationFinding(_FrozenModel):
     """One order or runtime reconciliation anomaly."""
 
     reason_code: str = Field(pattern=r"^[A-Z][A-Z0-9_]{0,63}$")
     deployment_id: UUID | None
     detail: str = Field(max_length=500)
+    audit_event: AuditFailureEvidence | None = None
 
 
 class ReconciliationPayload(_FrozenModel):

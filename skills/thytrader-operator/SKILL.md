@@ -209,7 +209,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v64`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v65`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -363,3 +363,32 @@ Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
 can link when their pinned rules match exactly; the server ignores only root id, name, description,
 creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;
 the top-level fingerprint remains the paper-side reference. This never changes a bot or its rules.
+
+## Account reads and audit recovery
+
+Ops contract v65 advertises `exchange_read_failures` and `audit_failure_evidence` in
+`runtime_observability` (Alembic remains `0061`). On `EXCHANGE_UNAVAILABLE`, inspect
+`thytrader-operator exchange`: `payload.failure` distinguishes `operation`
+(`balances`, `permissions`, `price`, `fees`), `kind` (`http`, `timeout`, `network`,
+`invalid_response`), and nullable `http_status`. Health component details carry the
+same safe summary. Raw provider bodies, URLs and exception messages are omitted.
+An unavailable failure object means this error has no classified transport evidence;
+never interpret it as a successful read. Do not change credentials merely because a
+read failed; inspect the operation and status first.
+
+`thytrader-operator reconciliation` returns one `AUDIT_FAILURES` finding per failure
+in the newest 20 audit events. Each `audit_event` identifies `event_id`, `occurred_at`,
+`action`, provider/product, and `recovery_status`. `recovered` means a known matching
+WebSocket connected event was observed later in this window; `recovery_event_id` and
+`recovered_at` link that evidence. It does not establish current feed health: check
+`runtime.payload.user_order_feed`. `unresolved` means no matching recovery was seen
+in this bounded window; `unknown` means no recovery rule exists for that action.
+Order failures stay unknown until actual order reconciliation resolves them.
+Recovered failures remain findings and keep the report degraded while in the window.
+Audit records are never deleted or rewritten. Non-audit findings have `audit_event: null`.
+
+Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
+The repeated request is freshly signed on the same pagination cursor; exhausted failures
+return no partial balances. Authentication, 429 rate limits, malformed responses and
+pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
+Order submissions and cancellations never use this retry helper.

@@ -5,14 +5,25 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+from functools import partial
 import logging
 import threading
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from requests import HTTPError
+from requests import HTTPError, RequestException, Timeout
 
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance
+from thytrader.exchanges.read_errors import (
+    ExchangeReadError,
+    ExchangeReadFailure,
+    ExchangeReadFailureKind,
+    ExchangeReadOperation,
+)
+from thytrader.exchanges.rest_transport import http_status_error, json_object
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _ACCOUNT_PAGE_SIZE = 250
 _MAX_ACCOUNT_PAGES = 100
@@ -97,12 +108,10 @@ class CoinbaseAccount:
         seen_cursors: set[str] = set()
         balances: list[ExchangeBalance] = []
         for _page_number in range(_MAX_ACCOUNT_PAGES):
-            response = await asyncio.to_thread(
-                self._client.get_accounts,
-                limit=_ACCOUNT_PAGE_SIZE,
-                cursor=cursor,
+            payload = await self._read(
+                ExchangeReadOperation.BALANCES,
+                partial(self._client.get_accounts, limit=_ACCOUNT_PAGE_SIZE, cursor=cursor),
             )
-            payload = response.to_dict()
             for account in self._account_items(payload):
                 balance = self._parse_balance(account)
                 if balance is not None and balance.total != 0:
@@ -123,8 +132,9 @@ class CoinbaseAccount:
 
     async def get_permissions(self) -> tuple[str, ...]:
         """Report every enabled permission without rejecting additional capabilities."""
-        response = await asyncio.to_thread(self._client.get_api_key_permissions)
-        payload = response.to_dict()
+        payload = await self._read(
+            ExchangeReadOperation.PERMISSIONS, self._client.get_api_key_permissions
+        )
         permission_fields = (
             ("can_view", "view"),
             ("can_trade", "trade"),
@@ -143,9 +153,11 @@ class CoinbaseAccount:
         if product_id in self._unsupported:
             return None
         try:
-            response = await asyncio.to_thread(self._get_product_expecting_404, product_id)
-        except HTTPError as error:
-            if error.response is not None and error.response.status_code == 404:
+            payload = await self._read(
+                ExchangeReadOperation.PRICE, partial(self._get_product_expecting_404, product_id)
+            )
+        except ExchangeReadError as error:
+            if error.failure.http_status == 404:
                 self._unsupported.add(product_id)
                 _logger.info(
                     "Coinbase has no %s market; %s is reported in unvalued_assets "
@@ -155,7 +167,7 @@ class CoinbaseAccount:
                 )
                 return None
             raise
-        price = response.to_dict().get("price")
+        price = payload.get("price")
         if not isinstance(price, str):
             return None
         try:
@@ -173,9 +185,64 @@ class CoinbaseAccount:
 
     async def get_fee_profile(self) -> FeeProfile:
         """Fetch 30-day volume and fee tier details from Coinbase."""
-        response = await asyncio.to_thread(self._client.get_transaction_summary)
-        payload = response.to_dict()
+        payload = await self._read(ExchangeReadOperation.FEES, self._client.get_transaction_summary)
         return self._parse_fee_profile(payload)
+
+    async def _read(
+        self, operation: ExchangeReadOperation, call: Callable[[], CoinbaseResponse]
+    ) -> dict[str, Any]:
+        """Retry one transient read once, with fresh signing and the same page cursor.
+
+        Timeout/network and HTTP 502/503/504 may recover after a 0.5-second wait.
+        Authentication, rate limits, malformed responses and pagination never retry.
+        Only this read-only account adapter uses the helper; order writes do not.
+        """
+        try:
+            return await self._read_once(operation, call)
+        except ExchangeReadError as error:
+            failure = error.failure
+            retryable = failure.kind in {
+                ExchangeReadFailureKind.TIMEOUT,
+                ExchangeReadFailureKind.NETWORK,
+            } or (
+                failure.kind is ExchangeReadFailureKind.HTTP
+                and failure.http_status in {502, 503, 504}
+            )
+            if not retryable:
+                raise
+        await asyncio.sleep(0.5)
+        try:
+            return await self._read_once(operation, call)
+        except ExchangeReadError as error:
+            raise ExchangeReadError(error.failure.model_copy(update={"attempts": 2})) from None
+
+    async def _read_once(
+        self, operation: ExchangeReadOperation, call: Callable[[], CoinbaseResponse]
+    ) -> dict[str, Any]:
+        """Narrow SDK JSON and replace request errors with safe, typed read evidence.
+
+        ``Any`` is confined to the SDK JSON boundary; the existing parsers validate
+        its fields before returning domain values. This helper issues only reads.
+        """
+        try:
+            response = await asyncio.to_thread(call)
+            return json_object(response)
+        except HTTPError as error:
+            status_error = http_status_error(error)
+            failure = ExchangeReadFailure(
+                operation=operation,
+                kind=ExchangeReadFailureKind.HTTP,
+                http_status=None if status_error is None else status_error.status_code,
+            )
+        except Timeout:
+            failure = ExchangeReadFailure(operation=operation, kind=ExchangeReadFailureKind.TIMEOUT)
+        except ValueError, TypeError:
+            failure = ExchangeReadFailure(
+                operation=operation, kind=ExchangeReadFailureKind.INVALID_RESPONSE
+            )
+        except RequestException, OSError:
+            failure = ExchangeReadFailure(operation=operation, kind=ExchangeReadFailureKind.NETWORK)
+        raise ExchangeReadError(failure) from None
 
     def _parse_fee_profile(self, payload: dict[str, Any]) -> FeeProfile:
         """Map one complete Coinbase transaction summary into exact fee evidence."""

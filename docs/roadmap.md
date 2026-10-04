@@ -1065,3 +1065,13 @@ and capital reservations exclude verified exit intents, including paper take-pro
 partial entry remainders and orders missing intent evidence remain counted. These fixes restore
 the existing ADRs 0058, 0091, 0098, and 0100 contracts without changing schemas, migrations,
 confirmation gates, or configured limits.
+
+## Account-read and audit diagnostics — ✅ Shipped
+
+[ADR 0108](decisions/0108-account-read-and-audit-failure-evidence.md) exposes safe
+operation/category/status evidence for failed exchange reads and one reconciliation
+finding per recent audit failure, with conservative WebSocket recovery links.
+Shipped through the operator CLI/API and canonical skill under ops contract v65,
+without clearing historical failures or changing trading rules. Full audit history
+remains on the bounded audit API; recovery inference for arbitrary order failures
+is not provided.

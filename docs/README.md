@@ -28,6 +28,10 @@ you are operating a **running** instance (not changing source).
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 
+Exchange diagnostics identify which account read failed and its safe error category.
+Reconciliation links audit failures to their timestamps and observed recovery events.
+See [account and reconciliation diagnostics](user/operate.md#account-and-reconciliation-diagnostics).
+
 Strategy summaries show each indicator read's combined declaration and operand lag as
 `(N bars ago)`. See [strategy authoring](user/operate.md#strategy-workspace).
 
