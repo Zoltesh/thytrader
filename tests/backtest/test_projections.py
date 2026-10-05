@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import TYPE_CHECKING, NoReturn
 
@@ -13,6 +14,7 @@ from sqlalchemy import update
 
 from tests.api.test_backtests import InMemoryBacktestResultReader, _result
 from thytrader.api.app import create_app
+from thytrader.backtest.cost_attribution import BacktestCostAttribution, compute_cost_attribution
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
 from thytrader.backtest.projections import BacktestProjection
@@ -64,12 +66,14 @@ def test_summary_and_export_never_load_full_ledgers(tmp_path: Path) -> None:
         response = client.get(f"/api/v1/backtests/{fingerprint}")
         assert response.status_code == 200
         assert response.json()["verification_scope"] == "publication"
+        assert response.json()["cost_attribution"] is None
         assert "equity_curve" not in response.json()
         exported = client.get("/api/v1/backtests/export?limit=1")
         assert exported.status_code == 200
         assert exported.json()["returned"] == 1
         assert exported.json()["has_more"] is False
         assert exported.json()["entries"][0]["summary"] == response.json()["summary"]
+        assert exported.json()["entries"][0]["cost_attribution"] is None
         assert client.get("/api/v1/backtests/export?limit=101").status_code == 422
         assert client.get("/api/v1/backtests/export?cursor=invalid").status_code == 400
     del tmp_path
@@ -110,16 +114,65 @@ async def _assert_postgres_projection(database_url: str, monkeypatch: pytest.Mon
         assert projection.diagnostics == diagnostics
         assert projection.metrics is not None
         assert projection.metrics.result_fingerprint == fingerprint
+        attribution = compute_cost_attribution(result)
+        assert projection.cost_attribution == attribution
         assert projection.window is not None
         assert projection.window.warmup_bars == specification.warmup.bars
         async with engine.begin() as connection:
             await connection.execute(
                 update(published_backtest_results)
                 .where(published_backtest_results.c.result_fingerprint == fingerprint)
-                .values(metrics_json=None)
+                .values(metrics_json=None, cost_attribution_json=None)
             )
         legacy = (await store.load_projections((fingerprint,)))[0]
         assert legacy.metrics is None and legacy.warnings
+        assert legacy.cost_attribution is None
+        assert any("Fee attribution" in warning for warning in legacy.warnings)
+        # A verified republish fills missing metadata without changing result identity.
+        restored_store = _result_store(engine, specification)
+        await restored_store.publish(result, trace=trace)
+        restored = (await store.load_projections((fingerprint,)))[0]
+        assert restored.cost_attribution == attribution
+        assert restored.warnings == ()
+        for placeholder in (None, "sha256:" + "0" * 64):
+            unsigned = attribution.model_dump(mode="python", exclude={"attribution_fingerprint"})
+            if placeholder is not None:
+                unsigned["attribution_fingerprint"] = placeholder
+            async with engine.begin() as connection:
+                await connection.execute(
+                    update(published_backtest_results)
+                    .where(published_backtest_results.c.result_fingerprint == fingerprint)
+                    .values(cost_attribution_json=json.dumps(unsigned))
+                )
+            with pytest.raises(BacktestResultIntegrityError):
+                await store.load_projections((fingerprint,))
+        corrupted = attribution.model_dump(mode="python")
+        corrupted["entry_fees"] = "999"
+        async with engine.begin() as connection:
+            await connection.execute(
+                update(published_backtest_results)
+                .where(published_backtest_results.c.result_fingerprint == fingerprint)
+                .values(cost_attribution_json=json.dumps(corrupted))
+            )
+        with pytest.raises(BacktestResultIntegrityError):
+            await store.load_projections((fingerprint,))
+        wrong_source = attribution.model_dump(mode="python", exclude={"attribution_fingerprint"})
+        wrong_source["run_fingerprint"] = "sha256:" + "9" * 64
+        wrong_attribution = BacktestCostAttribution.model_validate(wrong_source)
+        async with engine.begin() as connection:
+            await connection.execute(
+                update(published_backtest_results)
+                .where(published_backtest_results.c.result_fingerprint == fingerprint)
+                .values(cost_attribution_json=wrong_attribution.model_dump_json())
+            )
+        with pytest.raises(BacktestResultIntegrityError, match="source identity"):
+            await store.load_projections((fingerprint,))
+        async with engine.begin() as connection:
+            await connection.execute(
+                update(published_backtest_results)
+                .where(published_backtest_results.c.result_fingerprint == fingerprint)
+                .values(cost_attribution_json=attribution.model_dump_json())
+            )
         async with engine.begin() as connection:
             await connection.execute(
                 update(published_research_run_specs)

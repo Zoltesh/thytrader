@@ -235,3 +235,11 @@ classification rather than being mistaken for a canceled entry. Legacy rows are
 unchanged and may lack this trace. The runtime decision timeline displays the trace.
 Read-only campaign/economic tools and bounded exports live in the research skill;
 operator observation grants no research mutation or runtime/order authority.
+
+Backtest `payload.cost_attribution` follows `thytrader-cost-attribution-v1` with its
+own `attribution_fingerprint`, source `result_fingerprint` / `run_fingerprint`,
+`trade_count`, and exact decimal-string `fill_price_pnl_before_fees`, `entry_fees`,
+`exit_fees`, `net_pnl`, `accounting_residual`, and `summary_net_pnl_delta`. Modeled
+spread/slippage are already in fill prices. The residual is ledger net minus
+(before-fees PnL minus both fees); the delta is summary net minus ledger net.
+This report does not change canonical result bytes and is null for paper/live.

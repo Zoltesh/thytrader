@@ -34,6 +34,7 @@ from thytrader.api.research_execution import (
     wait_for_job,
 )
 from thytrader.api.strategy_http import snapshot_for_start
+from thytrader.backtest.cost_attribution import BacktestCostAttribution, compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
@@ -158,6 +159,7 @@ class BacktestDetailResponse(BaseModel):
     result_fingerprint: str
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
+    cost_attribution: BacktestCostAttribution | None = None
     diagnostics: BacktestDiagnostics | None = None
     window: BacktestEvaluationWindow | None = None
 
@@ -706,6 +708,7 @@ async def get_backtest(
             },
         )
     metrics = _derived_metrics(result)
+    attribution = compute_cost_attribution(result)
     diagnostics = await _stored_diagnostics(store, result_fingerprint)
     if detail == "summary":
         return BacktestSummaryDetailResponse(
@@ -716,6 +719,7 @@ async def get_backtest(
             summary=result.summary,
             costs=costs,
             metrics=metrics,
+            cost_attribution=attribution,
             diagnostics=diagnostics,
             window=window,
             verification_scope="full_artifacts",
@@ -725,6 +729,7 @@ async def get_backtest(
         result_fingerprint=result_fingerprint,
         costs=costs,
         metrics=metrics,
+        cost_attribution=attribution,
         diagnostics=diagnostics,
         window=window,
     )

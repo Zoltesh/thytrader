@@ -622,3 +622,14 @@ Order submissions and cancellations never use this retry helper.
 Research reliability: [frozen campaigns, prospective validation, economic preflight,
 stress assumptions, and bounded exports](user/research.md) are shipped through the research
 HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
+
+Backtest detail and bounded export projections now include optional `cost_attribution`
+(`thytrader-cost-attribution-v1`); research `show-result` forwards it and operator
+`performance --result-fingerprint` calculates it from verified evidence. The four
+exact quote-currency totals are `fill_price_pnl_before_fees`, `entry_fees`,
+`exit_fees`, and closed-trade `net_pnl`. Modeled spread/slippage already affect fill
+prices. `accounting_residual` and `summary_net_pnl_delta` disclose ledger/summary
+rounding differences. Source identities and the attribution's own fingerprint are
+validated. Publication-time metadata lives outside canonical result bytes (Alembic
+0064); missing legacy bounded metadata remains null with a warning. Full detail
+computes it without mutating a publication. See the research skill for invocations.

@@ -87,3 +87,7 @@ detail. Entry exposure and capital reservations count working entries, excluding
 Research reliability: [frozen campaigns, prospective validation, economic preflight,
 stress assumptions, and bounded exports](user/research.md) are shipped through the research
 HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
+
+Backtest results also show [closed-trade fee attribution](user/research.md#closed-trade-fee-attribution):
+PnL before trading fees, entry fees, exit fees, and net PnL, with accounting differences
+disclosed. Agent result reports and exports carry the same evidence.

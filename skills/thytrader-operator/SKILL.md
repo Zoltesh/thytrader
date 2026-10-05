@@ -418,3 +418,16 @@ classification rather than being mistaken for a canceled entry. Legacy rows are
 unchanged and may lack this trace. The runtime decision timeline displays the trace.
 Read-only campaign/economic tools and bounded exports live in the research skill;
 operator observation grants no research mutation or runtime/order authority.
+
+## Backtest fee attribution
+
+`uv run thytrader-operator performance --result-fingerprint sha256:…` includes
+`payload.cost_attribution` (`thytrader-cost-attribution-v1`): exact quote-currency
+`fill_price_pnl_before_fees`, `entry_fees`, `exit_fees`, and closed-trade `net_pnl`,
+plus `trade_count`, `result_fingerprint`, `run_fingerprint`, and its own
+`attribution_fingerprint`. Before-fees PnL already includes modeled spread/slippage;
+do not subtract them again. `accounting_residual` is net minus (before-fees PnL
+minus both fees); `summary_net_pnl_delta` is summary net minus closed-trade net.
+Tiny Decimal rounding differences are disclosed separately. Paper/live reports
+leave this backtest-only field null; those modes retain their fill-ledger reports.
+For bounded research reads/exports and legacy-null warnings, use the research skill.

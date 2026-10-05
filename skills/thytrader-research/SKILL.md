@@ -722,3 +722,32 @@ artifact verification. Old publications may lack derived `metrics`; their warnin
 say so. Fetch `/metrics` or the full result when that detail is needed. General bulk
 export uses the existing offset cursor, so new concurrent publications can shift
 pages; campaign reports pin child identities and are stable for that manifest.
+
+## Closed-trade fee attribution
+
+`cost_attribution` is a `thytrader-cost-attribution-v1` report outside canonical result
+bytes. It contains `result_fingerprint`, `run_fingerprint`, its own
+`attribution_fingerprint`, and `trade_count`. All amounts are exact decimal strings
+in the strategy's quote currency:
+
+- `fill_price_pnl_before_fees`: sum of recorded trade `gross_pnl`; modeled fill prices
+  already include spread and slippage. Do not subtract either cost again.
+- `entry_fees` and `exit_fees`: sums of recorded entry and exit fill fees.
+- `net_pnl`: sum of recorded closed-trade net PnL.
+- `accounting_residual`: net minus (before-fees PnL minus both fee totals).
+- `summary_net_pnl_delta`: canonical summary net PnL minus closed-trade net PnL.
+
+The simulator's Decimal64 arithmetic can leave tiny rounding differences; the last
+two fields disclose them rather than attributing them to fees. Summary `gross_profit`
+and `gross_loss` group winning/losing **net** trade PnL and are not before-fee totals.
+
+`uv run thytrader-research show-result --result-fingerprint sha256:…` and
+`export-results --limit 100 [--cursor CURSOR]` include this field. New publications
+record it in Alembic 0064's nullable metadata column. Bounded reads do not load trade
+or equity arrays: legacy missing metadata is `null` with a warning, never zero.
+`GET /api/v1/backtests/{fp}?detail=full`, operator `performance --result-fingerprint`,
+and explicit `show-result --local` compute it from fully read evidence. A verified
+republish fills missing metadata without replacing recorded attribution or changing
+result fingerprints. The result UI shows all four totals and reconciliation details.
+Stored reports with missing or placeholder attribution digests fail integrity validation.
+No new CLI flags or trading authority are introduced.

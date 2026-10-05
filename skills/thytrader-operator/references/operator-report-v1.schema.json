@@ -100,6 +100,10 @@
       "type": "object",
       "additionalProperties": true,
       "properties": {
+        "cost_attribution": {
+          "anyOf": [{ "$ref": "#/$defs/BacktestCostAttribution" }, { "type": "null" }],
+          "description": "Backtest closed-trade fee attribution; null outside backtests or when unavailable."
+        },
         "ops_contract": {
           "type": ["object", "null"],
           "description": "Health only. Missing or unequal to this CLI means a stale Compose image.",
@@ -322,6 +326,82 @@
         "recovery_status"
       ],
       "title": "AuditFailureEvidence",
+      "type": "object"
+    },
+    "BacktestCostAttribution": {
+      "additionalProperties": false,
+      "description": "Sum recorded closed-trade amounts, preserving execution costs and rounding evidence.\n\nFill-price PnL already includes modeled spread/slippage. ``accounting_residual`` is\nnet minus (before-fees PnL minus both fees); ``summary_net_pnl_delta`` is the canonical\nsummary net minus ledger net. Neither difference is silently attributed to fees.",
+      "properties": {
+        "attribution_contract_version": {
+          "const": "thytrader-cost-attribution-v1",
+          "default": "thytrader-cost-attribution-v1",
+          "title": "Attribution Contract Version",
+          "type": "string"
+        },
+        "attribution_fingerprint": {
+          "default": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Attribution Fingerprint",
+          "type": "string"
+        },
+        "result_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Result Fingerprint",
+          "type": "string"
+        },
+        "run_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Run Fingerprint",
+          "type": "string"
+        },
+        "trade_count": {
+          "minimum": 0,
+          "title": "Trade Count",
+          "type": "integer"
+        },
+        "fill_price_pnl_before_fees": {
+          "maxLength": 12500,
+          "title": "Fill Price Pnl Before Fees",
+          "type": "string"
+        },
+        "entry_fees": {
+          "maxLength": 12500,
+          "title": "Entry Fees",
+          "type": "string"
+        },
+        "exit_fees": {
+          "maxLength": 12500,
+          "title": "Exit Fees",
+          "type": "string"
+        },
+        "net_pnl": {
+          "maxLength": 12500,
+          "title": "Net Pnl",
+          "type": "string"
+        },
+        "accounting_residual": {
+          "maxLength": 12500,
+          "title": "Accounting Residual",
+          "type": "string"
+        },
+        "summary_net_pnl_delta": {
+          "maxLength": 12500,
+          "title": "Summary Net Pnl Delta",
+          "type": "string"
+        }
+      },
+      "required": [
+        "result_fingerprint",
+        "run_fingerprint",
+        "trade_count",
+        "fill_price_pnl_before_fees",
+        "entry_fees",
+        "exit_fees",
+        "net_pnl",
+        "accounting_residual",
+        "summary_net_pnl_delta"
+      ],
+      "title": "BacktestCostAttribution",
       "type": "object"
     }
   }

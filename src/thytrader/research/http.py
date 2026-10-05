@@ -731,6 +731,7 @@ def show_result(base_url: str, result_fingerprint: str) -> str:
             "window": body.get("window"),
             "costs": body.get("costs"),
             "metrics": body.get("metrics"),
+            "cost_attribution": body.get("cost_attribution"),
             "diagnostics": body.get("diagnostics"),
             "verification_scope": body.get("verification_scope"),
             "warnings": body.get("warnings", []),

@@ -4,6 +4,7 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
+from thytrader.backtest.cost_attribution import BacktestCostAttribution
 from thytrader.backtest.models import (
     BacktestDiagnostics,
     BacktestEvaluationWindow,
@@ -24,6 +25,7 @@ class BacktestProjection(BaseModel):
     summary: BacktestSummary
     costs: CostAssumptions | None = None
     metrics: BacktestPerformanceMetrics | None = None
+    cost_attribution: BacktestCostAttribution | None = None
     diagnostics: BacktestDiagnostics | None = None
     window: BacktestEvaluationWindow | None = None
     verification_scope: Literal["publication", "full_artifacts"] = "publication"

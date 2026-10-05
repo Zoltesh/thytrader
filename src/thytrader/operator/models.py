@@ -9,6 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.backtest.cost_attribution import BacktestCostAttribution
 from thytrader.backtest.models import (
     BacktestEvaluationWindow,
     BacktestPerformanceMetrics,
@@ -707,6 +708,7 @@ class PerformancePayload(_FrozenModel):
     marked_exposure: str | None = None
     books: tuple[PerformanceBookPayload, ...] = ()
     metrics: BacktestPerformanceMetrics | None = None
+    cost_attribution: BacktestCostAttribution | None = None
     window: BacktestEvaluationWindow | None = None
 
 

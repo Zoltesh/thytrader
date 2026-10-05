@@ -15,6 +15,7 @@ from sqlalchemy import JSON, cast as sql_cast, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestDiagnostics,
@@ -95,7 +96,8 @@ class PostgresBacktestResultStore:
 
         Diagnostics live in ``diagnostics_json`` beside the canonical bytes. Republishing
         an identical result only fills diagnostics a pre-0055 row never recorded; it never
-        rewrites the canonical result or replaces recorded diagnostics.
+        rewrites the canonical result or replaces recorded diagnostics. Derived metrics
+        and fee attribution likewise fill absent metadata without replacing recorded evidence.
         """
         validated = _validated_result(result)
         _verify_trace_identity(validated, trace)
@@ -108,6 +110,7 @@ class PostgresBacktestResultStore:
             else canonical_backtest_diagnostics_bytes(diagnostics).decode("utf-8")
         )
         metrics_json = await asyncio.to_thread(_publication_metrics_json, validated)
+        attribution = await asyncio.to_thread(compute_cost_attribution, validated)
         inserted = insert(published_backtest_results).values(
             result_fingerprint=fingerprint,
             run_fingerprint=validated.run_fingerprint,
@@ -117,12 +120,17 @@ class PostgresBacktestResultStore:
             signal_trace_fingerprint=validated.signal_trace_fingerprint,
             canonical_result=canonical,
             metrics_json=metrics_json,
+            cost_attribution_json=attribution.model_dump_json(),
             published_at=datetime.now(UTC),
             diagnostics_json=diagnostics_json,
         )
         statement = inserted.on_conflict_do_update(
             index_elements=[published_backtest_results.c.result_fingerprint],
             set_={
+                "cost_attribution_json": func.coalesce(
+                    published_backtest_results.c.cost_attribution_json,
+                    inserted.excluded.cost_attribution_json,
+                ),
                 "metrics_json": func.coalesce(
                     published_backtest_results.c.metrics_json, inserted.excluded.metrics_json
                 ),
