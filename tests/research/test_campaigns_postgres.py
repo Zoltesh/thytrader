@@ -10,10 +10,12 @@ if TYPE_CHECKING:
 
 from pydantic import SecretStr
 import pytest
+from sqlalchemy import update
 
 from tests.portfolios.fixtures import DATA_START, write_dataset
 from thytrader.backtest.submission import BacktestStartRequest
 from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.schema import research_jobs
 from thytrader.research.campaigns import CampaignCaseStart, CampaignCaseStatus, CampaignStart
 from thytrader.research_worker.executor import ResearchJobExecutor, build_research_services
 from thytrader.strategies.authoring import create_template_strategy
@@ -37,7 +39,8 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
             strategy = await create_strategy_from_definition(
                 campaign.strategies, create_template_strategy(product_id="BTC-USDC", timeframe="1h")
             )
-            now = datetime(2026, 10, 4, tzinfo=UTC)
+            # The real queue uses PostgreSQL's clock to reject expired jobs.
+            now = datetime.now(UTC)
             request = BacktestStartRequest(
                 strategy_id=strategy.strategy_id,
                 dataset_fingerprint=fingerprint,
@@ -91,7 +94,7 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
                 CampaignStart(
                     name="Deadline cannot accept late completion",
                     kind="historical",
-                    deadline=now + timedelta(seconds=1),
+                    deadline=now + timedelta(hours=1),
                     cases=(CampaignCaseStart(key="late", request=request),),
                 ),
                 now=now,
@@ -103,6 +106,13 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
             assert late_job is not None
             assert late_job.job_id == queued_late.cases[0].job_id
             await ResearchJobExecutor(services, owner).execute(late_job)
+            # Model late completion explicitly; do not depend on worker execution speed.
+            async with engine.begin() as connection:
+                await connection.execute(
+                    update(research_jobs)
+                    .where(research_jobs.c.job_id == late_job.job_id)
+                    .values(updated_at=late.manifest.deadline + timedelta(seconds=1))
+                )
             late_result = await restarted.refresh(
                 late.manifest.campaign_id, now=now + timedelta(days=3)
             )
@@ -119,8 +129,12 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
                             request=request.model_copy(
                                 update={
                                     "dataset_fingerprint": None,
-                                    "evaluation_start": now + timedelta(days=1),
-                                    "evaluation_end": now + timedelta(days=3),
+                                    "evaluation_start": now.replace(
+                                        minute=0, second=0, microsecond=0
+                                    )
+                                    + timedelta(days=1),
+                                    "evaluation_end": now.replace(minute=0, second=0, microsecond=0)
+                                    + timedelta(days=3),
                                 }
                             ),
                         ),
