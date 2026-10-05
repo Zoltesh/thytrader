@@ -158,6 +158,11 @@ The journal keeps the newest 20,000 decisions per bot for at most 180 days. `sto
 means the API has no database; it is not "no decisions". A bar is journaled only once it closes
 and is processed, so the newest bar lags the clock by up to one execution-worker interval.
 
+Populated HTTP timelines include `rule.signal.candle_starts_at` as a UTC timestamp alongside
+the exact indicator values. The CLI validates the complete report, including nested signal
+records; malformed, timezone-naive, or non-UTC signal timestamps remain schema errors. Report
+such an error as a diagnostic failure, never as an empty timeline or a missing trading signal.
+
 Protective bracket/TP cancellations and replacements keep an occupied book `holding`; inspect
 linked `orders[].purpose` and statuses for maintenance. `pending_entry` cancellation refers only
 to a known entry, including partial-entry remainder cancellation, never an attached protective

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
@@ -64,9 +65,11 @@ def fetch_operator_report(
     command: str,
     query: Mapping[str, str | tuple[str, ...]] | None = None,
 ) -> OperatorEnvelope:
-    """GET one operator report and validate it against the v1 models.
+    """GET one operator report and validate its JSON against the v1 models.
 
     Tuple values become repeated query parameters (for example ``outcome``).
+    JSON validation admits serialized timestamps in strict nested signal records
+    without relaxing the models' Python or UTC validation rules.
     """
     model = _REPORT_MODELS.get(command)
     if model is None:
@@ -78,4 +81,4 @@ def fetch_operator_report(
         if encoded:
             url = f"{url}?{encoded}"
     payload = request_json(method="GET", url=url)
-    return model.model_validate(payload)
+    return model.model_validate_json(json.dumps(payload))

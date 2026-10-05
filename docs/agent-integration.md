@@ -8,6 +8,11 @@ versus equity/day-open baselines. Protective bracket/TP maintenance with invento
 with orders linked, rather than a canceled entry. Historical rows are not rewritten. No API shape,
 CLI invocation, confirmation, or live-arming change is required by ADR 0106.
 
+Operator HTTP reports validate the complete JSON contract, including populated decision
+timelines with strict nested `rule.signal.candle_starts_at` timestamps. Valid UTC strings are
+accepted at the JSON boundary; malformed, naive, or non-UTC signal timestamps are rejected.
+A report-validation error is an observation failure, never evidence of an empty timeline.
+
 [ADR 0107](decisions/0107-capital-normalized-live-performance.md) adds pinned performance capital
 and durable observed maximum drawdown. Health advertises ops contract v64 / Alembic `0061` and
 `runtime_observability: capital_normalized_performance`. Runtime `show UUID` exposes

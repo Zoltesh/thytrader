@@ -689,6 +689,10 @@ uv run thytrader-runtime show-settings
 uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm
 ```
 
+`uv run thytrader-operator decisions --deployment-id UUID` reads the same recorded conditions,
+indicator values, and UTC signal timestamps as the bot timeline. A schema-validation failure
+means the diagnostic could not be read; it does not mean the bot has no decisions or no signal.
+
 | Lane | What it may do | Gate |
 |---|---|---|
 | `thytrader-operator` | Read-only diagnostics | none (never trades) |
