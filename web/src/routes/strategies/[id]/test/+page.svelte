@@ -371,6 +371,9 @@
 	.problem p {
 		margin: 4px 0 0;
 	}
+	.table-wrap {
+		position: relative;
+	}
 	th,
 	td {
 		text-align: left;

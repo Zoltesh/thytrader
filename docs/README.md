@@ -94,3 +94,5 @@ HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
 Backtest results also show [closed-trade fee attribution](user/research.md#closed-trade-fee-attribution):
 PnL before trading fees, entry fees, exit fees, and net PnL, with accounting differences
 disclosed. Agent result reports and exports carry the same evidence.
+On narrow screens, result tables scroll inside their panels while exact reconciliation
+and ratio values wrap. See [research results](user/research.md#closed-trade-fee-attribution).

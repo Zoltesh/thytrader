@@ -196,7 +196,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 							entry: {
 								candle_starts_at: '2026-08-01T03:00:00Z',
 								price: '15',
-								quantity: '1',
+								quantity: `1.${'0'.repeat(63)}`,
 								notional: '15',
 								fee: '0.03',
 								fee_rate: '0.002'
@@ -204,7 +204,7 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 							exit: {
 								candle_starts_at: '2026-08-01T04:00:00Z',
 								price: '27',
-								quantity: '1',
+								quantity: `1.${'0'.repeat(63)}`,
 								notional: '27',
 								fee: '0.05',
 								fee_rate: '0.002',
@@ -311,6 +311,20 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	).toBeVisible();
 	await expect(page.getByTestId('backtest-equity-chart')).toBeVisible();
 	await expect(page.getByTestId('backtest-equity-chart').locator('canvas').first()).toBeVisible();
+	for (const width of [390, 1280]) {
+		await page.setViewportSize({ width, height: 844 });
+		await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+		const ledger = page.locator('.ledger .table-wrap');
+		await expect(ledger.getByText(`1.${'0'.repeat(63)}`, { exact: true })).toBeVisible();
+		await expect
+			.poll(() =>
+				ledger.evaluate((element) => {
+					element.scrollLeft = element.scrollWidth;
+					return element.scrollLeft;
+				})
+			)
+			.toBeGreaterThan(0);
+	}
 });
 
 test('an unstressed result shows no spread copy or spread column', async ({ page }) => {

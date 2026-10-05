@@ -116,3 +116,7 @@ republish fills missing metadata without replacing recorded attribution or chang
 result fingerprints. The result UI shows all four totals and reconciliation details.
 Stored reports with missing or placeholder attribution digests fail integrity validation.
 No new CLI flags or trading authority are introduced.
+
+On narrow screens, scroll inside the trade ledger and strategy result table to reach
+their remaining columns. Ratio and reconciliation values wrap within their panels;
+the displayed ledger quantities and report/export values retain their full precision.

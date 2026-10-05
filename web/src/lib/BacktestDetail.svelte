@@ -460,7 +460,9 @@
 <style>
 	.detail {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 16px;
+		overflow-wrap: anywhere;
 	}
 	.result-head {
 		display: flex;

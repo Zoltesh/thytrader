@@ -9,6 +9,7 @@ import {
 import { expect, test } from '../e2e/harness';
 import {
 	definition,
+	backtestEntry,
 	deployment,
 	fingerprint,
 	fingerprintV2,
@@ -49,6 +50,32 @@ test('identity bar shows validity and the next snapshot fingerprint; stages have
 	await stages.getByRole('link', { name: 'Run' }).click();
 	await expect(page).toHaveURL(new RegExp(`/strategies/${strategyId}/run$`));
 	await expect(stages.getByRole('link', { name: 'Run' })).toHaveAttribute('aria-current', 'page');
+});
+
+test('keeps the Test result table inside the mobile viewport', async ({ page }) => {
+	await page.setViewportSize({ width: 390, height: 844 });
+	await mockStrategy(page);
+	await mockBacktestList(page, () => [backtestEntry(fingerprint)]);
+	await mockDatasets(page);
+	await mockDeployments(page, () => []);
+	await page.goto(`/strategies/${strategyId}/test`);
+	await expect(
+		page
+			.getByRole('table', { name: 'Backtest results for this strategy' })
+			.locator('tbody tr')
+			.first()
+	).toBeVisible();
+	await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+	const table = page.locator('.table-wrap');
+	await expect
+		.poll(() =>
+			table.evaluate((element) => {
+				element.scrollLeft = element.scrollWidth;
+				return element.scrollLeft;
+			})
+		)
+		.toBeGreaterThan(0);
+	await expect(table.getByRole('columnheader', { name: 'Open' })).toHaveCount(1);
 });
 
 test('an invalid saved definition shows its problems in the identity bar', async ({ page }) => {

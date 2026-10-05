@@ -638,3 +638,7 @@ The expected operational schema revision is `0064`, including backtest fee metad
 Health rejects a different applied revision. A repository test compares the
 advertised revision with Alembic head so a migration cannot silently ship a stale
 health contract. Matching application versions alone remains insufficient.
+
+Backtest tables scroll within their panels on narrow screens, and long ratios and
+reconciliation values wrap. Agent reads and exports retain exact recorded decimals;
+rounded monetary cards in the UI are a display convenience.
