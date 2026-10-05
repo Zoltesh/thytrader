@@ -27,6 +27,11 @@ you are operating a **running** instance (not changing source).
 
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
+Agents can read its complete recorded conditions and UTC signal evidence with
+`thytrader-operator decisions --deployment-id UUID`; a diagnostic failure is distinct from an
+empty timeline.
+The operator strategy report includes the newest 100 library rows; follow its truncation warning
+and use the research CLI to read older strategies or page the full library.
 
 Exchange diagnostics identify which account read failed and its safe error category.
 Reconciliation links audit failures to their timestamps and observed recovery events.

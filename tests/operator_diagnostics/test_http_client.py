@@ -12,9 +12,13 @@ import threading
 from typing import Protocol
 from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
+from uuid import UUID
 
+from pydantic import ValidationError
 import pytest
 
+from tests.execution.test_decision_store import make_decision
+from tests.http_fakes import json_urlopen_response
 from thytrader.agent_http import (
     AgentHttpError,
     default_api_base_url,
@@ -23,15 +27,25 @@ from thytrader.agent_http import (
     require_matching_ops_contract,
 )
 from thytrader.config import Settings
+from thytrader.execution.decisions import (
+    ConditionComparisonTrace,
+    ConditionResult,
+    DecisionOperand,
+    EntryRuleTrace,
+)
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.models import (
     SCHEMA_VERSION,
     STANDARD_REDACTION,
+    DecisionsPayload,
+    DecisionsReport,
     HealthPayload,
     HealthReport,
     ReportStatus,
 )
 from thytrader.ops_contract import expected_ops_contract
+from thytrader.research.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
+from thytrader.strategies.models import ComparisonOperator
 
 
 class _HasFullUrl(Protocol):
@@ -87,6 +101,75 @@ def test_fetch_operator_report_validates_health_envelope() -> None:
     assert isinstance(report, HealthReport)
     assert report.schema_version == SCHEMA_VERSION
     assert report.report_kind == "health"
+
+
+def _populated_decisions_report() -> DecisionsReport:
+    """Build a real decision with the strict signal timestamp missing from empty-page tests."""
+    decision = make_decision(deployment_id=UUID("01985cf0-7b60-7000-8000-00000000d0d0"), hour=0)
+    rule = EntryRuleTrace(
+        outcome=EntryConditionOutcome.NOT_MATCHED,
+        entry=ConditionComparisonTrace(
+            result=ConditionResult.FALSE,
+            label="RSI(14) ≥ 50",
+            operator=ComparisonOperator.GTE,
+            operator_symbol="≥",
+            left=DecisionOperand(kind="indicator", label="RSI(14)", key="rsi", value="47.21"),
+            right=DecisionOperand(kind="literal", label="50", value="50"),
+        ),
+        signal=SignalTraceRecord(
+            candle_starts_at=decision.bar_starts_at,
+            indicator_values=(IndicatorTraceValue(indicator_id="rsi", value="47.21"),),
+            entry_condition=EntryConditionOutcome.NOT_MATCHED,
+        ),
+    )
+    return DecisionsReport(
+        application_version="0.1.0",
+        generated_at=decision.evaluated_at,
+        overall_status=ReportStatus.HEALTHY,
+        components=(),
+        redaction=STANDARD_REDACTION,
+        recommended_next_action="No action required.",
+        payload=DecisionsPayload(
+            storage="available",
+            deployment_id=decision.deployment_id,
+            decisions=(decision.model_copy(update={"rule": rule}),),
+            retention_max_rows_per_deployment=20000,
+            retention_max_age_days=180,
+        ),
+    )
+
+
+def test_fetch_operator_report_reads_populated_signal_timestamps() -> None:
+    """A valid nested UTC signal survives the HTTP JSON boundary with its exact values."""
+    expected = _populated_decisions_report()
+    response = json_urlopen_response(expected.model_dump(mode="json"))
+    with patch("thytrader.agent_http.urlopen", return_value=response):
+        report = fetch_operator_report(base_url="http://127.0.0.1:8200", command="decisions")
+    assert isinstance(report, DecisionsReport)
+    assert report == expected
+    rule = report.payload.decisions[0].rule
+    assert rule is not None
+    assert rule.signal is not None
+    assert rule.signal.candle_starts_at == datetime(2026, 3, 1, tzinfo=UTC)
+
+
+@pytest.mark.parametrize(
+    "candle_starts_at",
+    ("2026-03-01T00:00:00", "2026-03-01T00:00:00+01:00", "invalid", 0),
+)
+def test_fetch_operator_report_rejects_invalid_signal_timestamps(
+    candle_starts_at: str | int,
+) -> None:
+    """JSON validation keeps UTC, timestamp syntax, and strict datetime rules fail-closed."""
+    # The dumped mapping is an external JSON fixture, immediately validated by the HTTP client.
+    payload = _populated_decisions_report().model_dump(mode="json")
+    payload["payload"]["decisions"][0]["rule"]["signal"]["candle_starts_at"] = candle_starts_at
+    response = json_urlopen_response(payload)
+    with (
+        patch("thytrader.agent_http.urlopen", return_value=response),
+        pytest.raises(ValidationError, match="candle_starts_at"),
+    ):
+        fetch_operator_report(base_url="http://127.0.0.1:8200", command="decisions")
 
 
 @pytest.mark.parametrize(

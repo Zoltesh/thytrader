@@ -77,12 +77,16 @@ Prefer the CLI. HTTP is the same contract on loopback.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
-`strategies` lists every strategy (`strategy_id`, `name`, `revision`, `valid`,
+`strategies` lists the 100 most recently updated strategies (`strategy_id`, `name`, `revision`, `valid`,
 `current_fingerprint` or `null` when the saved definition is invalid, `product_id`, `timeframe`,
 `updated_at`) plus deployment rows; there are no drafts, publications, or versions. Deployment rows
 carry `strategy_id` (null for a stopped live book of a deleted strategy), the snapshot
 `strategy_fingerprint`, `strategy_name`, and `strategy_deleted`. A deployment whose
 `strategy_fingerprint` differs from its strategy's `current_fingerprint` runs an earlier edit.
+Read `partial_result_warnings`: an older deployed strategy can be absent from the bounded library
+rows. Its absence does not mean deletion or a rule mismatch. Read its current rules with
+`uv run thytrader-research show-strategy --strategy-id UUID`, or page the full library with
+`thytrader-research list-strategies --limit 100` and the returned `--cursor`.
 
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
 `side`, `protection_status`, `position_state`, `exit_in_flight`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
@@ -157,6 +161,11 @@ take-profit would be at or below zero), `STOP_NOT_POSITIVE`, `STOP_DISTANCE_NOT_
 The journal keeps the newest 20,000 decisions per bot for at most 180 days. `storage: unavailable`
 means the API has no database; it is not "no decisions". A bar is journaled only once it closes
 and is processed, so the newest bar lags the clock by up to one execution-worker interval.
+
+Populated HTTP timelines include `rule.signal.candle_starts_at` as a UTC timestamp alongside
+the exact indicator values. The CLI validates the complete report, including nested signal
+records; malformed, timezone-naive, or non-UTC signal timestamps remain schema errors. Report
+such an error as a diagnostic failure, never as an empty timeline or a missing trading signal.
 
 Protective bracket/TP cancellations and replacements keep an occupied book `holding`; inspect
 linked `orders[].purpose` and statuses for maintenance. `pending_entry` cancellation refers only
