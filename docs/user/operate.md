@@ -765,3 +765,8 @@ Order submissions and cancellations never use this retry helper.
 Research reliability: [frozen campaigns, prospective validation, economic preflight,
 stress assumptions, and bounded exports](research.md) are shipped through the research
 HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
+
+After an update, `make run` applies the migration head and rebuilds every service.
+Health compares the applied database revision with the shipped expected revision
+(currently `0064`). If a mismatch persists after rebuilding latest main, report it;
+do not bypass the readiness check.

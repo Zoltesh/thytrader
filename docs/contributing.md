@@ -136,3 +136,8 @@ uv run ty check
 ```
 
 Native process startup is documented for operators in [user setup](user/setup.md).
+
+When adding a migration, update `ops_contract.EXPECTED_SCHEMA_REVISION` in the same
+change. `test_expected_schema_revision_matches_alembic_head` checks the advertised
+revision against Alembic head; hard-coded assertions alone cannot catch drift.
+Verify operator health after the supported rebuild/restart as well as unit/CI tests.

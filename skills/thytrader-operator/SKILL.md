@@ -431,3 +431,8 @@ minus both fees); `summary_net_pnl_delta` is summary net minus closed-trade net.
 Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
+
+The current fee-attribution migration and health contract both require schema revision
+`0064`. After updating main, use `make run` to apply migrations and rebuild the services.
+A repeated revision mismatch after that is a contributor defect, not a reason to
+bypass the CLI check or keep restarting unchanged images.

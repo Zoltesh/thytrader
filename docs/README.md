@@ -25,6 +25,9 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 Skills of record: [`skills/README.md`](../skills/README.md). Open [`ops/`](../ops/README.md) when
 you are operating a **running** instance (not changing source).
 
+After updating, rebuild with `make run` and verify operator health; the database revision must
+match the shipped migration head. See [Operate](user/operate.md) for persistent mismatch handling.
+
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 Agents can read its complete recorded conditions and UTC signal evidence with
