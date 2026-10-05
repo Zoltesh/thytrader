@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from sqlalchemy import JSON, String, cast, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -62,6 +62,20 @@ class _ProjectionRow(BaseModel):
     diagnostics_json: str | None
     metrics_json: str | None
     cost_attribution_json: str | None
+
+
+class _PublishedCostAttribution(BacktestCostAttribution):
+    """Require an explicit digest on stored evidence rather than generating a new identity."""
+
+    attribution_fingerprint: FingerprintText = Field(...)
+
+    @field_validator("attribution_fingerprint")
+    @classmethod
+    def require_recorded_digest(cls, value: str) -> str:
+        """A publication must carry its recorded digest, never the constructor placeholder."""
+        if value == "sha256:" + "0" * 64:
+            raise ValueError("stored fee attribution requires a recorded fingerprint")
+        return value
 
 
 async def load_backtest_projections(
@@ -184,14 +198,14 @@ def _cost_attribution(row: _ProjectionRow) -> BacktestCostAttribution | None:
     """Require stored fee evidence to identify the authenticated publication and count."""
     if row.cost_attribution_json is None:
         return None
-    attribution = BacktestCostAttribution.model_validate_json(row.cost_attribution_json)
+    attribution = _PublishedCostAttribution.model_validate_json(row.cost_attribution_json)
     if (
         attribution.result_fingerprint != row.result_fingerprint
         or attribution.run_fingerprint != row.run_fingerprint
         or attribution.trade_count != row.summary.trade_count
     ):
         raise BacktestResultIntegrityError("Fee attribution source identity does not match.")
-    return attribution
+    return BacktestCostAttribution.model_validate(attribution.model_dump(mode="python"))
 
 
 def _diagnostics(payload: str | None) -> BacktestDiagnostics | None:

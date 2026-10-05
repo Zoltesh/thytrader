@@ -749,4 +749,5 @@ or equity arrays: legacy missing metadata is `null` with a warning, never zero.
 and explicit `show-result --local` compute it from fully read evidence. A verified
 republish fills missing metadata without replacing recorded attribution or changing
 result fingerprints. The result UI shows all four totals and reconciliation details.
+Stored reports with missing or placeholder attribution digests fail integrity validation.
 No new CLI flags or trading authority are introduced.

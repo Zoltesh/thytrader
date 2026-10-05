@@ -134,6 +134,18 @@ async def _assert_postgres_projection(database_url: str, monkeypatch: pytest.Mon
         restored = (await store.load_projections((fingerprint,)))[0]
         assert restored.cost_attribution == attribution
         assert restored.warnings == ()
+        for placeholder in (None, "sha256:" + "0" * 64):
+            unsigned = attribution.model_dump(mode="python", exclude={"attribution_fingerprint"})
+            if placeholder is not None:
+                unsigned["attribution_fingerprint"] = placeholder
+            async with engine.begin() as connection:
+                await connection.execute(
+                    update(published_backtest_results)
+                    .where(published_backtest_results.c.result_fingerprint == fingerprint)
+                    .values(cost_attribution_json=json.dumps(unsigned))
+                )
+            with pytest.raises(BacktestResultIntegrityError):
+                await store.load_projections((fingerprint,))
         corrupted = attribution.model_dump(mode="python")
         corrupted["entry_fees"] = "999"
         async with engine.begin() as connection:
