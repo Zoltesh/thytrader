@@ -13,6 +13,11 @@ timelines with strict nested `rule.signal.candle_starts_at` timestamps. Valid UT
 accepted at the JSON boundary; malformed, naive, or non-UTC signal timestamps are rejected.
 A report-validation error is an observation failure, never evidence of an empty timeline.
 
+Operator `strategies` bounds library rows to the 100 most recently updated strategies and reports
+truncation in `partial_result_warnings`. Missing rows do not prove deletion or rule mismatch.
+Read an older deployment's current rules with `thytrader-research show-strategy --strategy-id UUID`,
+or page the complete library with `list-strategies --limit 100` and its returned `--cursor`.
+
 [ADR 0107](decisions/0107-capital-normalized-live-performance.md) adds pinned performance capital
 and durable observed maximum drawdown. Health advertises ops contract v64 / Alembic `0061` and
 `runtime_observability: capital_normalized_performance`. Runtime `show UUID` exposes
