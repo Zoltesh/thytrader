@@ -633,3 +633,8 @@ rounding differences. Source identities and the attribution's own fingerprint ar
 validated. Publication-time metadata lives outside canonical result bytes (Alembic
 0064); missing legacy bounded metadata remains null with a warning. Full detail
 computes it without mutating a publication. See the research skill for invocations.
+
+The expected operational schema revision is `0064`, including backtest fee metadata.
+Health rejects a different applied revision. A repository test compares the
+advertised revision with Alembic head so a migration cannot silently ship a stale
+health contract. Matching application versions alone remains insufficient.

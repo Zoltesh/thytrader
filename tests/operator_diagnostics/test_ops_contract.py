@@ -1,5 +1,8 @@
 """Ops-contract identity used to detect stale Compose images."""
 
+from alembic.config import Config
+from alembic.script import ScriptDirectory
+
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.ops_contract import (
     BACKTEST_ENGINE_ID,
@@ -80,7 +83,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert len(kinds) == 53
     assert "supertrend" in kinds
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
-    assert expected["expected_schema_revision"] == "0063"
+    assert expected["expected_schema_revision"] == "0064"
     assert expected["async_study_planning"] == "worker"
     assert expected["newest_bar_settle_seconds"] == 120
     assert expected["take_profit_kinds"] == ["reward_risk", "none"]
@@ -220,3 +223,10 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["multi_instrument_documents"] == ["research", "paper", "live"]
     assert expected["intra_strategy_pyramiding"] == list(INTRA_STRATEGY_PYRAMIDING)
     assert expected["intra_strategy_pyramiding"] == ["research", "paper", "live"]
+
+
+def test_expected_schema_revision_matches_alembic_head() -> None:
+    """Every migration must update the advertised revision before it can ship."""
+    migration_head = ScriptDirectory.from_config(Config("alembic.ini")).get_current_head()
+    assert migration_head is not None
+    assert expected_ops_contract()["expected_schema_revision"] == migration_head

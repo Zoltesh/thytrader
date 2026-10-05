@@ -89,7 +89,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 OPS_CONTRACT_ID = "thytrader-ops-contract-v66"
-EXPECTED_SCHEMA_REVISION = "0063"
+EXPECTED_SCHEMA_REVISION = "0064"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
