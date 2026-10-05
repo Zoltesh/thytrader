@@ -12,6 +12,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestEvaluationWindow,
@@ -1594,6 +1595,7 @@ class OperatorDiagnostics:
             evaluation_bars=summary.evaluation_bars,
             metrics=metrics,
             window=await self._backtest_window(result),
+            cost_attribution=compute_cost_attribution(result),
         )
         return PerformanceReport(
             application_version=__version__,

@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from sqlalchemy import JSON, String, cast, func, select
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.backtest.cost_attribution import BacktestCostAttribution
 from thytrader.backtest.models import (
     BacktestDiagnostics,
     BacktestPerformanceMetrics,
@@ -60,6 +61,7 @@ class _ProjectionRow(BaseModel):
     canonical_specification: str
     diagnostics_json: str | None
     metrics_json: str | None
+    cost_attribution_json: str | None
 
 
 async def load_backtest_projections(
@@ -89,6 +91,7 @@ async def load_backtest_projections(
             runs.c.canonical_specification,
             table.c.diagnostics_json,
             table.c.metrics_json,
+            table.c.cost_attribution_json,
         )
         .select_from(table.join(runs, runs.c.run_fingerprint == table.c.run_fingerprint))
         .where(table.c.result_fingerprint.in_(result_fingerprints))
@@ -137,6 +140,18 @@ def _projection(row: _ProjectionRow) -> BacktestProjection:
     ):
         raise BacktestResultIntegrityError("Backtest source identity does not match.")
     metrics = _metrics(row)
+    attribution = _cost_attribution(row)
+    warnings: list[str] = []
+    if metrics is None:
+        warnings.append(
+            "Derived metrics were not recorded for this publication; "
+            "use the full result or metrics endpoint to calculate them."
+        )
+    if attribution is None:
+        warnings.append(
+            "Fee attribution was not recorded for this publication; "
+            "use detail=full to calculate it from the verified closed-trade ledger."
+        )
     return BacktestProjection(
         result_fingerprint=row.result_fingerprint,
         run_fingerprint=row.run_fingerprint,
@@ -145,14 +160,10 @@ def _projection(row: _ProjectionRow) -> BacktestProjection:
         summary=row.summary,
         costs=specification.costs,
         metrics=metrics,
+        cost_attribution=attribution,
         diagnostics=_diagnostics(row.diagnostics_json),
         window=backtest_evaluation_window(specification, row.summary.evaluation_bars),
-        warnings=()
-        if metrics is not None
-        else (
-            "Derived metrics were not recorded for this publication; "
-            "use the full result or metrics endpoint to calculate them.",
-        ),
+        warnings=tuple(warnings),
     )
 
 
@@ -167,6 +178,20 @@ def _metrics(row: _ProjectionRow) -> BacktestPerformanceMetrics | None:
     ):
         raise BacktestResultIntegrityError("Derived metrics source identity does not match.")
     return metrics
+
+
+def _cost_attribution(row: _ProjectionRow) -> BacktestCostAttribution | None:
+    """Require stored fee evidence to identify the authenticated publication and count."""
+    if row.cost_attribution_json is None:
+        return None
+    attribution = BacktestCostAttribution.model_validate_json(row.cost_attribution_json)
+    if (
+        attribution.result_fingerprint != row.result_fingerprint
+        or attribution.run_fingerprint != row.run_fingerprint
+        or attribution.trade_count != row.summary.trade_count
+    ):
+        raise BacktestResultIntegrityError("Fee attribution source identity does not match.")
+    return attribution
 
 
 def _diagnostics(payload: str | None) -> BacktestDiagnostics | None:

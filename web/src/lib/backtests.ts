@@ -151,12 +151,28 @@ export type BacktestEvaluationWindow = {
 	warmup_start: string;
 };
 
+/** Exact closed-trade amounts; before-fees PnL already includes spread and slippage. */
+export type BacktestCostAttribution = {
+	attribution_contract_version: 'thytrader-cost-attribution-v1';
+	attribution_fingerprint: string;
+	result_fingerprint: string;
+	run_fingerprint: string;
+	trade_count: number;
+	fill_price_pnl_before_fees: string;
+	entry_fees: string;
+	exit_fees: string;
+	net_pnl: string;
+	accounting_residual: string;
+	summary_net_pnl_delta: string;
+};
+
 export type BacktestDetail = {
 	result: BacktestResult;
 	result_fingerprint: string;
 	costs?: CostAssumptions | null;
 	diagnostics?: BacktestDiagnostics | null;
 	window?: BacktestEvaluationWindow | null;
+	cost_attribution?: BacktestCostAttribution | null;
 };
 
 /** `2026-03-01` for midnight bars, else `2026-03-01 14:00 UTC`. */

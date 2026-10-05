@@ -300,6 +300,7 @@ published_backtest_results = Table(
     Column("signal_trace_fingerprint", String(71), nullable=False),
     Column("canonical_result", Text(), nullable=False),
     Column("metrics_json", Text(), nullable=True),
+    Column("cost_attribution_json", Text(), nullable=True),
     Column("published_at", DateTime(timezone=True), nullable=False),
     Column(
         "diagnostics_json",

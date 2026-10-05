@@ -224,6 +224,19 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 					taker_fee_rate: '0.002',
 					fixed_slippage_bps: '10',
 					spread_bps: '10'
+				},
+				cost_attribution: {
+					attribution_contract_version: 'thytrader-cost-attribution-v1',
+					attribution_fingerprint: `sha256:${'f'.repeat(64)}`,
+					result_fingerprint: fingerprint,
+					run_fingerprint: runFingerprint,
+					trade_count: 1,
+					fill_price_pnl_before_fees: '12',
+					entry_fees: '0.03',
+					exit_fees: '0.05',
+					net_pnl: '11.92',
+					accounting_residual: '0',
+					summary_net_pnl_delta: '186.23'
 				}
 			}
 		});
@@ -253,6 +266,17 @@ test('shows a published backtest summary then its immutable detail', async ({ pa
 	await expect(page.getByText('2026-08-01 04:00:00 UTC')).toBeVisible();
 	await expect(page.getByText('Modeled assumptions')).toBeVisible();
 	await expect(page.getByTestId('published-costs')).toContainText('maker 0.10%');
+	const attribution = page.getByTestId('result-cost-attribution');
+	await expect(attribution).toContainText('PnL before trading fees');
+	await expect(attribution).toContainText('$12.00');
+	await expect(attribution).toContainText('Entry fees');
+	await expect(attribution).toContainText('$0.03');
+	await expect(attribution).toContainText('Exit fees');
+	await expect(attribution).toContainText('$0.05');
+	await expect(attribution).toContainText('Closed-trade net PnL');
+	await expect(attribution).toContainText('$11.92');
+	await attribution.getByText('Accounting reconciliation').click();
+	await expect(attribution).toContainText('186.23');
 	await expect(page.getByTestId('published-costs')).toContainText('taker 0.20%');
 	await expect(page.getByTestId('published-costs')).toContainText(
 		'fixed slippage 10 bps on taker exits'
@@ -395,6 +419,9 @@ test('an unstressed result shows no spread copy or spread column', async ({ page
 	await page.getByRole('button', { name: /Inspect/ }).click();
 	await expect(page.getByText('Simulated result (candle-based fills)')).toBeVisible();
 	await expect(page.getByTestId('spread-stress')).toHaveCount(0);
+	await expect(page.getByTestId('result-cost-attribution')).toContainText(
+		'Fee attribution is unavailable for this result.'
+	);
 	await expect(page.getByRole('columnheader', { name: /Spread/ })).toHaveCount(0);
 	await expect(page.getByTestId('backtest-model-disclosure')).toBeVisible();
 	await expect(page.getByTestId('published-costs')).toContainText('maker 0.10%');

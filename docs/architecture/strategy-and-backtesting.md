@@ -206,3 +206,13 @@ At minimum, results include:
 - warnings about data gaps or unsupported assumptions.
 
 Walk-forward and out-of-sample workflows are preferred over tuning against one full historical period.
+
+Fee attribution extends ADR 0109's publication projections. The worker sums recorded
+closed-trade gross PnL, entry fees, exit fees and net PnL with sufficient Decimal
+precision for exact aggregation. It stores an identity-bound derived report in a
+nullable `cost_attribution_json` column (0064), separate from result and metrics
+fingerprints. Bounded queries validate the stored report without materializing
+ledgers; legacy absent metadata remains unknown. Full artifact reads may compute
+attribution without writing it. Ledger arithmetic residual and summary-versus-ledger
+net delta remain visible. Verified republishing only fills null metadata, preserving
+recorded evidence and immutable result bytes.

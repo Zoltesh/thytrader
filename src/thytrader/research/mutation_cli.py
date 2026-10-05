@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
 from thytrader.agent_orchestration.models import YoloTier
+from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.models import (
     BacktestDiagnostics,
     BacktestEvaluationWindow,
@@ -890,6 +891,7 @@ async def _local_show_result(mutator: ResearchMutator, arguments: argparse.Names
             "summary": result.summary.model_dump(mode="json"),
             "window": None if window is None else window.model_dump(mode="json"),
             "diagnostics": None if diagnostics is None else diagnostics.model_dump(mode="json"),
+            "cost_attribution": compute_cost_attribution(result).model_dump(mode="json"),
         }
     )
 

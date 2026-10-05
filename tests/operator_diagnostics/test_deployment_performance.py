@@ -578,5 +578,8 @@ def test_backtest_performance_carries_published_quote_currency() -> None:
             backtests=_SingleResultBacktestStore(result),
         ).performance(result_fingerprint=fingerprint)
         assert report.payload.currency == "USDC"
+        assert report.payload.cost_attribution is not None
+        assert report.payload.cost_attribution.entry_fees == "0"
+        assert report.payload.cost_attribution.exit_fees == "0"
 
     asyncio.run(_scenario())

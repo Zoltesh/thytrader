@@ -1087,3 +1087,12 @@ retain original fingerprints. PostgreSQL campaigns freeze rules/windows/costs/ga
 atomically queue existing research jobs, and durably track prospective data readiness,
 sample outcomes and deadlines through the existing research worker. No campaign
 state grants runtime or order authority. See docs/user/research.md and skills/thytrader-research.
+
+### Shipped: closed-trade fee attribution
+
+Exact before-fees fill-price PnL, entry/exit fees and closed-trade net PnL are available
+in bounded result reports/exports, full detail, operator performance and the result UI.
+Identity-bound publication metadata preserves canonical result fingerprints; legacy
+missing metadata is unknown, and Decimal accounting differences are disclosed. This
+is a research reporting improvement; shared-capital portfolio simulation and
+coarser-clock risk geometry remain separate work.

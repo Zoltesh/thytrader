@@ -78,6 +78,7 @@
 	const validityLimits = $derived(result?.summary.validity_limits ?? []);
 	const diagnostics = $derived(detail?.diagnostics ?? null);
 	const evaluationWindow = $derived(detail?.window ?? null);
+	const attribution = $derived(detail?.cost_attribution ?? null);
 </script>
 
 <section class="detail" aria-label="Backtest result detail">
@@ -143,6 +144,47 @@
 				<div class="v">{result.summary.profit_factor ?? 'N/A'}</div>
 				<div class="s">{SAME_BAR_POLICY_LABEL}</div>
 			</div>
+		</div>
+		<div class="cost-attribution" data-testid="result-cost-attribution">
+			<h3>Trading fees</h3>
+			{#if attribution}
+				<p>
+					{attribution.trade_count} closed trades · modeled fill prices already include spread and slippage.
+					Amounts are in the strategy's quote currency.
+				</p>
+				<div class="metrics-row">
+					<div class="metric">
+						<div class="l">PnL before trading fees</div>
+						<div class="v">{formatUsd(attribution.fill_price_pnl_before_fees)}</div>
+					</div>
+					<div class="metric">
+						<div class="l">Entry fees</div>
+						<div class="v">{formatUsd(attribution.entry_fees)}</div>
+					</div>
+					<div class="metric">
+						<div class="l">Exit fees</div>
+						<div class="v">{formatUsd(attribution.exit_fees)}</div>
+					</div>
+					<div class="metric">
+						<div class="l">Closed-trade net PnL</div>
+						<div class="v">{formatUsd(attribution.net_pnl)}</div>
+					</div>
+				</div>
+				{#if attribution.accounting_residual !== '0' || attribution.summary_net_pnl_delta !== '0'}
+					<details>
+						<summary>Accounting reconciliation</summary>
+						<p>
+							Recorded net minus before-fees PnL less both fees: <code
+								>{attribution.accounting_residual}</code
+							>. Summary net minus closed-trade net:
+							<code>{attribution.summary_net_pnl_delta}</code>. Decimal rounding can produce small
+							differences; these are reported separately from fees.
+						</p>
+					</details>
+				{/if}
+			{:else}
+				<p>Fee attribution is unavailable for this result.</p>
+			{/if}
 		</div>
 		{#if evaluationWindow}
 			<p class="evaluation-window" data-testid="result-window">
@@ -459,6 +501,23 @@
 		display: grid;
 		grid-template-columns: repeat(6, minmax(0, 1fr));
 		gap: 12px;
+	}
+	.cost-attribution {
+		padding: 16px 18px;
+		border: 1px solid var(--line);
+		border-radius: 13px;
+		background: var(--surface);
+	}
+	.cost-attribution h3 {
+		margin: 0;
+	}
+	.cost-attribution p {
+		margin: 8px 0 12px;
+		color: var(--muted);
+		font-size: var(--fs-sm);
+	}
+	.cost-attribution .metrics-row {
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 	}
 	.metric .l {
 		color: var(--muted);
