@@ -205,9 +205,11 @@
 <style>
 	.chart-wrap {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 8px;
 	}
 	.chart-host {
+		min-width: 0;
 		width: 100%;
 		height: var(--chart-height, 220px);
 		position: relative;

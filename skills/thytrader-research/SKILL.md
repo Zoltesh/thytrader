@@ -751,3 +751,8 @@ republish fills missing metadata without replacing recorded attribution or chang
 result fingerprints. The result UI shows all four totals and reconciliation details.
 Stored reports with missing or placeholder attribution digests fail integrity validation.
 No new CLI flags or trading authority are introduced.
+
+In the browser, narrow-screen ledgers and strategy result tables scroll inside their
+panels; ratio and reconciliation values wrap. Exact ledger quantities and agent/export
+values retain their precision. Use `show-result` or `export-results` for recorded
+attribution decimals instead of reading rounded monetary cards from a screenshot.
