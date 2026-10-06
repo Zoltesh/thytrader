@@ -11,16 +11,21 @@ export type ProtectionEvidence = {
 	required_quantity: string;
 	covered_quantity: string;
 	uncovered_quantity: string;
-	stop_side: string | null;
+	stop_side: 'buy' | 'sell' | null;
 	stop_side_valid: boolean;
 	stop_geometry_valid: boolean;
-	mechanism: 'venue' | 'synthetic' | 'none' | 'unverified' | string;
+	mechanism: 'venue' | 'synthetic' | 'none' | 'unverified';
 	venue_resting: boolean;
 	worker_dependent: boolean;
-	/** Null means the observation time is unknown. */
+	/** Local-row update only; not proof of venue observation. */
 	observed_at: string | null;
 	/** Null means the stop was not verified at a known time. */
 	verified_at: string | null;
+	observation_source: 'persisted_order' | 'synthetic_worker' | 'none';
+	freshness: 'recent_local' | 'stale' | 'unknown';
+	evaluated_at: string;
+	freshness_max_age_seconds: number;
+	geometry_basis: 'working_target' | 'stop_limit_trigger' | 'unknown';
 	reasons: readonly string[];
 };
 
@@ -57,7 +62,7 @@ export function protectionBadge(
 				'unknown')
 			: legacyChip(book.position_state).text;
 	return {
-		text,
+		text: book.position_state === 'open_protected' ? 'Protected · unverified' : text,
 		tone: legacyChip(book.position_state).tone,
 		title: text,
 		detail: ''
@@ -67,7 +72,7 @@ export function protectionBadge(
 function legacyChip(state: string | null | undefined): { text: string; tone: BadgeTone } {
 	switch (state) {
 		case 'open_protected':
-			return { text: 'Protected', tone: 'ok' };
+			return { text: 'Protected · unverified', tone: 'warn' };
 		case 'open_unprotected':
 			return { text: 'Unprotected', tone: 'bad' };
 		case 'open_unverified':
@@ -84,6 +89,9 @@ function legacyChip(state: string | null | undefined): { text: string; tone: Bad
 function evidenceBadge(book: BadgeBook, evidence: ProtectionEvidence): ProtectionBadge {
 	const detail = evidenceDetail(evidence);
 	const title = `${detail}. ${evidence.reasons.join(', ') || 'no reason reported'}.`;
+	if (book.position_state === 'exiting') {
+		return { text: 'Exiting', tone: 'warn', title, detail };
+	}
 	if (evidence.worker_dependent || evidence.mechanism === 'synthetic') {
 		return { text: 'Worker stop', tone: 'warn', title, detail };
 	}
@@ -91,7 +99,11 @@ function evidenceBadge(book: BadgeBook, evidence: ProtectionEvidence): Protectio
 		const text = book.target_price ? 'Venue TP/SL' : 'Venue stop';
 		return { text, tone: 'ok', title, detail };
 	}
-	if (book.protection_status === 'unknown' || evidence.mechanism === 'unverified') {
+	if (
+		book.protection_status === 'unknown' ||
+		evidence.mechanism === 'unverified' ||
+		(book.protection_status === 'covered' && evidence.venue_resting)
+	) {
 		return { text: 'Unverified', tone: 'warn', title, detail };
 	}
 	return { text: 'Unprotected', tone: 'bad', title, detail };
@@ -104,6 +116,11 @@ function venueCoverConfirmed(book: BadgeBook, evidence: ProtectionEvidence): boo
 		evidence.venue_resting &&
 		evidence.stop_side_valid &&
 		evidence.stop_geometry_valid &&
+		evidence.freshness === 'recent_local' &&
+		evidence.verified_at !== null &&
+		!evidence.reasons.includes('local_observation_only') &&
+		verificationRecent(evidence) &&
+		compareDecimalStrings(evidence.covered_quantity, evidence.required_quantity) >= 0 &&
 		compareDecimalStrings(evidence.uncovered_quantity, '0') === 0
 	);
 }
@@ -113,12 +130,28 @@ function evidenceDetail(evidence: ProtectionEvidence): string {
 	if (evidence.worker_dependent || evidence.mechanism === 'synthetic') {
 		return `${qty} worker-dependent · not venue-resting · time unknown`;
 	}
-	if (evidence.venue_resting && evidence.verified_at) {
-		return `${qty} venue stop · verified ${evidence.verified_at}`;
-	}
-	if (evidence.venue_resting) {
-		return `${qty} venue stop · verified time unknown`;
+	const recency = `${evidence.observation_source} · ${evidence.freshness}`;
+	const geometry = `geometry: ${evidence.geometry_basis}`;
+	if (evidence.venue_resting && evidence.verified_at && verificationRecent(evidence)) {
+		return `${qty} venue stop · verified ${evidence.verified_at} · ${recency} · ${geometry}`;
 	}
 	const when = evidence.observed_at ?? 'time unknown';
-	return `${qty} · ${evidence.mechanism} · ${when}`;
+	return `${qty} · ${evidence.mechanism} · local update ${when} · venue verification unknown · ${recency} · ${geometry}`;
+}
+
+/** A render-time age check also prevents a frozen old API response from staying green. */
+function verificationRecent(evidence: ProtectionEvidence): boolean {
+	if (!evidence.verified_at) return false;
+	const verified = Date.parse(evidence.verified_at);
+	const evaluated = Date.parse(evidence.evaluated_at);
+	const now = Date.now();
+	const maxAge = evidence.freshness_max_age_seconds * 1000;
+	return (
+		Number.isFinite(verified) &&
+		Number.isFinite(evaluated) &&
+		maxAge > 0 &&
+		verified <= evaluated &&
+		evaluated <= now &&
+		now - verified <= maxAge
+	);
 }

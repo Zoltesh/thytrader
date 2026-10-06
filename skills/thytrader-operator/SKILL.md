@@ -101,8 +101,8 @@ Each row also carries the deployment's worst-book `position_state` / `exit_in_fl
 `position_state`, not by `phase`: `phase: pending_exit` includes an open book whose TP/SL
 bracket (or stop-only protection) merely rests, which is `open_protected`. Only `exiting`
 (`exit_in_flight: true`) means an exit is being sent.
-`protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
-coverage and venue-visible exits, not inferred parent geometry
+`protection_status` is `flat` / `covered` / `unprotected` / `unknown` from matching persisted
+stop evidence, not inferred parent geometry
 ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). An open paper book is
 always `covered` (its synthetic stop runs every closed bar), so it agrees with `position_state`
 ([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Do not read that
@@ -112,10 +112,21 @@ paper `covered` as a venue-resting stop. Each book also carries `protection`
 exception to the no-quantity redaction and are not prices or cash), `stop_side`,
 `stop_side_valid`, `stop_geometry_valid`, `mechanism` (`venue` / `synthetic` / `none` /
 `unverified`), `venue_resting`, `worker_dependent`, `observed_at`, `verified_at` (null means
-unknown — do not invent a time), and `reasons`. Live `covered` requires a confirmed OPEN stop on
+unknown — do not invent a time), and `reasons`. Live `covered` requires a recent OPEN stop on
 the closing side whose remaining quantity and stop geometry match the book. A take-profit alone,
 a pending stop, and an unknown stop are not covered. The same attached child is counted once.
-Paper `mechanism` is `synthetic` and `worker_dependent` is true. Rows also include
+`observation_source` names `persisted_order`, `synthetic_worker`, or `none`; `observed_at` is a
+local row update, **not** a venue reconciliation instant. `verified_at` is null because existing
+rows do not persist a dedicated verification time. `freshness` (`recent_local` / `stale` /
+`unknown`) describes local-row age against `evaluated_at`, with
+`freshness_max_age_seconds: 120` (worker-poll based, not strategy candle frequency). Missing,
+stale, future-dated, or unidentified OPEN rows are unverified and contribute no covered quantity.
+Do not promote `covered` plus `local_observation_only` to a live venue guarantee or green badge.
+`geometry_basis` is `working_target`, `stop_limit_trigger`, or `unknown`; profitable trailing
+stops may cross entry. A STOP tag or trigger on a plain limit is not an executable stop. Latest
+duplicate observations win, including cancellations; equal-time conflicts stay unverified.
+Paper `mechanism` is `synthetic` and `worker_dependent` is true. These are read-only reporting
+rules: do not automatically pause/resume or replace orders based on them. Rows also include
 `lifecycle_command`, breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic
 `revision`, and `worker_lease_held` (boolean only; no holder identity). Latches persist across
 pause and managed shutdown until an explicit operator reset via
@@ -204,7 +215,7 @@ Three read-only surfaces answer different questions. Do not conflate them.
 | --- | --- | --- |
 | Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
 | Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}?detail=full` (default `detail=summary` omits historical orders/fills; paginate `.../fills` and `.../orders`) |
-| Diagnostic phase/side/protection without sizes | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
+| Diagnostic phase/side/protection (coverage quantities only; no prices/cash) | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
 
 `health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
 `risk` and `monitor` omit balances (`balances_omitted: true`). For a numbered portfolio → research

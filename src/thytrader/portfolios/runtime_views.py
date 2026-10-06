@@ -509,10 +509,14 @@ def open_books(
         product_id = resolved_product_id(position.product_id, snapshot.deployment)
         mark = marks.get(product_id)
         fees = None if mark is None else recorded_position_entry_fees(snapshot, position)
-        state = book_position_state(
-            snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
-        )
         evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
+        state = book_position_state(
+            snapshot,
+            product_id=product_id,
+            position=position,
+            phase=RuntimePhase.OPEN,
+            evidence=evidence,
+        )
         rows.append(
             SleeveOpenBookResponse(
                 product_id=product_id,

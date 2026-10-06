@@ -20,6 +20,7 @@ import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.execution import protection
 from thytrader.execution.decision_store import DecisionStoreError, InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -58,6 +59,12 @@ class World:
     strategies: InMemoryStrategyStore
     execution: InMemoryExecutionStore
     journal: InMemoryDecisionJournalStore
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compare response evidence at a fixed reporting instant."""
+    monkeypatch.setattr(protection, "utc_now", lambda: _BAR)
 
 
 @pytest.fixture
@@ -167,6 +174,11 @@ def test_sleeve_books_carry_entry_stop_target_state_and_last_bar_pnl(world: Worl
             "worker_dependent": True,
             "observed_at": None,
             "verified_at": None,
+            "observation_source": "synthetic_worker",
+            "freshness": "unknown",
+            "evaluated_at": _BAR.isoformat(),
+            "freshness_max_age_seconds": 120,
+            "geometry_basis": "working_target",
             "reasons": ["synthetic_worker_dependent"],
         },
         "mark_price": "61000",

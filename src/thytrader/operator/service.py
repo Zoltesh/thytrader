@@ -2257,7 +2257,7 @@ def _book_summaries(
     *,
     extra_product_ids: tuple[str, ...],
 ) -> tuple[DeploymentBookSummary, ...]:
-    """Project per-product phase, side, and protection without quantities."""
+    """Project phase, side and quantitative stop evidence, omitting prices and cash."""
     if snapshot is None:
         return ()
     positions = {
@@ -2278,7 +2278,11 @@ def _book_summaries(
                 protection_status=evidence.status.value,
                 protection=protection_evidence_response(evidence),
                 position_state=book_position_state(
-                    snapshot, product_id=runtime.product_id, position=position, phase=runtime.phase
+                    snapshot,
+                    product_id=runtime.product_id,
+                    position=position,
+                    phase=runtime.phase,
+                    evidence=evidence,
                 ).value,
                 exit_in_flight=book_exit_in_flight(
                     snapshot, product_id=runtime.product_id, position=position

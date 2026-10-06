@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { protectionBadge, type ProtectionEvidence } from './protection-evidence';
 
 const venue: ProtectionEvidence = {
@@ -13,10 +13,16 @@ const venue: ProtectionEvidence = {
 	worker_dependent: false,
 	observed_at: '2026-10-06T12:00:00+00:00',
 	verified_at: '2026-10-06T12:00:00+00:00',
+	observation_source: 'persisted_order',
+	freshness: 'recent_local',
+	evaluated_at: '2026-10-06T12:00:00+00:00',
+	freshness_max_age_seconds: 120,
+	geometry_basis: 'working_target',
 	reasons: ['venue_stop_resting']
 };
 
 describe('protection badges (ADR 0112)', () => {
+	afterEach(() => vi.useRealTimers());
 	it('does not paint a paper synthetic stop as a venue-resting green badge', () => {
 		const badge = protectionBadge({
 			position_state: 'open_protected',
@@ -71,7 +77,9 @@ describe('protection badges (ADR 0112)', () => {
 		expect(partial.detail).toContain('0.3 of 0.5');
 	});
 
-	it('keeps a matching venue bracket green and a pending stop unverified', () => {
+	it('requires recent verification for green and keeps a pending stop unverified', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
 		expect(
 			protectionBadge({
 				protection_status: 'covered',
@@ -104,13 +112,40 @@ describe('protection badges (ADR 0112)', () => {
 		expect(pending.tone).toBe('warn');
 	});
 
-	it('keeps the legacy chip when a payload has no evidence yet', () => {
-		expect(protectionBadge({ position_state: 'open_protected' }).text).toBe('Protected');
-		expect(
-			protectionBadge(
-				{ position_state: 'open_protected', target_price: '12' },
-				{ fallback: 'sentence' }
-			).text
-		).toBe('Open · protected (TP/SL resting)');
+	it('keeps exiting distinct from both synthetic and venue cover', () => {
+		for (const mechanism of ['venue', 'synthetic'] as const) {
+			const badge = protectionBadge({
+				position_state: 'exiting',
+				protection_status: 'covered',
+				protection: { ...venue, mechanism }
+			});
+			expect(badge.text).toBe('Exiting');
+			expect(badge.tone).toBe('warn');
+		}
+	});
+
+	it('never treats recent local writes, stale verification, or missing evidence as green', () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
+		for (const evidence of [
+			{ ...venue, verified_at: null, reasons: ['local_observation_only'] },
+			{ ...venue, freshness: 'stale' as const },
+			{ ...venue, verified_at: '2026-10-06T11:55:00Z' },
+			{ ...venue, verified_at: '2026-10-06T12:01:00Z' },
+			{ ...venue, verified_at: 'not-a-time' }
+		]) {
+			const badge = protectionBadge({ protection_status: 'covered', protection: evidence });
+			expect(badge.text).toBe('Unverified');
+			expect(badge.tone).toBe('warn');
+		}
+		const persisted = protectionBadge({
+			protection_status: 'covered',
+			protection: { ...venue, verified_at: null, reasons: ['local_observation_only'] }
+		});
+		expect(persisted.detail).toContain('venue verification unknown');
+		expect(persisted.detail).toContain('recent_local');
+		const legacy = protectionBadge({ position_state: 'open_protected' });
+		expect(legacy.text).toBe('Protected · unverified');
+		expect(legacy.tone).toBe('warn');
 	});
 });

@@ -1116,7 +1116,11 @@ def _position_response(
         protection_status=evidence.status.value,
         protection=protection_evidence_response(evidence),
         position_state=book_position_state(
-            snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
+            snapshot,
+            product_id=product_id,
+            position=position,
+            phase=RuntimePhase.OPEN,
+            evidence=evidence,
         ).value,
         exit_in_flight=book_exit_in_flight(snapshot, product_id=product_id, position=position),
         compatibility_focus=compatibility_focus,

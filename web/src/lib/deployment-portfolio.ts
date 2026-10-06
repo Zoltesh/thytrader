@@ -7,12 +7,7 @@
  * Paper capital is simulated, so money is never totalled across paper and
  * live, and amounts are only summed within one quote currency.
  */
-import {
-	canonicalPositions,
-	positionStateLabel,
-	type Deployment,
-	type DeploymentPosition
-} from './deployments';
+import { canonicalPositions, type Deployment, type DeploymentPosition } from './deployments';
 import { marketLabel, productIdQuote, workingOrderCount } from './deployment-detail';
 import { protectionBadge } from './protection-evidence';
 import { lifecycleControlsAvailable } from './lifecycle-contract';
@@ -271,21 +266,14 @@ export function protectionText(
 			: `${working} working order${working === 1 ? '' : 's'}`;
 	}
 	if (positions.length > 1) {
-		const state = positionStateLabel(deployment.position_state);
-		if (state !== null) return state;
-		const statuses = [...new Set(positions.map((item) => item.protection_status ?? 'unknown'))];
+		if (deployment.position_state === 'exiting') return 'Exiting';
+		const statuses = [...new Set(positions.map((item) => protectionBadge(item).text))];
 		return `Protection: ${statuses.join(', ')}`;
 	}
 	const position = positions[0];
-	if (position.protection) {
-		const badge = protectionBadge(position);
-		return `Stop ${position.stop_price} · TP ${position.target_price ?? 'none'} · ${badge.text} · ${badge.detail}`;
-	}
-	const state =
-		positionStateLabel(position.position_state, { hasTarget: position.target_price !== null }) ??
-		position.protection_status ??
-		'protection unknown';
-	return `Stop ${position.stop_price} · TP ${position.target_price ?? 'none'} · ${state}`;
+	const badge = protectionBadge(position, { fallback: 'sentence' });
+	const detail = badge.detail ? ` · ${badge.detail}` : '';
+	return `Stop ${position.stop_price} · TP ${position.target_price ?? 'none'} · ${badge.text}${detail}`;
 }
 
 /** Signed fill-ledger net PnL in the product's quote, or `—`. */

@@ -630,6 +630,11 @@ test.describe('deployment detail', () => {
 				worker_dependent: true,
 				observed_at: null,
 				verified_at: null,
+				observation_source: 'synthetic_worker',
+				freshness: 'unknown',
+				evaluated_at: '2026-09-21T20:05:00+00:00',
+				freshness_max_age_seconds: 120,
+				geometry_basis: 'working_target',
 				reasons: ['synthetic_worker_dependent']
 			}
 		};
@@ -674,7 +679,9 @@ test.describe('deployment detail', () => {
 		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
 	});
 
-	test('a matching venue bracket stays a confirmed protection badge', async ({ page }) => {
+	test('matching persisted venue geometry stays covered but is not fresh venue verification', async ({
+		page
+	}) => {
 		await mockDetailRoutes(page, {
 			deployment: detailDeployment({
 				mode: 'live',
@@ -702,16 +709,25 @@ test.describe('deployment detail', () => {
 							venue_resting: true,
 							worker_dependent: false,
 							observed_at: '2026-09-21T20:05:00+00:00',
-							verified_at: '2026-09-21T20:05:00+00:00',
-							reasons: ['venue_stop_resting']
+							verified_at: null,
+							observation_source: 'persisted_order',
+							freshness: 'recent_local',
+							evaluated_at: '2026-09-21T20:05:00+00:00',
+							freshness_max_age_seconds: 120,
+							geometry_basis: 'working_target',
+							reasons: ['venue_stop_resting', 'local_observation_only']
 						}
 					}
 				]
 			})
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		await expect(page.getByTestId('position-state')).toHaveText(/Venue TP\/SL/);
+		await expect(page.getByTestId('position-state')).toHaveText(/Unverified/);
+		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
 		await expect(page.getByTestId('protection-evidence')).toContainText('20 of 20');
+		await expect(page.getByTestId('protection-evidence')).toContainText(
+			'venue verification unknown'
+		);
 	});
 
 	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {
@@ -737,10 +753,8 @@ test.describe('deployment detail', () => {
 			})
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		await expect(page.getByTestId('position-state')).toHaveText('Open · protected (TP/SL resting)');
-		await expect(page.getByTestId('kpi-position')).toContainText(
-			'Open · protected (TP/SL resting)'
-		);
+		await expect(page.getByTestId('position-state')).toHaveText('Protected · unverified');
+		await expect(page.getByTestId('kpi-position')).toContainText('Protected · unverified');
 		await expect(page.getByTestId('kpi-position')).not.toContainText('Exiting');
 	});
 

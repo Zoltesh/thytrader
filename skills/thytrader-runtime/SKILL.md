@@ -270,13 +270,27 @@ unprotected, then unverified, then protected). Open paper books that are not exi
 `show` and `list` positions, operator runtime `books[]`, and portfolio sleeve `books[]` include
 `protection` ([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)). Read it
 before treating `protection_status: covered` or `position_state: open_protected` as a green venue
-stop. Live cover requires a confirmed OPEN stop on the closing side, with remaining quantity at
+stop. Live cover requires recent persisted OPEN stop evidence on the closing side, with remaining quantity at
 least the book quantity and stop geometry matching the working stop (a bracket target must match
 too). A take-profit alone is `unprotected`. Pending and unknown stops are `unknown`, not covered.
 `covered_quantity` + `uncovered_quantity` equals `required_quantity`. `verified_at` / `observed_at`
 are null when unknown. Paper evidence has `mechanism: synthetic` and `worker_dependent: true`.
 Partial fills, pyramid adds, and stale mismatched brackets leave `uncovered_quantity` above zero.
-The same attached child is not counted twice. This does not change order submission.
+The same attached child is not counted twice; latest duplicate observations, including terminal
+or unknown rows, override older OPEN evidence. Actual order kind and executable trigger/limit
+geometry matter, not merely the intent purpose. A profitable trailing stop may cross entry;
+`geometry_basis` labels `working_target`, `stop_limit_trigger`, or `unknown`.
+
+`observed_at` is a local row update, **not** venue verification. `verified_at` stays null because
+existing orders do not persist a dedicated verification instant. `observation_source` is
+`persisted_order`, `synthetic_worker`, or `none`. `freshness` (`recent_local` / `stale` / `unknown`)
+is local-row recency against `evaluated_at` and `freshness_max_age_seconds: 120` (four default
+worker polls, independent of strategy candles). Stale, future-dated, undated, or unidentified
+OPEN rows contribute no covered quantity. `covered` with `local_observation_only` remains a
+persisted-state claim, **not** a fresh venue guarantee; the UI shows unverified rather than green.
+Slow custom polling may therefore report unverified without changing supervision. Missing
+legacy evidence is not green either. This reporting change does not submit/cancel orders or
+alter deliberate pauses; never infer mutation authority from a protection badge.
 
 `show` (`GET /api/v1/deployments/{id}`) also marks each `positions[]` row: `mark_price` is the
 close of the newest bar the bot evaluated for that product (from the decision journal),

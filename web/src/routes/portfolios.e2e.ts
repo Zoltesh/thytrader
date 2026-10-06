@@ -390,6 +390,11 @@ test('a sleeve worker stop is not shown as venue-resting protection', async ({ p
 				worker_dependent: true,
 				observed_at: null,
 				verified_at: null,
+				observation_source: 'synthetic_worker',
+				freshness: 'unknown',
+				evaluated_at: '2026-09-21T20:05:00+00:00',
+				freshness_max_age_seconds: 120,
+				geometry_basis: 'working_target',
 				reasons: ['synthetic_worker_dependent']
 			}
 		})
@@ -413,7 +418,8 @@ test('sleeve rows show each open book and the paper vs live fill panel', async (
 	await page.goto('/deployments');
 	const book = page.getByTestId('open-book');
 	await expect(book).toHaveCount(1);
-	await expect(book.getByTestId('open-book-state')).toHaveText('Protected');
+	await expect(book.getByTestId('open-book-state')).toHaveText('Protected · unverified');
+	await expect(book.getByTestId('open-book-state')).not.toHaveClass(/ok/);
 	await expect(book.getByTestId('open-book-pnl')).toHaveText('-0.41 USDC (net)');
 	await expect(book.getByTestId('open-book-levels')).toContainText('60,125.5');
 	await expect(book.getByTestId('open-book-levels')).toContainText('TP63,800');

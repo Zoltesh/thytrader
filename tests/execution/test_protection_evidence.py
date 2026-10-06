@@ -7,7 +7,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
 from thytrader.api.routes.deployments import _position_response
+from thytrader.execution import protection
 from thytrader.execution.attached import attached_entry_covers
 from thytrader.execution.models import (
     Deployment,
@@ -35,6 +38,12 @@ from thytrader.execution.protection import (
 from thytrader.portfolios.runtime_views import open_books
 
 _NOW = datetime(2026, 9, 16, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep row recency tests deterministic without changing execution clocks."""
+    monkeypatch.setattr(protection, "utc_now", lambda: _NOW)
 
 
 def _deployment(
@@ -168,7 +177,10 @@ def test_matching_eth_and_ada_brackets_stay_covered() -> None:
         assert evidence.stop_geometry_valid is True
         assert evidence.covered_quantity == position.quantity
         assert evidence.uncovered_quantity == Decimal(0)
-        assert evidence.verified_at == _NOW
+        assert evidence.verified_at is None
+        assert evidence.observation_source == "persisted_order"
+        assert evidence.freshness == "recent_local"
+        assert "local_observation_only" in evidence.reasons
         assert "venue_stop_resting" in evidence.reasons
 
 
@@ -304,6 +316,8 @@ def test_pending_and_unknown_matching_stops_are_not_confirmed_cover() -> None:
         assert evidence.covered_quantity == Decimal(0)
         assert evidence.uncovered_quantity == Decimal("10")
         assert evidence.venue_resting is False
+        assert evidence.stop_side_valid is True
+        assert evidence.stop_geometry_valid is True
         assert evidence.verified_at is None
         assert evidence.observed_at == _NOW
         assert reason in evidence.reasons

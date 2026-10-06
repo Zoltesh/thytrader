@@ -6,6 +6,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
+
+from thytrader.execution import protection
 from thytrader.execution.models import (
     Deployment,
     DeploymentKind,
@@ -35,6 +38,12 @@ from thytrader.execution.protection import (
 def _at() -> datetime:
     """Return a fixed UTC instant."""
     return datetime(2026, 9, 16, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Assess local-row recency at the fixture's reporting clock."""
+    monkeypatch.setattr(protection, "utc_now", _at)
 
 
 def _deployment(mode: DeploymentMode = DeploymentMode.LIVE) -> Deployment:
@@ -148,6 +157,8 @@ def test_working_stop_covers_the_matching_product_only() -> None:
         deployment_id=deployment.id,
         intent_id=intent.id,
         client_order_id="stop",
+        venue_order_id="eth-stop",
+        price=Decimal("3210"),
         side=OrderSide.BUY,
         kind=OrderKind.STOP_LIMIT,
         quantity=Decimal("0.5"),

@@ -15,6 +15,7 @@ from uuid import uuid4
 import pytest
 
 from tests.execution.test_loop import _always_entry_strategy, _filled_long
+from thytrader.execution import protection
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
@@ -39,6 +40,12 @@ from thytrader.execution.protection import (
 )
 
 _NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freeze reporting recency independently of execution test clocks."""
+    monkeypatch.setattr(protection, "utc_now", lambda: _NOW)
 
 
 def _live(phase: RuntimePhase = RuntimePhase.PENDING_EXIT) -> Deployment:
@@ -93,7 +100,7 @@ def _order(
         status=status,
         created_at=_NOW,
         updated_at=_NOW,
-        price=Decimal("64000"),
+        price=Decimal("57900") if kind is OrderKind.STOP_LIMIT else Decimal("64000"),
         stop_trigger_price=Decimal("58000"),
         venue_order_id=f"venue-{uuid4()}",
         product_id=product_id,
