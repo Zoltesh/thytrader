@@ -34,7 +34,8 @@ describe('workstation chrome', () => {
 			['Settings', '/settings'],
 			['Audit log', '/audit'],
 			['Journal', '/journals'],
-			['Memory & why-trade', '/memory']
+			['Memory & why-trade', '/memory'],
+			['Alerts', '/alerts']
 		]);
 		const railHrefs = [...PRIMARY_NAV, ...SYSTEM_NAV].map((item) => item.href);
 		expect(railHrefs).not.toContain('/chat');

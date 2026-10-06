@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from thytrader.alerts.store import AlertStore, DisabledAlertStore
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
@@ -246,6 +247,14 @@ def get_execution_store(request: Request) -> ExecutionStore:
         message = "Execution store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_alert_store(request: Request) -> AlertStore:
+    """Return the durable alert feed, or a disabled store when unconfigured."""
+    store = getattr(request.app.state, "alert_store", None)
+    if isinstance(store, AlertStore):
+        return store
+    return DisabledAlertStore()
 
 
 def get_decision_journal_store(request: Request) -> DecisionJournalStore:

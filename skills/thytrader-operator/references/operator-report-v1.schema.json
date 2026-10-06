@@ -4,10 +4,310 @@
       "description": "Who authored the experiential record so agents can study their own work.",
       "enum": [
         "human",
-        "agent"
+        "agent",
+        "system"
       ],
       "title": "ActorOrigin",
       "type": "string"
+    },
+    "AlertDeliveryView": {
+      "additionalProperties": false,
+      "description": "Delivery bookkeeping for one alert, without webhook URLs or secrets.",
+      "properties": {
+        "provider": {
+          "maxLength": 16,
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 16,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "attempts": {
+          "minimum": 0,
+          "title": "Attempts",
+          "type": "integer"
+        },
+        "detail": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "status",
+        "attempts"
+      ],
+      "title": "AlertDeliveryView",
+      "type": "object"
+    },
+    "AlertItem": {
+      "additionalProperties": false,
+      "description": "One durable alert row as operators and agents may read it.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "code": {
+          "maxLength": 48,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "deployment",
+            "worker"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "deployment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Id"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Id"
+        },
+        "detail": {
+          "maxLength": 500,
+          "title": "Detail",
+          "type": "string"
+        },
+        "first_seen_at": {
+          "format": "date-time",
+          "title": "First Seen At",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "format": "date-time",
+          "title": "Last Seen At",
+          "type": "string"
+        },
+        "occurrences": {
+          "minimum": 1,
+          "title": "Occurrences",
+          "type": "integer"
+        },
+        "resolved_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Resolved At"
+        },
+        "delivery": {
+          "$ref": "#/$defs/AlertDeliveryView"
+        }
+      },
+      "required": [
+        "id",
+        "code",
+        "severity",
+        "scope",
+        "subject",
+        "detail",
+        "first_seen_at",
+        "last_seen_at",
+        "occurrences",
+        "delivery"
+      ],
+      "title": "AlertItem",
+      "type": "object"
+    },
+    "AlertsPayload": {
+      "additionalProperties": false,
+      "description": "Open alerts, recent resolutions, and whether external delivery is configured.",
+      "properties": {
+        "storage": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Storage",
+          "type": "string"
+        },
+        "delivery_enabled": {
+          "title": "Delivery Enabled",
+          "type": "boolean"
+        },
+        "delivery_warning": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delivery Warning"
+        },
+        "open_alerts": {
+          "items": {
+            "$ref": "#/$defs/AlertItem"
+          },
+          "title": "Open Alerts",
+          "type": "array"
+        },
+        "resolved_alerts": {
+          "items": {
+            "$ref": "#/$defs/AlertItem"
+          },
+          "title": "Resolved Alerts",
+          "type": "array"
+        },
+        "open_total": {
+          "minimum": 0,
+          "title": "Open Total",
+          "type": "integer"
+        },
+        "open_critical": {
+          "minimum": 0,
+          "title": "Open Critical",
+          "type": "integer"
+        },
+        "open_warning": {
+          "minimum": 0,
+          "title": "Open Warning",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "storage",
+        "delivery_enabled",
+        "open_alerts",
+        "resolved_alerts",
+        "open_total",
+        "open_critical",
+        "open_warning"
+      ],
+      "title": "AlertsPayload",
+      "type": "object"
+    },
+    "AlertsReport": {
+      "additionalProperties": false,
+      "description": "Read-only durable safety alerts. This report cannot place or cancel orders.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "alerts",
+          "default": "alerts",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/AlertsPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "AlertsReport",
+      "type": "object"
     },
     "AssetReconciliationRow": {
       "additionalProperties": false,
@@ -2386,6 +2686,10 @@
           "title": "Protection Status",
           "type": "string"
         },
+        "protection": {
+          "$ref": "#/$defs/ProtectionEvidenceResponse",
+          "description": "Quantitative stop cover (ADR 0112). Includes coverage quantities. Prices, cash, and order payloads stay omitted. Paper is worker-dependent, not a venue-resting stop. Null times mean unknown."
+        },
         "position_state": {
           "default": "flat",
           "title": "Position State",
@@ -2400,7 +2704,8 @@
       "required": [
         "product_id",
         "phase",
-        "protection_status"
+        "protection_status",
+        "protection"
       ],
       "title": "DeploymentBookSummary",
       "type": "object"
@@ -6906,6 +7211,162 @@
       "title": "ProductsReport",
       "type": "object"
     },
+    "ProtectionEvidenceResponse": {
+      "additionalProperties": false,
+      "description": "Strict public protection evidence. Quantities are exact decimal strings.",
+      "properties": {
+        "required_quantity": {
+          "pattern": "^\\d+(?:\\.\\d+)?$",
+          "title": "Required Quantity",
+          "type": "string"
+        },
+        "covered_quantity": {
+          "pattern": "^\\d+(?:\\.\\d+)?$",
+          "title": "Covered Quantity",
+          "type": "string"
+        },
+        "uncovered_quantity": {
+          "pattern": "^\\d+(?:\\.\\d+)?$",
+          "title": "Uncovered Quantity",
+          "type": "string"
+        },
+        "stop_side": {
+          "anyOf": [
+            {
+              "enum": [
+                "buy",
+                "sell"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Closing side the stop must use, or null when flat.",
+          "title": "Stop Side"
+        },
+        "stop_side_valid": {
+          "title": "Stop Side Valid",
+          "type": "boolean"
+        },
+        "stop_geometry_valid": {
+          "title": "Stop Geometry Valid",
+          "type": "boolean"
+        },
+        "mechanism": {
+          "enum": [
+            "venue",
+            "synthetic",
+            "none",
+            "unverified"
+          ],
+          "title": "Mechanism",
+          "type": "string"
+        },
+        "venue_resting": {
+          "description": "Recent persisted OPEN venue stops contributed; not a fresh venue read.",
+          "title": "Venue Resting",
+          "type": "boolean"
+        },
+        "worker_dependent": {
+          "description": "True for the paper synthetic stop. That cover is not a venue order.",
+          "title": "Worker Dependent",
+          "type": "boolean"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Latest local row update, not a venue observation time; null if unknown.",
+          "title": "Observed At"
+        },
+        "verified_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Venue verification time; null because row updates do not prove reconciliation.",
+          "title": "Verified At"
+        },
+        "observation_source": {
+          "enum": [
+            "persisted_order",
+            "synthetic_worker",
+            "none"
+          ],
+          "title": "Observation Source",
+          "type": "string"
+        },
+        "freshness": {
+          "description": "Local-row recency only; never venue freshness.",
+          "enum": [
+            "recent_local",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "evaluated_at": {
+          "description": "UTC reporting clock used to assess local-row recency.",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "freshness_max_age_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Freshness Max Age Seconds",
+          "type": "integer"
+        },
+        "geometry_basis": {
+          "description": "Geometry checked vs working target or stop-limit trigger, never entry.",
+          "enum": [
+            "working_target",
+            "stop_limit_trigger",
+            "unknown"
+          ],
+          "title": "Geometry Basis",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "required_quantity",
+        "covered_quantity",
+        "uncovered_quantity",
+        "stop_side",
+        "stop_side_valid",
+        "stop_geometry_valid",
+        "mechanism",
+        "venue_resting",
+        "worker_dependent",
+        "observed_at",
+        "verified_at",
+        "observation_source",
+        "freshness",
+        "evaluated_at",
+        "freshness_max_age_seconds",
+        "geometry_basis",
+        "reasons"
+      ],
+      "title": "ProtectionEvidenceResponse",
+      "type": "object"
+    },
     "QuoteReconciliationRow": {
       "additionalProperties": false,
       "description": "One quote currency: venue balance next to managed working buy notional.",
@@ -10529,7 +10990,8 @@
         "fees",
         "portfolios",
         "readiness",
-        "venue_reconciliation"
+        "venue_reconciliation",
+        "alerts"
       ]
     },
     "payload": {
@@ -10619,6 +11081,9 @@
     },
     {
       "$ref": "#/$defs/VenueReconciliationReport"
+    },
+    {
+      "$ref": "#/$defs/AlertsReport"
     }
   ]
 }

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from thytrader.agent_http import request_json
+from thytrader.alerts.report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport
 from thytrader.operator.models import (
     OPERATOR_API_PREFIX,
@@ -62,6 +63,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "portfolios": PortfoliosReport,
     "readiness": ReadinessReport,
     "venue-reconciliation": VenueReconciliationReport,
+    "alerts": AlertsReport,
 }
 
 

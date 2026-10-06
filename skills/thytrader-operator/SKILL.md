@@ -61,6 +61,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
 | Monitor | `uv run thytrader-operator monitor` | `GET /api/v1/operator/monitor` (deployments, recent journals, notify delivery; omits balances and webhook URLs) |
+| Safety alerts | `uv run thytrader-operator alerts` | `GET /api/v1/operator/alerts` (durable pause/mismatch, breaker, uncovered or unknown stop cover, stop-triggered-but-unfilled, missed decision/maintenance deadlines, worker lease age including unknown, consecutive worker failures; local feed works with `notify_provider=none` and sets `delivery_warning`; no webhook URL; no order authority; ADR 0115) |
 | Why-trade review | `uv run thytrader-operator trade-reasons [--intent-id UUID] [--deployment-id UUID]` | `GET /api/v1/operator/trade-reasons` |
 | Decision timeline | `uv run thytrader-operator decisions [--deployment-id UUID \| --strategy-id UUID] [--outcome OUTCOME ...] [--limit N] [--cursor C]` | `GET /api/v1/operator/decisions` (per-bar `thytrader-bar-decision-v1` rows, newest first; repeated `outcome`; `next_cursor` paging) |
 | Performance | `uv run thytrader-operator performance --result-fingerprint sha256:…` or `--deployment-id UUID` | `GET /api/v1/operator/performance` |
@@ -459,8 +460,9 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-The current fee-attribution migration and health contract both require schema revision
-`0068`. After updating main, use `make run` to apply migrations and rebuild the services.
+The fee-attribution column shipped in schema revision `0064`. The health contract now
+requires revision `0068`, including durable alerts and venue observation provenance.
+After updating main, use `make run` to apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
 ([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)). A local write

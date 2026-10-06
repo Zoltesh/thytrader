@@ -119,7 +119,9 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
 | [0110](0110-stopped-lifecycle-reconciliation.md) | Reconcile paused and stopped books fully; keep protection when flatten has no verified price | Accepted — amends 0058 |
 | [0112](0112-quantitative-protection-evidence.md) | Quantitative protection evidence; live cover requires a confirmed matching stop; paper cover stays worker-dependent | Accepted — amends 0058 and 0098 |
+| [0113](0113-deploy-anchored-window-cache.md) | Bounded incremental history loading with exact anchored indicator state and explicit cold-cache warming | Accepted |
 | [0114](0114-readiness-preflight-and-venue-reconciliation.md) | Advisory capacity and fee preflight; explicit managed-versus-venue inventory evidence | Accepted |
+| [0115](0115-durable-safety-alerts-and-supervision.md) | Durable deduplicated safety alerts and execution-worker supervision pauses; Alembic 0066 | Accepted |
 | [0118](0118-watched-market-tail-health.md) | All-enabled-watch published-tail health aligned to each clock; history and worker success stay independent | Accepted |
 | [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
 

@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -290,3 +290,15 @@ and `orders_listing` are `complete` or `unavailable`. An unavailable listing lea
 dependent `foreign_quantity`, `foreign`, and `orphan` null (`venue_unknown`), never guessed.
 Duplicate balance rows are summed (`venue_rows`, `DUPLICATE_BALANCE_ROWS`). A healthy local
 ledger is not this report. No account identifiers or secrets are included.
+
+## Safety alerts (ADR 0115)
+
+`alerts` is read-only. `payload.storage` is `available` or `unavailable`. `payload.open_alerts`
+and `payload.resolved_alerts` are durable rows (`code`, `severity`, `subject`, `detail`,
+`occurrences`, `delivery.status`). `delivery_warning` is set when `notify_provider=none`:
+the local feed still works and no webhook destination is invented. Open critical alerts
+make `overall_status` `failed`. This report never places, cancels, or escalates orders.
+A `STOP_TRIGGERED_UNFILLED` row means a protective stop traded through and remained
+unfilled; supervision does not submit a market order. When every resting closing-side stop
+of an occupied live book is triggered-unfilled, the book also reports `STOP_UNCOVERED`:
+the resting orders no longer evidence cover.

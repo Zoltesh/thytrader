@@ -208,6 +208,14 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     subparsers.add_parser(
+        "alerts",
+        parents=[trailing],
+        help=(
+            "Durable safety alerts (pause, breaker, stop cover, deadlines, worker failures). "
+            "Read-only. Works with notify_provider=none; delivery_warning says so."
+        ),
+    )
+    subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
         help="Redacted bundle of the supported reports.",
@@ -303,6 +311,7 @@ async def _dispatch(
         "portfolio": diagnostics.portfolio_report,
         "fees": diagnostics.fees_report,
         "portfolios": diagnostics.portfolios_report,
+        "alerts": diagnostics.alerts,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)

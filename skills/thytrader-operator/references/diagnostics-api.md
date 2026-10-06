@@ -32,6 +32,7 @@ port is `8200`, but installs may override it, so never hard-code a port). For ra
 | GET | `/api/v1/operator/portfolios` | `portfolios` |
 | GET | `/api/v1/operator/readiness` | `readiness` |
 | GET | `/api/v1/operator/venue-reconciliation` | `venue_reconciliation` |
+| GET | `/api/v1/operator/alerts` | `alerts` |
 
 Query parameters:
 

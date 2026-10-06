@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     yolo_tiers: Annotated[tuple[YoloTier, ...], NoDecode] = ()
     notify_provider: NotifyProvider = NotifyProvider.NONE
     notify_webhook_url: SecretStr | None = None
+    # ADR 0115 safety-supervision thresholds. Defaults are deliberately sane for
+    # a 30s execution-worker cycle; changing them never weakens fail-closed gates.
+    alert_consecutive_failure_cycles: int = Field(default=3, ge=1, le=100)
+    alert_decision_missed_bars: int = Field(default=2, ge=1, le=100)
+    alert_delivery_max_attempts: int = Field(default=5, ge=1, le=100)
     trust_boundary_enabled: bool = True
     installation_token: SecretStr | None = None
     credentials_dir: Path = Path(".thytrader-credentials")

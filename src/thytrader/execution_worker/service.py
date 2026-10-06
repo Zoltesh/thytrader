@@ -9,7 +9,11 @@ from datetime import UTC, datetime, timedelta
 from functools import partial
 import logging
 from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
+from thytrader.alerts.models import AlertCode, SupervisionFinding
+from thytrader.alerts.store import AlertStoreError
+from thytrader.alerts.supervision import gather_safety_findings, worker_book_failure_finding
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import execution_audit_scope, record_execution_audit
 from thytrader.execution.candle_wait import newest_bar_settling
@@ -77,8 +81,9 @@ from thytrader.strategies.models import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from decimal import Decimal
-    from uuid import UUID
 
+    from thytrader.alerts.service import AlertApplication, AlertService
+    from thytrader.alerts.supervision import ClosedCandleReader
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.broker import Broker
@@ -149,6 +154,7 @@ async def run_execution_worker(
     audit_store: AuditEventStore | None = None,
     decision_store: DecisionJournalStore | None = None,
     portfolio_store: PortfolioRuntimeStore | None = None,
+    alert_service: AlertService | None = None,
 ) -> None:
     """Poll running deployments until shutdown.
 
@@ -159,6 +165,8 @@ async def run_execution_worker(
     submits, recovery, user-feed pause transitions) for the whole cycle.
     ``decision_store`` journals one decision per evaluated bar and is pruned on a
     bounded schedule; journal failures never stop or alter a cycle (ADR 0087).
+    ``alert_service`` records durable safety supervision alerts each cycle
+    (ADR 0115); alert-store failures never stop or alter a cycle either.
     """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
@@ -177,6 +185,11 @@ async def run_execution_worker(
                 cycle_market_data = venue.market_data
                 cycle_live_broker = venue.live_broker
                 cycle_quote_reader = venue.quote_reader
+            wait_seconds = (
+                settings_store.current().execution_worker_interval_seconds
+                if settings_store is not None
+                else interval_seconds
+            )
             with execution_audit_scope(audit_store), decision_journal_scope(decision_store):
                 await _run_cycle(
                     store=store,
@@ -189,15 +202,12 @@ async def run_execution_worker(
                     user_feed_store=user_feed_store,
                     memory_store=memory_store,
                     portfolio_store=portfolio_store,
+                    alert_service=alert_service,
+                    worker_interval_seconds=wait_seconds,
                 )
                 next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
             if wake_requested is not None:
                 wake_requested.clear()
-            wait_seconds = (
-                settings_store.current().execution_worker_interval_seconds
-                if settings_store is not None
-                else interval_seconds
-            )
             await _await_next_cycle(
                 stop_requested, wake_requested=wake_requested, interval_seconds=wait_seconds
             )
@@ -249,11 +259,17 @@ async def _run_cycle(
     user_feed_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
     portfolio_store: PortfolioRuntimeStore | None = None,
+    alert_service: AlertService | None = None,
+    worker_interval_seconds: int = 30,
 ) -> None:
     """Process occupied deployments once, refreshing occupancy after each for the entry gate.
 
     Deployed portfolios are supervised first (capital sync, equity, breakers; ADR 0091),
     and each sleeve book is processed with its portfolio's limits bound for the gate.
+    Safety supervision (ADR 0115) runs after the book loop, decoupled from
+    successful signal evaluation: cycle failures feed the durable alert feed, and
+    a book that fails too many consecutive cycles has its entries paused while
+    exits and reconciliation keep running.
     """
     policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
@@ -261,6 +277,7 @@ async def _run_cycle(
         store=store, portfolios=portfolio_store, deployments=deployments, now=utc_now()
     )
     portfolio = await _risk_snapshots(store, deployments)
+    cycle_failures: list[SupervisionFinding] = []
     for deployment in deployments:
         if deployment.status not in {
             DeploymentStatus.RUNNING,
@@ -284,9 +301,139 @@ async def _run_cycle(
                     user_feed_store=user_feed_store,
                     memory_store=memory_store,
                 )
-        except RuntimeError, ValueError, TypeError, OSError:
+        except (RuntimeError, ValueError, TypeError, OSError) as error:
             _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
+            cycle_failures.append(
+                worker_book_failure_finding(deployment, error_type=type(error).__name__)
+            )
         portfolio = await _risk_snapshots(store, deployments)
+    await _supervise_safety(
+        alert_service=alert_service,
+        store=store,
+        market_data=market_data,
+        deployments=deployments,
+        cycle_failures=cycle_failures,
+        worker_interval_seconds=worker_interval_seconds,
+    )
+
+
+async def _supervise_safety(
+    *,
+    alert_service: AlertService | None,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    deployments: tuple[Deployment, ...],
+    cycle_failures: list[SupervisionFinding],
+    worker_interval_seconds: int,
+) -> None:
+    """Record durable safety alerts and pause repeatedly failing books (ADR 0115).
+
+    Supervision failures never fail the worker cycle: an unavailable alert store
+    is logged and skipped, and the pause path only touches RUNNING books whose
+    consecutive failure count crossed the configured threshold. Pausing blocks
+    new entries only; the book keeps being processed for exits, protection, and
+    reconciliation, and user pauses and latches are never resumed or bypassed.
+    """
+    if alert_service is None:
+        return
+    try:
+        findings = await gather_safety_findings(
+            deployments=deployments,
+            snapshots=store,
+            closed_candles=_supervision_candle_reader(market_data),
+            now=utc_now(),
+            thresholds=alert_service.thresholds,
+            worker_interval_seconds=worker_interval_seconds,
+        )
+        application = await alert_service.apply((*findings, *cycle_failures), now=utc_now())
+    except AlertStoreError as error:
+        _logger.warning("safety_supervision_skipped type=%s detail=%s", type(error).__name__, error)
+        return
+    await _pause_repeatedly_failing_books(
+        store,
+        application,
+        deployments=deployments,
+        consecutive_failure_cycles=alert_service.thresholds.consecutive_failure_cycles,
+    )
+
+
+def _supervision_candle_reader(market_data: MarketDataService) -> ClosedCandleReader:
+    """Adapt the worker's closed-window fetch to best-effort supervision reads."""
+
+    async def read(product_id: str, timeframe: str, deploy_anchor: datetime) -> tuple[Candle, ...]:
+        _product, candles, _expected = await _closed_window_for(
+            market_data,
+            product_id=product_id,
+            timeframe=timeframe,
+            warmup_bars=3,
+            deploy_anchor=deploy_anchor,
+        )
+        return candles
+
+    return read
+
+
+def _may_pause_for_failures(
+    deployment: Deployment, occurrences: int, consecutive_failure_cycles: int
+) -> bool:
+    """True only for a running book whose entries can be paused without hiding another latch.
+
+    User pauses, breaker latches, and an existing mismatch are left untouched.
+    Supervision never resumes a book.
+    """
+    return not (
+        occurrences < consecutive_failure_cycles
+        or deployment.status is not DeploymentStatus.RUNNING
+        or deployment.lifecycle_command is not LifecycleCommand.NONE
+        or bool(deployment.mismatch_detail)
+        or deployment.daily_loss_latched
+        or deployment.drawdown_latched
+    )
+
+
+async def _pause_repeatedly_failing_books(
+    store: ExecutionStore,
+    application: AlertApplication,
+    *,
+    deployments: tuple[Deployment, ...],
+    consecutive_failure_cycles: int,
+) -> None:
+    """Pause entries for books whose consecutive cycle failures crossed the threshold."""
+    by_id = {deployment.id: deployment for deployment in deployments}
+    for change in application.changes:
+        alert = change.alert
+        if alert.code is not AlertCode.WORKER_BOOK_FAILURES:
+            continue
+        try:
+            deployment_id = UUID(alert.subject)
+        except ValueError:
+            continue
+        deployment = by_id.get(deployment_id)
+        if deployment is None:
+            continue
+        if not _may_pause_for_failures(deployment, alert.occurrences, consecutive_failure_cycles):
+            continue
+        detail = (
+            f"WORKER_CONSECUTIVE_FAILURES: entries paused after {alert.occurrences} failed "
+            "supervision cycles; exits and reconciliation continue. Operator review required; "
+            "resume is manual."
+        )
+        paused = with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail=detail,
+        )
+        await store.save_deployment(paused)
+        await record_execution_audit(
+            action="worker_consecutive_failures_pause",
+            outcome=AuditEventOutcome.FAILURE,
+            detail=(
+                f"deployment_id={deployment.id}: paused new entries after "
+                f"{alert.occurrences} consecutive failed cycles (ADR 0115)."
+            ),
+            product_id=deployment.product_id,
+        )
 
 
 async def _process_stopped(

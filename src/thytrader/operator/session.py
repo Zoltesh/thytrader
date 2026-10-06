@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from coinbase.rest import RESTClient
 
+from thytrader.alerts.store import DisabledAlertStore
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
@@ -27,6 +28,7 @@ from thytrader.persistence.audit_events import DisabledAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.portfolio_history import DisabledPortfolioHistoryStore
+from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
@@ -94,6 +96,7 @@ async def operator_diagnostics(
             decision_store=PostgresDecisionJournalStore(engine),
             portfolios=PostgresPortfolioStore(engine),
             research_queue=PostgresResearchQueue(engine),
+            alert_store=PostgresAlertStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(
@@ -116,6 +119,7 @@ async def operator_diagnostics(
             research_studies=DisabledResearchStudyCatalog(),
             decision_store=DisabledDecisionJournalStore(),
             portfolios=DisabledPortfolioStore(),
+            alert_store=DisabledAlertStore(),
         )
     try:
         yield diagnostics

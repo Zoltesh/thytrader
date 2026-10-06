@@ -8,6 +8,8 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
+from thytrader.alerts.service import AlertService
+from thytrader.alerts.supervision import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import run_execution_worker
@@ -15,6 +17,7 @@ from thytrader.execution_worker.venue import ExecutionVenueRuntime
 from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
+from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
@@ -24,7 +27,7 @@ from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
-from thytrader.settings_yaml import SettingsStore
+from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
 
 _logger = logging.getLogger(__name__)
 
@@ -50,6 +53,15 @@ async def run() -> None:
     audit_store = PostgresAuditEventStore(engine)
     decision_store = PostgresDecisionJournalStore(engine)
     portfolio_store = PostgresPortfolioStore(engine)
+    alert_service = AlertService(
+        PostgresAlertStore(engine),
+        ReloadingNotificationSender(settings_store),
+        thresholds=AlertThresholds(
+            consecutive_failure_cycles=settings.alert_consecutive_failure_cycles,
+            decision_missed_bars=settings.alert_decision_missed_bars,
+            delivery_max_attempts=settings.alert_delivery_max_attempts,
+        ),
+    )
     venue_runtime = ExecutionVenueRuntime(settings)
     credential_runtime = WorkerCredentialRuntime(
         settings_store,
@@ -94,6 +106,7 @@ async def run() -> None:
                 audit_store=audit_store,
                 decision_store=decision_store,
                 portfolio_store=portfolio_store,
+                alert_service=alert_service,
             ),
             run_venue_user_order_feed(
                 stop_requested,

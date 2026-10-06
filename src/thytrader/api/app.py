@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 
 from thytrader import __version__
+from thytrader.alerts.store import AlertStore, DisabledAlertStore
 from thytrader.api.routes.agent_orchestration import router as agent_orchestration_router
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
@@ -106,6 +107,7 @@ from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,
     PortfolioHistoryStore,
 )
+from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
@@ -196,6 +198,7 @@ def create_app(
     decision_journal_store: DecisionJournalStore | None = None,
     portfolio_store: PortfolioStorage | None = None,
     research_execution: ResearchExecutionMode | None = None,
+    alert_store: AlertStore | None = None,
 ) -> FastAPI:
     """Create a configured ThyTrader API application.
 
@@ -228,6 +231,7 @@ def create_app(
     external_dataset_store = dataset_store
     external_notification_sender = notification_sender
     external_portfolio_store = portfolio_store
+    external_alert_store = alert_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -356,6 +360,7 @@ def create_app(
         _app.state.engine = engine
         _app.state.worker_heartbeat_store = heartbeat_store or DisabledWorkerHeartbeatStore()
         _app.state.decision_journal_store = _decision_journal_store(decision_journal_store, engine)
+        _app.state.alert_store = _alert_store(external_alert_store, engine)
 
         portfolios = _portfolio_store(external_portfolio_store, engine)
         _app.state.portfolio_store = portfolios
@@ -473,6 +478,15 @@ def _notification_sender(
     if settings_store is not None:
         return ReloadingNotificationSender(settings_store)
     return notification_sender_from_settings(settings)
+
+
+def _alert_store(external: AlertStore | None, engine: AsyncEngine | None) -> AlertStore:
+    """Prefer an injected alert store, else PostgreSQL, else disabled."""
+    if external is not None:
+        return external
+    if engine is not None:
+        return PostgresAlertStore(engine)
+    return DisabledAlertStore()
 
 
 def _decision_journal_store(

@@ -8,7 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002
 
+from thytrader.alerts.report import AlertsReport
+from thytrader.alerts.store import AlertStore  # noqa: TC001 - FastAPI evaluates hints at runtime.
 from thytrader.api.dependencies import (
+    get_alert_store,
     get_audit_event_store,
     get_backtest_result_store,
     get_database_engine,
@@ -108,6 +111,7 @@ def get_operator_diagnostics(
     decision_store: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
     portfolios: Annotated[PortfolioStorage, Depends(get_portfolio_storage)],
     research_queue: Annotated[PostgresResearchQueue | None, Depends(get_research_queue)],
+    alert_store: Annotated[AlertStore, Depends(get_alert_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -133,6 +137,7 @@ def get_operator_diagnostics(
         decision_store=decision_store,
         portfolios=portfolios,
         research_queue=research_queue,
+        alert_store=alert_store,
     )
 
 
@@ -341,6 +346,14 @@ async def get_operator_decisions(
         limit=limit,
         cursor=cursor,
     )
+
+
+@router.get("/alerts", response_model=AlertsReport)
+async def get_operator_alerts(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> AlertsReport:
+    """Return durable safety alerts without trading authority."""
+    return await diagnostics.alerts()
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

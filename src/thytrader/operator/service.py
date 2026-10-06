@@ -12,6 +12,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.alerts.report import AlertsReport, build_alerts_report
 from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
@@ -200,6 +201,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from thytrader.alerts.store import AlertStore
     from thytrader.config import Settings
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
@@ -248,6 +250,7 @@ class OperatorDiagnostics:
     decision_store: DecisionJournalStore | None = None
     portfolios: PortfolioStorage | None = None
     research_queue: ResearchQueueSnapshotReader | None = None
+    alert_store: AlertStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -913,6 +916,10 @@ class OperatorDiagnostics:
             last_message_at=snapshot.last_message_at,
             last_heartbeat_at=snapshot.last_heartbeat_at,
         )
+
+    async def alerts(self) -> AlertsReport:
+        """Return the durable safety-alert feed without trading authority."""
+        return await build_alerts_report(self.alert_store, self.settings)
 
     async def monitor(self) -> MonitorReport:
         """Watch deployments, recent journals, and notification delivery."""

@@ -791,5 +791,5 @@ HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
 
 After an update, `make run` applies the migration head and rebuilds every service.
 Health compares the applied database revision with the shipped expected revision
-(currently `0064`). If a mismatch persists after rebuilding latest main, report it;
+(currently `0066`, including durable safety alerts). If a mismatch persists after rebuilding latest main, report it;
 do not bypass the readiness check.

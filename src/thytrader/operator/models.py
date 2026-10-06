@@ -60,6 +60,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "portfolios",
     "readiness",
     "venue_reconciliation",
+    "alerts",
 )
 
 SupportedTimeframe = DatasetTimeframe
