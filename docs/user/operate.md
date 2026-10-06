@@ -327,6 +327,13 @@ new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, 
 `0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
 keeps venue-recorded fees.
 
+Higher-timeframe filters and separate indicator clocks load enough warmup for both the first
+decision's current and previous completed bars. Starting a 1h bot just after a 4h boundary can
+therefore need 51 fetched 4h candles for a declared 50-bar warmup. Missing required candles still
+pause the bot. A complete archived dataset does not prove its execution window is healthy;
+inspect the bot's Decisions and reconciliation reports. A repaired data mismatch needs an explicit
+resume (including live acknowledgement for live bots), followed by a fresh decision check.
+
 Saving or backtesting a strategy is not deploying it. Deploy, pause, resume, and stop are explicit — on
 the Run stage or through `thytrader-runtime` with the gates in [Safety](safety.md). Default stop is
 **managed shutdown**: protective brackets stay and residual exposure stays in account-level risk

@@ -28,6 +28,10 @@ you are operating a **running** instance (not changing source).
 After updating, rebuild with `make run` and verify operator health; the database revision must
 match the shipped migration head. See [Operate](user/operate.md) for persistent mismatch handling.
 
+Bots with higher-timeframe filters load warmup for both current and previous completed bars,
+including their first clock rollover. Missing coverage still pauses execution; see
+[Operate](user/operate.md) for diagnosis and explicit resume after repair.
+
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 Agents can read its complete recorded conditions and UTC signal evidence with

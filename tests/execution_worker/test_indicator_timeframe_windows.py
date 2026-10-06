@@ -108,7 +108,7 @@ async def test_extra_windows_return_complete_unbound_clock(
     ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
         del product_id, deploy_anchor, as_of_closed_start
         assert timeframe == "1h"
-        assert warmup_bars == 2
+        assert warmup_bars == 3
         return _product(), extra, extra[-1].starts_at
 
     monkeypatch.setattr(execution_worker, "_closed_window_for", _complete_window)

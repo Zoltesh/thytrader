@@ -103,6 +103,15 @@ keeps its startup provider until restarted (`make run` only when the user asked)
 
 Paper may start on closed **venue-clock** bars of a strategy snapshot (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d`). Live may start on the same clocks. Sub-hour live pauses (`mismatch_detail` `User-order feed is not connected.`) unless the user-order feed is connected and fresh; when that feed pause is the **only** reason (no operator pause, no other mismatch, no breaker latch) the worker resumes the book automatically once the feed is healthy (audit `user_feed_pause_cleared`). Operator pauses, other mismatches, and latches never auto-clear. A strategy's `htf_filter` and optional per-indicator extra timeframes evaluate last-completed complete-only bars; missing extra-TF or HTF coverage pauses. Paper and live do not bind frozen extra-TF or HTF dataset fingerprints. Ingest those extra clocks with `skills/thytrader-data/SKILL.md` before start. `place-order --timeframe` is the discretionary book clock (default `5m`; any ingested venue clock).
 
+Required-clock warmup covers both the first decision's current and previous mapped bars.
+At a 1h/4h rollover, a declared 50-bar HTF warmup can require 51 fetched candles; the worker
+derives that coverage from the shared research mapping and keeps its deployment anchor across
+restart. A complete archived dataset alone does not establish a healthy execution window.
+For `HTF candle coverage is incomplete or not contiguous.`, inspect `decisions`, `show`,
+operator `market-data`, and `reconciliation`; preserve the filter and risk limits. After repairing
+coverage or updating a faulty worker, use explicit `resume --confirm --i-understand-live` for a
+live bot and verify a fresh decision. Restart alone does not clear its persisted mismatch.
+
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.

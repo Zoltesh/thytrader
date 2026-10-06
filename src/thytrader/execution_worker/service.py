@@ -61,7 +61,7 @@ from thytrader.market_data.no_trade import (
 )
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
-from thytrader.research.multi_timeframe import ltf_close
+from thytrader.research.multi_timeframe import closed_bar_required_coverage, ltf_close
 from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
@@ -1662,7 +1662,12 @@ async def _closed_htf_window(
         market_data,
         product_id=product_id or strategy.instrument.product_id,
         timeframe=htf_filter.timeframe,
-        warmup_bars=htf_filter.data_requirements.warmup_bars,
+        warmup_bars=_required_clock_warmup_bars(
+            strategy,
+            timeframe=htf_filter.timeframe,
+            warmup_bars=htf_filter.data_requirements.warmup_bars,
+            deploy_anchor=deploy_anchor,
+        ),
         deploy_anchor=deploy_anchor,
         as_of_closed_start=as_of_closed_start,
     )
@@ -1729,8 +1734,13 @@ async def _closed_indicator_timeframe_windows(
             market_data,
             product_id=covered_product,
             timeframe=timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(
-                indicators, operands=strategy_indicator_operands(strategy)
+            warmup_bars=_required_clock_warmup_bars(
+                strategy,
+                timeframe=timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    indicators, operands=strategy_indicator_operands(strategy)
+                ),
+                deploy_anchor=deploy_anchor,
             ),
             deploy_anchor=deploy_anchor,
             as_of_closed_start=as_of_closed_start,
@@ -1744,6 +1754,35 @@ async def _closed_indicator_timeframe_windows(
             return None
         windows[timeframe] = candles
     return windows
+
+
+def _required_clock_warmup_bars(
+    strategy: StrategyDefinition,
+    *,
+    timeframe: str,
+    warmup_bars: int,
+    deploy_anchor: datetime,
+) -> int:
+    """Cover the first decision's previous mapped bar without moving the deploy anchor.
+
+    The first evaluated decision is the bar completed at deployment's decision-clock
+    bucket. At a required-clock rollover, its previous close maps one bar earlier than
+    the deployment bucket's normal warmup. Use the evaluator's coverage contract to
+    extend that fixed window only when necessary; later cycles retain the same start.
+    """
+    decision_interval = parse_candle_interval(strategy.timeframe)
+    first_decision = (
+        entry_bar_bucket(deploy_anchor, strategy.timeframe) - decision_interval.duration
+    )
+    required_start, _required_end = closed_bar_required_coverage(
+        evaluation_starts_at=first_decision,
+        evaluation_ends_at=ltf_close(first_decision, strategy.timeframe),
+        timeframe=timeframe,
+        warmup_bars=warmup_bars,
+    )
+    interval = parse_candle_interval(timeframe)
+    deploy_bucket = entry_bar_bucket(deploy_anchor, timeframe)
+    return max(warmup_bars, (deploy_bucket - required_start) // interval.duration)
 
 
 async def _closed_reference_windows(
