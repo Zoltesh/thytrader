@@ -17,6 +17,7 @@ from thytrader.market_data.models import (
     MarketProduct,
 )
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
+from thytrader.market_data.window_cache import DeployWindowCache
 
 
 class MarketProductNotFoundError(LookupError):
@@ -82,9 +83,20 @@ class HistoricalMarketDataProvider(MarketDataProvider, Protocol):
 class MarketDataService:
     """Coordinate read-only previews and bounded diagnostics at UTC observation instants."""
 
-    def __init__(self, provider: MarketDataProvider) -> None:
-        """Initialize the service around a provider-neutral data boundary."""
+    def __init__(
+        self,
+        provider: MarketDataProvider,
+        *,
+        window_cache: DeployWindowCache | None = None,
+    ) -> None:
+        """Initialize the service around a provider-neutral data boundary.
+
+        ``window_cache`` remembers deploy-anchored execution windows for this service's
+        provider (ADR 0113). Each service instance gets its own cache, so a venue
+        credential swap starts empty and demo candles never mix with venue candles.
+        """
         self._provider = provider
+        self.window_cache = window_cache if window_cache is not None else DeployWindowCache()
         self._catalog_lock = asyncio.Lock()
         self._catalog: ProductCatalogSnapshot | None = None
         self._catalog_expires_at = 0.0

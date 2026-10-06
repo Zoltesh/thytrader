@@ -50,7 +50,8 @@ async def test_extra_windows_reuse_htf_when_clocks_match(
         cast("MarketDataService", object()),
         strategy,
         htf,
-        deploy_anchor=datetime(2026, 7, 10, tzinfo=UTC),
+        deploy_anchor=datetime(2026, 7, 10, 11, tzinfo=UTC),
+        as_of_closed_start=htf[-1].starts_at,
     )
     assert windows == {"1h": htf}
 

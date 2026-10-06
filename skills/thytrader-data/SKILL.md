@@ -55,6 +55,19 @@ execution windows should pass `--no-wait`: the mutation is identical, the CLI re
 ingest state immediately, and the worker keeps going. Re-check progress with
 `thytrader-data ingest ... --no-wait` (never re-queue to poll) or `thytrader-operator data-catalog`.
 
+## Execution windows are not ingest jobs
+
+[ADR 0113](../../docs/decisions/0113-deploy-anchored-window-cache.md) removes the execution
+loader's single-range lifetime limit: paper/live keep a fixed deploy-anchored history using
+small segmented requests, not a sliding indicator seed. Restart/eviction may require bounded
+cold-cache warming before a long-lived book can evaluate again. That local warming is not a
+catalog gap and does not call for `fill-gaps`, `ingest`, a larger watch, or a runtime resume.
+Use `thytrader-operator data-catalog` / `market-data` to establish actual coverage before any
+confirmation-gated data mutation. The newest/unsettled execution tail is always re-read and
+never filled without settled, confirmed no-trade evidence; the ingest worker's own settle
+window remains unchanged. Demo candles remain explicitly synthetic and now have stable UTC
+identity across range segmentation, overlap, previews, and restart; they are not venue prices.
+
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.

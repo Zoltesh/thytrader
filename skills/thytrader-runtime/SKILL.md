@@ -112,6 +112,21 @@ operator `market-data`, and `reconciliation`; preserve the filter and risk limit
 coverage or updating a faulty worker, use explicit `resume --confirm --i-understand-live` for a
 live bot and verify a fresh decision. Restart alone does not clear its persisted mismatch.
 
+Execution history longevity ([ADR 0113](../../docs/decisions/0113-deploy-anchored-window-cache.md)):
+the fixed deployment warmup start does not slide, even after more than 90 days on `1m`.
+The worker caches settled history and re-reads the newest/unsettled closed tail on every load;
+a missing newest candle is still never fabricated. HTF/extra indicators sharing a clock reuse
+only sufficient union coverage, and reference coverage includes lagged and crossover reads.
+After restart, credential replacement, or cache eviction, an old book's anchored history may
+need several bounded warming passes before decisions can continue. Local cache warming is
+**not missing exchange data**, is not a request to resume, and must not clear a deliberate
+pause or breaker. Do not change policy, recreate the bot, or queue ingest merely to bypass it.
+Check `show`, `decisions`, and operator `runtime` / `reconciliation`; report a persistent stall.
+Candle-independent order reconciliation/protection must continue during warming. Each window
+load permits eight range calls of at most 350 candles including overlap/confirmation; this is
+not a global worker/venue HTTP rate budget. The retained prefix and full indicator computation
+still grow with lifetime; this is not constant-memory indicator state.
+
 ## Hard stop
 
 When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.

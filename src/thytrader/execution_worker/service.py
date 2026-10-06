@@ -57,11 +57,6 @@ from thytrader.execution.trade_reason_scope import (
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.market_data.no_trade import (
-    fill_no_trade_gaps,
-    has_interior_gaps,
-    merge_confirmed_candles,
-)
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
@@ -1904,6 +1899,35 @@ def htf_coverage_ready(
     return candles[-1].starts_at == expected_last_start
 
 
+def _shared_clock_union_warmup(
+    strategy: StrategyDefinition, *, timeframe: str, warmup_bars: int, deploy_anchor: datetime
+) -> int:
+    """Cover the filter clock and every extra-timeframe indicator sharing it (ADR 0113).
+
+    The shared window is fetched once at the union length. Each consumer's indicator rows
+    are still selected from its own exact required bars, so the longer window does not move
+    a seeded indicator value.
+    """
+    needed = _required_clock_warmup_bars(
+        strategy, timeframe=timeframe, warmup_bars=warmup_bars, deploy_anchor=deploy_anchor
+    )
+    for clock, indicators in extra_indicator_timeframe_groups(strategy):
+        if clock != timeframe:
+            continue
+        needed = max(
+            needed,
+            _required_clock_warmup_bars(
+                strategy,
+                timeframe=timeframe,
+                warmup_bars=extra_indicator_timeframe_warmup(
+                    indicators, operands=strategy_indicator_operands(strategy)
+                ),
+                deploy_anchor=deploy_anchor,
+            ),
+        )
+    return needed
+
+
 async def _closed_htf_window(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
@@ -1912,7 +1936,12 @@ async def _closed_htf_window(
     deploy_anchor: datetime,
     as_of_closed_start: datetime | None = None,
 ) -> tuple[Candle, ...] | None:
-    """Fetch complete-only last-completed HTF bars, or None when gapped."""
+    """Fetch complete-only last-completed HTF bars, or None when gapped.
+
+    The fetch covers the union of the HTF filter warmup and the warmup of every
+    extra-timeframe indicator on the same clock, so reusing this window for that clock
+    never shortens an indicator's history (ADR 0113).
+    """
     htf_filter = strategy.htf_filter
     if htf_filter is None:
         return ()
@@ -1920,7 +1949,7 @@ async def _closed_htf_window(
         market_data,
         product_id=product_id or strategy.instrument.product_id,
         timeframe=htf_filter.timeframe,
-        warmup_bars=_required_clock_warmup_bars(
+        warmup_bars=_shared_clock_union_warmup(
             strategy,
             timeframe=htf_filter.timeframe,
             warmup_bars=htf_filter.data_requirements.warmup_bars,
@@ -1980,26 +2009,41 @@ async def _closed_indicator_timeframe_windows(
     deploy_anchor: datetime,
     as_of_closed_start: datetime | None = None,
 ) -> dict[str, tuple[Candle, ...]] | None:
-    """Fetch complete-only extra-TF bars, reusing the HTF window when clocks match."""
+    """Fetch complete-only extra-TF bars; reuse a shared HTF clock only with union coverage."""
     windows: dict[str, tuple[Candle, ...]] = {}
     htf_timeframe = strategy.htf_filter.timeframe if strategy.htf_filter is not None else None
     covered_product = product_id or strategy.instrument.product_id
     for timeframe, indicators in extra_indicator_timeframe_groups(strategy):
+        warmup = _required_clock_warmup_bars(
+            strategy,
+            timeframe=timeframe,
+            warmup_bars=extra_indicator_timeframe_warmup(
+                indicators, operands=strategy_indicator_operands(strategy)
+            ),
+            deploy_anchor=deploy_anchor,
+        )
         if timeframe == htf_timeframe:
-            windows[timeframe] = tuple(htf_candles)
-            continue
+            interval = parse_candle_interval(timeframe)
+            expected = as_of_closed_start or (
+                interval.align_closed_end(datetime.now(UTC)) - interval.duration
+            )
+            needed_start = warmup_starts_at(
+                entry_bar_bucket(deploy_anchor, timeframe), warmup, timeframe
+            )
+            if (
+                htf_candles
+                and htf_candles[0].starts_at <= needed_start
+                and htf_coverage_ready(
+                    htf_candles, expected_last_start=expected, bar_duration=interval.duration
+                )
+            ):
+                windows[timeframe] = tuple(htf_candles)
+                continue
         _product, candles, expected_last = await _closed_window_for(
             market_data,
             product_id=covered_product,
             timeframe=timeframe,
-            warmup_bars=_required_clock_warmup_bars(
-                strategy,
-                timeframe=timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators, operands=strategy_indicator_operands(strategy)
-                ),
-                deploy_anchor=deploy_anchor,
-            ),
+            warmup_bars=warmup,
             deploy_anchor=deploy_anchor,
             as_of_closed_start=as_of_closed_start,
         )
@@ -2051,9 +2095,12 @@ async def _closed_reference_windows(
 ) -> dict[str, tuple[Candle, ...]]:
     """Fetch each reference instrument's deploy-anchored closed bars (ADR 0096).
 
-    Best effort: a reference whose fetch fails is returned empty, so the per-bar
-    reference gate skips new entries with ``REFERENCE_DATA_MISSING`` while stops,
-    targets, and exits keep running. Strategies without references fetch nothing.
+    Each window starts at the shared required-clock coverage boundary, so the first
+    decision bar's current and previous mapped reference bars are both present at a
+    clock rollover and no extra bar is fetched when the anchor sits mid-bucket
+    (ADR 0113). Best effort: a reference whose fetch fails is returned empty, so the
+    per-bar reference gate skips new entries with ``REFERENCE_DATA_MISSING`` while
+    stops, targets, and exits keep running. Strategies without references fetch nothing.
     """
     windows: dict[str, tuple[Candle, ...]] = {}
     for requirement in reference_data_requirements(strategy):
@@ -2062,9 +2109,17 @@ async def _closed_reference_windows(
                 market_data,
                 product_id=requirement.product_id,
                 timeframe=requirement.timeframe,
-                warmup_bars=requirement.warmup_bars + 1,
+                warmup_bars=_required_clock_warmup_bars(
+                    strategy,
+                    timeframe=requirement.timeframe,
+                    warmup_bars=requirement.warmup_bars,
+                    deploy_anchor=deploy_anchor,
+                ),
                 deploy_anchor=deploy_anchor,
             )
+        except WindowCacheWarmingError:
+            # References gate only entries; warming must not suppress protective supervision.
+            candles = ()
         except RuntimeError, ValueError, TypeError, OSError:
             _logger.warning(
                 "reference_window_unavailable reference_id=%s product_id=%s timeframe=%s",
@@ -2123,6 +2178,15 @@ async def _closed_window_for(
 ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
     """Fetch deploy-anchored warmup through one closed bar on an interval.
 
+    The service's deploy-window cache (ADR 0113) segments settled history below the
+    adapter's per-request bound and refetches the newest/unsettled tail with overlap.
+    The start never slides: seeded indicators still consume their exact canonical
+    deploy-prefix. Frozen history ignores provider corrections within this service
+    generation; restart/eviction re-observes history from the same boundary. Budget
+    exhaustion raises WindowCacheWarmingError, not an empty/gapped data verdict:
+    consumers retry without changing lifecycle choices or evaluating a partial seed.
+    Retained history and full indicator compute still grow with deployment lifetime.
+
     Coinbase returns no candle for an interval without trades. A bar missing between two
     real candles, and still missing on one re-fetch, is a confirmed no-trade interval and
     becomes a flat zero-volume bar, exactly as research datasets publish it (ADR 0095).
@@ -2140,28 +2204,20 @@ async def _closed_window_for(
     deploy_anchor_bar = entry_bar_bucket(deploy_anchor, timeframe)
     starts_at = warmup_starts_at(deploy_anchor_bar, warmup_bars, timeframe)
     preview = await market_data.get_preview(product_id, interval)
-    report = await market_data.get_range(product_id, interval, starts_at, last_closed_end, now)
-    candles = _window_candles(report, starts_at, last_closed_start)
-    if has_interior_gaps(candles, interval):
-        confirmation = await market_data.get_range(
-            product_id, interval, starts_at, last_closed_end, now
-        )
-        merged = merge_confirmed_candles(
-            candles, _window_candles(confirmation, starts_at, last_closed_start)
-        )
-        candles = fill_no_trade_gaps(merged, interval)
-    return preview.product, candles, last_closed_start
 
+    async def fetch_range(starts_at: datetime, ends_at: datetime) -> CandleRangeReport:
+        """Fetch one bounded segment at this cycle's immutable observation instant."""
+        return await market_data.get_range(product_id, interval, starts_at, ends_at, now)
 
-def _window_candles(
-    report: CandleRangeReport, starts_at: datetime, last_closed_start: datetime
-) -> tuple[Candle, ...]:
-    """Keep the report's closed candles inside one deploy-anchored window."""
-    return tuple(
-        candle
-        for candle in report.quality.candles
-        if starts_at <= candle.starts_at <= last_closed_start
+    candles = await market_data.window_cache.closed_window(
+        fetch_range,
+        product_id=product_id,
+        interval=interval,
+        starts_at=starts_at,
+        last_closed_start=last_closed_start,
+        now=now,
     )
+    return preview.product, candles, last_closed_start
 
 
 async def _currency_available(reader: QuoteBalanceReader, currency: str) -> Decimal | None:

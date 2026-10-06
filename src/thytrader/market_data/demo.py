@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from thytrader.market_data.models import (
@@ -83,9 +83,7 @@ class DemoMarketData:
             raise ValueError(
                 "Demo market-data preview cannot represent its requested timestamp range."
             ) from error
-        candles = tuple(
-            _candle(first_start + interval.duration * offset, 23 - offset) for offset in range(24)
-        )
+        candles = tuple(_candle(first_start + interval.duration * offset) for offset in range(24))
         return MarketDataPreview(product, interval, now, analyze_candles(candles, interval, now))
 
     async def get_historical_range(
@@ -104,9 +102,7 @@ class DemoMarketData:
             raise ValueError(
                 "Demo market-data range cannot represent its requested timestamp range."
             ) from error
-        candles = tuple(
-            _candle(starts_at + interval.duration * offset, offset) for offset in range(count)
-        )
+        candles = tuple(_candle(starts_at + interval.duration * offset) for offset in range(count))
         return analyze_range(candles, interval, starts_at, ends_at, now)
 
 
@@ -123,11 +119,14 @@ def _product(product_id: str, interval: CandleInterval) -> MarketProduct:
     return product
 
 
-def _candle(starts_at: datetime, offset: int) -> Candle:
-    """Create one monotonic exact hourly OHLCV demo candle."""
+def _candle(starts_at: datetime) -> Candle:
+    """Create a synthetic bar identified by UTC time, not the requested page (ADR 0113)."""
     if starts_at.tzinfo is None or starts_at.utcoffset() != UTC.utcoffset(starts_at):
         raise ValueError("Demo market data requires a timezone-aware UTC observation instant.")
-    open_price = Decimal("100000") + Decimal(offset * 125)
+    # Positive over the entire datetime domain, and invariant under segmentation,
+    # overlap, preview/range access, and restart. These are explicitly demo prices.
+    minutes = (starts_at - datetime.min.replace(tzinfo=UTC)) // timedelta(minutes=1)
+    open_price = Decimal("100000") + Decimal(minutes) * Decimal("0.000001")
     return Candle(
         starts_at,
         open_price,
