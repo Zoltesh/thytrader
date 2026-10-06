@@ -113,6 +113,12 @@ understand both the current direction and why it changed.
 `.github/workflows/ci.yml` runs the same backend and frontend checks below on every pull request
 and on `main`, including the PostgreSQL-backed test suites against a `postgres:17` service
 container (see [ADR 0063](decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)).
+CI uses the disposable database `thytrader_ci_test`. PostgreSQL safety regressions require a
+loopback test target whose database name contains `test`; port `5439` is explicitly refused.
+For local PostgreSQL coverage, migrate a separate test database and set both
+`THYTRADER_TEST_DATABASE_URL` and `THYTRADER_INTEGRATION_DATABASE_URL` to it. Never point test
+variables at the running application's database. Leave the application's own
+`THYTRADER_DATABASE_URL` unset for pytest so unconfigured-storage tests remain truthful.
 Run them locally before pushing:
 
 Frontend:
