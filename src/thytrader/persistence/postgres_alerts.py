@@ -1,14 +1,16 @@
-"""PostgreSQL repository for durable operator safety alerts (ADR 0115)."""
+"""PostgreSQL atomic observations, monotone recovery, and delivery claims (ADR 0115)."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
-from sqlalchemy import func, select, tuple_, update
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.alerts.models import (
+    AlertCheck,
     AlertCode,
     AlertScope,
     AlertSeverity,
@@ -16,131 +18,194 @@ from thytrader.alerts.models import (
     clip_alert_text,
     new_alert,
 )
-from thytrader.alerts.store import AlertChange, AlertStoreError
-from thytrader.persistence.schema import operator_alerts
+from thytrader.alerts.store import (
+    DELIVERY_DISABLED_DETAIL,
+    AlertApplication,
+    AlertChange,
+    AlertStoreError,
+    DeliveryClaim,
+    observation_keys,
+)
+from thytrader.persistence.schema import operator_alert_checks, operator_alerts
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from datetime import datetime
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from sqlalchemy.engine import RowMapping
-    from sqlalchemy.ext.asyncio import AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
     from sqlalchemy.sql import Executable
-    from sqlalchemy.sql.elements import ColumnElement
 
     from thytrader.alerts.models import SupervisionFinding
 
 
 class PostgresAlertStore:
-    """Upsert, resolve, page, and annotate alert rows on PostgreSQL.
+    """Serialize each check via its watermark and commit an observation batch atomically.
 
-    Dedupe uses the partial unique index ``ux_operator_alerts_open`` on
-    ``(code, subject) WHERE resolved_at IS NULL``: concurrent recorders collapse
-    onto one open row, and a resolution frees the identity for a fresh row.
+    Watermarks survive resolution and restart. A stale/replayed pass cannot
+    increment failures, resolve newer failures, or reopen after a newer recovery.
+    All check locks are taken in stable order, avoiding cross-batch deadlocks.
     """
 
     def __init__(self, engine: AsyncEngine) -> None:
-        """Bind the repository to a managed async engine."""
+        """Bind the managed async engine."""
         self._engine = engine
 
     async def record(self, finding: SupervisionFinding, *, now: datetime) -> AlertChange:
-        """Insert or refresh the open alert row for one finding."""
-        statement = (
-            insert(operator_alerts)
-            .values(_row_values(new_alert(finding, now=now)))
-            .on_conflict_do_update(
-                index_elements=["code", "subject"],
-                index_where=operator_alerts.c.resolved_at.is_(None),
-                set_={
-                    "severity": finding.severity.value,
-                    "detail": clip_alert_text(finding.detail),
-                    "last_seen_at": now,
-                    "occurrences": operator_alerts.c.occurrences + 1,
-                    "deployment_id": finding.deployment_id,
-                    "product_id": finding.product_id,
-                },
-            )
-            .returning(operator_alerts)
+        """Record one positive observation or return its persisted open row."""
+        application = await self.apply_observations((finding,), (), now=now, detail="")
+        if application.changes:
+            return application.changes[0]
+        statement = select(operator_alerts).where(
+            operator_alerts.c.code == finding.code.value,
+            operator_alerts.c.subject == finding.subject,
+            operator_alerts.c.resolved_at.is_(None),
         )
+        rows = await self._fetch_all(statement)
+        if not rows:
+            raise AlertStoreError("Stale observation has no open alert.")
+        return AlertChange(_parse(rows[0]), False)
+
+    async def apply_observations(
+        self,
+        findings: Sequence[SupervisionFinding],
+        evaluated: Sequence[AlertCheck],
+        *,
+        now: datetime,
+        detail: str,
+    ) -> AlertApplication:
+        """Accept only strictly newer checks and commit findings/recoveries together."""
+        positive = {AlertCheck(item.code, item.subject): item for item in findings}
+        changes: list[AlertChange] = []
+        resolved = 0
         try:
             async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
-                row = result.mappings().first()
+                for check in observation_keys(findings, evaluated):
+                    if not await _accept_check(
+                        connection, check, now=now, failed=check in positive
+                    ):
+                        continue
+                    finding = positive.get(check)
+                    if finding is not None:
+                        changes.append(await _record(connection, finding, now=now))
+                    else:
+                        result = await connection.execute(
+                            update(operator_alerts)
+                            .where(
+                                operator_alerts.c.code == check.code.value,
+                                operator_alerts.c.subject == check.subject,
+                                operator_alerts.c.resolved_at.is_(None),
+                                operator_alerts.c.last_seen_at < now,
+                            )
+                            .values(resolved_at=now, resolution_detail=clip_alert_text(detail))
+                        )
+                        resolved += int(result.rowcount or 0)
         except SQLAlchemyError as error:
-            raise AlertStoreError("Alert storage is unavailable.") from error
-        if row is None:
-            raise AlertStoreError("Alert recording returned no row.")
-        alert = _parse(row)
-        return AlertChange(alert=alert, created=alert.occurrences == 1)
+            raise AlertStoreError("Alert observation storage is unavailable.") from error
+        return AlertApplication(tuple(changes), resolved)
 
-    async def resolve_absent(
-        self, present: Sequence[tuple[AlertCode, str]], *, now: datetime, detail: str
-    ) -> int:
-        """Resolve open rows whose identity is absent from this cycle's findings.
-
-        A row opened by a concurrent recorder after this pass's snapshot simply
-        resolves on the next pass; findings are recomputed every cycle.
-        """
-        identities = [(code.value, subject) for code, subject in present]
-        conditions: list[ColumnElement[bool]] = [operator_alerts.c.resolved_at.is_(None)]
-        if identities:
-            conditions.append(
-                ~tuple_(operator_alerts.c.code, operator_alerts.c.subject).in_(identities)
-            )
-        statement = (
-            update(operator_alerts)
-            .where(*conditions)
-            .values(resolved_at=now, resolution_detail=detail)
+    async def list_open_alerts(self) -> tuple[OperatorAlert, ...]:
+        """Return all open alerts; report pagination cannot become recovery evidence."""
+        rows = await self._fetch_all(
+            select(operator_alerts).where(operator_alerts.c.resolved_at.is_(None))
         )
-        try:
-            async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
-                return int(result.rowcount or 0)
-        except SQLAlchemyError as error:
-            raise AlertStoreError("Alert resolution is unavailable.") from error
+        return tuple(_parse(row) for row in rows)
 
     async def list_alerts(self, *, limit: int) -> tuple[OperatorAlert, ...]:
-        """Return open rows first (newest last_seen first), then recent resolutions."""
+        """Return open rows first, then most recently resolved."""
         statement = (
             select(operator_alerts)
             .order_by(
                 operator_alerts.c.resolved_at.is_(None).desc(),
+                operator_alerts.c.resolved_at.desc(),
                 operator_alerts.c.last_seen_at.desc(),
             )
             .limit(limit)
         )
         return tuple(_parse(row) for row in await self._fetch_all(statement))
 
-    async def record_delivery(
+    async def claim_delivery(
         self,
         alert_id: UUID,
         *,
         provider: str,
-        status: str,
-        detail: str,
-        attempted_at: datetime,
+        now: datetime,
+        max_attempts: int,
+        ttl: timedelta,
+    ) -> DeliveryClaim | None:
+        """CAS-claim before send; crash consumes a retry slot and lease eventually expires."""
+        conditions = (
+            operator_alerts.c.id == alert_id,
+            operator_alerts.c.resolved_at.is_(None),
+            operator_alerts.c.delivery_status.in_(("pending", "skipped", "failed")),
+        )
+        token = uuid4()
+        if provider == "none":
+            statement = (
+                update(operator_alerts)
+                .where(*conditions)
+                .values(
+                    delivery_provider=provider,
+                    delivery_status="skipped",
+                    delivery_detail=DELIVERY_DISABLED_DETAIL,
+                    delivery_token=None,
+                    delivery_expires_at=None,
+                )
+            )
+        else:
+            statement = (
+                update(operator_alerts)
+                .where(
+                    *conditions,
+                    operator_alerts.c.delivery_attempts < max_attempts,
+                    operator_alerts.c.delivery_expires_at.is_(None)
+                    | (operator_alerts.c.delivery_expires_at <= now),
+                )
+                .values(
+                    delivery_provider=provider,
+                    delivery_status="failed",
+                    delivery_detail="delivery attempt awaiting acknowledgement",
+                    delivery_attempts=operator_alerts.c.delivery_attempts + 1,
+                    delivery_token=token,
+                    delivery_expires_at=now + ttl,
+                )
+                .returning(operator_alerts)
+            )
+        try:
+            async with self._engine.begin() as connection:
+                result = await connection.execute(statement)
+                row = result.mappings().first() if provider != "none" else None
+        except SQLAlchemyError as error:
+            raise AlertStoreError("Alert delivery claim is unavailable.") from error
+        return DeliveryClaim(_parse(row), token) if row is not None else None
+
+    async def finish_delivery(
+        self, alert_id: UUID, token: UUID, *, status: str, detail: str
     ) -> None:
-        """Persist one delivery attempt outcome onto the open alert row."""
+        """Only a current open claim can acknowledge, never a delayed stale callback."""
         statement = (
             update(operator_alerts)
-            .where(operator_alerts.c.id == alert_id, operator_alerts.c.resolved_at.is_(None))
+            .where(
+                operator_alerts.c.id == alert_id,
+                operator_alerts.c.resolved_at.is_(None),
+                operator_alerts.c.delivery_token == token,
+            )
             .values(
-                delivery_provider=provider,
                 delivery_status=status,
-                delivery_detail=detail[:500],
-                delivery_attempts=operator_alerts.c.delivery_attempts + 1,
-                last_seen_at=func.greatest(operator_alerts.c.last_seen_at, attempted_at),
+                delivery_detail=clip_alert_text(detail),
+                delivery_token=None,
+                delivery_expires_at=None,
             )
         )
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
         except SQLAlchemyError as error:
-            raise AlertStoreError("Alert delivery bookkeeping is unavailable.") from error
+            raise AlertStoreError("Alert delivery acknowledgement is unavailable.") from error
 
     async def _fetch_all(self, statement: Executable) -> tuple[RowMapping, ...]:
-        """Execute one statement and return every row, mapped."""
+        """Read mappings or raise a redacted storage failure (never an empty success)."""
         try:
             async with self._engine.connect() as connection:
                 result = await connection.execute(statement)
@@ -149,8 +214,60 @@ class PostgresAlertStore:
             raise AlertStoreError("Alert storage is unavailable.") from error
 
 
+async def _accept_check(
+    connection: AsyncConnection, check: AlertCheck, *, now: datetime, failed: bool
+) -> bool:
+    """Use a persistent watermark; positive failure wins an equal-time healthy observation."""
+    newer = operator_alert_checks.c.observed_at < now
+    if failed:
+        newer = newer | (
+            (operator_alert_checks.c.observed_at == now) & operator_alert_checks.c.failed.is_(False)
+        )
+    statement = (
+        insert(operator_alert_checks)
+        .values(
+            code=check.code.value,
+            subject=check.subject,
+            observed_at=now,
+            failed=failed,
+        )
+        .on_conflict_do_update(
+            index_elements=["code", "subject"],
+            set_={"observed_at": now, "failed": failed},
+            where=newer,
+        )
+        .returning(operator_alert_checks.c.code)
+    )
+    result = await connection.execute(statement)
+    return result.first() is not None
+
+
+async def _record(
+    connection: AsyncConnection, finding: SupervisionFinding, *, now: datetime
+) -> AlertChange:
+    """Upsert an accepted positive observation under the already-held check lock."""
+    initial = new_alert(finding, now=now)
+    statement = insert(operator_alerts).values(_row_values(initial))
+    statement = statement.on_conflict_do_update(
+        index_elements=["code", "subject"],
+        index_where=operator_alerts.c.resolved_at.is_(None),
+        set_={
+            "severity": finding.severity.value,
+            "detail": clip_alert_text(finding.detail),
+            "last_seen_at": now,
+            "occurrences": operator_alerts.c.occurrences + int(finding.count_occurrence),
+            "deployment_id": finding.deployment_id,
+            "product_id": finding.product_id,
+        },
+    ).returning(operator_alerts)
+    result = await connection.execute(statement)
+    row = result.mappings().one()
+    alert = _parse(row)
+    return AlertChange(alert, alert.id == initial.id)
+
+
 def _row_values(alert: OperatorAlert) -> dict[str, object]:
-    """Map one alert onto insertable column values."""
+    """Map validated domain fields to SQL's dynamic insert boundary."""
     return {
         "id": alert.id,
         "code": alert.code.value,
@@ -173,7 +290,7 @@ def _row_values(alert: OperatorAlert) -> dict[str, object]:
 
 
 def _parse(row: RowMapping) -> OperatorAlert:
-    """Rebuild one alert from a stored row."""
+    """Rebuild a domain alert from the database adapter's row boundary."""
     return OperatorAlert(
         id=row["id"],
         code=AlertCode(row["code"]),
@@ -192,4 +309,6 @@ def _parse(row: RowMapping) -> OperatorAlert:
         delivery_status=row["delivery_status"],
         delivery_attempts=row["delivery_attempts"],
         delivery_detail=row["delivery_detail"],
+        delivery_token=row["delivery_token"],
+        delivery_expires_at=row["delivery_expires_at"],
     )

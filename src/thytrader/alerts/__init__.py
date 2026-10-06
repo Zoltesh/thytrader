@@ -9,8 +9,8 @@ from thytrader.alerts.models import (
     OperatorAlert,
     SupervisionFinding,
 )
-from thytrader.alerts.service import AlertApplication, AlertService
-from thytrader.alerts.store import AlertStoreError
+from thytrader.alerts.service import AlertService
+from thytrader.alerts.store import AlertApplication, AlertStoreError
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
 
 __all__ = (

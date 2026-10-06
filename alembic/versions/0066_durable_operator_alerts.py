@@ -19,6 +19,14 @@ depends_on = None
 def upgrade() -> None:
     """Add the append-only, deduplicated operator alert feed."""
     op.create_table(
+        "operator_alert_checks",
+        sa.Column("code", sa.String(length=48), nullable=False),
+        sa.Column("subject", sa.String(length=128), nullable=False),
+        sa.Column("observed_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("failed", sa.Boolean(), nullable=False),
+        sa.PrimaryKeyConstraint("code", "subject"),
+    )
+    op.create_table(
         "operator_alerts",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("code", sa.String(length=48), nullable=False),
@@ -39,10 +47,12 @@ def upgrade() -> None:
         ),
         sa.Column("delivery_attempts", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("delivery_detail", sa.String(length=500), nullable=False, server_default=""),
+        sa.Column("delivery_token", sa.UUID(), nullable=True),
+        sa.Column("delivery_expires_at", sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(
             ["deployment_id"],
             ["deployments.id"],
-            ondelete="CASCADE",
+            ondelete="SET NULL",
             name="fk_operator_alerts_deployment_id",
         ),
         sa.CheckConstraint(
@@ -77,3 +87,4 @@ def downgrade() -> None:
     op.drop_index("ux_operator_alerts_open", table_name="operator_alerts")
     op.drop_index("ix_operator_alerts_last_seen", table_name="operator_alerts")
     op.drop_table("operator_alerts")
+    op.drop_table("operator_alert_checks")

@@ -46,6 +46,37 @@ means there is no recovery rule for the action. A later connection never proves 
 ambiguous order succeeded. Recovered failures remain visible and degraded in this
 window; historical audit records are retained.
 
+## Durable safety alerts
+
+Read `uv run thytrader-operator alerts` (HTTP by default),
+`GET /api/v1/operator/alerts`, or **System → Alerts** (`/alerts`). The feed retains
+open and recently resolved book failures, breaker/mismatch pauses, protection
+problems, decision deadlines, and unknown/stale worker-lease evidence. It never
+places an order or changes a deployment. Counts and health use all open alerts;
+the bounded display prioritizes critical rows and warns when it is truncated.
+
+An alert resolves only after its own condition is rechecked with complete evidence.
+Unavailable/partial snapshots, missing or warming candle data, storage failures,
+and subset inventories are **unknown, not recovery**. A consumed live stop stays
+open through a price rebound until durable terminal/fill/removal evidence clears
+that order; alerts never turn it into a market order. An implausibly future lease
+means unknown age/possible clock skew, not proof that protection maintenance ran.
+
+Repeated failures without verified recovery can pause new entries using a fenced
+book write. User pauses, stop commands, latches, and unrelated mismatches remain
+intact. A persisted supervision pause survives restart; reconciliation and exits
+continue. After review, control belongs to the separate confirmation-gated runtime
+lane, not the read-only operator lane. No automatic resume is performed.
+
+Alerts are durable even with `notify_provider=none`: delivery is explicitly
+skipped/disabled and no destination is invented. Optional delivery runs outside
+trading cycles with bounded retries. Webhook receivers should deduplicate on the
+stable alert UUID: a crash after send but before acknowledgement can cause a retry;
+bounded retries can also exhaust without delivery, so external receipt is not
+guaranteed. See
+[ADR 0115](../decisions/0115-durable-safety-alerts-and-supervision.md) and the
+[operator skill](../../skills/thytrader-operator/SKILL.md).
+
 ## In the browser
 
 After [setup](setup.md), open http://127.0.0.1:5175.

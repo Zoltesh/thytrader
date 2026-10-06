@@ -11,9 +11,13 @@ import logging
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
-from thytrader.alerts.models import AlertCode, SupervisionFinding
+from thytrader.alerts.models import AlertCheck, AlertCode, SupervisionFinding
 from thytrader.alerts.store import AlertStoreError
-from thytrader.alerts.supervision import gather_safety_findings, worker_book_failure_finding
+from thytrader.alerts.supervision import (
+    gather_safety_findings,
+    verified_worker_recovery,
+    worker_book_failure_finding,
+)
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import execution_audit_scope, record_execution_audit
 from thytrader.execution.candle_wait import newest_bar_settling
@@ -83,7 +87,9 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from decimal import Decimal
 
-    from thytrader.alerts.service import AlertApplication, AlertService
+    from thytrader.alerts.models import OperatorAlert
+    from thytrader.alerts.service import AlertService
+    from thytrader.alerts.store import AlertApplication
     from thytrader.alerts.supervision import ClosedCandleReader
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
@@ -272,6 +278,7 @@ async def _run_cycle(
     a book that fails too many consecutive cycles has its entries paused while
     exits and reconciliation keep running.
     """
+    cycle_started_at = utc_now()
     await refresh_process_entry_inhibition(store)
     policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
@@ -316,6 +323,7 @@ async def _run_cycle(
         deployments=deployments,
         cycle_failures=cycle_failures,
         worker_interval_seconds=worker_interval_seconds,
+        observed_at=cycle_started_at,
     )
 
 
@@ -327,6 +335,7 @@ async def _supervise_safety(
     deployments: tuple[Deployment, ...],
     cycle_failures: list[SupervisionFinding],
     worker_interval_seconds: int,
+    observed_at: datetime,
 ) -> None:
     """Record durable safety alerts and pause repeatedly failing books (ADR 0115).
 
@@ -339,23 +348,53 @@ async def _supervise_safety(
     if alert_service is None:
         return
     try:
-        findings = await gather_safety_findings(
-            deployments=deployments,
+        # Positive error evidence does not depend on snapshot/inventory completeness.
+        if cycle_failures:
+            await alert_service.apply(cycle_failures, now=observed_at, dispatch=False)
+        previous = await alert_service.open_alerts()
+        # The protocol's unbounded list is authoritative only after a successful read.
+        current = await store.list_deployments()
+        evidence = await gather_safety_findings(
+            deployments=current,
             snapshots=store,
             closed_candles=_supervision_candle_reader(market_data),
-            now=utc_now(),
+            now=observed_at,
             thresholds=alert_service.thresholds,
             worker_interval_seconds=worker_interval_seconds,
+            prior_alerts=previous,
+            inventory_authoritative=True,
         )
-        application = await alert_service.apply((*findings, *cycle_failures), now=utc_now())
-    except AlertStoreError as error:
-        _logger.warning("safety_supervision_skipped type=%s detail=%s", type(error).__name__, error)
+        before = {item.id: item for item in deployments}
+        failed = {item.subject for item in cycle_failures}
+        verified_success = tuple(
+            AlertCheck(AlertCode.WORKER_BOOK_FAILURES, str(item.id))
+            for item in current
+            if str(item.id) not in failed
+            and item.id in before
+            and verified_worker_recovery(before[item.id], item)
+        )
+        application = await alert_service.apply(
+            (*cycle_failures, *evidence.findings),
+            now=observed_at,
+            evaluated=(*evidence.evaluated, *verified_success),
+            dispatch=False,
+        )
+        outstanding = await alert_service.open_alerts()
+    except AlertStoreError, RuntimeError, ValueError, OSError:
+        _logger.warning("safety_supervision_evidence_unavailable")
         return
     await _pause_repeatedly_failing_books(
         store,
         application,
-        deployments=deployments,
+        deployments=tuple(
+            item
+            for item in current
+            if item.id in before
+            and item.strategy_fingerprint == before[item.id].strategy_fingerprint
+            and item.strategy_id == before[item.id].strategy_id
+        ),
         consecutive_failure_cycles=alert_service.thresholds.consecutive_failure_cycles,
+        outstanding=outstanding,
     )
 
 
@@ -363,13 +402,16 @@ def _supervision_candle_reader(market_data: MarketDataService) -> ClosedCandleRe
     """Adapt the worker's closed-window fetch to best-effort supervision reads."""
 
     async def read(product_id: str, timeframe: str, deploy_anchor: datetime) -> tuple[Candle, ...]:
-        _product, candles, _expected = await _closed_window_for(
+        _product, candles, expected = await _closed_window_for(
             market_data,
             product_id=product_id,
             timeframe=timeframe,
             warmup_bars=3,
             deploy_anchor=deploy_anchor,
         )
+        # Empty/settling/late/warming windows are unknown, not verified recovery.
+        if not candles or candles[-1].starts_at < expected:
+            return ()
         return candles
 
     return read
@@ -399,11 +441,12 @@ async def _pause_repeatedly_failing_books(
     *,
     deployments: tuple[Deployment, ...],
     consecutive_failure_cycles: int,
+    outstanding: tuple[OperatorAlert, ...] = (),
 ) -> None:
-    """Pause entries for books whose consecutive cycle failures crossed the threshold."""
+    """Fence entry pauses, including a threshold persisted before a worker crash."""
     by_id = {deployment.id: deployment for deployment in deployments}
-    for change in application.changes:
-        alert = change.alert
+    alerts = {row.id: row for row in (*outstanding, *(item.alert for item in application.changes))}
+    for alert in alerts.values():
         if alert.code is not AlertCode.WORKER_BOOK_FAILURES:
             continue
         try:
@@ -420,13 +463,32 @@ async def _pause_repeatedly_failing_books(
             "supervision cycles; exits and reconciliation continue. Operator review required; "
             "resume is manual."
         )
-        paused = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=detail,
-        )
-        await store.save_deployment(paused)
+        try:
+            leased = await acquire_worker_lease(store, deployment.id)
+            if leased is None or leased.revision != deployment.revision + 1:
+                continue
+            loaded = (await store.get_deployment(deployment.id)).deployment
+            if loaded.revision != leased.revision or (
+                loaded.strategy_id != deployment.strategy_id
+                or loaded.strategy_fingerprint != deployment.strategy_fingerprint
+                or not _may_pause_for_failures(
+                    loaded, alert.occurrences, consecutive_failure_cycles
+                )
+            ):
+                continue
+            fenced = RevisionFencedStore(store, loaded.id, loaded.revision)
+            paused = with_runtime(
+                loaded,
+                updated_at=utc_now(),
+                status=DeploymentStatus.PAUSED,
+                lifecycle_command=LifecycleCommand.STOP_NEW_ENTRIES,
+                mismatch_detail=detail,
+            )
+            await fenced.save_deployment(paused)
+        except RuntimeError, ValueError, OSError:
+            # Deleted books, lease/revision races and storage failure retain error evidence.
+            _logger.warning("safety_pause_not_applied deployment_id=%s", deployment.id)
+            continue
         await record_execution_audit(
             action="worker_consecutive_failures_pause",
             outcome=AuditEventOutcome.FAILURE,

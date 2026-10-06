@@ -1302,6 +1302,16 @@ Index(
 
 Index("ix_bar_decisions_bar_starts_at", bar_decisions.c.bar_starts_at)
 
+operator_alert_checks = Table(
+    "operator_alert_checks",
+    metadata,
+    Column("code", String(48), primary_key=True),
+    Column("subject", String(128), primary_key=True),
+    Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("failed", Boolean(), nullable=False),
+    comment="Persistent monotone check watermarks, including verified healthy observations.",
+)
+
 operator_alerts = Table(
     "operator_alerts",
     metadata,
@@ -1332,10 +1342,12 @@ operator_alerts = Table(
     Column("delivery_status", String(16), nullable=False, server_default="pending"),
     Column("delivery_attempts", Integer(), nullable=False, server_default="0"),
     Column("delivery_detail", String(500), nullable=False, server_default=""),
+    Column("delivery_token", UUID(as_uuid=True), nullable=True),
+    Column("delivery_expires_at", DateTime(timezone=True), nullable=True),
     ForeignKeyConstraint(
         ["deployment_id"],
         ["deployments.id"],
-        ondelete="CASCADE",
+        ondelete="SET NULL",
         name="fk_operator_alerts_deployment_id",
     ),
     CheckConstraint(
@@ -1748,6 +1760,7 @@ __all__ = [
     "market_data_worker_state",
     "market_feed_state",
     "metadata",
+    "operator_alert_checks",
     "operator_alerts",
     "order_intents",
     "portfolio_backtest_jobs",

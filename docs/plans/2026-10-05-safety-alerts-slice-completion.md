@@ -2,6 +2,10 @@
 
 Worktree: `feat/review-alerts`. Lead integrates. Do not treat this note as a production deploy.
 
+**Historical initial slice note:** `d4e3897` was integrated but not accepted for release.
+The lead identified false-recovery and unfenced-write defects. The follow-up safety corrections
+and exact current verification are in [2026-10-06-safety-alerts-review-followup.md](2026-10-06-safety-alerts-review-followup.md).
+
 Resume session 2026-10-06: verified the preserved partial work, fixed three failing tests,
 cleaned all Ruff/ty/format findings, and re-ran every gate. Committed locally on
 `feat/review-alerts`; lead alone integrates, pushes, merges, and deploys.
@@ -58,9 +62,9 @@ cleaned all Ruff/ty/format findings, and re-ran every gate. Committed locally on
   while it was imported only under `TYPE_CHECKING` (`NameError` on the pause path); moved
   `from uuid import UUID` to a runtime import. Also narrowed `_may_pause_for_failures` to a
   `Deployment` argument with explicit `None` handling at the call site.
-- `execution_worker/service.py`: the base checkout's `except RuntimeError, ValueError, ...`
-  (invalid tuple-less syntax) is now `except (RuntimeError, ValueError, TypeError, OSError)`
-  and the handler feeds `WORKER_BOOK_FAILURES`.
+- `execution_worker/service.py`: the handler now binds the exception and feeds
+  `WORKER_BOOK_FAILURES`. **Correction:** Python 3.14 supports parenthesis-free exception
+  lists; the base repository syntax was valid. Adding `as error` required parentheses.
 - `alerts/supervision.py`: triggered-stop detection now runs once per snapshot
   (`_trigger_consumed_orders` returning order id → latest close) and feeds both
   `_stop_trigger_findings` and the new `_cover_voided_by_triggered_stops` check, so a live
@@ -78,7 +82,8 @@ cleaned all Ruff/ty/format findings, and re-ran every gate. Committed locally on
 
 ## Verification (this worktree, all hermetic)
 
-- `uv run pytest` → **2781 passed, 88 skipped** (PostgreSQL integration tests skip without
+- Initial command `uv run pytest -q -x --ignore=tests/api/test_strategy_backtest_integration.py`
+  → **2781 passed, 88 skipped** (PostgreSQL integration tests skip without
   `THYTRADER_TEST_DATABASE_URL`; no production database was used).
 - `uv run ruff check .` → clean. `uv run ruff format --check .` → clean.
 - `uv run ty check` → clean.
@@ -105,12 +110,12 @@ cleaned all Ruff/ty/format findings, and re-ran every gate. Committed locally on
 - YAML `set-settings` does not yet expose the three thresholds (env-only; lead/runtime lane).
 - Delivery exhaustion is reported as status `exhausted` when attempts reach the configured
   max; the stored row status remains `failed`.
-- Supervision pause uses `save_deployment` without the per-book revision fence, matching
-  portfolio breaker pauses. A concurrent leased write can win for one cycle; the next
-  failing cycle pauses again. It never clears a user pause.
+- Initial unfenced supervision pause was a release-blocking defect, **not** an acceptable
+  limitation. The follow-up now acquires the lease, re-reads, and revision-fences the write.
 - `0066` parent is `0064` only because this worktree has no `0065`.
-- `PostgresAlertStore.list_alerts` orders resolved rows by `last_seen_at` while the
-  in-memory store orders them by `resolved_at`; cosmetic feed-ordering difference only.
+- The initial Postgres adapter had no executed integration evidence. The follow-up runs
+  dedicated migration/repository tests on a private disposable database and aligns resolved
+  feed ordering with the in-memory store.
 
 ## Lead merge notes
 

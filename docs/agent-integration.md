@@ -115,7 +115,7 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 
 Shipped command groups:
 
-- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, data-health (all enabled watched tails; clock-aware, historical coverage separate), products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, data-health (all enabled watched tails; clock-aware, historical coverage separate), products, indicators, strategies, performance, risk, readiness, reconciliation, venue-reconciliation, runtime, alerts, execution-quality, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
 
 `uv run thytrader-operator indicators` lists the fail-closed catalog an agent may author: 53 kinds
 grouped by `category` (trend, momentum, volatility, volume, statistical, price), each with its
@@ -506,6 +506,30 @@ why-trade review, and trains a fail-closed advisory model from attributed local 
 `trade-reasons` are read-only. Place-order `--note` is the first why-trade note; later notes use
 `add-trade-reason-note --confirm`. Training consumes `JournalEntry` as stored.
 
+### Durable safety alerts
+
+Use `uv run thytrader-operator alerts`, `GET /api/v1/operator/alerts`, or `/alerts`
+for durable local safety observations ([ADR 0115](decisions/0115-durable-safety-alerts-and-supervision.md)).
+This is read-only; control stays in the separately confirmation-gated runtime lane.
+Recovery is per-check and requires complete evidence. Missing/stale/partial snapshots,
+storage failures, unavailable/warming or insufficient candles, and non-authoritative
+subset inventories never mean healthy. A consumed live stop remains sticky until
+terminal/fill/removal evidence clears it; a price rebound is not recovery and the
+alert does not authorize a market exit. Future-skewed leases mean unknown age.
+
+Counts/status use the full open inventory even when the displayed feed is bounded.
+Repeated verified failures can fence a new-entry pause without overwriting a stop,
+operator pause, latch, strategy identity, or unrelated mismatch. That pause survives
+restart; ambiguous no-op passes do not reset the failure count, and maintenance,
+reconciliation, and exits continue. It is never auto-resumed.
+
+`notify_provider=none` explicitly records skipped/disabled delivery and does not
+spend retry attempts. Delivery is independent of execution cycles. Durable claims
+prevent concurrent sends while the claim is valid; retries reuse the alert UUID.
+A send/ack crash can still duplicate an external webhook, so receivers must
+idempotently deduplicate. Bounded retries can exhaust without external receipt.
+Do not infer exactly-once delivery or invent a destination.
+
 ## Stable diagnostics schema
 
 Every machine-readable report should include:
@@ -586,7 +610,7 @@ The operator skill tells agents to:
 
 | Capability available | Supported agent authority |
 |---|---|
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, strategy library state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, the per-bar decision timeline (`decisions`), and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, strategy library state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, the per-bar decision timeline (`decisions`), durable safety alerts (`alerts`), and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated strategy create/save/import/clone/delete, backtest submission by `strategy_id` (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Live fills ingest through cursor-terminated List Fills and quarantine incomplete rows ([ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md)). Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |

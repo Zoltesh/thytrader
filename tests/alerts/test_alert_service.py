@@ -1,150 +1,198 @@
-"""Dedupe, recovery, retry, and delivery idempotency for the alert service."""
+"""Evidence-scoped recovery, restart watermarks and pre-send delivery claims."""
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import asyncio
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
 
-from thytrader.alerts.models import AlertCode, AlertScope, AlertSeverity, SupervisionFinding
-from thytrader.alerts.service import AlertDeliverySender, AlertService
+from thytrader.alerts.models import (
+    AlertCheck,
+    AlertCode,
+    AlertScope,
+    AlertSeverity,
+    SupervisionFinding,
+)
+from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL, InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds
 from thytrader.memory.models import DeliveryStatus, NotifyProvider
-from thytrader.memory.notify import DeliveryResult, DisabledNotificationSender
+from thytrader.memory.notify import (
+    DeliveryResult,
+    DisabledNotificationSender,
+    RecordingNotificationSender,
+)
 
-_NOW = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
+if TYPE_CHECKING:
+    from thytrader.alerts.service import AlertDeliverySender
+    from thytrader.memory.models import NotificationRecord
+
+_NOW = datetime(2026, 3, 2, 12, tzinfo=UTC)
+pytestmark = pytest.mark.anyio
 
 
-def _finding(code: AlertCode = AlertCode.BOOK_PAUSED_MISMATCH) -> SupervisionFinding:
+def _finding() -> SupervisionFinding:
+    """One exact durable worker-failure identity."""
     return SupervisionFinding(
-        code=code,
+        code=AlertCode.WORKER_BOOK_FAILURES,
         scope=AlertScope.DEPLOYMENT,
         subject=str(uuid4()),
         severity=AlertSeverity.WARNING,
-        detail="paused for a test mismatch",
+        detail="cycle failed",
     )
 
 
-class _FailingSender:
-    def __init__(self, *, failures: int) -> None:
-        self.failures = failures
-        self.calls = 0
-
-    def provider(self) -> NotifyProvider:
-        return NotifyProvider.LOG
-
-    async def deliver(self, record: object) -> DeliveryResult:
-        del record
-        self.calls += 1
-        if self.calls <= self.failures:
-            raise RuntimeError("webhook down")
-        return DeliveryResult(status=DeliveryStatus.LOGGED)
+def _service(store: InMemoryAlertStore, sender: AlertDeliverySender | None = None) -> AlertService:
+    """Rebuild a service without resetting persisted observation/delivery state."""
+    return AlertService(store, sender or DisabledNotificationSender(), thresholds=AlertThresholds())
 
 
-class _RecordingSender:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    def provider(self) -> NotifyProvider:
-        return NotifyProvider.LOG
-
-    async def deliver(self, record: object) -> DeliveryResult:
-        del record
-        self.calls += 1
-        return DeliveryResult(status=DeliveryStatus.LOGGED)
-
-
-def _service(
-    store: InMemoryAlertStore, sender: AlertDeliverySender, *, attempts: int = 3
-) -> AlertService:
-    """Bind one store and sender with a small explicit retry budget."""
-    return AlertService(
-        store,
-        sender,
-        thresholds=AlertThresholds(delivery_max_attempts=attempts),
-    )
-
-
-@pytest.mark.anyio
-async def test_repeat_cycles_dedupe_and_recovery_resolves_without_flooding() -> None:
-    """Repeated findings refresh one open row; recovery resolves it exactly once."""
+async def test_unknown_pass_after_restart_is_not_recovery() -> None:
+    """No finding and no evaluated key says unknown, even after service restart."""
     store = InMemoryAlertStore()
-    service = _service(store, DisabledNotificationSender())
     finding = _finding()
-    first = await service.apply((finding,), now=_NOW)
-    second = await service.apply((finding,), now=_NOW)
-    assert first.changes[0].created is True
-    assert second.changes[0].created is False
-    assert second.changes[0].alert.occurrences == 2
-    assert len(await store.list_alerts(limit=10)) == 1
-    resolved = await service.apply((), now=_NOW)
-    assert resolved.resolved_count == 1
-    rows = await store.list_alerts(limit=10)
-    assert rows[0].resolved_at == _NOW
-    reopened = await service.apply((finding,), now=_NOW)
-    assert reopened.changes[0].created is True
+    await _service(store).apply((finding,), now=_NOW)
+    application = await _service(store).apply((), now=_NOW + timedelta(seconds=1))
+    assert application.resolved_count == 0
+    assert len(await store.list_open_alerts()) == 1
+    clear = await _service(store).apply(
+        (), now=_NOW + timedelta(seconds=2), evaluated=(AlertCheck(finding.code, finding.subject),)
+    )
+    assert clear.resolved_count == 1
+    later = await _service(store).apply((finding,), now=_NOW + timedelta(seconds=3))
+    assert later.changes[0].created
     assert len(await store.list_alerts(limit=10)) == 2
 
 
-@pytest.mark.anyio
-async def test_disabled_provider_records_an_explicit_skip_and_does_not_retry() -> None:
-    """notify_provider=none stores an explicit delivery-disabled skip, not a webhook."""
+async def test_partial_verified_recovery_leaves_other_checks_open() -> None:
+    """Recovery for one check never clears another unknown book/check."""
     store = InMemoryAlertStore()
-    service = _service(store, DisabledNotificationSender())
-    await service.apply((_finding(),), now=_NOW)
-    await service.apply((_finding(AlertCode.BOOK_PAUSED_MISMATCH),), now=_NOW)
-    # second apply is a different subject; check the first row's delivery via list
-    rows = await store.list_alerts(limit=10)
-    assert rows
-    assert all(row.delivery_status == "skipped" for row in rows if row.occurrences == 1)
-    assert DELIVERY_DISABLED_DETAIL in rows[0].delivery_detail
+    a, b = _finding(), _finding()
+    await _service(store).apply((a, b), now=_NOW)
+    await _service(store).apply(
+        (), now=_NOW + timedelta(seconds=1), evaluated=(AlertCheck(a.code, a.subject),)
+    )
+    assert {row.subject for row in await store.list_open_alerts()} == {b.subject}
 
 
-@pytest.mark.anyio
-async def test_delivery_retries_until_success_then_is_idempotent() -> None:
-    """A failed delivery retries while the alert stays open; success is not repeated."""
-    store = InMemoryAlertStore()
-    sender = _FailingSender(failures=1)
-    service = _service(store, sender, attempts=3)
-    finding = _finding()
-    await service.apply((finding,), now=_NOW)
-    failed = (await store.list_alerts(limit=5))[0]
-    assert failed.delivery_status == "failed"
-    assert failed.delivery_attempts == 1
-    await service.apply((finding,), now=_NOW)
-    recovered = next(row for row in await store.list_alerts(limit=5) if row.is_open)
-    assert recovered.delivery_status == "logged"
-    calls_after_success = sender.calls
-    await service.apply((finding,), now=_NOW)
-    assert sender.calls == calls_after_success
-
-
-@pytest.mark.anyio
-async def test_delivery_stops_after_the_attempt_budget() -> None:
-    """Delivery attempts stop at the configured cap and the row reports exhausted budget."""
-    store = InMemoryAlertStore()
-    sender = _FailingSender(failures=10)
-    service = _service(store, sender, attempts=2)
-    finding = _finding()
-    await service.apply((finding,), now=_NOW)
-    await service.apply((finding,), now=_NOW)
-    await service.apply((finding,), now=_NOW)
-    assert sender.calls == 2
-    row = (await store.list_alerts(limit=5))[0]
-    assert row.delivery_attempts == 2
-    assert row.delivery_status == "failed"
-
-
-@pytest.mark.anyio
-async def test_restart_reuses_the_same_open_row() -> None:
-    """A rebuilt service on the same store dedupes instead of opening a second row."""
+async def test_out_of_order_and_replayed_checks_cannot_fabricate_recovery() -> None:
+    """Watermarks reject an old clear, duplicate failure and late pre-recovery failure."""
     store = InMemoryAlertStore()
     finding = _finding()
-    await _service(store, _RecordingSender()).apply((finding,), now=_NOW)
-    restarted = _service(store, _RecordingSender())
-    change = await restarted.apply((finding,), now=_NOW)
-    assert change.changes[0].created is False
-    assert change.changes[0].alert.occurrences == 2
-    assert len(await store.list_alerts(limit=10)) == 1
+    check = AlertCheck(finding.code, finding.subject)
+    await _service(store).apply((finding,), now=_NOW + timedelta(seconds=2))
+    await _service(store).apply((), now=_NOW + timedelta(seconds=1), evaluated=(check,))
+    await _service(store).apply((finding,), now=_NOW + timedelta(seconds=2))
+    assert (await store.list_open_alerts())[0].occurrences == 1
+    await _service(store).apply((), now=_NOW + timedelta(seconds=3), evaluated=(check,))
+    await _service(store).apply((finding,), now=_NOW + timedelta(seconds=2))
+    assert not await store.list_open_alerts()
+
+
+async def test_disabled_provider_is_durable_and_enabling_delivers_once() -> None:
+    """None provider skips without spending retry slots; enabling can send the existing alert."""
+    store = InMemoryAlertStore()
+    finding = _finding()
+    await _service(store).apply((finding,), now=_NOW)
+    row = (await store.list_open_alerts())[0]
+    assert row.delivery_status == "skipped"
+    assert row.delivery_attempts == 0
+    assert row.delivery_detail == DELIVERY_DISABLED_DETAIL
+    sender = RecordingNotificationSender(provider=NotifyProvider.LOG)
+    await _service(store, sender).apply((), now=_NOW + timedelta(seconds=1))
+    await _service(store, sender).apply((), now=_NOW + timedelta(seconds=2))
+    assert len(sender.delivered) == 1
+    assert sender.delivered[0].id == row.id
+
+
+class _FailureSender:
+    """Untrusted callback that returns or raises secret-bearing failures."""
+
+    def __init__(self, *, provider_error: bool = False, raises: bool = False) -> None:
+        """Select which callback fails."""
+        self.provider_error = provider_error
+        self.raises = raises
+        self.calls = 0
+
+    def provider(self) -> NotifyProvider:
+        """Never let this callback's exception text escape."""
+        if self.provider_error:
+            raise ValueError("https://secret.invalid/TOKEN")
+        return NotifyProvider.WEBHOOK
+
+    async def deliver(self, record: NotificationRecord) -> DeliveryResult:
+        """Return deliberately unredacted text; the service must discard it."""
+        del record
+        self.calls += 1
+        if self.raises:
+            raise ValueError("https://secret.invalid/TOKEN")
+        return DeliveryResult(status=DeliveryStatus.FAILED, detail="https://secret.invalid/TOKEN")
+
+
+@pytest.mark.parametrize("provider_error,raises", [(True, False), (False, True), (False, False)])
+async def test_callback_failures_do_not_leak_and_retries_are_bounded(
+    provider_error: bool, raises: bool, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Provider/deliver callbacks and returned detail cannot persist or log secrets."""
+    store = InMemoryAlertStore()
+    finding = _finding()
+    sender = _FailureSender(provider_error=provider_error, raises=raises)
+    service = AlertService(store, sender, thresholds=AlertThresholds(delivery_max_attempts=2))
+    for seconds in range(4):
+        await service.apply((finding,), now=_NOW + timedelta(seconds=seconds))
+    row = (await store.list_open_alerts())[0]
+    assert sender.calls == (0 if provider_error else 2)
+    assert "secret.invalid" not in row.delivery_detail + caplog.text
+    assert "TOKEN" not in row.delivery_detail + caplog.text
+
+
+class _BlockingSender(RecordingNotificationSender):
+    """Hold a send long enough to race a second dispatcher or cancellation."""
+
+    def __init__(self) -> None:
+        """Start a deterministic send barrier."""
+        super().__init__()
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def deliver(self, record: NotificationRecord) -> DeliveryResult:
+        """Record the attempt then block before acknowledgement."""
+        self.delivered.append(record)
+        self.started.set()
+        await self.release.wait()
+        return self.result
+
+
+async def test_concurrent_dispatchers_cannot_duplicate_an_inflight_attempt() -> None:
+    """A CAS claim prevents a second service from sending during the active attempt."""
+    store = InMemoryAlertStore()
+    sender = _BlockingSender()
+    first = asyncio.create_task(_service(store, sender).apply((_finding(),), now=_NOW))
+    await sender.started.wait()
+    await _service(store, sender).apply((), now=_NOW + timedelta(seconds=1))
+    assert len(sender.delivered) == 1
+    sender.release.set()
+    await first
+    assert (await store.list_open_alerts())[0].delivery_status == "logged"
+
+
+async def test_send_ack_crash_retries_after_claim_expiry_with_stable_id() -> None:
+    """An ambiguous crash consumes a retry slot; only an expired claim can retry."""
+    store = InMemoryAlertStore()
+    sender = _BlockingSender()
+    task = asyncio.create_task(_service(store, sender).apply((_finding(),), now=_NOW))
+    await sender.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    before = (await store.list_open_alerts())[0]
+    assert before.delivery_attempts == 1
+    retry = RecordingNotificationSender()
+    await _service(store, retry).apply((), now=_NOW + timedelta(seconds=20))
+    assert not retry.delivered
+    await _service(store, retry).apply((), now=_NOW + timedelta(seconds=61))
+    assert retry.delivered[0].id == sender.delivered[0].id
+    assert (await store.list_open_alerts())[0].delivery_attempts == 2

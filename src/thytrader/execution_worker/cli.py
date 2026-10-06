@@ -116,6 +116,7 @@ async def run() -> None:
                 wake_requested=wake_requested,
             ),
             credential_runtime.run_until_stopped(stop_requested),
+            alert_service.run_deliveries(stop_requested),
         )
         _logger.info("execution_worker_stopped")
     finally:

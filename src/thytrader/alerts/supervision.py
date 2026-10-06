@@ -2,7 +2,7 @@
 
 This module recomputes safety observations from durable execution state on every
 worker cycle. It never mutates books, never invents market data, and treats
-unknown evidence as "no finding" rather than fabricating health. Findings feed
+unknown evidence as incomplete (never a recovery). Findings and complete checks feed
 ``thytrader.alerts.service.AlertService``, which deduplicates them into durable
 alert rows.
 """
@@ -11,16 +11,20 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from itertools import pairwise
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.alerts.models import (
+    AlertCheck,
     AlertCode,
     AlertScope,
     AlertSeverity,
+    SafetyEvidence,
     SupervisionFinding,
 )
 from thytrader.execution.geometry import entry_bar_bucket
+from thytrader.execution.leases import WORKER_LEASE_TTL_SECONDS
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -40,8 +44,10 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
+    from thytrader.alerts.models import OperatorAlert
     from thytrader.execution.models import (
         DeploymentSnapshot,
+        Order,
         Position,
     )
     from thytrader.market_data.models import Candle
@@ -71,8 +77,9 @@ _STOP_TRIGGER_WATCH_STATUSES = frozenset(
 class AlertThresholds:
     """Explicit, operator-tunable supervision thresholds with sane defaults.
 
-    ``consecutive_failure_cycles`` is how many failing worker cycles in a row
-    pause a book's new entries (exits and reconciliation continue).
+    ``consecutive_failure_cycles`` bounds observed errors since a verified
+    successful decision; unknown/no-op cycles do not reset error evidence.
+    Crossing it pauses new entries (exits and reconciliation continue).
     ``decision_missed_bars`` is how many closed decision bars behind the venue
     clock a running book may lag before the missed-deadline alert fires; the
     settling grace above still applies per missed bar. ``delivery_max_attempts``
@@ -96,12 +103,26 @@ class AlertThresholds:
                 raise ValueError(message)
 
 
+@dataclass(frozen=True, slots=True)
+class SnapshotEvidence:
+    """A validated deployment row plus collection evidence completeness.
+
+    Full ExecutionStore snapshots have complete inventories. Adapters supplying
+    partial/paginated collections must use this wrapper with complete=False.
+    Row checks can still recover independently; missing order/position evidence
+    never clears inventory-dependent checks.
+    """
+
+    snapshot: DeploymentSnapshot
+    complete: bool = False
+
+
 @runtime_checkable
 class DeploymentSnapshotReader(Protocol):
     """Read one deployment with orders and intents for protection classification."""
 
-    async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
-        """Load one deployment snapshot or fail."""
+    async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot | SnapshotEvidence:
+        """Load a full inventory or explicitly flag a partial collection read."""
         ...
 
 
@@ -124,20 +145,42 @@ async def gather_safety_findings(
     now: datetime,
     thresholds: AlertThresholds,
     worker_interval_seconds: int,
-) -> tuple[SupervisionFinding, ...]:
-    """Recompute every safety finding for one supervision pass.
+    prior_alerts: Sequence[OperatorAlert] = (),
+    inventory_authoritative: bool = False,
+) -> SafetyEvidence:
+    """Gather findings and exact complete checks, preserving unknown evidence.
 
-    Reads are best effort: a book whose snapshot or candles cannot be loaded
-    produces no finding for that check (never invented evidence), and the
-    per-book failure alert is added separately by the worker cycle. Decision
-    deadlines use each book's own clock plus the settling grace, including flat
-    running books. Lease age is reported even when unknown.
+    Snapshot readers must return full snapshots (never paginated order/position
+    summaries). Failed, wrong-book or stale reads prove no recovery. Subset book
+    inventories default to non-authoritative; removal resolves only with an
+    explicitly authoritative inventory. Empty/late/warming candle reads cannot
+    clear previously uncovered cover. Triggered-unfilled orders remain unsafe
+    until their full snapshot proves terminal/fill/removal, not a price rebound.
     """
     ordered: dict[tuple[str, str], SupervisionFinding] = {}
+    evaluated: set[AlertCheck] = set()
     candle_cache: dict[tuple[str, str], tuple[Candle, ...]] = {}
-    for deployment in deployments:
+    listed = {str(item.id) for item in deployments}
+    if inventory_authoritative:
+        evaluated.update(
+            AlertCheck(row.code, row.subject)
+            for row in prior_alerts
+            if row.subject.split(":", 1)[0] not in listed and row.scope is AlertScope.DEPLOYMENT
+        )
+    for row in deployments:
+        read = await _snapshot_or_none(snapshots, row.id)
+        if read is None or read.snapshot.deployment.id != row.id:
+            continue
+        snapshot = read.snapshot
+        deployment = snapshot.deployment
+        if deployment.revision < row.revision:
+            continue
+        previous = tuple(
+            alert for alert in prior_alerts if alert.subject.split(":", 1)[0] == str(row.id)
+        )
         for finding in _row_findings(deployment):
             _keep(ordered, finding)
+        evaluated.update(AlertCheck(code, str(row.id)) for code in _ROW_CHECKS)
         _keep(ordered, _decision_deadline_finding(deployment, now=now, thresholds=thresholds))
         lease_state = _lease_state(
             deployment, now=now, worker_interval_seconds=worker_interval_seconds
@@ -149,19 +192,140 @@ async def gather_safety_findings(
             ),
         )
         _keep(ordered, _maintenance_deadline_finding(deployment, state=lease_state))
-        if deployment.phase is RuntimePhase.FLAT:
-            continue
-        snapshot = await _snapshot_or_none(snapshots, deployment.id)
-        if snapshot is None:
+        if not read.complete or (
+            deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+            and not snapshot_positions(snapshot)
+        ):
             continue
         triggered = await _trigger_consumed_orders(
             deployment, snapshot, closed_candles, candle_cache
         )
-        for finding in _protection_findings(deployment, snapshot, triggered):
+        sticky = _sticky_trigger_ids(deployment, snapshot, previous)
+        trigger_ids = frozenset(triggered) | sticky
+        for finding in _protection_findings(deployment, snapshot, trigger_ids):
             _keep(ordered, finding)
         for finding in _stop_trigger_findings(deployment, snapshot, triggered):
             _keep(ordered, finding)
-    return tuple(ordered.values())
+        evaluated.update(_snapshot_checks(deployment, snapshot, previous, candle_cache, now=now))
+    return SafetyEvidence(tuple(ordered.values()), tuple(evaluated))
+
+
+_ROW_CHECKS = (
+    AlertCode.BOOK_PAUSED_MISMATCH,
+    AlertCode.BREAKER_LATCHED,
+    AlertCode.DECISION_DEADLINE_MISSED,
+    AlertCode.WORKER_LEASE_STALE,
+    AlertCode.MAINTENANCE_DEADLINE_MISSED,
+)
+
+
+def _sticky_trigger_ids(
+    deployment: Deployment, snapshot: DeploymentSnapshot, previous: Sequence[OperatorAlert]
+) -> frozenset[UUID]:
+    """Keep previously observed trigger failures until orders leave the watch set."""
+    prior = {item.subject for item in previous if item.code is AlertCode.STOP_TRIGGERED_UNFILLED}
+    return frozenset(
+        order.id
+        for order in snapshot.orders
+        if order.status in _STOP_TRIGGER_WATCH_STATUSES
+        and order.filled_quantity < order.quantity
+        and f"{deployment.id}:{order.id}" in prior
+    )
+
+
+def _snapshot_checks(
+    deployment: Deployment,
+    snapshot: DeploymentSnapshot,
+    previous: Sequence[OperatorAlert],
+    candles: Mapping[tuple[str, str], tuple[Candle, ...]],
+    *,
+    now: datetime,
+) -> tuple[AlertCheck, ...]:
+    """Authorize exact clears from full inventory and fresh non-warming candle evidence."""
+    evaluated: list[AlertCheck] = []
+    positions = {
+        resolved_product_id(item.product_id, deployment) for item in snapshot_positions(snapshot)
+    }
+    products = (
+        positions
+        | {deployment.product_id}
+        | {item.product_id for item in snapshot.instrument_runtimes}
+        | {item.product_id for item in previous if item.product_id is not None}
+    )
+    for product in products:
+        uncertain = _cover_evidence_unknown(deployment, snapshot, product, candles, now=now)
+        evaluated.extend(
+            AlertCheck(code, f"{deployment.id}:{product}")
+            for code in (AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN)
+            if product not in positions or not uncertain
+        )
+    watched = {
+        f"{deployment.id}:{order.id}"
+        for order in snapshot.orders
+        if order.status in _STOP_TRIGGER_WATCH_STATUSES and order.filled_quantity < order.quantity
+    }
+    # A still-unfilled triggered stop cannot recover on price rebound or missing candles.
+    terminal_subjects = {f"{deployment.id}:{order.id}" for order in snapshot.orders} - watched
+    terminal_subjects.update(
+        item.subject
+        for item in previous
+        if item.code is AlertCode.STOP_TRIGGERED_UNFILLED and item.subject not in watched
+    )
+    evaluated.extend(
+        AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject) for subject in terminal_subjects
+    )
+    return tuple(evaluated)
+
+
+def _cover_evidence_unknown(
+    deployment: Deployment,
+    snapshot: DeploymentSnapshot,
+    product: str,
+    candles: Mapping[tuple[str, str], tuple[Candle, ...]],
+    *,
+    now: datetime,
+) -> bool:
+    """An active live stop needs fresh bar evidence before lost cover can clear."""
+    if deployment.mode is not DeploymentMode.LIVE:
+        return False
+    stops = tuple(
+        order
+        for order in snapshot.orders
+        if resolved_product_id(order.product_id, deployment) == product
+        and order.status in _STOP_TRIGGER_WATCH_STATUSES
+        and order.stop_trigger_price is not None
+    )
+    if not stops:
+        return False
+    if deployment.timeframe is None:
+        return True
+    available = candles.get((product, deployment.timeframe), ())
+    if not available or available[-1].starts_at < _due_closed_start(now, deployment.timeframe):
+        return True
+    duration = _duration_for(deployment.timeframe)
+    if any(right.starts_at - left.starts_at != duration for left, right in pairwise(available)):
+        return True
+    return any(
+        _creation_interval_unknown(order, available, deployment.timeframe) for order in stops
+    )
+
+
+def _creation_interval_unknown(order: Order, available: tuple[Candle, ...], timeframe: str) -> bool:
+    """A missing/crossed creation bar cannot prove a stop was never consumed after creation.
+
+    Crossing in a bar that began before creation is ambiguous, not a positive
+    trigger finding. Its full range can still prove a negative when never touched.
+    """
+    bucket = entry_bar_bucket(order.created_at, timeframe)
+    creation_bar = next((bar for bar in available if bar.starts_at == bucket), None)
+    trigger = order.stop_trigger_price
+    if creation_bar is None or trigger is None:
+        return True
+    return creation_bar.starts_at < order.created_at and (
+        creation_bar.low <= trigger
+        if order.side is OrderSide.SELL
+        else creation_bar.high >= trigger
+    )
 
 
 def _keep(
@@ -171,6 +335,23 @@ def _keep(
     if finding is None:
         return
     ordered.setdefault((finding.code.value, finding.subject), finding)
+
+
+def verified_worker_recovery(previous: Deployment, current: Deployment) -> bool:
+    """Only advancing the same snapshotted decision cursor proves a worker error recovered.
+
+    Generic non-raising passes include lease skips and cache warming. A persisted
+    supervision pause retains evidence until manual clearing and verified work.
+    """
+    old_cursor = previous.last_evaluated_bar
+    cursor = current.last_evaluated_bar
+    return (
+        cursor is not None
+        and (old_cursor is None or cursor > old_cursor)
+        and current.strategy_fingerprint == previous.strategy_fingerprint
+        and current.strategy_id == previous.strategy_id
+        and not (current.mismatch_detail or "").startswith(_SUPERVISION_PAUSE_PREFIX)
+    )
 
 
 def worker_book_failure_finding(deployment: Deployment, *, error_type: str) -> SupervisionFinding:
@@ -208,6 +389,18 @@ def _row_findings(deployment: Deployment) -> tuple[SupervisionFinding, ...]:
     mismatch = deployment.mismatch_detail or ""
     if mismatch:
         if mismatch.startswith(_SUPERVISION_PAUSE_PREFIX):
+            findings.append(
+                SupervisionFinding(
+                    code=AlertCode.WORKER_BOOK_FAILURES,
+                    scope=AlertScope.DEPLOYMENT,
+                    subject=str(deployment.id),
+                    severity=AlertSeverity.WARNING,
+                    detail="Entries remain paused after worker failures; manual review required.",
+                    deployment_id=deployment.id,
+                    product_id=deployment.product_id or None,
+                    count_occurrence=False,
+                )
+            )
             return tuple(findings)
         if mismatch.startswith(_PORTFOLIO_BREAKER_PREFIXES):
             findings.append(
@@ -259,7 +452,7 @@ def _breaker_detail(deployment: Deployment) -> str:
 def _protection_findings(
     deployment: Deployment,
     snapshot: DeploymentSnapshot,
-    triggered: Mapping[UUID, Decimal],
+    triggered: frozenset[UUID],
 ) -> tuple[SupervisionFinding, ...]:
     """Alert uncovered or unverifiable exit cover on occupied books.
 
@@ -322,7 +515,7 @@ def _cover_voided_by_triggered_stops(
     *,
     product_id: str,
     position: Position,
-    triggered: Mapping[UUID, Decimal],
+    triggered: frozenset[UUID],
 ) -> bool:
     """True when every resting closing-side stop on one product triggered unfilled.
 
@@ -381,7 +574,7 @@ async def _trigger_consumed_orders(
 ) -> dict[UUID, Decimal]:
     """Map each protective order whose stop trigger traded to the latest close.
 
-    A bar that closed before the order existed never consumes its trigger, and
+    A bar that began before the order existed never consumes its trigger, and
     unavailable candles consume nothing (no invented market data).
     """
     consumed: dict[UUID, Decimal] = {}
@@ -398,11 +591,14 @@ async def _trigger_consumed_orders(
         candles = await _candles_for(
             closed_candles, candle_cache, product_id, timeframe, deployment.created_at
         )
-        latest = candles[-1] if candles else None
-        if latest is None or latest.starts_at + _duration_for(timeframe) <= order.created_at:
-            continue
-        if latest.low <= trigger if order.side is OrderSide.SELL else latest.high >= trigger:
-            consumed[order.id] = latest.close
+        crossed = tuple(
+            candle
+            for candle in candles
+            if candle.starts_at >= order.created_at
+            and (candle.low <= trigger if order.side is OrderSide.SELL else candle.high >= trigger)
+        )
+        if crossed:
+            consumed[order.id] = crossed[-1].close
     return consumed
 
 
@@ -435,7 +631,7 @@ def _stop_trigger_findings(
                 severity=severity,
                 detail=(
                     f"Protective {order.side.value} stop on {product_id} triggered on the "
-                    f"latest closed {timeframe} bar (trigger {trigger}, last close "
+                    f"observed closed {timeframe} bar (trigger {trigger}, bar close "
                     f"{latest_close}, filled {order.filled_quantity} of {order.quantity}) but "
                     "remains unfilled. Supervision does not escalate to market orders; "
                     "operator review required."
@@ -527,6 +723,8 @@ def _lease_state(deployment: Deployment, *, now: datetime, worker_interval_secon
         if now < deployment.created_at + margin:
             return "too_young"
         return "unknown"
+    if expires_at > now + timedelta(seconds=WORKER_LEASE_TTL_SECONDS) + margin:
+        return "unknown"
     if now > expires_at + margin:
         return "stale"
     return "fresh"
@@ -548,7 +746,14 @@ def _lease_stale_finding(
         return None
     margin = _lease_margin(worker_interval_seconds)
     expires_at = deployment.worker_lease_expires_at
-    if state == "unknown" or expires_at is None:
+    if state == "unknown" and expires_at is not None:
+        detail = (
+            f"Worker lease expiry {expires_at.isoformat()} for {deployment.mode.value} book "
+            f"on {deployment.product_id} is implausibly far in the future for its configured "
+            "TTL and poll margin; lease age is unknown and clock skew cannot be excluded. "
+            "This is not proof of process death or per-book safety."
+        )
+    elif expires_at is None:
         detail = (
             f"Running {deployment.mode.value} book on {deployment.product_id} has no "
             f"worker lease (age unknown; grace {int(margin.total_seconds())}s since "
@@ -580,10 +785,10 @@ def _maintenance_deadline_finding(
 ) -> SupervisionFinding | None:
     """Alert when an occupied book has no evidenced protection maintenance.
 
-    Maintenance is the leased reconcile/protection pass, not a successful signal
-    evaluation. A fresh lease means that pass is current even if the decision
-    cursor is waiting on a settling bar. A stale or unknown lease on an open
-    book means stop maintenance may have missed its deadline.
+    This is a lease-timing check, not successful-maintenance telemetry. A fresh
+    lease alone cannot prove reconciliation or cover; those use separate checks.
+    A stale or unknown lease on an occupied book means stop maintenance may have
+    missed its deadline, regardless of process liveness or candle availability.
     """
     if deployment.phase is RuntimePhase.FLAT or state not in {"stale", "unknown"}:
         return None
@@ -612,10 +817,11 @@ def _maintenance_deadline_finding(
 
 async def _snapshot_or_none(
     snapshots: DeploymentSnapshotReader, deployment_id: UUID
-) -> DeploymentSnapshot | None:
-    """Read one snapshot, logging and yielding nothing on failure."""
+) -> SnapshotEvidence | None:
+    """Read explicit completeness, or accept the full ExecutionStore snapshot contract."""
     try:
-        return await snapshots.get_deployment(deployment_id)
+        read = await snapshots.get_deployment(deployment_id)
+        return read if isinstance(read, SnapshotEvidence) else SnapshotEvidence(read, complete=True)
     except Exception as error:  # noqa: BLE001 - best-effort supervision evidence only.
         _logger.warning(
             "alert_snapshot_unavailable deployment_id=%s type=%s",

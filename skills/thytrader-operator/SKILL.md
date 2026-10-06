@@ -479,6 +479,25 @@ unchanged and may lack this trace. The runtime decision timeline displays the tr
 Read-only campaign/economic tools and bounded exports live in the research skill;
 operator observation grants no research mutation or runtime/order authority.
 
+## Safety alert recovery and delivery (ADR 0115)
+
+`uv run thytrader-operator alerts` is read-only. Missing/partial snapshot or candle evidence,
+cache warming, a failed inventory read, or a subset inventory never proves an alert
+recovered. Verified checks recover independently; a triggered-unfilled stop stays unsafe
+until durable order/fill/removal evidence clears it, not merely a price rebound.
+Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
+reset them. A supervision entry pause is lease/revision fenced and never auto-resumed;
+reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
+not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown
+age/possible clock skew, not verified freshness. Counts and health use all open alerts,
+even when the displayed feed is bounded; consult partial-result warnings for truncation.
+
+Notification dispatch is separate from safety cycles. `notify_provider=none` leaves the
+durable local feed and explicit warning intact. Attempts are durably claimed, bounded,
+and retried with stable alert IDs; a webhook receiver must dedupe that ID to prevent duplicate
+processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
+external delivery is not guaranteed. Delivery errors never reveal the configured destination.
+
 ## Backtest fee attribution
 
 `uv run thytrader-operator performance --result-fingerprint sha256:…` includes

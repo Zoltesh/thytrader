@@ -85,7 +85,13 @@ async def build_alerts_report(store: AlertStore | None, settings: Settings) -> A
     delivery_enabled = settings.notify_provider is not NotifyProvider.NONE
     warning = None if delivery_enabled else _DELIVERY_DISABLED
     rows, storage = await _rows(store)
-    open_rows = tuple(row for row in rows if row.is_open)
+    open_rows = tuple(
+        sorted(
+            (row for row in rows if row.is_open),
+            key=lambda row: (row.severity.value == "critical", row.last_seen_at),
+            reverse=True,
+        )
+    )
     resolved = tuple(row for row in rows if not row.is_open)[:_RESOLVED_PAGE]
     max_attempts = settings.alert_delivery_max_attempts
     open_critical = sum(1 for row in open_rows if row.severity.value == "critical")
@@ -102,6 +108,10 @@ async def build_alerts_report(store: AlertStore | None, settings: Settings) -> A
         warnings.append(warning)
     if storage == "unavailable":
         warnings.append("Alert storage is unavailable; the feed cannot be read.")
+    if len(open_rows) > ALERT_REPORT_ROW_LIMIT:
+        warnings.append(
+            "Open alert display is bounded; totals/status use the complete open inventory."
+        )
     return AlertsReport(
         application_version=__version__,
         generated_at=now,
@@ -114,7 +124,9 @@ async def build_alerts_report(store: AlertStore | None, settings: Settings) -> A
             storage=storage,
             delivery_enabled=delivery_enabled,
             delivery_warning=warning,
-            open_alerts=tuple(_item(row, max_attempts=max_attempts) for row in open_rows),
+            open_alerts=tuple(
+                _item(row, max_attempts=max_attempts) for row in open_rows[:ALERT_REPORT_ROW_LIMIT]
+            ),
             resolved_alerts=tuple(_item(row, max_attempts=max_attempts) for row in resolved),
             open_total=len(open_rows),
             open_critical=open_critical,
@@ -130,7 +142,9 @@ async def _rows(
     if store is None or isinstance(store, DisabledAlertStore):
         return (), "unavailable"
     try:
-        return await store.list_alerts(limit=ALERT_REPORT_ROW_LIMIT), "available"
+        open_rows = await store.list_open_alerts()
+        recent = await store.list_alerts(limit=ALERT_REPORT_ROW_LIMIT)
+        return (*open_rows, *(row for row in recent if not row.is_open)), "available"
     except Exception:  # noqa: BLE001 - a read failure is an unavailable feed, not an empty one.
         return (), "unavailable"
 

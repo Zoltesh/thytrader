@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -64,3 +64,33 @@ def test_alerts_route_reports_unavailable_storage_without_inventing_rows() -> No
     payload = response.json()["payload"]
     assert payload["storage"] == "unavailable"
     assert payload["open_alerts"] == []
+
+
+def test_bounded_alert_display_cannot_hide_a_critical_health_result() -> None:
+    """Counts/status use full inventory even when the UI feed page is bounded."""
+    store = InMemoryAlertStore()
+
+    async def seed() -> None:
+        """Place the oldest critical row behind more than one report page of warnings."""
+        for index in range(201):
+            await store.record(
+                SupervisionFinding(
+                    code=AlertCode.STOP_UNCOVERED,
+                    scope=AlertScope.DEPLOYMENT,
+                    subject=str(uuid4()),
+                    severity=AlertSeverity.CRITICAL if index == 0 else AlertSeverity.WARNING,
+                    detail="bounded feed test",
+                ),
+                now=datetime(2026, 3, 2, tzinfo=UTC) + timedelta(seconds=index),
+            )
+
+    asyncio.run(seed())
+    app = create_app(settings=Settings(_env_file=None), alert_store=store)
+    with TestClient(app) as client:
+        report = client.get("/api/v1/operator/alerts").json()
+    assert report["payload"]["open_total"] == 201
+    assert report["payload"]["open_critical"] == 1
+    assert len(report["payload"]["open_alerts"]) == 200
+    assert report["payload"]["open_alerts"][0]["severity"] == "critical"
+    assert report["overall_status"] == "failed"
+    assert any("bounded" in warning for warning in report["partial_result_warnings"])

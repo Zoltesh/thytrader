@@ -16,8 +16,17 @@ that works when `notify_provider=none`.
 
 The execution worker records durable, deduplicated operator alerts after each cycle, including
 when signal evaluation raises. One open row exists per `(code, subject)`. Repeat cycles
-increment `occurrences` instead of inserting another row. When the condition clears, the row
-is resolved; a later recurrence opens a new row.
+increment `occurrences` instead of inserting another row. A check resolves only when a
+complete observation of that exact `(code, subject)` proves the condition absent. Unknown
+or explicitly partial snapshots, inconsistent occupied/empty inventory,
+unavailable/settling/warming candles, failed reads, and subset inventories do
+not prove recovery. Verified checks can recover independently of unknown checks. Explicit
+complete deployment inventory can prove intentional removal; alert history survives deletion.
+
+Each check has a persistent observation watermark (`operator_alert_checks`). Recording
+findings and explicit clears is one transaction. Older/replayed observations cannot clear
+newer failures or reopen after a newer recovery; a failure wins an equal-timestamp tie.
+Timestamps identify the beginning of the evidence pass, not its late completion.
 
 Alert codes:
 
@@ -34,25 +43,45 @@ Alert codes:
 - `DECISION_DEADLINE_MISSED` only for a running book, on that book's clock, after ADR 0104's
   120-second settling grace. A 6h or daily boundary inside the grace is not stale.
 - `MAINTENANCE_DEADLINE_MISSED` when an occupied book's worker lease is stale or unknown.
-  A fresh lease means reconcile and protection ran, even if the decision cursor is waiting.
+  This is a lease-timing check, not proof of successful venue reconciliation: even a fresh
+  lease alone cannot certify protection or per-book safety.
 - `WORKER_LEASE_STALE` when a running book's lease is expired or its age is unknown. Unknown
-  is not process death and is not per-book safety. Clock skew stays in the detail.
-- `WORKER_BOOK_FAILURES` counts consecutive raised cycles. At the configured threshold
-  (default 3) new entries pause with reason `WORKER_CONSECUTIVE_FAILURES`. Exits,
-  reconciliation, and later cycles continue. User pauses, existing mismatches, and breaker
-  latches are not overwritten and are never auto-resumed.
+  is not process death and is not per-book safety. Implausibly future expiries are unknown,
+  not verified freshness. Clock skew stays in the detail.
+- `WORKER_BOOK_FAILURES` counts observed raised cycles since the last verified successful
+  decision. Unknown/no-decision/warming/lease-skipped cycles do not fabricate recovery or
+  reset persisted counters. At the configured threshold (default 3), new entries pause
+  with reason `WORKER_CONSECUTIVE_FAILURES` and command `STOP_NEW_ENTRIES`. The pause
+  acquires the worker lease, re-reads eligibility/revision/strategy, and writes through
+  `RevisionFencedStore`; any conflicting stop/pause/delete/revision loses the write safely.
+  A threshold persisted before a crash is retried on restart even without a new error.
+  Observing the persisted pause keeps its alert open without incrementing the error count.
+  Exits, reconciliation, and later cycles continue. User pauses, unrelated mismatches, and
+  breaker latches are never overwritten or auto-resumed.
 
 `GET /api/v1/operator/alerts` and `thytrader-operator alerts` read the feed. The UI is
-`/alerts`. With `notify_provider=none` the feed still records rows and the report sets
+`/alerts`. Counts and overall status use the full open inventory; the bounded display
+prioritizes critical rows and reports truncation. With `notify_provider=none` the feed still records rows and the report sets
 `delivery_warning`. A configured log or webhook sender is used as-is; no webhook URL is
-invented or returned. Failed deliveries retry only while the alert is open and under
-`alert_delivery_max_attempts` (default 5).
+invented or returned. Dispatch runs in a separate worker task, never inline with safety
+processing. Each attempt is claimed durably before sending (60s expiry; 15s send timeout),
+consuming one slot under `alert_delivery_max_attempts` (default 5). Concurrent dispatchers
+cannot send the same active claim, and stale acknowledgements cannot overwrite newer
+claims. Disabling persists `skipped` without consuming attempts; enabling can deliver an
+existing skipped alert. Provider callbacks/result details cannot leak destinations or secrets.
+
+An ambiguous send/ack crash can cause duplicate webhook delivery. Bounded retry can
+also exhaust without delivery, so neither exactly-once nor eventual external receipt is
+guaranteed. `NotificationRecord.id` is the stable alert id on every retry; receivers must
+idempotently dedupe it. Successful acknowledgements are not redelivered. Delivery
+bookkeeping never changes safety observation timestamps.
 
 Thresholds are optional settings with explicit defaults:
 `alert_consecutive_failure_cycles` (3), `alert_decision_missed_bars` (2),
 `alert_delivery_max_attempts` (5).
 
-Alembic `0066` adds `operator_alerts`. This checkout's parent is `0064` because `0065` is
+Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
+`operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is
 not present. Expected schema revision is `0066`.
 
 ## Consequences

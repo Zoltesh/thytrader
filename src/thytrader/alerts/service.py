@@ -14,11 +14,14 @@ The service owns three rules the supervisor relies on:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from contextlib import suppress
+from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL, AlertChange
+from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL
+from thytrader.execution.ids import utc_now
 from thytrader.memory.models import (
     ActorOrigin,
     DeliveryStatus,
@@ -32,8 +35,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    from thytrader.alerts.models import OperatorAlert, SupervisionFinding
-    from thytrader.alerts.store import AlertStore
+    from thytrader.alerts.models import AlertCheck, OperatorAlert, SupervisionFinding
+    from thytrader.alerts.store import AlertApplication, AlertStore
     from thytrader.alerts.supervision import AlertThresholds
 
 _logger = logging.getLogger(__name__)
@@ -61,14 +64,6 @@ class AlertDeliverySender(Protocol):
         ...
 
 
-@dataclass(frozen=True, slots=True)
-class AlertApplication:
-    """What one ``apply`` pass recorded, resolved, and tried to deliver."""
-
-    changes: tuple[AlertChange, ...]
-    resolved_count: int
-
-
 class AlertService:
     """Apply supervision findings to a durable alert store with delivery."""
 
@@ -89,67 +84,92 @@ class AlertService:
         """The supervision thresholds this service was bound with."""
         return self._thresholds
 
-    async def apply(
-        self, findings: Sequence[SupervisionFinding], *, now: datetime
-    ) -> AlertApplication:
-        """Record findings, resolve recovered alerts, then dispatch deliveries.
+    async def open_alerts(self) -> tuple[OperatorAlert, ...]:
+        """Read complete prior evidence; a failed read must never certify recovery."""
+        return await self._store.list_open_alerts()
 
-        Findings are deduplicated by ``(code, subject)`` before touching the
-        store so one cycle can never double-record the same issue.
+    async def apply(
+        self,
+        findings: Sequence[SupervisionFinding],
+        *,
+        now: datetime,
+        evaluated: Sequence[AlertCheck] = (),
+        dispatch: bool = True,
+    ) -> AlertApplication:
+        """Atomically accept findings and resolve only proven re-evaluated checks.
+
+        An empty/partial pass means unknown by default. Strictly newer durable
+        check watermarks reject stale/replayed passes across service restarts.
         """
         ordered: dict[tuple[str, str], SupervisionFinding] = {}
         for finding in findings:
             ordered.setdefault((finding.code.value, finding.subject), finding)
-        changes = [await self._store.record(finding, now=now) for finding in ordered.values()]
-        resolved = await self._store.resolve_absent(
-            tuple((finding.code, finding.subject) for finding in ordered.values()),
-            now=now,
-            detail=_RECOVERY_DETAIL,
+        application = await self._store.apply_observations(
+            tuple(ordered.values()), evaluated, now=now, detail=_RECOVERY_DETAIL
         )
-        for change in changes:
-            if _needs_delivery(change.alert, self._thresholds.delivery_max_attempts):
-                await self.deliver(change.alert, now=now)
-        return AlertApplication(changes=tuple(changes), resolved_count=resolved)
+        # The execution safety loop uses dispatch=False; a separate task handles I/O.
+        if dispatch:
+            await self.dispatch_pending(now=now)
+        return application
+
+    async def dispatch_pending(self, *, now: datetime) -> None:
+        """Retry open alerts independently of market evidence and signal evaluation."""
+        for alert in await self._store.list_open_alerts():
+            await self.deliver(alert, now=now)
+
+    async def run_deliveries(self, stop_requested: asyncio.Event) -> None:
+        """Poll delivery in its own worker task; provider faults never delay safety cycles."""
+        while not stop_requested.is_set():
+            try:
+                await self.dispatch_pending(now=utc_now())
+            except Exception:  # noqa: BLE001 - optional delivery task cannot kill execution.
+                _logger.warning("alert_dispatch_unavailable")
+            with suppress(TimeoutError):
+                await asyncio.wait_for(stop_requested.wait(), timeout=30)
 
     async def deliver(self, alert: OperatorAlert, *, now: datetime) -> None:
-        """Attempt one delivery and persist the outcome; never raises."""
-        provider = self._sender.provider()
-        record = _notification_record(alert, now=now, provider=provider)
+        """CAS-claim before sending; never persist provider-controlled error text.
+
+        Stable alert IDs let a webhook recipient dedupe a retry after an ambiguous
+        send/ack crash. Exactly-once delivery requires that recipient cooperation.
+        Cancellation leaves the durable claim to expire and consumes one attempt.
+        """
         try:
-            result = await self._sender.deliver(record)
-        except Exception as error:  # noqa: BLE001 - delivery must not fail the cycle.
-            _logger.warning(
-                "alert_delivery_error code=%s type=%s", alert.code.value, type(error).__name__
-            )
-            result = DeliveryResult(
-                status=DeliveryStatus.FAILED, detail=f"sender error {type(error).__name__}"
-            )
-        detail = result.detail or ""
-        if result.status is DeliveryStatus.SKIPPED:
-            detail = DELIVERY_DISABLED_DETAIL
-        try:
-            await self._store.record_delivery(
+            provider = self._sender.provider()
+            if not isinstance(provider, NotifyProvider):
+                _logger.warning("alert_provider_invalid")
+                return
+            claim = await self._store.claim_delivery(
                 alert.id,
                 provider=provider.value,
-                status=result.status.value,
-                detail=detail,
-                attempted_at=now,
+                now=now,
+                max_attempts=self._thresholds.delivery_max_attempts,
+                ttl=timedelta(seconds=60),
             )
-        except Exception as error:  # noqa: BLE001 - bookkeeping must not fail the cycle.
-            _logger.warning(
-                "alert_delivery_bookkeeping_failed code=%s type=%s",
-                alert.code.value,
-                type(error).__name__,
+            if claim is None:
+                return
+            record = _notification_record(claim.alert, now=now, provider=provider)
+            try:
+                result = await asyncio.wait_for(self._sender.deliver(record), timeout=15)
+            except Exception:  # noqa: BLE001 - provider errors never escape or leak text.
+                result = DeliveryResult(status=DeliveryStatus.FAILED)
+            status = (
+                result.status
+                if isinstance(result.status, DeliveryStatus)
+                else DeliveryStatus.FAILED
             )
-
-
-def _needs_delivery(alert: OperatorAlert, max_attempts: int) -> bool:
-    """True when an open alert still owes a first delivery or a bounded retry."""
-    if not alert.is_open:
-        return False
-    if alert.delivery_status == "pending":
-        return True
-    return alert.delivery_status == "failed" and alert.delivery_attempts < max_attempts
+            await self._store.finish_delivery(
+                alert.id,
+                claim.token,
+                status=status.value,
+                detail=(
+                    DELIVERY_DISABLED_DETAIL
+                    if status is DeliveryStatus.SKIPPED
+                    else f"notification outcome: {status.value}"
+                ),
+            )
+        except Exception:  # noqa: BLE001 - storage/provider callbacks cannot fail supervision.
+            _logger.warning("alert_delivery_unavailable code=%s", alert.code.value)
 
 
 def _notification_record(
@@ -162,6 +182,7 @@ def _notification_record(
         f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences}"
     )[:_BODY_BOUND]
     return NotificationRecord(
+        id=alert.id,
         occurred_at=now,
         origin=ActorOrigin.SYSTEM,
         title=title,

@@ -119,7 +119,7 @@ async def _findings(
         thresholds=_THRESHOLDS,
         worker_interval_seconds=30,
     )
-    return {item.code for item in found}
+    return {item.code for item in found.findings}
 
 
 async def _no_candles(
@@ -191,9 +191,11 @@ async def test_live_uncovered_stop_and_triggered_unfilled_do_not_escalate() -> N
         thresholds=_THRESHOLDS,
         worker_interval_seconds=30,
     )
-    codes = {item.code for item in found}
+    codes = {item.code for item in found.findings}
     assert AlertCode.STOP_UNCOVERED in codes
-    triggered_alert = next(item for item in found if item.code is AlertCode.STOP_TRIGGERED_UNFILLED)
+    triggered_alert = next(
+        item for item in found.findings if item.code is AlertCode.STOP_TRIGGERED_UNFILLED
+    )
     assert "does not escalate" in triggered_alert.detail
     assert "94" not in triggered_alert.detail or "95" in triggered_alert.detail
 
@@ -215,7 +217,7 @@ async def test_six_hour_book_inside_settling_grace_is_not_stale() -> None:
         thresholds=_THRESHOLDS,
         worker_interval_seconds=30,
     )
-    assert AlertCode.DECISION_DEADLINE_MISSED not in {item.code for item in found}
+    assert AlertCode.DECISION_DEADLINE_MISSED not in {item.code for item in found.findings}
     assert SETTLING_GRACE_SECONDS == 120
 
 
@@ -268,15 +270,15 @@ async def test_unknown_lease_is_visible_and_not_treated_as_process_death() -> No
         thresholds=_THRESHOLDS,
         worker_interval_seconds=30,
     )
-    lease = next(item for item in found if item.code is AlertCode.WORKER_LEASE_STALE)
+    lease = next(item for item in found.findings if item.code is AlertCode.WORKER_LEASE_STALE)
     assert "unknown" in lease.detail.lower()
     assert "not proof the worker" in lease.detail
-    assert AlertCode.MAINTENANCE_DEADLINE_MISSED in {item.code for item in found}
+    assert AlertCode.MAINTENANCE_DEADLINE_MISSED in {item.code for item in found.findings}
 
 
 @pytest.mark.anyio
 async def test_fresh_lease_on_an_open_book_is_not_a_missed_maintenance_deadline() -> None:
-    """A current lease means protection maintenance is evidenced for an open book."""
+    """A fresh lease does not trigger the lease-timing deadline alert."""
     deployment = _deployment(
         phase=RuntimePhase.OPEN, worker_lease_expires_at=_NOW + timedelta(seconds=10)
     )
@@ -290,3 +292,20 @@ async def test_fresh_lease_on_an_open_book_is_not_a_missed_maintenance_deadline(
     )
     assert AlertCode.MAINTENANCE_DEADLINE_MISSED not in codes
     assert AlertCode.WORKER_LEASE_STALE not in codes
+
+
+@pytest.mark.anyio
+async def test_implausibly_future_lease_is_unknown_not_verified_freshness() -> None:
+    """Clock skew cannot make a many-hours-future lease certify book safety."""
+    deployment = _deployment(worker_lease_expires_at=_NOW + timedelta(hours=6))
+    evidence = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(DeploymentSnapshot(deployment=deployment)),
+        closed_candles=_no_candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+    )
+    lease = next(row for row in evidence.findings if row.code is AlertCode.WORKER_LEASE_STALE)
+    assert "lease age is unknown" in lease.detail
+    assert "clock skew" in lease.detail

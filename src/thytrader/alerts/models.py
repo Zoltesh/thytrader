@@ -31,10 +31,10 @@ class AlertScope(StrEnum):
 class AlertCode(StrEnum):
     """Stable reason codes for durable safety alerts.
 
-    ``WORKER_BOOK_FAILURES`` occurrences count consecutive failed supervision
-    cycles for one book: a successful cycle resolves the open alert, and the next
-    failure starts a fresh alert at one occurrence. The worker pauses a book's
-    entries only when that consecutive count reaches the configured threshold.
+    ``WORKER_BOOK_FAILURES`` counts observed failed cycles since a verified
+    successful decision, not since an ambiguous no-op or lease skip. Counts
+    survive restart; observing the persisted entry-pause latch keeps evidence
+    open without fabricating another raised error.
     """
 
     BOOK_PAUSED_MISMATCH = "BOOK_PAUSED_MISMATCH"
@@ -72,6 +72,7 @@ class SupervisionFinding:
     detail: str
     deployment_id: UUID | None = None
     product_id: str | None = None
+    count_occurrence: bool = True
 
     @property
     def identity(self) -> tuple[AlertCode, str]:
@@ -83,8 +84,9 @@ class SupervisionFinding:
 class OperatorAlert:
     """One durable alert row with dedupe, recovery, and delivery state.
 
-    ``occurrences`` counts how many consecutive supervision cycles re-observed
-    this issue while the alert stayed open. ``resolved_at`` is set exactly once
+    ``occurrences`` counts accepted newer positive observations while open.
+    Unknown passes preserve it, and persisted pause observations do not increment
+    the worker error count. ``resolved_at`` is set exactly once
     when the condition clears; a later recurrence opens a new row so recovery
     history stays append-oriented.
     """
@@ -106,11 +108,33 @@ class OperatorAlert:
     delivery_status: str = _DELIVERY_PENDING
     delivery_attempts: int = 0
     delivery_detail: str = ""
+    delivery_token: UUID | None = None
+    delivery_expires_at: datetime | None = None
 
     @property
     def is_open(self) -> bool:
         """True while the condition has not been observed cleared."""
         return self.resolved_at is None
+
+
+@dataclass(frozen=True, slots=True)
+class AlertCheck:
+    """An exact condition identity that was re-evaluated with complete evidence."""
+
+    code: AlertCode
+    subject: str
+
+
+@dataclass(frozen=True, slots=True)
+class SafetyEvidence:
+    """Positive findings and checks whose absence can truthfully prove recovery.
+
+    Missing checks mean unknown, not healthy. Inventory removal is a recovery
+    only when the caller explicitly supplies an authoritative complete inventory.
+    """
+
+    findings: tuple[SupervisionFinding, ...] = ()
+    evaluated: tuple[AlertCheck, ...] = ()
 
 
 def clip_alert_text(text: str, *, limit: int = 500) -> str:

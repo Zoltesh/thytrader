@@ -314,8 +314,19 @@ sequential REST reads, not an atomic snapshot. No account identifiers or secrets
 and `payload.resolved_alerts` are durable rows (`code`, `severity`, `subject`, `detail`,
 `occurrences`, `delivery.status`). `delivery_warning` is set when `notify_provider=none`:
 the local feed still works and no webhook destination is invented. Open critical alerts
-make `overall_status` `failed`. This report never places, cancels, or escalates orders.
+make `overall_status` `failed`. Counts/status use the full open inventory; the bounded display
+prioritizes critical rows and reports truncation in `partial_result_warnings`.
+This report never places, cancels, or escalates orders.
 A `STOP_TRIGGERED_UNFILLED` row means a protective stop traded through and remained
 unfilled; supervision does not submit a market order. When every resting closing-side stop
 of an occupied live book is triggered-unfilled, the book also reports `STOP_UNCOVERED`:
-the resting orders no longer evidence cover.
+the resting orders no longer evidence cover. Unknown evidence never resolves an alert;
+only that check's verified absence (or authoritative deployment removal) does. Partial
+snapshots/inventories and cold/warming caches are not recovery. Implausibly future lease
+expiries indicate unknown age/possible clock skew, not verified freshness. Worker error counts persist across
+restart; observing a held supervision pause does not fabricate additional errors.
+
+Delivery timestamps never refresh safety evidence. Notification attempts use durable claims
+and stable alert IDs; recipients must dedupe those IDs to prevent duplicate handling across
+ambiguous send/ack crashes. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
+while the durable alert stays locally readable.
