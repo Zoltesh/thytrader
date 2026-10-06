@@ -6,22 +6,25 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.ledger import effective_paper_fee_rates
 from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     OrderSide,
+    OrderStatus,
     PositionSide,
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.market_data.products import base_currency, is_spot_product_id
+from thytrader.market_data.products import base_currency, is_spot_product_id, quote_currency
 from thytrader.risk.breakers import (
     EntryObservation,
     evaluate_circuit_breakers,
     evaluate_rate_and_collar,
+    quote_scoped_snapshots,
 )
 from thytrader.risk.exposure import (
     product_exposure,
@@ -129,7 +132,9 @@ def evaluate_new_deployment(
             "Occupied deployments already use every running slot for this mode.",
         )
     if mode is DeploymentMode.PAPER:
-        return _paper_deploy_capital(policy, occupied, strategy_id, paper_starting_cash)
+        return _paper_deploy_capital(
+            policy, occupied, strategy_id, paper_starting_cash, product_id=product_id
+        )
     return _allow()
 
 
@@ -155,6 +160,9 @@ def evaluate_new_entry(
         if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
     risk_bearing = risk_bearing_snapshots(snapshots, mode)
+    quote_books, incomplete = quote_scoped_snapshots(risk_bearing, proposed.product_id)
+    if incomplete is not None:
+        return incomplete
     membership = _entry_membership(
         policy,
         mode=mode,
@@ -165,14 +173,23 @@ def evaluate_new_entry(
     if membership.decision is RiskDecision.DENY:
         return membership
     if portfolio is not None:
-        limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=risk_bearing)
+        if any(
+            item.deployment.portfolio_id == portfolio.portfolio_id
+            for item in risk_bearing
+            if item not in quote_books
+        ):
+            return _deny(
+                RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
+                "Portfolio exposure cannot combine different quote currencies.",
+            )
+        limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=quote_books)
         if limited.decision is RiskDecision.DENY:
             return limited
     bounded = _order_bound_verdict(
         policy,
         mode=mode,
         proposed=proposed,
-        occupied=risk_bearing,
+        occupied=quote_books,
         live_quote_cash=live_quote_cash,
     )
     if bounded is not None:
@@ -181,7 +198,7 @@ def evaluate_new_entry(
         policy,
         mode=mode,
         proposed=proposed,
-        occupied=risk_bearing,
+        occupied=quote_books,
         live_quote_cash=live_quote_cash,
     )
     if exposure.decision is RiskDecision.DENY:
@@ -191,6 +208,7 @@ def evaluate_new_entry(
         mode=mode,
         proposed=proposed,
         risk_bearing=risk_bearing,
+        quote_books=quote_books,
         snapshots=snapshots,
         live_quote_cash=live_quote_cash,
         observation=observation,
@@ -211,7 +229,11 @@ def evaluate_runtime_breakers(
     Capital stays on risk-bearing books. Loss evidence includes stopped flat rows present
     in ``snapshots``; this function does not drop them before the breaker.
     """
-    occupied = risk_bearing_snapshots(snapshots, mode)
+    occupied, incomplete = quote_scoped_snapshots(
+        risk_bearing_snapshots(snapshots, mode), snapshot.deployment.product_id
+    )
+    if incomplete is not None:
+        return incomplete
     capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
     tripped = evaluate_circuit_breakers(
         policy,
@@ -345,6 +367,16 @@ def _order_bound_verdict(
     quantity = _quantity_bound(policy, proposed)
     if quantity is not None:
         return quantity
+    monetary_bound = (
+        policy.max_order_notional_quote is not None
+        or policy.min_available_quote_reserve is not None
+    )
+    if monetary_bound and quote_currency(proposed.product_id) != policy.quote_currency:
+        return _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            "Optional quote bounds cannot be applied to a different quote currency: "
+            f"policy={policy.quote_currency}, product={proposed.product_id}.",
+        )
     notional = _notional_bound(policy, proposed)
     if notional is not None:
         return notional
@@ -394,7 +426,11 @@ def _reserve_bound(
     occupied: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None,
 ) -> RiskVerdict | None:
-    """Keep an optional quote reserve after the entry. Unset means no extra holdback."""
+    """Keep optional notional headroom, not a guaranteed post-fill venue balance.
+
+    Live fees/slippage are unknown here and are not invented. Paper fees use the
+    deployment's published schedule. Unknown venue holds fail closed.
+    """
     reserve = policy.min_available_quote_reserve
     if reserve is None:
         return None
@@ -410,7 +446,8 @@ def _reserve_bound(
     if available < required:
         return _deny(
             RiskReasonCode.BALANCE_RESERVE,
-            f"Entry would leave {available} quote, below the reserve of {required}.",
+            f"Entry notional headroom {available} is below the reserve of {required}; "
+            "live fees and slippage are not included.",
         )
     return None
 
@@ -423,13 +460,56 @@ def _available_after_entry(
     occupied: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None,
 ) -> Decimal | None:
-    """Quote left after this entry. Live uses venue available; paper uses the book."""
+    """Quote-scoped admission headroom; never subtract confirmed venue holds twice."""
     if mode is DeploymentMode.LIVE:
-        if live_quote_cash is None:
+        if live_quote_cash is None or live_quote_cash < 0:
             return None
-        return live_quote_cash - proposed.notional
-    used = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    return Decimal(policy.paper_capital_quote) - used - proposed.notional
+        reserved = _local_unheld_buy_quote(occupied)
+        if reserved is None:
+            return None
+        return live_quote_cash - reserved - proposed.notional
+    cash_change = Decimal("0")
+    pending = Decimal("0")
+    fee_rate = Decimal("0")
+    for item in occupied:
+        opening = item.deployment.initial_equity
+        if opening is None:
+            opening = item.deployment.paper_starting_cash
+        if opening is None:
+            return None
+        cash_change += item.deployment.cash - opening
+        buys = replace(item, orders=tuple(o for o in item.orders if o.side is OrderSide.BUY))
+        pending += sum(
+            (working_entry_notional(buys, product) for product in _book_products(buys)),
+            Decimal("0"),
+        )
+        _, taker = effective_paper_fee_rates(
+            item.deployment.paper_maker_fee_rate, item.deployment.paper_taker_fee_rate
+        )
+        fee_rate = max(fee_rate, taker)
+    if not occupied:
+        _, fee_rate = effective_paper_fee_rates(None, None)
+    return (
+        Decimal(policy.paper_capital_quote)
+        + cash_change
+        - pending * (1 + fee_rate)
+        - proposed.notional * (1 + fee_rate)
+    )
+
+
+def _local_unheld_buy_quote(books: Sequence[DeploymentSnapshot]) -> Decimal | None:
+    """Local buy remainders without venue holds; ambiguous submissions make holds unknown."""
+    reserved = Decimal("0")
+    for item in books:
+        buys = replace(item, orders=tuple(o for o in item.orders if o.side is OrderSide.BUY))
+        if any(o.status in {OrderStatus.PENDING, OrderStatus.UNKNOWN} for o in buys.orders):
+            return None
+        unheld = replace(buys, orders=tuple(o for o in buys.orders if o.venue_order_id is None))
+        reserved += sum(
+            (working_entry_notional(unheld, product) for product in _book_products(unheld)),
+            Decimal("0"),
+        )
+    return reserved
 
 
 def _entry_membership(
@@ -470,6 +550,7 @@ def _entry_breaker_verdict(
     mode: DeploymentMode,
     proposed: ProposedEntry,
     risk_bearing: Sequence[DeploymentSnapshot],
+    quote_books: Sequence[DeploymentSnapshot],
     snapshots: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None,
     observation: EntryObservation | None,
@@ -482,7 +563,7 @@ def _entry_breaker_verdict(
     if observation is None:
         return _allow()
     capital = _capital_base(
-        policy, mode=mode, live_quote_cash=live_quote_cash, occupied=risk_bearing
+        policy, mode=mode, live_quote_cash=live_quote_cash, occupied=quote_books
     )
     tripped = evaluate_circuit_breakers(
         policy,
@@ -523,8 +604,19 @@ def _paper_deploy_capital(
     occupied: tuple[Deployment, ...],
     strategy_id: UUID | None,
     paper_starting_cash: Decimal | None,
+    *,
+    product_id: str,
 ) -> RiskVerdict:
-    """Cap paper starting cash against the book and an optional per-strategy allocation."""
+    """Cap single-quote paper starting cash and the optional per-strategy allocation."""
+    if not is_spot_product_id(product_id) or any(
+        not is_spot_product_id(item.product_id)
+        or quote_currency(item.product_id) != quote_currency(product_id)
+        for item in occupied
+    ):
+        return _deny(
+            RiskReasonCode.PAPER_CAPITAL_EXCEEDED,
+            "Paper capital cannot combine unsupported or different quote currencies.",
+        )
     if paper_starting_cash is None or paper_starting_cash <= 0:
         return _deny(
             RiskReasonCode.PAPER_CAPITAL_EXCEEDED,
@@ -666,23 +758,10 @@ def _occupied(deployments: Sequence[Deployment], mode: DeploymentMode) -> tuple[
 
 
 def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Approximate quote exposure from open books plus every working remainder."""
-    books = snapshot_positions(snapshot)
-    total = sum((item.quantity * item.entry_price for item in books), Decimal("0"))
-    if snapshot.instrument_runtimes:
-        for runtime in snapshot.instrument_runtimes:
-            if runtime.phase in _IN_MARKET:
-                total += working_entry_notional(snapshot, runtime.product_id)
-        return total
-    if books:
-        for position in books:
-            product_id = resolved_product_id(position.product_id, snapshot.deployment)
-            total += working_entry_notional(snapshot, product_id)
-        return total
-    if snapshot.position is not None:
-        position_total = snapshot.position.quantity * snapshot.position.entry_price
-        return position_total + working_entry_notional(snapshot, snapshot.deployment.product_id)
-    return working_entry_notional(snapshot, snapshot.deployment.product_id)
+    """Position cost plus every working entry remainder, even with a stale FLAT overlay."""
+    return sum(
+        (product_exposure(snapshot, product) for product in _book_products(snapshot)), Decimal("0")
+    )
 
 
 def _paper_committed(occupied: Sequence[Deployment]) -> Decimal:

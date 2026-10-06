@@ -126,6 +126,7 @@ def _round_trip_loss_snapshot(*, mode: DeploymentMode = DeploymentMode.PAPER) ->
         quantity=Decimal("1"),
         fee=Decimal("0"),
         filled_at=_NOW - timedelta(hours=1),
+        economics_applied_at=_NOW - timedelta(hours=1),
     )
     sell_fill = Fill(
         id=uuid4(),
@@ -136,6 +137,7 @@ def _round_trip_loss_snapshot(*, mode: DeploymentMode = DeploymentMode.PAPER) ->
         quantity=Decimal("1"),
         fee=Decimal("0"),
         filled_at=_NOW,
+        economics_applied_at=_NOW,
     )
     return DeploymentSnapshot(
         deployment=deployment,

@@ -766,7 +766,7 @@ deployments = Table(
     CheckConstraint(
         "("
         "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND ("
-        "strategy_id IS NOT NULL OR (mode = 'live' AND status = 'stopped'))"
+        "strategy_id IS NOT NULL OR status = 'stopped')"
         ") OR ("
         "kind = 'discretionary' AND strategy_fingerprint IS NULL AND strategy_id IS NULL "
         "AND timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"

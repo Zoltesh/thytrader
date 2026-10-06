@@ -617,15 +617,17 @@ first, so heavy research no longer slows other API calls.
   `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`.
 - `delete-strategy --strategy-id UUID --confirm` **hard-deletes** the strategy and everything that
   belongs to it: snapshots, backtests, run specs, studies that include it, research jobs, dataset
-  bindings, and PAPER deployments with their orders, fills, positions, intents, and trade reasons.
+  bindings, except retained execution evidence below (ADR 0111).
   It also removes the strategy's portfolio sleeves; each removal is journaled in its portfolio and
   counted as `portfolio_sleeves`.
   It is refused with HTTP 409 `strategy_has_active_deployments` (with `deployment_ids`) while any
   bot of the strategy is running or paused — stop it with `skills/thytrader-runtime/SKILL.md`
-  first (that is a runtime-lane action; this skill never stops bots). Stopped LIVE deployments are
-  **kept** with their orders, fills, positions, trade reasons, and the snapshot they ran; they are
-  detached (`strategy_id: null`, `strategy_deleted: true`, `strategy_name` kept). Real-money
-  records are never destroyed. If the active risk policy allocated capital to the strategy, the
+  first (that is a runtime-lane action; this skill never stops bots). Stopped PAPER and LIVE
+  deployments are **kept** with orders, fills, positions, trade reasons, breaker latches, and the
+  snapshot they ran; they are detached (`strategy_id: null`, `strategy_deleted: true`,
+  `strategy_name` kept). Financial loss evidence is never deleted by this command, and deletion
+  does not reset daily loss or a latch. `counts.paper_deployments` counts removals (now zero),
+  while `live_deployments_kept` keeps its existing meaning. If the active risk policy allocated capital to the strategy, the
   same transaction publishes the next risk-policy version without that allocation
   (`risk_policy_republished: true`). The output `counts` lists what was removed.
 - `bulk-delete-strategies --strategy-id … --dry-run` previews each id (`would_delete` with
@@ -635,8 +637,8 @@ first, so heavy research no longer slows other API calls.
 - `bulk-delete-strategies --tag TAG --dry-run` previews every strategy tagged `TAG` (the CLI pages
   the tagged library, then sends batches of 100 to the same bulk route); `--tag TAG --confirm`
   deletes them. The output adds `tag` and `matched` and sums the per-batch counts. Safety is the
-  same as by id: running or paused bots block their strategy (`blocked`) and stopped live books are
-  kept. `--tag` and `--strategy-id` cannot be combined.
+  same as by id: running or paused bots block their strategy (`blocked`) and stopped paper/live
+  books and their risk evidence are kept. `--tag` and `--strategy-id` cannot be combined.
 - Deletion cannot be undone. Only delete when the user explicitly named the strategies.
 
 ## Confirmation

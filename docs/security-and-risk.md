@@ -4,7 +4,8 @@ ThyTrader can place irreversible financial orders. Security and execution safety
 
 Account risk capital is separate from bot allocations ([ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
 Live exposure and daily-loss fractions use one observed venue quote balance plus managed long
-inventory cost and remaining quote reserved by buy entries. Ledger cash, duplicated balances,
+inventory cost and remaining quote reserved by buy entries, restricted to the proposed spot quote.
+Other quote inventories never enlarge that loss/exposure denominator. Ledger cash, duplicated balances,
 short proceeds, and protective exits do not inflate that base. Allocations still cap strategy
 sizing/exposure; portfolio caps and published absolute limits remain unchanged. Unknown venue
 balances and missing marks/baselines deny entries. New live strategy ledgers start at exact zero,
@@ -82,7 +83,11 @@ It gates paper and live **entries** (not exits) with:
   including fills dated today after stop. Stop is not a reset. USD, USDC, and USDT
   are never added together. An open book without a same-UTC-day baseline, or a book
   whose quote cannot be read, denies with `BREAKER_MARK_MISSING`
-  ([ADR 0111](decisions/0111-durable-risk-accounting-scopes.md));
+  ([ADR 0111](decisions/0111-durable-risk-accounting-scopes.md)). Strategy deletion retains stopped
+  paper/live books, fills, latches, and snapshots. Flat books with no current-day fills contribute
+  zero after rollover; day fills must prove flat per-product inventory at midnight unless a
+  current-day opening equity exists. Overnight closure without opening marks and unapplied live
+  economics deny rather than guessing day PnL. UTC rollover never auto-resets a latch;
 - per-strategy fill-ledger drawdown fraction. A drawdown latch or breach blocks only
   that strategy, or a discretionary book on the same product. It does not block
   unrelated strategies in the mode;
@@ -116,7 +121,8 @@ These are already product behavior (not destination remainders):
 
 - product allowlist (Phase 10; empty means no extra restriction);
 - portfolio and per-product exposure fractions of the mode capital base;
-- daily realized plus unrealized loss limit (UTC day; pauses the mode);
+- daily equity-change loss limit (UTC day; pauses running books in that mode and quote, preserving
+  stopped and deliberate-pause choices);
 - per-strategy fill-ledger drawdown limit (pauses that book);
 - order and cancellation rate limits (rolling 60s; deny without pause);
 - reference-price collar versus last close (deny without pause);
@@ -139,10 +145,15 @@ Optional `max_order_quantity`, `max_order_notional_quote`, and
 unset in the compiled default and in stored documents that omit them, so publishing
 nothing new does not tighten current limits. When an operator sets one, only the
 entry that exceeds it is denied (`MAX_ORDER_QUANTITY`, `MAX_ORDER_NOTIONAL`,
-`BALANCE_RESERVE`). Live reserve uses observed venue available quote minus the
-proposed notional. Paper reserve uses `paper_capital_quote` minus occupied marked
-exposure minus the proposed notional. A missing quantity while the quantity cap is
-set, or an unknown live quote while the reserve is set, fails closed.
+`BALANCE_RESERVE`). New monetary bounds require the proposed quote to match the
+policy's `quote_currency`. Reserve is **notional admission headroom, not a guaranteed
+post-fill balance**. Live uses observed available quote minus candidate notional and
+local unheld buy remainders; confirmed venue holds are not subtracted twice and
+ambiguous holds deny. Live fees/slippage are unknown and not guaranteed covered.
+Paper includes occupied-book cash changes (recorded fees/loss), working buys, and
+conservative stored/default taker fees. Unknown quantity while capped, live quote,
+or paper opening cash fails closed. These checks are not atomic venue reservations
+against simultaneous external trading. Protective exits never use these entry gates.
 
 ### Runtime (destination remainders)
 

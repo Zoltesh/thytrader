@@ -81,6 +81,7 @@ def _live_snapshot() -> DeploymentSnapshot:
         quantity=Decimal("1"),
         fee=Decimal("0.5"),
         filled_at=_NOW,
+        economics_applied_at=_NOW,
     )
     position = Position(
         deployment_id=deployment.id,

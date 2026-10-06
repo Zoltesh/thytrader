@@ -111,7 +111,11 @@ from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
-from thytrader.risk.breakers import EntryObservation, breaker_pause_detail
+from thytrader.risk.breakers import (
+    EntryObservation,
+    breaker_pause_detail,
+    quote_scoped_snapshots,
+)
 from thytrader.risk.exposure import snapshot_has_residual_exposure
 from thytrader.risk.gate import ProposedEntry, evaluate_new_entry, evaluate_runtime_breakers
 from thytrader.risk.models import (
@@ -2618,7 +2622,7 @@ async def _pause_for_breaker(
     portfolio: Sequence[DeploymentSnapshot],
     verdict: RiskVerdict,
 ) -> DeploymentSnapshot:
-    """Pause this book, and the whole mode when the daily-loss kill trips."""
+    """Pause this book, and same-quote books in the mode when daily loss trips."""
     detail = breaker_pause_detail(verdict.reason_code, verdict.detail)
     latched_daily = verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
     latched_dd = verdict.reason_code is RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT
@@ -2635,6 +2639,7 @@ async def _pause_for_breaker(
         await _pause_mode_running(
             store=store,
             mode=snapshot.deployment.mode,
+            product_id=snapshot.deployment.product_id,
             portfolio=_portfolio_with_current(portfolio, snapshot),
             detail=detail,
         )
@@ -2646,19 +2651,37 @@ async def _pause_mode_running(
     *,
     store: ExecutionStore,
     mode: DeploymentMode,
+    product_id: str,
     portfolio: Sequence[DeploymentSnapshot],
     detail: str,
 ) -> None:
-    """Pause every running deployment in this mode; exits on paused books continue."""
-    for item in portfolio:
+    """Pause running same-quote books, keeping an account latch on one retained row.
+
+    Strategy callers already latch the triggering book. Discretionary admission may
+    deny before its candidate exists, so keep the latch on one persisted peer instead.
+    Stopped and deliberate pauses remain unchanged; exits continue. Explicit reset
+    applies to the retained row carrying the latch, never implicitly to all books.
+    """
+    books, incomplete = quote_scoped_snapshots(
+        tuple(item for item in portfolio if item.deployment.mode is mode), product_id
+    )
+    if incomplete is not None:
+        # Unknown quote evidence already denies admission; do not pause unrelated quotes.
+        return
+    anchor = None
+    if books and not any(item.deployment.daily_loss_latched for item in books):
+        anchor = books[0].deployment.id
+    for item in books:
         deployment = item.deployment
-        if deployment.mode is not mode or deployment.status is not DeploymentStatus.RUNNING:
+        running = deployment.status is DeploymentStatus.RUNNING
+        if not running and deployment.id != anchor:
             continue
         paused = with_runtime(
             deployment,
             updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=detail,
+            status=DeploymentStatus.PAUSED if running else deployment.status,
+            mismatch_detail=detail if running else deployment.mismatch_detail,
+            daily_loss_latched=True if deployment.id == anchor else None,
         )
         await store.save_deployment(paused)
 

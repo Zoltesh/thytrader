@@ -352,9 +352,10 @@ def _parser() -> argparse.ArgumentParser:
         "--min-available-quote-reserve",
         default=None,
         help=(
-            "Optional quote that must remain available after a new entry. Live uses "
-            "observed venue available quote. Paper uses paper capital minus occupied "
-            "exposure. Unset by default."
+            "Optional same-quote notional admission headroom. Live fees/slippage are not "
+            "included: this is not a guaranteed post-fill balance. Confirmed venue holds "
+            "are not subtracted twice; ambiguous holds deny. Paper includes recorded cash "
+            "debits and modeled fees. Requires matching --quote-currency. Unset by default."
         ),
     )
     set_policy.add_argument(

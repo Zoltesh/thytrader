@@ -147,12 +147,12 @@ def test_other_portfolios_and_standalone_books_do_not_count() -> None:
 
 
 def test_per_asset_cap_sums_every_product_of_the_base_asset() -> None:
-    """BTC held in BTC-USD counts against a BTC-USDC entry of the same portfolio."""
+    """A shared portfolio cannot compare USD inventory to a USDC capital cap without FX."""
     held = (_sleeve(_SLEEVE_B, held="250"),)
     proposed = _entry(_SLEEVE_A, "100", product_id="BTC-USDC")
     assert _verdict(_book(per_asset="0.3"), proposed, held) == (
         RiskDecision.DENY,
-        RiskReasonCode.PORTFOLIO_ASSET_EXPOSURE_LIMIT,
+        RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
     )
     other_asset = _entry(_SLEEVE_A, "100", product_id="ETH-USD")
     assert _verdict(_book(per_asset="0.3"), other_asset, held)[0] is RiskDecision.ALLOW

@@ -647,15 +647,17 @@ async def _pause_on_breaker(
     peers: tuple[DeploymentSnapshot, ...],
     verdict: RiskVerdict,
 ) -> None:
-    """Pause this book, or the whole mode on daily-loss, when the gate trips."""
+    """Pause this book, or persisted same-quote mode peers on daily loss, with a latch."""
     if not pauses_risk_increasing(verdict.reason_code):
         return
     detail = f"{verdict.reason_code.value}: {verdict.detail}"
     if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
+        persisted = {item.id for item in deployments}
         await _pause_mode_running(
             store=store,
             mode=request.mode,
-            portfolio=(*peers, snapshot),
+            product_id=request.product_id,
+            portfolio=tuple(item for item in (*peers, snapshot) if item.deployment.id in persisted),
             detail=detail,
         )
         return

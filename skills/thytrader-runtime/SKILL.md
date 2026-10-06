@@ -83,16 +83,28 @@ loss or either latch. A drawdown latch blocks only the matching strategy, or a d
 on that product; it does not block unrelated strategies. USD, USDC, and USDT losses are never
 added together. An open book without a same-UTC-day baseline denies new risk and does not invent
 equity. `reset-breaker-latches` clears latch flags only; a loss still over the limit can trip
-again, and the bot stays stopped or paused until a separate resume. Paper strategy deletion
-removes that strategy's paper ledgers, so those rows can no longer evidence the day's loss.
+again, and the bot stays stopped or paused until a separate resume. Paper and live strategy
+deletion retain stopped books, fills, latches, and referenced snapshots, detached from the deleted
+strategy; deletion is not a reset. A null strategy FK does not turn that strategy's drawdown into
+discretionary drawdown. Daily loss pauses only running books of that mode and quote; deliberate
+pauses and stopped choices are preserved. A first discretionary denial can leave its latch on a
+persisted same-quote peer even though no new candidate book was created. Reset the specific row
+carrying the latch, not unrelated books. No current-day fills on a flat old book contribute zero;
+an overnight closure without recorded opening marks denies rather than inventing day equity.
+Unapplied live fills also deny new risk until economics reconcile.
 
 Optional `set-risk-policy` flags `--max-order-quantity`, `--max-order-notional-quote`, and
-`--min-available-quote-reserve` are omitted by default and do not change compiled or previously
-published limits. When set, they deny only the entry that exceeds them (`MAX_ORDER_QUANTITY`,
-`MAX_ORDER_NOTIONAL`, `BALANCE_RESERVE`). Live reserve uses observed venue available quote minus
-the proposed notional. Paper reserve uses `paper_capital_quote` minus occupied marked exposure
-minus the proposed notional. A quantity cap with no proposed quantity, or a live reserve with an
-unknown venue quote, fails closed.
+`--min-available-quote-reserve` are unset by default; compiled defaults and old stored policy
+hashes stay unchanged. Publication replaces the policy, not patches it: resupply any configured
+optional bounds you intend to keep. When set, they deny only an exceeding entry (`MAX_ORDER_QUANTITY`,
+`MAX_ORDER_NOTIONAL`, `BALANCE_RESERVE`). Monetary bounds require matching `--quote-currency`;
+there is no USD/USDC conversion. Reserve is **notional admission headroom, not a guaranteed
+post-fill balance**: live fees/slippage are unknown and not guaranteed covered. Live subtracts
+candidate notional and local unheld buy remainders from observed venue available quote, not
+confirmed venue holds a second time; ambiguous holds deny. Paper includes occupied-book cash
+changes (recorded fees/loss), working buy reserves, and conservative stored/default paper taker
+fees. Unknown quote, quantity when capped, or paper opening cash fails closed. Limits never gate
+protective exits. These are observation-time checks, not atomic reserves against external trades.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
@@ -226,8 +238,9 @@ same server-side.
 Strategy deletion (`thytrader-research delete-strategy`) is refused with HTTP 409
 `strategy_has_active_deployments` while any bot of that strategy is running or paused; stopping it
 is this lane's job and needs the user's request. After deletion, stopped live books remain with
-`strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; paper books of the
-strategy are removed with it.
+`strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; stopped paper books and
+their referenced snapshots are likewise retained as risk evidence (ADR 0111). Deletion output
+`counts.paper_deployments` counts removals and is zero, not a count of retained books.
 
 ## Signal exits (paper and live)
 

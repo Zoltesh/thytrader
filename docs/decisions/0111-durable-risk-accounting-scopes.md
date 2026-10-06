@@ -2,77 +2,113 @@
 
 - Status: Accepted
 - Date: 2026-10-06
-- Supersedes in part: [0050](0050-daily-loss-drawdown-rate-collars.md), daily-loss occupancy and
-  drawdown latch scope only
+- Supersedes in part: [0050](0050-daily-loss-drawdown-rate-collars.md), daily-loss occupancy,
+  quote and drawdown scope; [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md),
+  deletion of paper execution evidence only
 - Relates to: [0106](0106-account-risk-capital-and-live-startup-baselines.md),
   [0107](0107-capital-normalized-live-performance.md),
   [0064](0064-deployment-http-lifecycle-and-breaker-latch-reset.md)
 
 ## Context
 
-Account daily loss and strategy drawdown were both read from the exposure set: running, paused,
-and stopped books that still had inventory or a working entry. Stopping a flat book removed its
-fills, its same-day equity change, and its `daily_loss_latched` flag from the next entry check.
-A replacement book, or a late fill recorded on the stopped row, no longer counted. The same
-filter treated any drawdown latch in the mode as a mode-wide kill, so one strategy blocked
-unrelated books.
+Stopping a flat deployment removed its daily loss and daily-loss latch from subsequent risk
+checks. Replacement deployments could enter without that evidence. Any drawdown latch blocked
+unrelated strategies across the mode. Paper strategy deletion destroyed the evidence entirely.
+A first discretionary entry denied before book creation could also fail to leave a durable latch.
 
-[ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md) still defines account capital
-from risk-bearing books. That capital base is not the evidence set for the day's loss. Pinned
-performance capital ([ADR 0107](0107-capital-normalized-live-performance.md)) is unchanged.
+Account capital from risk-bearing books ([ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md))
+is not the evidence set for the day's loss. Pinned performance capital
+([ADR 0107](0107-capital-normalized-live-performance.md)) is unchanged.
 
 ## Decision
 
-Keep exposure, open-position slots, and rolling order-rate occupancy on risk-bearing snapshots.
-Do not count a stopped flat book as occupying capital or an entry-rate slot.
+### Occupancy, quote scope, and evidence
 
-Daily loss and the daily-loss latch use a wider set: every retained running, paused, or stopped
-deployment in that mode whose spot quote matches the proposed entry. USD, USDC, and USDT are
-never added. A book whose products do not share one supported quote fails closed
-(`BREAKER_MARK_MISSING`) instead of being dropped or converted.
+Exposure, capital, position slots, and order rates retain risk-bearing occupancy: running,
+paused, and stopped residual books. A stopped flat book does not occupy capital or a rate slot.
+Every working entry remainder counts as exposure even if its runtime overlay still says FLAT.
+The cost-basis capital formula remains unchanged; no bot allocation becomes account capital.
 
-UTC-day loss is equity minus `utc_day_open_equity` only when `utc_day_open_at` is on the
-observation's UTC day. A book created that day and missing a day-open uses its recorded opening
-equity, where exact zero remains valid. A flat book with an older baseline contributes realized
-PnL from fills at or after UTC midnight, so a late fill counts and yesterday's loss does not.
-An open book without a same-day baseline is incomplete. No midnight mark is invented.
+Daily loss and its latch include **all retained running, paused, and stopped deployments** in
+that mode. Loss, exposure, held-quote capital, and optional reserve calculations select the
+proposed spot quote. USD, USDC, and USDT are never added or converted. Unsupported or mixed-quote
+shared-cash books deny with `BREAKER_MARK_MISSING`. A shared portfolio cannot compare exposure
+across quotes without FX evidence (`PORTFOLIO_LIMITS_UNAVAILABLE`). Paper deployment admission
+refuses mixed-quote starting-cash comparisons instead of summing different currencies.
 
-A drawdown latch or breach applies only to books with the same `strategy_id`, or, when the
-entry is discretionary, to a discretionary book on that product and quote. It does not apply to
-an unrelated strategy, including one on the same product. The fraction still uses pinned
-performance capital and the durable peak.
+### UTC-day correctness
 
-Stop does not clear either latch. `reset-breaker-latches` clears flags on that deployment only.
-It does not erase the peak, performance capital, or same-day loss, and it does not resume the
-bot. A loss that is still over the limit can trip again.
+Daily PnL is current ledger equity minus recorded opening equity when `utc_day_open_at` belongs
+to the observation's UTC day. A deployment created on that day can use recorded opening equity;
+exact zero remains valid. No baseline, ledger cash, or historical fee is rewritten.
 
-The worker risk snapshot and discretionary admission load this wider set. The gate re-filters
-exposure and rates. No migration is added. Alembic `0065` stays reserved. Stopped live rows are
-kept, so stop and replacement retain loss evidence without a new table. Paper strategy deletion
-still hard-deletes paper ledgers; after that delete the gate cannot reconstruct the loss. Lead
-should add `0065` only if paper deletion must retain an account-day total, and that write has
-to happen before the delete.
+For an older **flat** book lacking a current-day baseline:
 
-Optional `max_order_quantity`, `max_order_notional_quote`, and `min_available_quote_reserve`
-are omitted from canonical policy bytes when unset. Compiled defaults and stored documents that
-omit them do not change. When set, they deny only the entry that exceeds them. Live reserve
-uses observed venue available quote. Paper reserve uses paper capital minus occupied marked
-exposure. Unknown live quote or a missing quantity while that cap is set fails closed.
+- No current-day fills contributes zero, not yesterday's loss.
+- Otherwise replay signed base quantities **per product**. Midnight and current inventory must
+  both be flat; day cash movements minus recorded day fees then equal day equity change.
+- A closure of overnight inventory without opening marks is unknown, not lifetime realized PnL
+  attributed to today. Orphan fills or a contradictory flat projection are likewise unknown.
+- An open book without a current-day baseline is incomplete. No midnight mark is invented.
 
-## Consequences
+Unapplied live fills make operational cash incomplete even with a same-day baseline and deny new
+risk until economics reconcile. This includes legacy unmarked live fill rows: missing projection
+is not assumed applied. An unknown/nonpositive live account denominator also denies.
 
-- A flat stop no longer clears account daily loss or its latch for the same quote and mode.
-- Unrelated strategies are no longer blocked by another book's drawdown latch.
-- Operators still reset latches explicitly. Resume remains a separate command.
-- Paper strategy deletion remains an evidence gap until an account-day ledger exists.
-- Ops contract and `EXPECTED_SCHEMA_REVISION` are unchanged because there is no migration.
-  Lead integrates operator schema text if the new reason codes should appear in findings.
+### Drawdown and reset
 
-## Alternatives considered
+Drawdown latch/breach applies to the same strategy identity (including its retained deployment
+history), or to an actual discretionary book on the same product and quote. An unrelated
+strategy on that product is not affected. A deleted strategy book with a null strategy FK is
+**not** a discretionary book. Pinned-capital and durable-peak drawdown math is unchanged.
 
-- Keep summing only risk-bearing books: rejected; that is the confirmed hole.
-- Persist an account-day loss row now: rejected as unnecessary for retained live rows. Reserve
-  `0065` rather than inventing a table the delete path does not write.
-- Treat any same-product drawdown as shared: rejected; that still blocks unrelated strategies.
-- Auto-clear latches at UTC midnight or on stop: rejected; reset stays explicit.
-- Apply a quote conversion: rejected; no FX rate is evidence.
+Daily loss pauses only running books in its mode and quote. Preserve deliberate pauses and
+stopped status. Strategy trips latch the source row. Discretionary denial before candidate
+creation keeps one latch on a persisted same-quote peer if none exists; it never tries to save
+an unpersisted candidate or latches every historical book. Protection/exits remain ungated.
+
+Stop, deletion, replacement, restart, and UTC rollover do not clear latches.
+`reset-breaker-latches` explicitly clears flags on the named deployment carrying the latch,
+without erasing same-day loss, peak, or pinned capital and without resuming it. Continuing loss
+can trip again. Existing reset HTTP/CLI confirmation and audit behavior remains in force.
+
+### Deletion and storage
+
+Strategy deletion still refuses running/paused books and removes research/root data, but retains
+**stopped paper and live deployments, ledgers, and referenced snapshots**, detaching via the
+existing strategy FK. No account-day accumulator is necessary when evidence is retained.
+The existing deletion count `paper_deployments` counts removals and is now zero; it does not
+advertise retained rows as deleted. `live_deployments_kept` keeps its existing meaning.
+
+Alembic **`risk0065`** (reserved lane revision; predecessor `0064`, lead rechains for release)
+widenes only `ck_deployments_kind_identity` to permit detached stopped paper books. No financial
+rows are rewritten. Downgrade refuses while detached paper books exist. Schema migration must
+precede the new deletion behavior; coordinated API/worker release is necessary so old API
+writers do not continue deleting paper evidence. Lead owns the shared ops-contract/schema-head
+advertisement. This slice does not change those global constants.
+
+### Optional entry bounds
+
+`max_order_quantity`, `max_order_notional_quote`, and `min_available_quote_reserve` are absent
+from canonical policy bytes when unset. Compiled defaults, existing published documents, and
+historical fingerprints are unchanged. Configured caps deny only risk-increasing entry admission
+(`MAX_ORDER_QUANTITY`, `MAX_ORDER_NOTIONAL`, `BALANCE_RESERVE`); reductions bypass them.
+New monetary bounds require the proposed product quote to equal the policy's `quote_currency`.
+
+Reserve is **notional admission headroom, not a guaranteed settled/post-fill account balance**.
+Live uses observed available quote minus the candidate notional and local unheld buy remainders.
+Confirmed venue holds already excluded from available quote are not subtracted twice; pending
+or unknown buy holds deny. Unknown live fees and slippage are not invented or guaranteed covered.
+Paper uses its capital envelope plus occupied-book cash changes, minus working buys and the
+candidate with conservative stored/default paper taker fees. Recorded fees/losses in cash count.
+It remains an admission snapshot, not an atomic venue-wide reservation against external trades.
+
+## Consequences and alternatives
+
+- Retained fill/latch evidence closes stop, replacement, and allowed deletion bypasses without
+  accumulating mutable account totals or guessing historical prices.
+- Incomplete legacy/opening evidence may require reconciliation; resets cannot invent evidence.
+- Strict missing-mark behavior is preferable to charging overnight lifetime PnL to a new UTC day.
+- Keeping paper evidence consumes storage; financial evidence is not automatically purged.
+- Reusing the exposure set, mode-wide unrelated drawdown, implicit stop/midnight resets, and
+  USD/USDC conversion without rates were rejected.

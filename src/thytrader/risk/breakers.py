@@ -7,8 +7,9 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
+from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
+    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -19,6 +20,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.performance import current_drawdown
 from thytrader.market_data.products import is_spot_product_id, quote_currency
+from thytrader.risk.daily_accounting import flat_day_fill_pnl
 from thytrader.risk.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
@@ -160,13 +162,16 @@ def _daily_loss_verdict(
     capital: Decimal,
 ) -> RiskVerdict | None:
     """Trip when UTC-day equity change from day-open reaches the capital fraction."""
-    if capital <= 0:
-        return None
     loss = _mode_daily_loss(occupied, observation)
     if loss is None:
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
             _daily_loss_missing_detail(occupied, observation),
+        )
+    if capital <= 0:
+        return _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            "Daily-loss unavailable: missing positive same-quote account capital.",
         )
     limit = capital * Decimal(policy.daily_loss_limit_fraction)
     # The absolute quote ceiling protects real money; paper uses the capital fraction only.
@@ -357,29 +362,32 @@ def _daily_pnl(
 ) -> Decimal | None:
     """Return this UTC day's equity change, never a previous day's stale baseline.
 
-    A same-day ``utc_day_open_equity`` is authoritative and already includes late fills
-    once they are in operational cash. A book that started today uses its opening
-    equity. A flat book whose baseline is older contributes only realized PnL from
-    fills at or after UTC midnight, so a stop cannot carry yesterday's loss forward
-    and a late fill still counts. An open book without a same-day baseline is incomplete.
+    Same-day opening equity remains authoritative. Unapplied live fills make cash
+    incomplete, not unchanged. Without that baseline, a flat old book's day fills
+    must prove flat inventory at midnight; overnight closures require an opening
+    mark and fail closed. Lifetime realized PnL cannot replace UTC-day equity change.
     """
-    ledger = ledger_from_snapshot(snapshot, marks=marks)
-    if not ledger.mark_complete or ledger.equity is None:
+    if _unapplied_live_fills(snapshot):
         return None
     day_start = _utc_day_start(as_of)
     day_open_at = snapshot.deployment.utc_day_open_at
     day_open = snapshot.deployment.utc_day_open_equity
-    if (
+    same_day_open = (
         day_open_at is not None
         and day_open is not None
         and _utc_day_start(day_open_at) == day_start
-    ):
-        return ledger.equity - day_open
-    if _utc_day_start(snapshot.deployment.created_at) == day_start:
-        return _pnl_from_opening_equity(snapshot, equity=ledger.equity)
-    if snapshot_positions(snapshot):
+    )
+    started_today = _utc_day_start(snapshot.deployment.created_at) == day_start
+    if not same_day_open and not started_today and not snapshot_positions(snapshot):
+        return flat_day_fill_pnl(snapshot, since=day_start)
+    ledger = ledger_from_snapshot(snapshot, marks=marks)
+    if not ledger.mark_complete or ledger.equity is None:
         return None
-    return realized_pnl_since(snapshot, since=day_start)
+    if same_day_open and day_open is not None:
+        return ledger.equity - day_open
+    if started_today:
+        return _pnl_from_opening_equity(snapshot, equity=ledger.equity)
+    return None
 
 
 def _pnl_from_opening_equity(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal | None:
@@ -392,12 +400,21 @@ def _pnl_from_opening_equity(snapshot: DeploymentSnapshot, *, equity: Decimal) -
     return equity - starting
 
 
+def _unapplied_live_fills(snapshot: DeploymentSnapshot) -> bool:
+    """Unknown fill projection means live cash cannot establish complete loss evidence."""
+    return snapshot.deployment.mode is DeploymentMode.LIVE and any(
+        fill.economics_applied_at is None for fill in snapshot.fills
+    )
+
+
 def _daily_loss_missing_detail(
     occupied: Sequence[DeploymentSnapshot], observation: EntryObservation
 ) -> str:
     """Identify the book and missing evidence without inventing an equity baseline."""
     for snapshot in occupied:
         identity = f"deployment {snapshot.deployment.id}"
+        if _unapplied_live_fills(snapshot):
+            return f"Daily-loss unavailable for {identity}: unapplied live fill economics."
         if _open_inventory_missing_mark(snapshot, observation.marks):
             return f"Daily-loss unavailable for {identity}: missing last-close inventory marks."
         if _daily_pnl(snapshot, marks=observation.marks, as_of=observation.as_of) is None:
@@ -405,7 +422,10 @@ def _daily_loss_missing_detail(
                 return (
                     f"Daily-loss unavailable for {identity}: missing same-UTC-day equity baseline."
                 )
-            return f"Daily-loss unavailable for {identity}: missing equity or day-open baseline."
+            return (
+                f"Daily-loss unavailable for {identity}: incomplete fill economics or missing "
+                "same-UTC-day equity baseline (overnight inventory needs opening marks)."
+            )
     return "Daily-loss unavailable: incomplete equity evidence."
 
 
@@ -433,7 +453,7 @@ def _matches_drawdown_scope(
     deployment = snapshot.deployment
     if strategy_id is not None:
         return deployment.strategy_id == strategy_id
-    if deployment.strategy_id is not None:
+    if deployment.kind is not DeploymentKind.DISCRETIONARY:
         return False
     if deployment.product_id == product_id:
         return True
@@ -441,6 +461,19 @@ def _matches_drawdown_scope(
         resolved_product_id(position.product_id, deployment) == product_id
         for position in snapshot_positions(snapshot)
     )
+
+
+def quote_scoped_snapshots(
+    snapshots: Sequence[DeploymentSnapshot], product_id: str
+) -> tuple[tuple[DeploymentSnapshot, ...], RiskVerdict | None]:
+    """Scope capital and exposure to the entry's quote, rejecting unreadable shared cash."""
+    quote = _product_quote(product_id)
+    if quote is None:
+        return (), _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            "Account risk unavailable: proposed product quote is not a supported spot quote.",
+        )
+    return _same_quote_books(snapshots, quote, purpose="Account risk")
 
 
 def _same_quote_books(

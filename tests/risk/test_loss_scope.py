@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
+    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -46,6 +47,7 @@ def _policy(**updates: str | int) -> RiskPolicyDefinition:
     values: dict[str, str | int] = {
         "daily_loss_limit_fraction": "0.001",
         "paper_capital_quote": "10000",
+        "quote_currency": "USD",
     }
     values.update(updates)
     return compiled_default_risk_policy().model_copy(update=values)
@@ -88,6 +90,7 @@ def _deployment(
         id=uuid4(),
         strategy_fingerprint="sha256:" + "a" * 64,
         strategy_id=strategy_id,
+        kind=DeploymentKind.STRATEGY if strategy_id is not None else DeploymentKind.DISCRETIONARY,
         product_id=product_id,
         mode=mode,
         status=status,
@@ -153,6 +156,7 @@ def _round_trip(
             quantity=Decimal("1"),
             fee=Decimal("0"),
             filled_at=buy_at,
+            economics_applied_at=buy_at,
         ),
         Fill(
             id=uuid4(),
@@ -163,6 +167,7 @@ def _round_trip(
             quantity=Decimal("1"),
             fee=Decimal("0"),
             filled_at=sell_at,
+            economics_applied_at=sell_at,
         ),
     )
     return DeploymentSnapshot(deployment=deployment, orders=(buy, sell), fills=fills, position=None)
@@ -498,7 +503,7 @@ def test_live_and_paper_losses_do_not_cross_modes() -> None:
 
 
 def test_absent_deleted_book_is_not_invented() -> None:
-    """Paper strategy deletion removes the row; the gate must not invent its loss."""
+    """Already-absent legacy evidence cannot be invented; new deletion retains the rows."""
     verdict = _verdict((), _entry(strategy_id=_STRATEGY_B))
     assert verdict.decision is RiskDecision.ALLOW
 
