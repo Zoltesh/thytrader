@@ -15,6 +15,7 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    Fill,
     IntentPurpose,
     Order,
     OrderIntent,
@@ -253,7 +254,18 @@ def test_pending_buy_remainder_is_quote_capital_without_double_counting_partial_
         created_at=_NOW,
         updated_at=_NOW,
     )
-    book = replace(book, intents=(intent,), orders=(order,))
+    fill = Fill(
+        id=uuid4(),
+        deployment_id=book.deployment.id,
+        order_id=order.id,
+        venue_fill_id="applied-partial-entry",
+        price=Decimal("100"),
+        quantity=Decimal("0.4"),
+        fee=Decimal("0"),
+        filled_at=_NOW,
+        economics_applied_at=_NOW,
+    )
+    book = replace(book, intents=(intent,), orders=(order,), fills=(fill,))
     verdict = evaluate_new_entry(
         compiled_default_risk_policy(),
         mode=DeploymentMode.LIVE,

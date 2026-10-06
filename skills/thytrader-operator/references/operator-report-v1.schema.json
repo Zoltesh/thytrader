@@ -5852,7 +5852,16 @@
               "exchange_read_failures",
               "audit_failure_evidence",
               "watched_market_tail_health",
-              "venue_order_observations"
+              "venue_order_observations",
+              "verified_utc_day_open_evidence",
+              "quantitative_protection_evidence",
+              "managed_venue_reconciliation",
+              "capacity_readiness",
+              "durable_safety_alerts",
+              "execution_quality_evidence",
+              "complete_fleet_inventory",
+              "revision_fenced_fleet_controls",
+              "backtest_bar_explanations"
             ],
             "type": "string"
           },
@@ -9488,6 +9497,42 @@
           ],
           "default": null,
           "title": "Max Venue Order Actions Per Minute"
+        },
+        "max_order_quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Order Quantity"
+        },
+        "max_order_notional_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Order Notional Quote"
+        },
+        "min_available_quote_reserve": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Available Quote Reserve"
         },
         "findings": {
           "items": {

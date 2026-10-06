@@ -10,6 +10,7 @@ import json
 from typing import TYPE_CHECKING
 
 from thytrader.execution.day_open import DailyOpeningEvidence, MidnightMark
+from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.models import (
     OrderSide,
     PositionSide,
@@ -46,7 +47,12 @@ def opening_replay(snapshot: DeploymentSnapshot, *, as_of: datetime) -> OpeningR
     A product overlay, orphan/unapplied fill, future fill, or contradictory cash/base
     projection is incomplete. Signed BTC and ETH quantities never cancel each other.
     """
-    if not snapshot.accounting_complete or not _orders_covered(snapshot, as_of=as_of):
+    if (
+        not snapshot.accounting_complete
+        or unsettled_fill_evidence(snapshot)
+        or unprojected_inventory_products(snapshot)
+        or not _orders_covered(snapshot, as_of=as_of)
+    ):
         return None
     orders = {order.id: order for order in snapshot.orders}
     current: dict[str, Decimal] = {}

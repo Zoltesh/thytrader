@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
     DeploymentKind,
@@ -42,6 +43,32 @@ class EntryObservation:
     proposed_price: Decimal | None
     reference_price: Decimal | None
     marks: Mapping[str, Decimal]
+
+
+def unresolved_accounting_verdict(
+    *, mode: DeploymentMode, product_id: str, snapshots: Sequence[DeploymentSnapshot]
+) -> RiskVerdict | None:
+    """Refuse new risk on same-quote unresolved economics, even without a price observation."""
+    quote = _product_quote(product_id)
+    if quote is None:
+        return _deny(RiskReasonCode.BREAKER_MARK_MISSING, "Accounting quote is unavailable.")
+    books, incomplete = _same_quote_books(
+        daily_loss_snapshots(snapshots, mode), quote, purpose="Accounting"
+    )
+    if incomplete is not None:
+        return incomplete
+    for snapshot in books:
+        if (
+            not snapshot.accounting_complete
+            or unsettled_fill_evidence(snapshot)
+            or unprojected_inventory_products(snapshot)
+        ):
+            return _deny(
+                RiskReasonCode.BREAKER_MARK_MISSING,
+                f"Accounting incomplete for deployment {snapshot.deployment.id}: "
+                "unsettled executed fills, unprojected inventory, or omitted economics.",
+            )
+    return None
 
 
 def evaluate_circuit_breakers(
@@ -381,7 +408,11 @@ def _daily_pnl(
     genuine closed midnight marks. Current marks and lifetime PnL cannot substitute.
     A focused product view is incomplete even when it contains no fills.
     """
-    if not snapshot.accounting_complete or _unapplied_live_fills(snapshot):
+    if (
+        not snapshot.accounting_complete
+        or unsettled_fill_evidence(snapshot)
+        or unprojected_inventory_products(snapshot)
+    ):
         return None
     ledger = ledger_from_snapshot(snapshot, marks=marks)
     if not ledger.mark_complete or ledger.equity is None:

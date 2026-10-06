@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.models import OrderSide, resolved_product_id
 
 if TYPE_CHECKING:
@@ -21,7 +22,11 @@ def flat_day_fill_pnl(snapshot: DeploymentSnapshot, *, since: datetime) -> Decim
     change; its lifetime realized PnL is not a substitute. No fills today on a currently
     flat book means zero today, even when yesterday's equity baseline is stale.
     """
-    if not snapshot.accounting_complete:
+    if (
+        not snapshot.accounting_complete
+        or unsettled_fill_evidence(snapshot)
+        or unprojected_inventory_products(snapshot)
+    ):
         return None
     orders = {order.id: order for order in snapshot.orders}
     opening: dict[str, Decimal] = {}

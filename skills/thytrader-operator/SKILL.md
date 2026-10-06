@@ -288,7 +288,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v67`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v68`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -522,7 +522,8 @@ leave this backtest-only field null; those modes retain their fill-ledger report
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
 The fee-attribution column shipped in schema revision `0064`. The health contract now
-requires revision `0068`, including durable alerts and venue observation provenance.
+requires revision `0069`, including durable alerts, fleet controls, venue observation provenance,
+and separate verified UTC-opening evidence. Legacy opening stamps are not verification.
 After updating main, use `make run` to apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`

@@ -25,6 +25,7 @@ from thytrader.risk.breakers import (
     evaluate_circuit_breakers,
     evaluate_rate_and_collar,
     quote_scoped_snapshots,
+    unresolved_accounting_verdict,
 )
 from thytrader.risk.exposure import (
     product_exposure,
@@ -203,6 +204,11 @@ def evaluate_new_entry(
     )
     if exposure.decision is RiskDecision.DENY:
         return exposure
+    unresolved = unresolved_accounting_verdict(
+        mode=mode, product_id=proposed.product_id, snapshots=snapshots
+    )
+    if unresolved is not None:
+        return unresolved
     return _entry_breaker_verdict(
         policy,
         mode=mode,
