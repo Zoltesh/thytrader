@@ -740,6 +740,21 @@ supervised. Cancel/fill races, late fills, and unknown cancels remain supervised
 worker restarts. Diagnose with `show` and `thytrader-operator reconciliation`; do not
 treat a pending flatten as flat.
 
+Between-bar, data-gap, and warming supervision use each product's own runtime, inventory,
+venue increments, and verified context — never the compatibility-only singular `position`.
+Warming may finish an already recorded live signal exit, reached time exit, or flatten; it
+must not replace that decision with a new bracket or advance the strategy decision cursor.
+A deliberate pause stays paused.
+
+A canceled order's reported executions must be fully represented by applied REST fills
+before another cover or flat settlement. Empty or partially published fills remain a wait
+across restart; `canceled` does not mean its executed quantity was zero. If bought/sold
+inventory has applied cash/fee economics but could not acquire position metadata, retained
+entry orders and fills keep it unresolved even if `mismatch_detail` later changes. Protection
+is kept; no stop geometry or sell quantity is invented. A missing position row is not proof
+of flatness. Read `show UUID` and `thytrader-operator reconciliation`, report the projection
+fault, and do not clear it by resuming, restarting, or editing storage/recorded fills.
+
 ## Fleet controls (ADR 0117)
 
 `fleet-preview` is read-only. It lists affected deployment ids, current revisions, and residual

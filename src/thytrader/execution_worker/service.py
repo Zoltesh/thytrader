@@ -682,6 +682,7 @@ async def _maintain_verified_books(
             candles=context.candles,
             broker=broker,
             store=scoped,
+            strategy=strategy,
         )
 
 
@@ -969,13 +970,7 @@ async def _advance_strategy_ready(
     )
     if due is None:
         detail = "Market-data window is gapped or missing the latest closed bar."
-        paused = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=detail,
-        )
-        await store.save_deployment(paused)
+        await _pause_running_for_data_gap(snapshot, store=store, detail=detail)
         await record_gate_skip(
             snapshot=snapshot,
             strategy=strategy,
@@ -1060,13 +1055,7 @@ async def _advance_strategy_ready(
     )
     if htf_candles is None:
         detail = "HTF market-data window is gapped or missing the latest completed HTF bar."
-        paused = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=detail,
-        )
-        await store.save_deployment(paused)
+        await _pause_running_for_data_gap(snapshot, store=store, detail=detail)
         await record_gate_skip(
             snapshot=snapshot,
             strategy=strategy,
@@ -1498,16 +1487,29 @@ async def _evaluate_lockstep_bar(
 async def _pause_coverage_gap(
     snapshot: DeploymentSnapshot, *, store: ExecutionStore, product_id: str
 ) -> None:
-    """Pause when any covered product is missing the shared closed bar."""
-    paused = with_runtime(
-        snapshot.deployment,
-        updated_at=utc_now(),
-        status=DeploymentStatus.PAUSED,
-        mismatch_detail=(
-            f"Market-data window is gapped or missing the latest closed bar on {product_id}."
-        ),
+    """Pause running books on missing coverage without clearing an operator pause."""
+    await _pause_running_for_data_gap(
+        snapshot,
+        store=store,
+        detail=f"Market-data window is gapped or missing the latest closed bar on {product_id}.",
     )
-    await store.save_deployment(paused)
+
+
+async def _pause_running_for_data_gap(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore, detail: str
+) -> None:
+    """Retain paused/stopped lifecycle choices when decision history becomes gapped."""
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.status is not DeploymentStatus.RUNNING:
+        return
+    await store.save_deployment(
+        with_runtime(
+            current.deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail=detail,
+        )
+    )
 
 
 async def _evaluate_strategy_due_bars(
@@ -1900,8 +1902,7 @@ async def _maintain_between_bars(
     product: MarketProduct,
     candles: Sequence[Candle],
 ) -> None:
-    """Reconcile and ensure protection when no newly closed bar is due."""
-    del market_data
+    """Reconcile and supervise only product-scoped inventory between decision bars."""
     snapshot = await store.get_deployment(snapshot.deployment.id)
     broker: Broker = paper_broker
     if snapshot.deployment.mode is DeploymentMode.LIVE:
@@ -1918,22 +1919,34 @@ async def _maintain_between_bars(
             return
         snapshot, _fee_profile = prepared
         broker = live_broker
+    if len(stopped_product_ids(snapshot, strategy)) > 1:
+        await _maintain_verified_books(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+        )
+        return
     if not candles:
         return
+    scoped = InstrumentScopedStore(store, product.product_id)
+    focused = await scoped.get_deployment(snapshot.deployment.id)
     await _journaled_bar(
-        snapshot,
+        focused,
         strategy=strategy,
         product_id=product.product_id,
         candle=candles[-1],
         allow_new_entries=False,
         advance=partial(
             maintain_open_inventory,
-            snapshot,
+            focused,
             strategy=strategy,
             product=product,
             candles=candles,
             broker=broker,
-            store=store,
+            store=scoped,
         ),
     )
 

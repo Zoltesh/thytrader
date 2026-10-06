@@ -166,6 +166,21 @@ an archived catalog success cannot clear an execution mismatch. Diagnose through
 reads, repair the cause, then explicitly resume in the runtime lane with the existing confirmation
 and live acknowledgement gates and verify a fresh decision.
 
+Lifecycle supervision scopes every product independently between bars, on a data gap, and
+during cold-cache warming. Deliberate pauses remain paused; an already recorded live signal
+exit, reached time exit, or flatten continues from a verified traded close without signal
+reevaluation or decision-cursor advancement. Warming does not authorize a replacement bracket
+that reverses that exit. Atomic fill transactions persist the focused runtime transition and
+shared cash/fees together; the parent phase aggregates siblings without moving its cursor.
+
+Canceled-order executions still await applied REST-fill coverage, even when only some fragments
+are published. Applied entry economics with unprojected inventory are unresolved ledger evidence,
+not a display-message predicate: a later read fault, restart, or cleared `mismatch_detail` cannot
+prove flatness or authorize removing protection. Read `thytrader-runtime show UUID` and
+`thytrader-operator reconciliation` and report the fault; do not invent a stop/quantity, rewrite
+fills/fees, or resume a deliberately paused book. Payload schemas and confirmation gates are
+unchanged ([ADR 0110](decisions/0110-stopped-lifecycle-reconciliation.md)).
+
 Order-state provenance is independent of local row recency: `venue_observed_at` is persisted
 only after identified live order reads, with legacy rows unknown until reconciliation. Do not
 read local `updated_at` as venue verification ([ADR 0119](decisions/0119-venue-order-observation-provenance.md)).

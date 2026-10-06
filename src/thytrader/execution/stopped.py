@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.execution.exit_guards import active_orders, flat_and_idle
+from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import (
     cancel_resting_orders,
@@ -234,10 +235,9 @@ async def _flatten_one_product(
     """Flatten one product book, or keep its protection when no price is verified."""
     scoped = InstrumentScopedStore(store, product_id)
     focused = await scoped.get_deployment(snapshot.deployment.id)
-    if focused.position is None and (focused.deployment.mismatch_detail or "").startswith(
-        "Entry fill is missing"
-    ):
-        # Missing projection metadata is unknown venue inventory, not proof of flatness.
+    if unprojected_inventory_products(focused) or unsettled_fill_evidence(focused):
+        # Durable execution evidence, not a display fault, decides whether flat is known.
+        await cancel_risk_increasing_orders(focused, broker=broker, store=scoped)
         return
     if focused.position is None and not active_orders(focused):
         if focused.deployment.phase is not RuntimePhase.FLAT:
@@ -414,6 +414,7 @@ async def _maintain_strategy_book(
                 candles=context.candles,
                 broker=broker,
                 store=store,
+                strategy=strategy,
             )
             return
 

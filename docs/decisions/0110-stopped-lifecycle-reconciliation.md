@@ -35,6 +35,9 @@ could treat a book as flat before live fills and cancel races were known.
    rebuilding raises the shared `market_data.window_state.WindowCacheWarmingError`: this is not
    evidence of absent venue data, does not change the operator's lifecycle choice or cursor,
    and still runs no-entry reconciliation/protection. The windows lane imports this same type.
+   Every maintenance fallback is product-scoped. Already persisted live signal/flatten
+   decisions and reached time exits precede re-resting protection during warming; incomplete
+   history does not reverse a durable exit or advance the decision cursor.
 3. Flatten without a verified closed price keeps protective orders, may cancel only entry
    intents, and records `Flatten is pending: no verified closed price is available...`. That
    state is not success. A genuine reconciliation fault remains visible instead of being
@@ -49,7 +52,10 @@ could treat a book as flat before live fills and cancel races were known.
    across worker restarts. Canceled orders remain watched under shutdown even if the currently
    known partial fills are already applied; partial locally-filled fragments are not a final
    venue watermark. Unapplied fills and filled protection awaiting REST evidence block another
-   cover and prevent settlement. Managed shutdown still cancels risk-increasing entries and
+   cover and prevent settlement. This also applies to canceled orders whenever the reported
+   executed quantity exceeds applied REST-fill coverage, including partial publication.
+   Venue-reported executed quantities are monotone evidence, not cleared by a later cancel
+   acknowledgement. Managed shutdown still cancels risk-increasing entries and
    keeps protection; flatten exits then cancels remainders once a verified price exists.
 5. Shared atomic fill projection explicitly focuses `order.product_id`. Completing one book
    returns no focused position while retaining siblings in `positions[]`; stores must not
@@ -57,6 +63,12 @@ could treat a book as flat before live fills and cancel races were known.
    are not rewritten. Idle stopped runtime phases may settle only after observed inventory
    and active orders are gone. An unavailable immutable strategy snapshot does not terminate
    stopped supervision: stored protection remains supervised with an explicit fault detail.
+   An applied entry without position metadata remains unknown inventory. Retained intent-backed
+   entry orders and applied fills anchor exact per-product signed inventory; a net balance
+   not represented by the position projection blocks protection cancellation and flat
+   settlement independently of the latest display fault. Pre-ledger legacy exits cannot
+   offset a later owned entry. No stop geometry, executable quantity, or repair of historical
+   cash/fees is inferred from this safety predicate.
 
 ## Consequences
 

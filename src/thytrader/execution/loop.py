@@ -49,9 +49,10 @@ from thytrader.execution.exit_guards import (
     stale_position_fault,
 )
 from thytrader.execution.fill_ledger import (
-    applied_fill_quantity,
     ingest_fill,
     prior_fills_for_order,
+    unprojected_inventory_products,
+    unsettled_fill_evidence,
 )
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
 from thytrader.execution.geometry import (
@@ -318,8 +319,9 @@ async def maintain_discretionary_protection(
     candles: Sequence[Candle],
     broker: Broker,
     store: ExecutionStore,
+    strategy: StrategyDefinition | None = None,
 ) -> DeploymentSnapshot:
-    """Keep a discretionary stop or target working, including after shutdown.
+    """Keep stored protection working without reversing a durable exit decision.
 
     Missing candles do nothing: a shutdown must not invent an exit price or
     cancel protection merely because the decision window is empty.
@@ -340,6 +342,18 @@ async def maintain_discretionary_protection(
     position = snapshot.position
     if position is None:
         return snapshot
+    purpose = _due_exit_purpose(snapshot, strategy)
+    if purpose is not None:
+        return await _marketable_exit(
+            snapshot,
+            strategy=strategy,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            purpose=purpose,
+            price=candle.close,
+        )
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         return await _ensure_live_bracket(
             snapshot, candle=candle, product=product, broker=broker, store=store
@@ -1339,6 +1353,8 @@ async def _ensure_live_bracket(
     snapshot = await _adopt_venue_attached_child(
         snapshot, broker=broker, store=store, product_id=product.product_id
     )
+    if detail := _exit_economics_fault(snapshot):
+        return await _pause(snapshot, store=store, detail=detail)
     position = snapshot.position
     if position is None:
         return snapshot
@@ -1804,8 +1820,8 @@ async def _marketable_exit(
             product_id=product.product_id,
             cooldown_bars=_exit_cooldown(strategy, cooldown_bars),
         )
-    if _unsettled_fill_evidence(snapshot):
-        return await _pause(snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL)
+    if detail := _exit_economics_fault(snapshot):
+        return await _pause(snapshot, store=store, detail=detail)
     await _cancel_open_orders(snapshot, broker=broker, store=store)
     snapshot = await store.get_deployment(snapshot.deployment.id)
     if active_orders(snapshot) and all(cancel_pending(order) for order in active_orders(snapshot)):
@@ -1814,8 +1830,8 @@ async def _marketable_exit(
     position = snapshot.position
     if position is None:
         return snapshot
-    if _unsettled_fill_evidence(snapshot):
-        return await _pause(snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL)
+    if detail := _exit_economics_fault(snapshot):
+        return await _pause(snapshot, store=store, detail=detail)
     blocking = active_orders(snapshot)
     if blocking:
         if all(cancel_pending(order) for order in blocking):
@@ -2538,8 +2554,20 @@ async def _cancel_one_order(
     never re-cancelled, so a slow venue cancel cannot turn into a retry storm. A transport
     failure leaves the order unchanged for the next cycle.
     """
+    snapshot = await store.get_deployment(order.deployment_id)
     if order.venue_order_id is None:
-        return await store.get_deployment(order.deployment_id)
+        return snapshot
+    if resolved_product_id(order.product_id, snapshot.deployment) in unprojected_inventory_products(
+        snapshot
+    ) and (
+        is_venue_protection(order.kind)
+        or not any(
+            intent.id == order.intent_id and intent.purpose is IntentPurpose.ENTRY
+            for intent in snapshot.intents
+        )
+    ):
+        # An absent/incomplete position is not authority to remove real protection.
+        return snapshot
     try:
         if order.reject_reason == CANCEL_PENDING_REASON:
             result = await broker.get_order(
@@ -2558,6 +2586,7 @@ async def _cancel_one_order(
         replace(
             order,
             status=result.status,
+            filled_quantity=max(order.filled_quantity, result.filled_quantity),
             updated_at=utc_now(),
             reject_reason=result.reject_reason,
         )
@@ -2715,17 +2744,18 @@ async def _pause(
     return await store.get_deployment(snapshot.deployment.id)
 
 
+def _exit_economics_fault(snapshot: DeploymentSnapshot) -> str | None:
+    """Require complete fill economics and projected inventory before resizing or exiting."""
+    if unprojected_inventory_products(snapshot):
+        return "Applied fills contain unprojected inventory."
+    if unsettled_fill_evidence(snapshot):
+        return FILLED_WITHOUT_REST_FILLS_DETAIL
+    return None
+
+
 def _unsettled_fill_evidence(snapshot: DeploymentSnapshot) -> bool:
-    """Detect unapplied economics and terminal orders still awaiting their fills."""
-    if any(fill.economics_applied_at is None for fill in snapshot.fills):
-        return True
-    for order in snapshot.orders:
-        if order.status is not OrderStatus.FILLED:
-            continue
-        covered = max(order.quantity, order.filled_quantity)
-        if applied_fill_quantity(snapshot, order.id) < covered:
-            return True
-    return False
+    """Detect unapplied economics, including canceled orders' executed remainders."""
+    return unsettled_fill_evidence(snapshot)
 
 
 async def settle_stopped_book(
@@ -2747,8 +2777,8 @@ async def _settle_flat_book(
     deployment = snapshot.deployment
     if not flat_and_idle(snapshot) or _unsettled_fill_evidence(snapshot):
         return snapshot
-    # Fill-ledger projection faults are not proof of zero venue inventory.
-    if (deployment.mismatch_detail or "").startswith("Entry fill is missing"):
+    # Recorded inventory evidence survives unrelated display faults and restart.
+    if unprojected_inventory_products(snapshot):
         return snapshot
     if flatten_requested(snapshot) and deployment.status in {
         DeploymentStatus.PAUSED,

@@ -17,7 +17,11 @@ pyramiding `add_count`, and POST acknowledgements were lost when follow-up GETs 
    `ingest_fill` / `replay_unapplied_fills`. PostgreSQL and in-memory stores implement
    `apply_fill_transaction` so fill insert and cash/position projection commit together.
    `execution_fills.economics_applied_at` marks applied economics; reconciliation replays rows
-   where it is null.
+   where it is null. When product runtime rows exist, the same transaction writes the
+   focused product's phase/counters/pending levels and recomputes the parent aggregate
+   phase, retaining siblings and the parent's shared decision cursor. A scoped store stamps
+   a legacy blank order product before delegation; atomic delegation is not a separate
+   post-commit runtime save.
 
 2. **Live vs paper fills (F02).** `submit_intent` records synthetic immediate fills only for
    `PaperBroker`. Live economics always arrive through venue fill ingest.

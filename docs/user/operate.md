@@ -380,6 +380,20 @@ drawdown baselines. Live books size from allocated capital or venue available qu
 ([ADR 0065](../decisions/0065-deployment-capital-accounting-http.md)). Operator `runtime` shows
 `lifecycle_command`, latches, `revision`, and whether a worker lease is held without cash.
 
+Between-bar, missing-data, and cold-cache supervision maintain each product book using
+its own verified venue context, even when only a secondary product holds inventory. An
+operator pause is not lifted. Warming can continue an already recorded live signal exit,
+reached time exit, or flatten; it does not reevaluate signals or replace a committed exit
+with fresh protection.
+
+A canceled order may have executed before its REST fills appear. The worker waits for all
+reported executions to have applied economics before sizing another cover or declaring
+flat, including across restart. If entry economics applied but missing position metadata
+prevented inventory projection, protection remains and the book is not proved flat merely
+because `positions` is empty or a later read fault changed `mismatch_detail`. Diagnose with
+`thytrader-runtime show UUID` and `thytrader-operator reconciliation`; report the unresolved
+projection instead of resuming the bot or editing historical fills/fees to clear the message.
+
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with
 protection status. Orders and fills carry `product_id`. `book_totals` must match those

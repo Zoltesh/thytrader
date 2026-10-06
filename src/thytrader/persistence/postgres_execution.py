@@ -8,10 +8,14 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import and_, delete, func, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.fill_ledger import (
+    applied_fill_quantity,
+    fill_projection_deployment,
+    project_fill_economics,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import (
     MAX_POSITION_FEE_FILLS,
@@ -79,6 +83,34 @@ if TYPE_CHECKING:
         TargetResult,
     )
     from thytrader.strategies.snapshots import StrategySnapshot
+
+
+def _instrument_runtime_upsert(runtime: InstrumentRuntime, deployment_id: UUID) -> Insert:
+    """Build the same product-state write for ordinary saves and atomic fill commits."""
+    values = {
+        "deployment_id": deployment_id,
+        "product_id": runtime.product_id,
+        "phase": runtime.phase.value,
+        "last_evaluated_bar": runtime.last_evaluated_bar,
+        "last_signal": runtime.last_signal,
+        "pending_entry_bars": runtime.pending_entry_bars,
+        "bars_held": runtime.bars_held,
+        "cooldown_bars_remaining": runtime.cooldown_bars_remaining,
+        "pending_stop_price": _text(runtime.pending_stop_price),
+        "pending_target_price": _text(runtime.pending_target_price),
+    }
+    statement = insert(execution_instrument_state).values(values)
+    return statement.on_conflict_do_update(
+        index_elements=[
+            execution_instrument_state.c.deployment_id,
+            execution_instrument_state.c.product_id,
+        ],
+        set_={
+            name: getattr(statement.excluded, name)
+            for name in values
+            if name not in {"deployment_id", "product_id"}
+        },
+    )
 
 
 def _decimal(value: str | None) -> Decimal | None:
@@ -761,7 +793,12 @@ class PostgresExecutionStore:
                 )
                 applied_fill = replace(
                     order,
-                    status=OrderStatus.FILLED,
+                    status=(
+                        OrderStatus.FILLED
+                        if applied_fill_quantity(snapshot, order.id) + fill.quantity
+                        >= order.quantity
+                        else order.status
+                    ),
                     filled_quantity=max(
                         order.filled_quantity,
                         applied_fill_quantity(snapshot, order.id) + fill.quantity,
@@ -789,8 +826,11 @@ class PostgresExecutionStore:
                     )
                     .values(economics_applied_at=stamped.economics_applied_at)
                 )
+                for runtime in projected.instrument_runtimes:
+                    await connection.execute(_instrument_runtime_upsert(runtime, deployment_id))
+                parent = fill_projection_deployment(snapshot, projected)
                 next_revision = deployment.revision + 1
-                deployment_values = _mutable_deployment_values(projected.deployment)
+                deployment_values = _mutable_deployment_values(parent)
                 deployment_values["revision"] = next_revision
                 await connection.execute(
                     deployments.update()
@@ -823,9 +863,7 @@ class PostgresExecutionStore:
                             signal_exit_bar=position.signal_exit_bar,
                         )
                     )
-                refreshed = await _snapshot(
-                    connection, replace(projected.deployment, revision=next_revision)
-                )
+                refreshed = await _snapshot(connection, replace(parent, revision=next_revision))
                 return True, refreshed
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
@@ -879,38 +917,9 @@ class PostgresExecutionStore:
         self, runtime: InstrumentRuntime, *, deployment_id: UUID
     ) -> None:
         """Replace one product overlay row."""
-        values = {
-            "deployment_id": deployment_id,
-            "product_id": runtime.product_id,
-            "phase": runtime.phase.value,
-            "last_evaluated_bar": runtime.last_evaluated_bar,
-            "last_signal": runtime.last_signal,
-            "pending_entry_bars": runtime.pending_entry_bars,
-            "bars_held": runtime.bars_held,
-            "cooldown_bars_remaining": runtime.cooldown_bars_remaining,
-            "pending_stop_price": _text(runtime.pending_stop_price),
-            "pending_target_price": _text(runtime.pending_target_price),
-        }
-        statement = insert(execution_instrument_state).values(values)
-        statement = statement.on_conflict_do_update(
-            index_elements=[
-                execution_instrument_state.c.deployment_id,
-                execution_instrument_state.c.product_id,
-            ],
-            set_={
-                "phase": statement.excluded.phase,
-                "last_evaluated_bar": statement.excluded.last_evaluated_bar,
-                "last_signal": statement.excluded.last_signal,
-                "pending_entry_bars": statement.excluded.pending_entry_bars,
-                "bars_held": statement.excluded.bars_held,
-                "cooldown_bars_remaining": statement.excluded.cooldown_bars_remaining,
-                "pending_stop_price": statement.excluded.pending_stop_price,
-                "pending_target_price": statement.excluded.pending_target_price,
-            },
-        )
         try:
             async with self._engine.begin() as connection:
-                await connection.execute(statement)
+                await connection.execute(_instrument_runtime_upsert(runtime, deployment_id))
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 

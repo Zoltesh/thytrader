@@ -380,8 +380,10 @@ async def test_attached_live_entry_skips_second_oco() -> None:
     )
     await store.save_order(replace(entry, attached_child_venue_order_id="attached-child"))
     await store.save_order(child)
+    # The seeded position already reflects this entry's economics.
     await store.save_fill(
         Fill(
+            economics_applied_at=now,
             id=uuid7(now),
             deployment_id=snapshot.deployment.id,
             order_id=entry.id,
@@ -441,8 +443,10 @@ async def test_historical_attached_fill_does_not_block_later_oco() -> None:
         updated_at=now,
     )
     await store.save_order(stale)
+    # Historical economics are applied, not pending projection/replay.
     await store.save_fill(
         Fill(
+            economics_applied_at=now,
             id=uuid7(now),
             deployment_id=snapshot.deployment.id,
             order_id=stale.id,
@@ -535,8 +539,10 @@ async def test_filled_attached_entry_learns_its_child_before_resting_a_second_oc
         updated_at=now,
     )
     await store.save_order(entry)
+    # The seeded position already reflects this entry's economics.
     await store.save_fill(
         Fill(
+            economics_applied_at=now,
             id=uuid7(now),
             deployment_id=snapshot.deployment.id,
             order_id=entry.id,

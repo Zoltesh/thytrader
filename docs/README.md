@@ -32,6 +32,11 @@ Bots with higher-timeframe filters load warmup for both current and previous com
 including their first clock rollover. Missing coverage still pauses execution; see
 [Operate](user/operate.md) for diagnosis and explicit resume after repair.
 
+Lifecycle supervision remains per-product while paused, between bars, or warming history.
+Canceled executions awaiting fills and applied-but-unprojected inventory are not flatness;
+protection and committed live exits remain supervised across restart. See
+[Operate](user/operate.md) before treating an empty position row as a successful flatten.
+
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 Agents can read its complete recorded conditions and UTC signal evidence with

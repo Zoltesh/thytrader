@@ -12,6 +12,7 @@ from thytrader.execution.fill_ledger import (
     fill_economics_complete,
     ingest_fill,
     replay_unapplied_fills,
+    unprojected_inventory_products,
 )
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
@@ -65,6 +66,12 @@ async def reconcile_open_orders(
     if any(fill.economics_applied_at is None for fill in snapshot.fills):
         snapshot = await _record_reconcile_fault(
             snapshot, store=store, detail="Stored fills have unapplied economics."
+        )
+    if snapshot.deployment.status is DeploymentStatus.RUNNING and unprojected_inventory_products(
+        snapshot
+    ):
+        snapshot = await _record_reconcile_fault(
+            snapshot, store=store, detail="Applied fills contain unprojected inventory."
         )
     known = {fill.venue_fill_id for fill in snapshot.fills}
     first_fault = _first_new_fault(None, before=started, after=snapshot.deployment)
@@ -241,7 +248,7 @@ async def _reconcile_one_order(
         order,
         venue_order_id=venue_order_id,
         status=result.status,
-        filled_quantity=result.filled_quantity,
+        filled_quantity=max(order.filled_quantity, result.filled_quantity),
         reject_reason=result.reject_reason,
         venue_observed_at=(
             utc_now()
@@ -282,6 +289,10 @@ async def _reconcile_one_order(
         known=known,
         cooldown_bars=cooldown_bars,
     )
+    if applied_fill_quantity(current, updated.id) < updated.filled_quantity:
+        return await _record_reconcile_fault(
+            current, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL
+        )
     if result.status is OrderStatus.UNKNOWN:
         return await _record_reconcile_fault(
             current, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: venue status is unknown."

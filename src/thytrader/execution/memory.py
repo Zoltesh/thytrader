@@ -6,7 +6,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.fill_ledger import (
+    applied_fill_quantity,
+    fill_projection_deployment,
+    project_fill_economics,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import (
     MAX_POSITION_FEE_FILLS,
@@ -472,7 +476,11 @@ class InMemoryExecutionStore:
         self._applied_fill_keys.add(key)
         applied_fill = replace(
             order,
-            status=OrderStatus.FILLED,
+            status=(
+                OrderStatus.FILLED
+                if applied_fill_quantity(snapshot, order.id) + fill.quantity >= order.quantity
+                else order.status
+            ),
             filled_quantity=max(
                 order.filled_quantity,
                 applied_fill_quantity(snapshot, order.id) + fill.quantity,
@@ -490,8 +498,11 @@ class InMemoryExecutionStore:
         if existing_order is not None:
             self.orders.pop(existing_order.id, None)
         self.orders[applied_fill.id] = applied_fill
-        saved = replace(projected.deployment, revision=projected.deployment.revision + 1)
+        parent = fill_projection_deployment(snapshot, projected)
+        saved = replace(parent, revision=snapshot.deployment.revision + 1)
         self.deployments[saved.id] = saved
+        for runtime in projected.instrument_runtimes:
+            self.instrument_runtimes[_position_key(deployment_id, runtime.product_id)] = runtime
         product_id = order.product_id or projected.deployment.product_id
         if projected.position is not None:
             self.positions[_position_key(deployment_id, product_id)] = projected.position

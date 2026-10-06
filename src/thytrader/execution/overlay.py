@@ -277,14 +277,15 @@ class InstrumentScopedStore:
         cooldown_bars: int = 0,
         timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
-        """Apply fill economics on the inner store, then overlay this product."""
+        """Atomically persist this product's fill/runtime on the inner store, then overlay it."""
         apply = getattr(self._inner, "apply_fill_transaction", None)
         if apply is None:
             raise ExecutionStoreError("Execution storage cannot apply fill transactions.")
+        stamped_order = order if order.product_id else replace(order, product_id=self._product_id)
         applied, snapshot = await apply(
             deployment_id,
             fill=fill,
-            order=order,
+            order=stamped_order,
             cooldown_bars=cooldown_bars,
             timeframe=timeframe,
         )
