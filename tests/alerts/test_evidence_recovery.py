@@ -275,13 +275,15 @@ async def test_price_rebound_does_not_recover_unfilled_stop_but_confirmed_fill_d
 
 
 @pytest.mark.parametrize("crossed", [False, True])
+@pytest.mark.parametrize("venue_observed", [False, True])
 async def test_creation_bar_proves_negative_only_when_its_whole_range_never_touches_stop(
     crossed: bool,
+    venue_observed: bool,
 ) -> None:
     """Pre-creation crossing is ambiguous, not a trigger or an authorized cover recovery."""
     store = InMemoryAlertStore()
     book = _deployment(mode=DeploymentMode.LIVE, phase=RuntimePhase.OPEN)
-    position = _position(book)
+    position = replace(_position(book), stop_price=Decimal("95"))
     start = _NOW.replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
     order = Order(
         id=uuid4(),
@@ -294,7 +296,10 @@ async def test_creation_bar_proves_negative_only_when_its_whole_range_never_touc
         status=OrderStatus.OPEN,
         created_at=start + timedelta(minutes=30),
         updated_at=_NOW,
+        venue_order_id="venue-creation-evidence",
+        venue_observed_at=_NOW if venue_observed else None,
         stop_trigger_price=Decimal("95"),
+        price=Decimal("94.99"),
         product_id=book.product_id,
     )
     for code in (AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN):
@@ -323,7 +328,12 @@ async def test_creation_bar_proves_negative_only_when_its_whole_range_never_touc
         store, (book,), _Snapshots((snapshot,)), candles=creation_bar
     )
     assert AlertCode.STOP_TRIGGERED_UNFILLED not in {row.code for row in evidence.findings}
-    assert bool(await store.list_open_alerts()) is crossed
+    expected = (
+        {AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN}
+        if crossed or not venue_observed
+        else set()
+    )
+    assert {item.code for item in await store.list_open_alerts()} == expected
 
 
 @pytest.mark.parametrize("case", ["advance", "unchanged", "backwards", "strategy", "held"])

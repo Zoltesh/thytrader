@@ -1,7 +1,7 @@
 """Private disposable PostgreSQL coverage for monotone observations and delivery CAS.
 
-Only THYTRADER_ALERT_TEST_DATABASE_URL at loopback port 26466 is accepted here.
-No generic runtime or production database variable is used.
+THYTRADER_TEST_DATABASE_URL must identify a loopback test database, never port5439.
+Each test receives its own disposable migrated database, including downgrade tests.
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from alembic import command
 from tests.alerts.test_supervision import _no_candles
 from tests.execution_worker.test_safety_supervision import _deployment
+from tests.persistence.test_migration_0048_strategy_root import scratch_database
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -54,7 +55,8 @@ if TYPE_CHECKING:
 
     from thytrader.alerts.store import AlertChange
 
-_URL = os.getenv("THYTRADER_ALERT_TEST_DATABASE_URL")
+__all__ = ["scratch_database"]
+_URL = os.getenv("THYTRADER_TEST_DATABASE_URL")
 _NOW = datetime(2026, 10, 6, 12, tzinfo=UTC)
 pytestmark = [
     pytest.mark.anyio,
@@ -62,18 +64,29 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
-async def store(monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[PostgresAlertStore]:
-    """Create tables only in the explicitly isolated alerts test database."""
+@pytest.fixture(autouse=True)
+def private_target() -> None:
+    """Validate the parent before the shared scratch fixture creates any database."""
     if _URL is None:
         raise AssertionError("Private alert test DB required.")
     parsed = urlsplit(_URL)
-    if parsed.hostname not in {"127.0.0.1", "localhost"} or parsed.port != 26466:
-        raise AssertionError("Alerts tests accept only private loopback port 26466.")
+    if (
+        parsed.hostname not in {"127.0.0.1", "localhost"}
+        or parsed.port == 5439
+        or "test" not in parsed.path
+    ):
+        raise AssertionError("Alerts tests require a private loopback test database.")
+
+
+@pytest.fixture
+async def store(
+    scratch_database: str, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[PostgresAlertStore]:
+    """Migrate an owned database; no shared tables are cleared or downgraded."""
     # Suite autouse guards disable dotenv/credentials. Set only this private URL.
-    monkeypatch.setenv("THYTRADER_DATABASE_URL", _URL)
+    monkeypatch.setenv("THYTRADER_DATABASE_URL", scratch_database)
     await asyncio.to_thread(command.upgrade, Config("alembic.ini"), "head")
-    engine = create_engine(SecretStr(_URL))
+    engine = create_engine(SecretStr(scratch_database))
     try:
         yield PostgresAlertStore(engine)
     finally:
@@ -93,6 +106,7 @@ def _finding() -> SupervisionFinding:
 
 async def test_postgres_dedup_restart_watermark_and_out_of_order_recovery(
     store: PostgresAlertStore,
+    scratch_database: str,
 ) -> None:
     """Concurrent dedup and persistent healthy watermarks survive repository reconstruction."""
     finding = _finding()
@@ -117,8 +131,7 @@ async def test_postgres_dedup_restart_watermark_and_out_of_order_recovery(
     )
     assert not any(row.subject == finding.subject for row in await store.list_open_alerts())
     # New engine/repository on the same isolated database: no process-local watermark.
-    assert _URL is not None
-    engine = create_engine(SecretStr(_URL))
+    engine = create_engine(SecretStr(scratch_database))
     try:
         rebuilt = PostgresAlertStore(engine)
         result = await rebuilt.apply_observations(
@@ -291,6 +304,7 @@ async def test_postgres_deleted_book_keeps_alert_history_and_requires_authoritat
 
 async def test_postgres_failure_threshold_and_fenced_pause_survive_engine_restart(
     store: PostgresAlertStore,
+    scratch_database: str,
 ) -> None:
     """Persist the actual worker pause in PostgreSQL, then rebuild both repositories."""
     execution = PostgresExecutionStore(store._engine)
@@ -314,8 +328,7 @@ async def test_postgres_failure_threshold_and_fenced_pause_survive_engine_restar
     await _pause_repeatedly_failing_books(
         execution, application, deployments=(book,), consecutive_failure_cycles=3
     )
-    assert _URL is not None
-    engine = create_engine(SecretStr(_URL))
+    engine = create_engine(SecretStr(scratch_database))
     try:
         rebuilt_execution = PostgresExecutionStore(engine)
         rebuilt_alerts = PostgresAlertStore(engine)
@@ -355,7 +368,7 @@ async def test_reserved_migration_0066_roundtrip_on_private_database(
     store: PostgresAlertStore,
 ) -> None:
     """The extended reserved migration upgrades/downgrades with its actual DDL, not create_all."""
-    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "0064")
+    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "risk0065")
     await asyncio.to_thread(command.upgrade, Config("alembic.ini"), "head")
     change = await store.record(_finding(), now=_NOW)
     assert change.created

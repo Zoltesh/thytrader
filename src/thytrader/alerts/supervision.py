@@ -36,7 +36,11 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.execution.protection import book_position_state, book_protection_status
+from thytrader.execution.protection import (
+    ProtectionStatus,
+    book_position_state,
+    book_protection_evidence,
+)
 from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
@@ -202,7 +206,7 @@ async def gather_safety_findings(
         )
         sticky = _sticky_trigger_ids(deployment, snapshot, previous)
         trigger_ids = frozenset(triggered) | sticky
-        for finding in _protection_findings(deployment, snapshot, trigger_ids):
+        for finding in _protection_findings(deployment, snapshot, trigger_ids, now=now):
             _keep(ordered, finding)
         for finding in _stop_trigger_findings(deployment, snapshot, triggered):
             _keep(ordered, finding)
@@ -288,6 +292,19 @@ def _cover_evidence_unknown(
     """An active live stop needs fresh bar evidence before lost cover can clear."""
     if deployment.mode is not DeploymentMode.LIVE:
         return False
+    position = next(
+        (
+            item
+            for item in snapshot_positions(snapshot)
+            if resolved_product_id(item.product_id, deployment) == product
+        ),
+        None,
+    )
+    evidence = book_protection_evidence(snapshot, product_id=product, position=position, now=now)
+    if evidence.status is ProtectionStatus.UNKNOWN:
+        # A locally plausible order without current venue evidence is not proof
+        # that a previously uncovered book recovered, even with complete candles.
+        return True
     stops = tuple(
         order
         for order in snapshot.orders
@@ -453,6 +470,8 @@ def _protection_findings(
     deployment: Deployment,
     snapshot: DeploymentSnapshot,
     triggered: frozenset[UUID],
+    *,
+    now: datetime,
 ) -> tuple[SupervisionFinding, ...]:
     """Alert uncovered or unverifiable exit cover on occupied books.
 
@@ -464,10 +483,17 @@ def _protection_findings(
     findings: list[SupervisionFinding] = []
     for position in snapshot_positions(snapshot):
         product_id = resolved_product_id(position.product_id, deployment)
-        state = book_position_state(
-            snapshot, product_id=product_id, position=position, phase=deployment.phase
+        evidence = book_protection_evidence(
+            snapshot, product_id=product_id, position=position, now=now
         )
-        status = book_protection_status(snapshot, product_id=product_id, position=position)
+        state = book_position_state(
+            snapshot,
+            product_id=product_id,
+            position=position,
+            phase=deployment.phase,
+            evidence=evidence,
+        )
+        status = evidence.status
         if status.value not in {"unprotected", "unknown"}:
             if not _cover_voided_by_triggered_stops(
                 deployment, snapshot, product_id=product_id, position=position, triggered=triggered

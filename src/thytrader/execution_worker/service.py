@@ -358,7 +358,9 @@ async def _supervise_safety(
             deployments=current,
             snapshots=store,
             closed_candles=_supervision_candle_reader(market_data),
-            now=observed_at,
+            # Ordering uses the cycle-start watermark; freshness uses the actual
+            # evaluation time, after this cycle's venue reads have completed.
+            now=utc_now(),
             thresholds=alert_service.thresholds,
             worker_interval_seconds=worker_interval_seconds,
             prior_alerts=previous,

@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.alerts.models import AlertCode
+from thytrader.alerts.models import AlertCode, SafetyEvidence
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds
@@ -81,6 +81,33 @@ async def _cycle(execution: InMemoryExecutionStore, alerts: AlertService) -> Non
         alert_service=alerts,
         worker_interval_seconds=30,
     )
+
+
+async def test_supervision_freshness_uses_evaluation_time_not_cycle_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """New receipts from this cycle are not future-dated against its older watermark."""
+    evaluated_at = _NOW + timedelta(seconds=30)
+    observed: list[datetime] = []
+
+    async def gather(*, now: datetime, **kwargs: object) -> SafetyEvidence:
+        del kwargs
+        observed.append(now)
+        return SafetyEvidence()
+
+    monkeypatch.setattr(worker_service, "utc_now", lambda: evaluated_at)
+    monkeypatch.setattr(worker_service, "gather_safety_findings", gather)
+    _feed, alerts = _alerts()
+    await worker_service._supervise_safety(
+        alert_service=alerts,
+        store=InMemoryExecutionStore(),
+        market_data=MarketDataService(DemoMarketData()),
+        deployments=(),
+        cycle_failures=[],
+        worker_interval_seconds=30,
+        observed_at=_NOW,
+    )
+    assert observed == [evaluated_at]
 
 
 async def test_supervision_records_a_mismatch_even_when_signal_evaluation_is_not_run(
