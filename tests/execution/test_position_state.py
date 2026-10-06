@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_loop import _always_entry_strategy, _filled_long
 from thytrader.execution import protection
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -171,7 +172,11 @@ def test_opening_side_or_finished_marketable_orders_are_not_an_exit() -> None:
             _order(deployment, kind=OrderKind.TRIGGER_BRACKET),
         ),
     )
-    assert deployment_position_state(snapshot) is PositionState.OPEN_PROTECTED
+    assert not deployment_exit_in_flight(snapshot)
+    # A terminal status without its applied execution cannot certify remaining cover.
+    assert deployment_position_state(snapshot) is PositionState.OPEN_UNVERIFIED
+    # The retained position/cash in this geometry fixture already reflect the sell.
+    assert deployment_position_state(settled_snapshot(snapshot)) is PositionState.OPEN_PROTECTED
 
 
 def test_signal_exit_marker_and_flatten_are_exiting() -> None:

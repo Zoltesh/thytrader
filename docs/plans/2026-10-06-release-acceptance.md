@@ -67,6 +67,14 @@ negative control still denies. The focused combined risk/reporting/execution sel
 
 ## Current evidence checkpoint
 
+The complete backend run at `f0b8724` finished with **3,528 passed, one failed, no skips**
+(412.07s). The sole failure was an older position-state fixture presenting a FILLED exit with
+no applied fill evidence while expecting protected status. The corrected test first asserts
+unverified/not-exiting for that incomplete evidence, then supplies the fixture's already-applied
+execution before expecting protected status. Its nine-test module passes; production guards
+were not relaxed. A full rerun is required after this fixture correction. Frontend lint/type
+checks, 468 unit tests and production build passed; the combined 237-test browser run is pending.
+
 Root `6d82812` corrected immutable browser consent, active alert-delivery ownership and the five
 failures from the last full Python run at `6576811` (3,378 passes / five failures). The affected
 83-test run and four retained-evidence checks passed; the full run must still be repeated.
