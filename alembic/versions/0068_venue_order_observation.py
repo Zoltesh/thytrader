@@ -1,7 +1,7 @@
 """Keep successful venue order-state observations separate from local write timestamps.
 
 Revision ID: 0068
-Revises: 0064 (integration will rechain after the reserved fleet/alert migrations)
+Revises: 0067
 """
 
 import sqlalchemy as sa
@@ -9,7 +9,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0068"
-down_revision = "0064"
+down_revision = "0067"
 branch_labels = None
 depends_on = None
 

@@ -1,10 +1,10 @@
 """Durable fleet entry inhibition and idempotent fleet operations.
 
 Revision ID: 0067
-Revises: 0064
-Lead must rechain ``down_revision`` to 0066 after alerts 0066 and risk 0065 land.
-The table is unused until that migration is applied; admission treats a missing
-table as the previous, unlatched behavior.
+Revises: 0066
+
+Seed the two mode latches without changing existing deployment status or policy.
+The integrated release head is 0068.
 """
 
 import sqlalchemy as sa
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0067"
-down_revision = "0064"
+down_revision = "0066"
 branch_labels = None
 depends_on = None
 
@@ -63,7 +63,7 @@ def upgrade() -> None:
     op.create_index(
         "ix_deployments_inventory_created_id",
         "deployments",
-        ["created_at", "id"],
+        [sa.text("created_at DESC"), sa.text("id DESC")],
         unique=False,
     )
 

@@ -1,11 +1,9 @@
 """Durable operator safety alerts for pause, protection, and worker supervision.
 
 Revision ID: 0066
-Revises: 0064
+Revises: risk0065
 
-Sequence note (ADR 0115): this checkout has no 0065 revision, so 0066 follows
-0064. If a parallel slice lands 0065 first, re-point ``down_revision`` before
-merge. The advertised schema revision moves to 0066 with this migration.
+Follows retained paper risk evidence; the integrated release head is 0068.
 """
 
 import sqlalchemy as sa
@@ -13,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0066"
-down_revision = "0064"
+down_revision = "risk0065"
 branch_labels = None
 depends_on = None
 

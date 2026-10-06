@@ -87,7 +87,7 @@ async def test_venue_observation_restart_and_nullable_migration(
         await dispose(engine)
     # Reverse only this metadata addition, then upgrade it again around an existing order.
     monkeypatch.setenv("THYTRADER_DATABASE_URL", scratch_database)
-    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "0064")
+    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "0067")
     migrated = _alembic(scratch_database, "head")
     assert migrated.returncode == 0, migrated.stderr
     engine = create_engine(SecretStr(scratch_database))
