@@ -22,7 +22,7 @@ policy changes are part of this completion round.
 | Concurrent fill projection | Two independent PostgreSQL engines, distinct same-book fills and deterministic interleaving; both economics retained exactly once locally, sibling products preserved, duplicate replay harmless | Source concern; database proof required |
 | Product mark attribution | Real scoped closed-bar callers retain the correct sibling marks despite very different prices; no false/concealed loss or erroneous durable latch | Pending correction/verification |
 | Stopped time exit | Valid preview-only maintenance preserves the strategy's reached time exit without synthetic bars, guessed prices or cursor advancement | Pending correction/verification |
-| Reporting completeness | Missing occupied product with surviving sibling is unknown; prior incidents do not recover; portfolio equity/exposure/briefing totals stay null when dependent economics are unresolved | Integration in progress |
+| Reporting completeness | Missing occupied product with surviving sibling is unknown; prior incidents do not recover; portfolio equity/exposure/briefing totals stay null when dependent economics are unresolved | Integrated; 442 combined checks and 12 independent PostgreSQL restart/recovery cases passed |
 | Browser consent | Deferred preview cannot replace reviewed target/latch revisions; failed requests retry identical consent and idempotency key | Nine focused browser tests passed; final combined checks pending |
 | Delivery ownership | Disabled provider cannot revoke another dispatcher's unexpired claim; owner success/failure still acknowledges correctly across independent engines | Focused memory/PostgreSQL checks passed; final combined checks pending |
 
@@ -56,8 +56,16 @@ Root `6d82812` corrected immutable browser consent, active alert-delivery owners
 failures from the last full Python run at `6576811` (3,378 passes / five failures). The affected
 83-test run and four retained-evidence checks passed; the full run must still be repeated.
 Initial projection observability was integrated as `e2c9fdd`; 249 combined reporting/risk/alert/
-API/schema tests passed afterward. Follow-up product-runtime/portfolio reporting and the core
-transaction-boundary corrections are not certified by those counts.
+API/schema tests passed afterward. Product-runtime/portfolio reporting followed as `f48c81a`;
+442 combined reporting/risk/alerts/portfolio/API/schema checks passed with both private database
+settings. The lead's separate PostgreSQL regression passed all 12 paper/live, running/paused/
+stopped, OPEN/PENDING_EXIT combinations after engine restart: missing ETH remains unknown beside
+surviving BTC and prior incidents stay open until explicit FLAT runtime evidence appears. It uses
+real migrations in an exclusively owned test schema, does not infer exit quantity, and verifies
+that reporting preserves status and BTC inventory. Its first paper fixture was rejected for
+missing required fee configuration; the corrected fixture supplies explicit test fees without
+weakening that database constraint. Final combined suites and the core transaction-boundary
+corrections are not certified by these focused counts.
 
 The root graph was refreshed at `6d82812`: 93,752 nodes, 210,733 edges, 763 discovered flows.
 It reports 2,800 dropped entry-point candidates, 33 budget-cut walks, four depth caps and 621
