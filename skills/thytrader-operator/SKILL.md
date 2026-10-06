@@ -92,6 +92,18 @@ never zero. Keep the observed fees and PnL separate from those assumptions.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
+For `readiness`, inspect inventory completeness and `partial_result_warnings` before
+reading remaining capacity. Exposure is position cost plus working entries, not live
+marks. Actual product quotes (not the deployment primary product) determine scope;
+mixed books have per-quote rows and no cross-quote total. A deployment preflight still
+counts portfolio siblings. Missing runtime state has a null latch, not a reset.
+Paper/other-quote portfolio breakers are not compared to the live policy-quote account.
+For `venue-reconciliation`, **both** `managed_listing` and venue listings must be complete
+before foreign/orphan claims mean anything. Missing storage is not an empty fleet.
+Spot-history pagination includes queued cancellations/edits and pending orders; unknown
+statuses or malformed/duplicate pages fail closed. `CANCEL_QUEUED` is not cancellation
+confirmation. These observations never authorize replacement, cancellation, or flattening.
+
 `strategies` lists the 100 most recently updated strategies (`strategy_id`, `name`, `revision`, `valid`,
 `current_fingerprint` or `null` when the saved definition is invalid, `product_id`, `timeframe`,
 `updated_at`) plus deployment rows; there are no drafts, publications, or versions. Deployment rows

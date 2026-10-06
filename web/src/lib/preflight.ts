@@ -19,7 +19,7 @@ export interface ReadinessAccountCaps {
 	quote_currency: string;
 	venue_available_quote: string | null;
 	capital_base: string | null;
-	current_exposure: string;
+	current_exposure: string | null;
 	effective_exposure_cap: string | null;
 	remaining_entry_capacity: string | null;
 	absolute_exposure_cap: string | null;
@@ -61,8 +61,17 @@ export function readinessHeadline(report: ReadinessReport): ReadinessHeadline {
 	if (unknown) return { tone: 'warn', summary: unknown.detail };
 	const advisory = findings.find((item) => item.severity === 'advisory');
 	if (advisory) return { tone: 'warn', summary: advisory.detail };
+	if (report.overall_status !== 'healthy') {
+		return {
+			tone: 'warn',
+			summary: 'Readiness evidence is incomplete or unavailable. Capacity is not confirmed.'
+		};
+	}
 	const account = report.payload.account;
-	if (account?.remaining_entry_capacity) {
+	if (
+		account?.remaining_entry_capacity !== null &&
+		account?.remaining_entry_capacity !== undefined
+	) {
 		return {
 			tone: 'ok',
 			summary: `About ${account.remaining_entry_capacity} ${account.quote_currency} of account entry capacity remains. Advisory only.`

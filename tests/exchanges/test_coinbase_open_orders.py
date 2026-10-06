@@ -64,7 +64,7 @@ class _ClientBase:
 
 
 class _PagingClient(_ClientBase):
-    """Two complete OPEN pages, then stop."""
+    """Two complete spot-history pages, then stop."""
 
     def __init__(self) -> None:
         """Record cursors so tests can prove the second page was requested."""
@@ -72,7 +72,7 @@ class _PagingClient(_ClientBase):
 
     def list_orders(self, **kwargs: Any) -> _Response:
         """Return page one, then page two, and never a write."""
-        assert kwargs["order_status"] == ["OPEN"]
+        assert "order_status" not in kwargs
         assert kwargs["product_type"] == "SPOT"
         cursor = kwargs.get("cursor")
         self.cursors.append(cursor if isinstance(cursor, str) else None)
@@ -87,7 +87,6 @@ class _PagingClient(_ClientBase):
                             "status": "OPEN",
                             "client_order_id": "client-1",
                         },
-                        {"side": "SELL"},
                     ],
                     "has_next": True,
                     "cursor": "page-2",
@@ -116,7 +115,7 @@ class _RepeatedCursorClient(_ClientBase):
         del kwargs
         return _Response(
             {
-                "orders": [{"order_id": "venue-1", "product_id": "BTC-USDC", "side": "BUY"}],
+                "orders": [],
                 "has_next": True,
                 "cursor": "again",
             }
@@ -131,15 +130,22 @@ class _MissingCursorClient(_ClientBase):
         del kwargs
         return _Response(
             {
-                "orders": [{"order_id": "venue-1"}],
+                "orders": [
+                    {
+                        "order_id": "venue-1",
+                        "product_id": "BTC-USDC",
+                        "side": "BUY",
+                        "status": "OPEN",
+                    }
+                ],
                 "has_next": True,
                 "cursor": "",
             }
         )
 
 
-def test_open_orders_page_until_complete_and_drop_unidentified_rows() -> None:
-    """A complete listing keeps both pages and skips a row with no order id."""
+def test_open_orders_page_until_complete() -> None:
+    """A complete listing retains both pages without silently dropping malformed rows."""
     client = _PagingClient()
     orders = asyncio.run(CoinbaseAccount(client).list_open_orders())
     assert client.cursors == [None, "page-2"]

@@ -9,7 +9,7 @@ account's fee evidence, and both breaker tiers side by side.
 It never tightens, publishes, or changes risk policy, allocations, or bot state.
 Overcommitment of allocations is reported as an *advisory*: allocations are sizing
 limits, not reserved funds, and the entry gate already denies orders at the cap. An
-*actual* exposure violation (current marked exposure above the effective cap) is
+*actual* exposure violation (position cost plus working entries above the effective cap) is
 reported as a violation finding. Amounts are exact ``Decimal`` values rendered as
 canonical decimal strings; quote currencies are never summed across each other, and
 books whose quote differs from the policy quote are disclosed instead of folded into
@@ -34,14 +34,19 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
+    IntentPurpose,
     OrderSide,
+    OrderStatus,
     PositionSide,
+    is_venue_protection,
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
     SpotQuoteCurrency,
+    base_currency,
     is_spot_product_id,
     quote_currency,
 )
@@ -61,7 +66,6 @@ from thytrader.risk.exposure import (
     risk_bearing_snapshots,
     working_entry_notional,
 )
-from thytrader.risk.gate import portfolio_exposure
 from thytrader.risk.store import load_effective_policy
 
 if TYPE_CHECKING:
@@ -143,12 +147,32 @@ class ReadinessVenueQuote(_FrozenModel):
         return _require_utc(value)
 
 
+class ReadinessInventoryEvidence(_FrozenModel):
+    """Completeness of managed snapshot reads, never inferred from an empty result."""
+
+    status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    expected_books: int | None = Field(default=None, ge=0)
+    read_books: int = Field(default=0, ge=0)
+    missing_deployment_ids: tuple[UUID, ...] = ()
+    unsupported_products: tuple[str, ...] = ()
+    unpriced_entry_order_ids: tuple[UUID, ...] = ()
+
+
+class ReadinessQuoteExposure(_FrozenModel):
+    """One book's cost-basis exposure in exactly one quote currency, without FX."""
+
+    quote_currency: SpotQuoteCurrency
+    inventory_cost: str
+    working_entry_reserved: str
+    exposure: str
+
+
 class ReadinessProductCapRow(_FrozenModel):
-    """Account-wide marked exposure on one product versus the per-product cap."""
+    """Account-wide cost-basis exposure on one product versus the per-product cap."""
 
     product_id: str
     quote_currency: SpotQuoteCurrency | None = None
-    exposure: str
+    exposure: str | None
     cap: str | None = None
     remaining: str | None = None
 
@@ -168,9 +192,14 @@ class ReadinessAccountCaps(_FrozenModel):
     enforcement: Literal["advisory_only"] = "advisory_only"
     capital_base: str | None = None
     venue_available_quote: str | None = None
-    managed_long_inventory_cost: str = "0"
-    working_buy_entry_reserved: str = "0"
-    current_exposure: str = "0"
+    inventory: ReadinessInventoryEvidence
+    excluded_products: tuple[str, ...] = ()
+    exposure_basis: Literal["position_cost_plus_working_entries"] = (
+        "position_cost_plus_working_entries"
+    )
+    managed_long_inventory_cost: str | None = None
+    working_buy_entry_reserved: str | None = None
+    current_exposure: str | None = None
     exposure_fraction: str
     absolute_exposure_cap: str | None = None
     effective_exposure_cap: str | None = None
@@ -197,9 +226,12 @@ class ReadinessDeploymentRow(_FrozenModel):
     portfolio_id: UUID | None = None
     allocated_capital: str | None = None
     allocation_basis: Literal["stored", "portfolio_weight", "paper_starting_cash", "none"] = "none"
-    inventory_cost: str = "0"
-    working_entry_reserved: str = "0"
-    exposure: str = "0"
+    quote_exposures: tuple[ReadinessQuoteExposure, ...] = ()
+    unsupported_products: tuple[str, ...] = ()
+    unpriced_entry_order_ids: tuple[UUID, ...] = ()
+    inventory_cost: str | None = None
+    working_entry_reserved: str | None = None
+    exposure: str | None = None
     allocation_remaining: str | None = None
     daily_loss_latched: bool = False
     drawdown_latched: bool = False
@@ -234,16 +266,22 @@ class ReadinessPortfolioSection(_FrozenModel):
     limits: PortfolioLimits
     total_exposure_cap: str
     per_asset_cap: str
-    current_total_exposure: str
-    remaining_total_capacity: str
+    inventory: ReadinessInventoryEvidence
+    excluded_products: tuple[str, ...] = ()
+    current_total_exposure: str | None = None
+    remaining_total_capacity: str | None = None
     asset_caps: tuple[ReadinessAssetCapRow, ...] = ()
-    breaker_latched: bool = False
+    runtime_available: bool = False
+    breaker_latched: bool | None = None
     breaker_reason_code: str | None = None
     daily_loss_quote_stop: str | None = None
     drawdown_fraction_stop: str | None = None
     drawdown_stop_loss_allowance: str | None = None
     account_daily_loss_cap: str | None = None
-    tighter_daily_breaker: Literal["portfolio", "account", "neither_set", "unknown"] = "unknown"
+    account_breaker_comparable: bool = False
+    tighter_daily_breaker: Literal[
+        "portfolio", "account", "neither_set", "unknown", "not_comparable"
+    ] = "unknown"
 
 
 class ReadinessFeeGapRow(_FrozenModel):
@@ -294,6 +332,7 @@ class ReadinessFeeEvidence(_FrozenModel):
 class ReadinessPaperSection(_FrozenModel):
     """Paper-book capacity in the policy quote currency (advisory, rehearsal money)."""
 
+    quote_currency: SpotQuoteCurrency
     paper_capital_quote: str
     committed_starting_cash: str
     books: int = Field(ge=0)
@@ -306,6 +345,8 @@ class ReadinessPayload(_FrozenModel):
     deployment_id: UUID | None = None
     portfolio_id: UUID | None = None
     modes_in_scope: tuple[Literal["paper", "live"], ...] = ()
+    inventory: ReadinessInventoryEvidence = Field(default_factory=ReadinessInventoryEvidence)
+    portfolio_scope_complete: bool = False
     note: str = READINESS_NOTE
     venue_quotes: tuple[ReadinessVenueQuote, ...] = ()
     account: ReadinessAccountCaps | None = None
@@ -379,13 +420,26 @@ async def build_readiness_report(
         )
     except _ReadinessUnavailableError as error:
         return _failed_report(now, error.component)
-    snapshots = await _load_snapshots(execution, scoped, findings)
+    all_snapshots = await _load_snapshots(execution, deployments, findings)
+    snapshots = {item.id: all_snapshots[item.id] for item in scoped if item.id in all_snapshots}
     live_deployments = tuple(item for item in deployments if item.mode is DeploymentMode.LIVE)
-    live_snapshots = await _load_snapshots(execution, live_deployments, findings)
+    live_snapshots = {
+        item.id: all_snapshots[item.id] for item in live_deployments if item.id in all_snapshots
+    }
     live_bearing = risk_bearing_snapshots(tuple(live_snapshots.values()), DeploymentMode.LIVE)
     policy = await _load_policy(risk_policies, findings)
-    venue = await _read_venue(portfolio, policy, snapshots, findings)
-    account = None if policy is None else _account_section(policy, live_bearing, venue, findings)
+    venue = await _read_venue(portfolio, policy, all_snapshots, findings)
+    account = (
+        None
+        if policy is None
+        else _account_section(
+            policy,
+            live_bearing,
+            venue,
+            findings,
+            inventory_evidence=_inventory_evidence(live_deployments, live_snapshots),
+        )
+    )
     aggregates = await _load_portfolios(portfolios, portfolio_ids, warnings)
     rows = tuple(
         _deployment_row(snapshot, _aggregate_for(aggregates, snapshot.deployment.portfolio_id))
@@ -395,20 +449,27 @@ async def build_readiness_report(
         await _portfolio_section(
             portfolios,
             aggregate,
-            snapshots=snapshots,
-            account_daily_cap=(
-                None
-                if account is None or account.effective_daily_loss_cap is None
-                else Decimal(account.effective_daily_loss_cap)
-            ),
+            snapshots=all_snapshots,
+            deployments=deployments,
+            account=account,
             warnings=warnings,
         )
         for aggregate in aggregates
     ]
     fee_evidence = await _fee_evidence(portfolio, snapshots, findings)
-    paper = _paper_section(policy, snapshots)
+    paper = _paper_section(policy, scoped, warnings)
+    if warnings:
+        findings.append(
+            ReadinessFinding(
+                reason_code="READINESS_SCOPE_INCOMPLETE",
+                severity=ReadinessSeverity.UNKNOWN,
+                detail=(
+                    "Portfolio, runtime, or quote scope is incomplete; see partial_result_warnings."
+                ),
+            )
+        )
     _scope_findings(rows, account, portfolio_sections, paper, findings)
-    components = _components(findings, venue=venue, fee_evidence=fee_evidence)
+    components = _components(findings, venue=venue, fee_evidence=fee_evidence, warnings=warnings)
     modes = tuple(mode for mode in ("live", "paper") if any(row.mode == mode for row in rows))
     return ReadinessReport(
         application_version=__version__,
@@ -423,6 +484,8 @@ async def build_readiness_report(
             deployment_id=deployment_id,
             portfolio_id=portfolio_id,
             modes_in_scope=modes,
+            inventory=_inventory_evidence(scoped, snapshots),
+            portfolio_scope_complete=not warnings,
             venue_quotes=venue.rows,
             account=account,
             paper=paper,
@@ -449,8 +512,15 @@ def _failed_report(now: datetime, component: ComponentReport) -> ReadinessReport
 
 async def _list_deployments(execution: ExecutionStore | None) -> tuple[Deployment, ...]:
     """List every deployment, failing the report when storage errors."""
-    if execution is None:
-        return ()
+    if execution is None or isinstance(execution, DisabledExecutionStore):
+        raise _ReadinessUnavailableError(
+            ComponentReport(
+                name="readiness",
+                status=ReportStatus.FAILED,
+                reason_code="EXECUTION_UNAVAILABLE",
+                detail="No execution store is attached; the managed fleet is unknown, not empty.",
+            )
+        )
     try:
         return await execution.list_deployments()
     except Exception as error:
@@ -505,6 +575,7 @@ async def _fleet_portfolio_ids(
 ) -> tuple[UUID, ...]:
     """List fleet portfolio ids, warning when storage or the page bound hides some."""
     if portfolios is None:
+        warnings.append("Portfolio storage is unavailable; portfolio caps and scope are unknown.")
         return ()
     try:
         page = await portfolios.list_page(limit=_PORTFOLIO_REPORT_LIMIT, offset=0)
@@ -554,6 +625,43 @@ async def _load_snapshots(
     return snapshots
 
 
+def _inventory_evidence(
+    deployments: Sequence[Deployment], snapshots: Mapping[UUID, DeploymentSnapshot]
+) -> ReadinessInventoryEvidence:
+    """Describe expected reads, including unreadable stopped books with unknown residuals."""
+    missing = tuple(item.id for item in deployments if item.id not in snapshots)
+    read = tuple(snapshots[item.id] for item in deployments if item.id in snapshots)
+    unsupported = tuple(
+        product for product in _book_products(read) if not is_spot_product_id(product)
+    )
+    unpriced = _unpriced_entries(read)
+    return ReadinessInventoryEvidence(
+        status="partial" if missing or unsupported or unpriced else "complete",
+        unpriced_entry_order_ids=unpriced,
+        expected_books=len(deployments),
+        read_books=len(read),
+        missing_deployment_ids=missing,
+        unsupported_products=unsupported,
+    )
+
+
+def _unpriced_entries(snapshots: Sequence[DeploymentSnapshot]) -> tuple[UUID, ...]:
+    """Unresolved entries without notional evidence make capacity unknown, not free."""
+    ids: list[UUID] = []
+    for snapshot in snapshots:
+        purposes = {intent.id: intent.purpose for intent in snapshot.intents}
+        ids.extend(
+            order.id
+            for order in snapshot.orders
+            if order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+            and order.quantity > order.filled_quantity
+            and order.price is None
+            and not is_venue_protection(order.kind)
+            and purposes.get(order.intent_id, IntentPurpose.ENTRY) is IntentPurpose.ENTRY
+        )
+    return tuple(ids)
+
+
 async def _load_policy(
     risk_policies: RiskPolicyStore | None, findings: list[ReadinessFinding]
 ) -> ActiveRiskPolicy | None:
@@ -581,8 +689,7 @@ async def _read_venue(
     currencies: set[SpotQuoteCurrency] = set()
     if policy is not None:
         currencies.add(policy.definition.quote_currency)
-    for snapshot in snapshots.values():
-        product = snapshot.deployment.product_id
+    for product in _book_products(tuple(snapshots.values())):
         if is_spot_product_id(product):
             currencies.add(quote_currency(product))
     try:
@@ -679,23 +786,55 @@ def _account_section(
     live_bearing: Sequence[DeploymentSnapshot],
     venue: _VenueRead,
     findings: list[ReadinessFinding],
+    *,
+    inventory_evidence: ReadinessInventoryEvidence,
 ) -> ReadinessAccountCaps:
     """Compute account capacity in the policy quote currency (ADR 0106 scope)."""
     definition = policy.definition
     quote = definition.quote_currency
     venue_available = None if not venue.complete else venue.available.get(quote, _ZERO)
+    complete = inventory_evidence.status == "complete"
     inventory = sum(
         (
             position.quantity * position.entry_price
             for snapshot in live_bearing
             for position in snapshot_positions(snapshot)
             if position.side is PositionSide.LONG
+            and _product_quote(resolved_product_id(position.product_id, snapshot.deployment))
+            == quote
         ),
         _ZERO,
     )
-    buy_reserved = sum((_buy_entry_reserved(item) for item in live_bearing), _ZERO)
-    capital_base = None if venue_available is None else venue_available + inventory + buy_reserved
-    exposure = sum((_marked_exposure(item) for item in live_bearing), _ZERO)
+    buy_reserved = sum((_buy_entry_reserved(item, quote) for item in live_bearing), _ZERO)
+    capital_base = (
+        None
+        if venue_available is None or not complete
+        else venue_available + inventory + buy_reserved
+    )
+    exposure = sum((_quote_exposure(item, quote) for item in live_bearing), _ZERO)
+    excluded = tuple(
+        product for product in _book_products(live_bearing) if _product_quote(product) != quote
+    )
+    if excluded:
+        findings.append(
+            ReadinessFinding(
+                reason_code="QUOTE_CURRENCY_MISMATCH",
+                severity=ReadinessSeverity.INFO,
+                detail=f"Products outside {quote} account scope are excluded, not converted: "
+                + ", ".join(excluded)
+                + ".",
+            )
+        )
+    if not complete:
+        findings.append(
+            ReadinessFinding(
+                reason_code="ACCOUNT_INVENTORY_INCOMPLETE",
+                severity=ReadinessSeverity.UNKNOWN,
+                detail=(
+                    "Managed live inventory is incomplete; account totals and capacity are unknown."
+                ),
+            )
+        )
     fraction_cap = (
         None
         if capital_base is None
@@ -724,7 +863,7 @@ def _account_section(
     if effective_daily is not None and daily_absolute is not None:
         effective_daily = min(effective_daily, daily_absolute)
     product_caps = _product_cap_rows(
-        live_bearing, capital_base, definition.per_product_max_exposure_fraction
+        live_bearing, capital_base, definition.per_product_max_exposure_fraction, quote, complete
     )
     if effective is not None and exposure > effective:
         findings.append(
@@ -747,9 +886,11 @@ def _account_section(
         venue_available_quote=(
             None if venue_available is None else canonical_decimal(venue_available)
         ),
-        managed_long_inventory_cost=canonical_decimal(inventory),
-        working_buy_entry_reserved=canonical_decimal(buy_reserved),
-        current_exposure=canonical_decimal(exposure),
+        inventory=inventory_evidence,
+        excluded_products=excluded,
+        managed_long_inventory_cost=canonical_decimal(inventory) if complete else None,
+        working_buy_entry_reserved=canonical_decimal(buy_reserved) if complete else None,
+        current_exposure=canonical_decimal(exposure) if complete else None,
         exposure_fraction=definition.max_portfolio_exposure_fraction,
         absolute_exposure_cap=definition.max_portfolio_exposure_quote,
         effective_exposure_cap=None if effective is None else canonical_decimal(effective),
@@ -769,7 +910,7 @@ def _account_section(
 def _product_cap_findings(
     product_caps: tuple[ReadinessProductCapRow, ...], quote: SpotQuoteCurrency
 ) -> tuple[ReadinessFinding, ...]:
-    """Violation findings for products whose marked exposure exceeds the account cap."""
+    """Violation findings for products whose cost-basis exposure exceeds the account cap."""
     return tuple(
         ReadinessFinding(
             reason_code="PRODUCT_EXPOSURE_CAP_EXCEEDED",
@@ -780,7 +921,9 @@ def _product_cap_findings(
             ),
         )
         for row in product_caps
-        if row.cap is not None and Decimal(row.exposure) > Decimal(row.cap)
+        if row.cap is not None
+        and row.exposure is not None
+        and Decimal(row.exposure) > Decimal(row.cap)
     )
 
 
@@ -788,10 +931,14 @@ def _product_cap_rows(
     live_bearing: Sequence[DeploymentSnapshot],
     capital_base: Decimal | None,
     per_product_fraction: str,
+    quote: SpotQuoteCurrency,
+    complete: bool,
 ) -> tuple[ReadinessProductCapRow, ...]:
-    """Marked exposure per product across every live risk-bearing book."""
+    """Cost-basis exposure per product within the live policy-quote scope."""
     rows: list[ReadinessProductCapRow] = []
     for product in _book_products(live_bearing):
+        if _product_quote(product) != quote:
+            continue
         exposure = sum((product_exposure(item, product) for item in live_bearing), _ZERO)
         if exposure <= 0:
             continue
@@ -800,7 +947,7 @@ def _product_cap_rows(
             ReadinessProductCapRow(
                 product_id=product,
                 quote_currency=quote_currency(product) if is_spot_product_id(product) else None,
-                exposure=canonical_decimal(exposure),
+                exposure=canonical_decimal(exposure) if complete else None,
                 cap=None if cap is None else canonical_decimal(cap),
                 remaining=None if cap is None else canonical_decimal(cap - exposure),
             )
@@ -826,7 +973,7 @@ def _book_products(snapshots: Sequence[DeploymentSnapshot]) -> tuple[str, ...]:
     return tuple(sorted(product for product in products if product))
 
 
-def _buy_entry_reserved(snapshot: DeploymentSnapshot) -> Decimal:
+def _buy_entry_reserved(snapshot: DeploymentSnapshot, quote: SpotQuoteCurrency) -> Decimal:
     """Working buy-entry quote for one book; mirrors the risk gate's held capital.
 
     Sells and verified exit intents hold base units or reduce risk, so only buy
@@ -836,20 +983,55 @@ def _buy_entry_reserved(snapshot: DeploymentSnapshot) -> Decimal:
         snapshot, orders=tuple(order for order in snapshot.orders if order.side is OrderSide.BUY)
     )
     return sum(
-        (working_entry_notional(buys, product) for product in _book_products((snapshot,))), _ZERO
+        (
+            working_entry_notional(buys, product)
+            for product in _book_products((snapshot,))
+            if _product_quote(product) == quote
+        ),
+        _ZERO,
     )
 
 
-def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Signed position cost plus working entry remainders, as the gate counts exposure."""
-    total = sum(
-        (position.quantity * position.entry_price for position in snapshot_positions(snapshot)),
+def _product_quote(product: str) -> SpotQuoteCurrency | None:
+    """Resolve a spot product's quote without inferring FX for unsupported products."""
+    return quote_currency(product) if is_spot_product_id(product) else None
+
+
+def _quote_exposure(snapshot: DeploymentSnapshot, quote: SpotQuoteCurrency) -> Decimal:
+    """Cost-basis positions plus working entry remainders on actual same-quote products."""
+    return sum(
+        (
+            product_exposure(snapshot, product)
+            for product in _book_products((snapshot,))
+            if _product_quote(product) == quote
+        ),
         _ZERO,
     )
-    return total + sum(
-        (working_entry_notional(snapshot, product) for product in _book_products((snapshot,))),
-        _ZERO,
-    )
+
+
+def _quote_rows(snapshot: DeploymentSnapshot) -> tuple[ReadinessQuoteExposure, ...]:
+    """Split mixed-product books into exact per-quote rows; never label a cross-quote sum."""
+    rows: list[ReadinessQuoteExposure] = []
+    for quote in sorted({q for p in _book_products((snapshot,)) if (q := _product_quote(p))}):
+        cost = sum(
+            (
+                position.quantity * position.entry_price
+                for position in snapshot_positions(snapshot)
+                if _product_quote(resolved_product_id(position.product_id, snapshot.deployment))
+                == quote
+            ),
+            _ZERO,
+        )
+        exposure = _quote_exposure(snapshot, quote)
+        rows.append(
+            ReadinessQuoteExposure(
+                quote_currency=quote,
+                inventory_cost=canonical_decimal(cost),
+                working_entry_reserved=canonical_decimal(exposure - cost),
+                exposure=canonical_decimal(exposure),
+            )
+        )
+    return tuple(rows)
 
 
 def _deployment_row(
@@ -858,14 +1040,18 @@ def _deployment_row(
 ) -> ReadinessDeploymentRow:
     """Project one book's allocation, capacity, latches, and fee assumptions."""
     deployment = snapshot.deployment
-    products = _book_products((snapshot,))
-    inventory = sum(
-        (position.quantity * position.entry_price for position in snapshot_positions(snapshot)),
-        _ZERO,
-    )
-    working = sum((working_entry_notional(snapshot, product) for product in products), _ZERO)
+    unpriced = _unpriced_entries((snapshot,))
+    quotes = () if unpriced else _quote_rows(snapshot)
+    unsupported = tuple(p for p in _book_products((snapshot,)) if _product_quote(p) is None)
+    single = quotes[0] if len(quotes) == 1 and not unsupported else None
     allocated, basis = _allocation_of(deployment, aggregate)
-    remaining = None if allocated is None else max(_ZERO, allocated - working - inventory)
+    if single is None:
+        allocated, basis = None, "none"
+    remaining = (
+        None
+        if allocated is None or single is None
+        else max(_ZERO, allocated - Decimal(single.exposure))
+    )
     maker = taker = None
     if deployment.mode is DeploymentMode.PAPER:
         maker, taker = effective_paper_fee_rates(
@@ -879,13 +1065,16 @@ def _deployment_row(
         kind=deployment.kind.value,
         strategy_name=deployment.strategy_name,
         product_id=product,
-        quote_currency=quote_currency(product) if is_spot_product_id(product) else None,
+        quote_currency=None if single is None else single.quote_currency,
         portfolio_id=deployment.portfolio_id,
         allocated_capital=None if allocated is None else canonical_decimal(allocated),
         allocation_basis=basis,
-        inventory_cost=canonical_decimal(inventory),
-        working_entry_reserved=canonical_decimal(working),
-        exposure=canonical_decimal(inventory + working),
+        quote_exposures=quotes,
+        unsupported_products=unsupported,
+        unpriced_entry_order_ids=unpriced,
+        inventory_cost=None if single is None else single.inventory_cost,
+        working_entry_reserved=None if single is None else single.working_entry_reserved,
+        exposure=None if single is None else single.exposure,
         allocation_remaining=None if remaining is None else canonical_decimal(remaining),
         daily_loss_latched=deployment.daily_loss_latched,
         drawdown_latched=deployment.drawdown_latched,
@@ -923,7 +1112,10 @@ async def _load_portfolios(
     warnings: list[str],
 ) -> tuple[PortfolioAggregate, ...]:
     """Load the scoped portfolio aggregates; unreadable ones degrade to a warning."""
-    if portfolios is None or not portfolio_ids:
+    if not portfolio_ids:
+        return ()
+    if portfolios is None:
+        warnings.append("Portfolio storage is unavailable; requested portfolio caps are omitted.")
         return ()
     aggregates: list[PortfolioAggregate] = []
     for portfolio_id in portfolio_ids:
@@ -948,7 +1140,8 @@ async def _portfolio_section(
     aggregate: PortfolioAggregate,
     *,
     snapshots: Mapping[UUID, DeploymentSnapshot],
-    account_daily_cap: Decimal | None,
+    deployments: Sequence[Deployment],
+    account: ReadinessAccountCaps | None,
     warnings: list[str],
 ) -> ReadinessPortfolioSection:
     """One portfolio's caps, exposure, and both breaker tiers (disclosure only)."""
@@ -959,11 +1152,25 @@ async def _portfolio_section(
         for item in snapshots.values()
         if item.deployment.portfolio_id == portfolio.portfolio_id and item.deployment.mode is mode
     )
+    expected = tuple(
+        item
+        for item in deployments
+        if item.portfolio_id == portfolio.portfolio_id and item.mode is mode
+    )
+    inventory = _inventory_evidence(expected, snapshots)
     runtime = await _runtime_state(portfolios, portfolio.portfolio_id, warnings)
     capital = Decimal(portfolio.capital_quote)
     limits = portfolio.limits
     bearing = risk_bearing_snapshots(members, mode)
-    exposure = portfolio_exposure(portfolio.portfolio_id, bearing)
+    excluded = tuple(
+        p for p in _book_products(bearing) if _product_quote(p) != portfolio.quote_currency
+    )
+    complete = inventory.status == "complete" and not excluded
+    if not complete:
+        warnings.append(
+            f"Portfolio {portfolio.portfolio_id} inventory scope is incomplete or mixed-quote."
+        )
+    exposure, assets = _portfolio_quote_exposure(bearing, portfolio.quote_currency)
     total_cap = capital * Decimal(limits.max_total_exposure_fraction)
     asset_cap = capital * Decimal(limits.max_per_asset_fraction)
     asset_rows = tuple(
@@ -973,12 +1180,22 @@ async def _portfolio_section(
             cap=canonical_decimal(asset_cap),
             remaining=canonical_decimal(asset_cap - held),
         )
-        for asset, held in sorted(exposure.assets.items())
-        if held > 0
+        for asset, held in sorted(assets.items())
+        if complete and held > 0
+    )
+    comparable = (
+        portfolio.mode == "live"
+        and account is not None
+        and portfolio.quote_currency == account.quote_currency
+    )
+    account_daily_cap = (
+        Decimal(account.effective_daily_loss_cap)
+        if comparable and account is not None and account.effective_daily_loss_cap is not None
+        else None
     )
     daily_stop = limits.daily_loss_quote
     drawdown_stop = limits.max_drawdown_fraction
-    peak = runtime.high_water_mark_equity
+    peak = None if runtime is None else runtime.high_water_mark_equity
     allowance = None if peak is None or drawdown_stop is None else peak * Decimal(drawdown_stop)
     return ReadinessPortfolioSection(
         portfolio_id=portfolio.portfolio_id,
@@ -991,38 +1208,62 @@ async def _portfolio_section(
         limits=limits,
         total_exposure_cap=canonical_decimal(total_cap),
         per_asset_cap=canonical_decimal(asset_cap),
-        current_total_exposure=canonical_decimal(exposure.total),
-        remaining_total_capacity=canonical_decimal(total_cap - exposure.total),
+        inventory=inventory.model_copy(update={"status": "partial"}) if not complete else inventory,
+        excluded_products=excluded,
+        current_total_exposure=canonical_decimal(exposure) if complete else None,
+        remaining_total_capacity=canonical_decimal(total_cap - exposure) if complete else None,
         asset_caps=asset_rows,
-        breaker_latched=runtime.breaker_latched,
-        breaker_reason_code=runtime.breaker_reason,
+        runtime_available=runtime is not None,
+        breaker_latched=None if runtime is None else runtime.breaker_latched,
+        breaker_reason_code=None if runtime is None else runtime.breaker_reason,
         daily_loss_quote_stop=daily_stop,
         drawdown_fraction_stop=drawdown_stop,
         drawdown_stop_loss_allowance=(None if allowance is None else canonical_decimal(allowance)),
         account_daily_loss_cap=(
             None if account_daily_cap is None else canonical_decimal(account_daily_cap)
         ),
-        tighter_daily_breaker=_tighter_daily_breaker(
-            portfolio_stop=None if daily_stop is None else Decimal(daily_stop),
-            account_stop=account_daily_cap,
+        account_breaker_comparable=comparable,
+        tighter_daily_breaker=(
+            "not_comparable"
+            if not comparable
+            else "unknown"
+            if account_daily_cap is None or not complete
+            else _tighter_daily_breaker(
+                portfolio_stop=None if daily_stop is None else Decimal(daily_stop),
+                account_stop=account_daily_cap,
+            )
         ),
     )
+
+
+def _portfolio_quote_exposure(
+    snapshots: Sequence[DeploymentSnapshot], quote: SpotQuoteCurrency
+) -> tuple[Decimal, dict[str, Decimal]]:
+    """Aggregate product cost exposure within one portfolio quote, without FX."""
+    assets: dict[str, Decimal] = {}
+    for product in _book_products(snapshots):
+        if _product_quote(product) != quote:
+            continue
+        held = sum((product_exposure(snapshot, product) for snapshot in snapshots), _ZERO)
+        asset = base_currency(product)
+        assets[asset] = assets.get(asset, _ZERO) + held
+    return sum(assets.values(), _ZERO), assets
 
 
 async def _runtime_state(
     portfolios: ReadinessPortfolioDirectory | None,
     portfolio_id: UUID,
     warnings: list[str],
-) -> PortfolioRuntimeState:
-    """Read one portfolio's durable runtime state, defaulting to the empty state."""
-    if portfolios is None:
-        warnings.append(f"Runtime state of portfolio {portfolio_id} is unavailable.")
-        return PortfolioRuntimeState(portfolio_id=portfolio_id)
-    try:
-        return await portfolios.runtime_state(portfolio_id)
-    except Exception:  # noqa: BLE001 - runtime state is disclosure, not enforcement.
-        warnings.append(f"Runtime state of portfolio {portfolio_id} is unavailable.")
-        return PortfolioRuntimeState(portfolio_id=portfolio_id)
+) -> PortfolioRuntimeState | None:
+    """Read durable runtime state; unavailable is unknown, never a fresh unlatched state."""
+    if portfolios is not None:
+        try:
+            return await portfolios.runtime_state(portfolio_id)
+        except Exception:  # noqa: BLE001 - unavailable state is disclosed, not fabricated.
+            warnings.append(f"Runtime state of portfolio {portfolio_id} is unavailable.")
+            return None
+    warnings.append(f"Runtime state of portfolio {portfolio_id} is unavailable.")
+    return None
 
 
 def _tighter_daily_breaker(
@@ -1165,21 +1406,28 @@ async def _fee_evidence(
 
 def _paper_section(
     policy: ActiveRiskPolicy | None,
-    snapshots: Mapping[UUID, DeploymentSnapshot],
+    deployments: Sequence[Deployment],
+    warnings: list[str],
 ) -> ReadinessPaperSection | None:
     """Paper-book committed starting cash versus the policy's paper capital."""
     if policy is None:
         return None
-    paper = [
-        item.deployment
-        for item in snapshots.values()
-        if item.deployment.mode is DeploymentMode.PAPER
+    paper = [item for item in deployments if item.mode is DeploymentMode.PAPER]
+    matching = [
+        item
+        for item in paper
+        if _product_quote(item.product_id) == policy.definition.quote_currency
     ]
-    committed = sum((item.paper_starting_cash or _ZERO for item in paper), _ZERO)
+    if len(matching) != len(paper):
+        warnings.append(
+            "Paper starting-cash totals exclude other/unknown quote books; no FX assumed."
+        )
+    committed = sum((item.paper_starting_cash or _ZERO for item in matching), _ZERO)
     return ReadinessPaperSection(
+        quote_currency=policy.definition.quote_currency,
         paper_capital_quote=policy.definition.paper_capital_quote,
         committed_starting_cash=canonical_decimal(committed),
-        books=len(paper),
+        books=len(matching),
     )
 
 
@@ -1285,7 +1533,9 @@ def _portfolio_findings(
     section: ReadinessPortfolioSection, findings: list[ReadinessFinding]
 ) -> None:
     """Violation findings for portfolio caps and an advisory for a latched breaker."""
-    if Decimal(section.current_total_exposure) > Decimal(section.total_exposure_cap):
+    if section.current_total_exposure is not None and Decimal(
+        section.current_total_exposure
+    ) > Decimal(section.total_exposure_cap):
         findings.append(
             ReadinessFinding(
                 reason_code="PORTFOLIO_EXPOSURE_CAP_EXCEEDED",
@@ -1332,6 +1582,7 @@ def _components(
     *,
     venue: _VenueRead,
     fee_evidence: ReadinessFeeEvidence,
+    warnings: Sequence[str],
 ) -> list[ComponentReport]:
     """Grade the report from finding severities plus venue and fee evidence."""
     severities = {finding.severity for finding in findings}
@@ -1342,7 +1593,7 @@ def _components(
             reason_code="READINESS_VIOLATION",
             detail="Current exposure exceeds at least one cap; inspect before new risk.",
         )
-    elif ReadinessSeverity.UNKNOWN in severities:
+    elif ReadinessSeverity.UNKNOWN in severities or warnings:
         main = ComponentReport(
             name="readiness",
             status=ReportStatus.DEGRADED,

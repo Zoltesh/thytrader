@@ -22,6 +22,7 @@
 		try {
 			report = await fetchReadiness();
 		} catch (caught) {
+			report = null;
 			error = caught instanceof Error ? caught.message : 'Readiness preflight is unavailable.';
 		} finally {
 			loading = false;
@@ -61,7 +62,7 @@
 				<dd>{amount(account.effective_exposure_cap, account.quote_currency)}</dd>
 			</div>
 			<div>
-				<dt>Current exposure</dt>
+				<dt>Cost-basis exposure</dt>
 				<dd>{amount(account.current_exposure, account.quote_currency)}</dd>
 			</div>
 			<div>
@@ -70,7 +71,8 @@
 			</div>
 		</dl>
 		<p class="note">
-			Advisory only. Allocations above the cap are not the same as exposure already over the cap.
+			Advisory only. Exposure uses recorded position cost plus working entry remainders, not live
+			marks. Allocations above the cap are not the same as exposure already over the cap.
 			{#if optimistic > 0}
 				{optimistic} paper book(s) assume cheaper fees than the account reports.
 			{/if}

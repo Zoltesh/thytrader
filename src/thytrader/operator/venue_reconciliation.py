@@ -1,7 +1,7 @@
 """Operator ``venue-reconciliation`` report: managed books versus the whole venue (ADR 0114).
 
 Read-only. This report compares what every managed live book claims to hold or work
-against a fresh venue-wide listing of balances and resting open orders. A healthy
+against sequential venue-wide reads of balances and nonterminal spot orders. A healthy
 local ledger is *not* venue reconciliation: only the venue listing can reveal drift.
 
 Semantics that matter financially:
@@ -13,7 +13,7 @@ Semantics that matter financially:
 - A managed working order absent from a *complete* venue open-order listing is an
   orphan warning. Unknown is not rejected; the operator must reconcile with the venue
   before replacing or cancelling anything. This report never creates or cancels orders.
-- When a venue listing is incomplete (read failure or pagination anomaly), every
+- When either managed reads or a venue listing is incomplete, every
   comparison that depends on it is reported as unknown — never guessed — and the
   report says so explicitly (fail closed).
 - Observation scope, timestamps, and listing completeness are explicit. Account
@@ -22,6 +22,7 @@ Semantics that matter financially:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
@@ -35,12 +36,12 @@ from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailu
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
-    DeploymentStatus,
     OrderSide,
     OrderStatus,
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
     SpotQuoteCurrency,
@@ -56,7 +57,6 @@ from thytrader.operator.models import (
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.research.indicators import canonical_decimal
-from thytrader.risk.exposure import snapshot_has_residual_exposure
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -69,7 +69,8 @@ VENUE_RECONCILIATION_NOTE = (
     "A healthy local ledger is not venue reconciliation: managed inventory and working "
     "orders are compared against a fresh venue-wide listing. External (foreign) holdings "
     "and orders are disclosed, not treated as errors and not flattened. Unknown listings "
-    "make the dependent comparisons unknown, never guessed."
+    "make dependent comparisons unknown. Reads are sequential, not atomic, and cover "
+    "only the configured credential's venue visibility."
 )
 QUOTE_POOL_NOTE = (
     "Quote funds are a shared pool: foreign cash and managed reservations cannot be "
@@ -114,13 +115,16 @@ class VenueFinding(_FrozenModel):
 class VenueListingEvidence(_FrozenModel):
     """Completeness of one venue listing read.
 
-    ``status`` is ``complete`` only when the adapter paged the whole listing and every
-    page parsed; a read failure or pagination anomaly leaves it ``unavailable`` and
-    every comparison depending on it unknown (fail closed). The adapter never returns
-    partial rows.
+    ``status`` is ``complete`` only within the configured credential's visibility:
+    the adapter paged the whole requested listing and every page parsed. A read
+    failure or pagination anomaly leaves it ``unavailable`` and every dependent
+    comparison unknown (fail closed). The adapter never returns partial rows.
     """
 
-    status: Literal["complete", "unavailable"]
+    status: Literal["complete", "unavailable"] = "unavailable"
+    scope: Literal["not_observed", "venue_balances", "spot_order_history_nonterminal"] = (
+        "not_observed"
+    )
     demo: bool = False
     observed_at: datetime | None = None
     rows: int = Field(default=0, ge=0)
@@ -133,6 +137,17 @@ class VenueListingEvidence(_FrozenModel):
         if value is None:
             return None
         return _require_utc(value)
+
+
+class ManagedListingEvidence(_FrozenModel):
+    """Completeness of every live-book read, including stopped books with possible residuals."""
+
+    scope: Literal["all_live_books_including_stopped"] = "all_live_books_including_stopped"
+    status: Literal["complete", "partial", "unavailable"] = "unavailable"
+    expected_books: int | None = Field(default=None, ge=0)
+    read_books: int = Field(default=0, ge=0)
+    missing_deployment_ids: tuple[UUID, ...] = ()
+    unsupported_products: tuple[str, ...] = ()
 
 
 class AssetReconciliationRow(_FrozenModel):
@@ -150,12 +165,12 @@ class AssetReconciliationRow(_FrozenModel):
     venue_available: str | None = None
     venue_hold: str | None = None
     venue_rows: int = Field(default=0, ge=0)
-    managed_long_quantity: str = "0"
-    managed_short_quantity: str = "0"
-    managed_net_quantity: str = "0"
+    managed_long_quantity: str | None = None
+    managed_short_quantity: str | None = None
+    managed_net_quantity: str | None = None
     foreign_quantity: str | None = None
     classification: Literal[
-        "matched", "external_inventory", "managed_exceeds_venue", "venue_unknown"
+        "matched", "external_inventory", "managed_exceeds_venue", "venue_unknown", "managed_unknown"
     ]
 
 
@@ -165,14 +180,15 @@ class QuoteReconciliationRow(_FrozenModel):
     quote_currency: SpotQuoteCurrency
     venue_available: str | None = None
     venue_total: str | None = None
-    managed_working_buy_notional: str = "0"
+    managed_working_buy_notional: str | None = None
     note: str = QUOTE_POOL_NOTE
 
 
 class ForeignOpenOrderRow(_FrozenModel):
-    """One venue-resting order no managed book claims (external, not an error)."""
+    """One nonterminal venue order no complete managed listing claims."""
 
     venue_order_id: str
+    client_order_id: str | None = None
     product_id: str | None = None
     side: str | None = None
     status: str | None = None
@@ -190,14 +206,14 @@ class OrphanManagedOrderRow(_FrozenModel):
 
 
 class OrderReconciliationSection(_FrozenModel):
-    """Managed working orders versus the venue's resting open orders.
+    """Managed working orders versus all venue nonterminal spot orders.
 
-    ``foreign`` and ``orphan`` are ``None`` (not empty) when the venue listing is
-    incomplete, so "no rows" can never be misread as "nothing at the venue".
+    ``foreign``, ``orphan`` and ``matched`` are null when either evidence side is
+    incomplete, so omitted comparisons cannot imply an empty or fully managed venue.
     """
 
-    managed_working: int = Field(default=0, ge=0)
-    managed_pending_submit: int = Field(default=0, ge=0)
+    managed_working: int | None = Field(default=None, ge=0)
+    managed_pending_submit: int | None = Field(default=None, ge=0)
     venue_open: int | None = None
     matched: int | None = None
     foreign: tuple[ForeignOpenOrderRow, ...] | None = None
@@ -211,7 +227,8 @@ class VenueReconciliationPayload(_FrozenModel):
 
     observed_at: datetime
     note: str = VENUE_RECONCILIATION_NOTE
-    managed_books: int = Field(default=0, ge=0)
+    managed_books: int | None = Field(default=None, ge=0)
+    managed_listing: ManagedListingEvidence = Field(default_factory=ManagedListingEvidence)
     balances_listing: VenueListingEvidence = Field(default_factory=VenueListingEvidence)
     orders_listing: VenueListingEvidence = Field(default_factory=VenueListingEvidence)
     assets: tuple[AssetReconciliationRow, ...] = ()
@@ -243,6 +260,9 @@ class _ManagedInventory:
         self.working: list[Order] = []
         self.pending_submit: list[Order] = []
         self.buy_notional: dict[str, Decimal] = {}
+        self.unknown_buy_quotes: set[str] = set()
+        self.claimed_venue_ids: set[str] = set()
+        self.claimed_client_ids: set[str] = set()
 
     def add_position(self, currency: str, quantity: Decimal, *, long: bool) -> None:
         """Accumulate one signed position into its base currency."""
@@ -255,7 +275,10 @@ class _ManagedInventory:
             self.working.append(order)
         else:
             self.pending_submit.append(order)
-        if quote is None or order.side is not OrderSide.BUY or order.price is None:
+        if quote is None or order.side is not OrderSide.BUY:
+            return
+        if order.price is None:
+            self.unknown_buy_quotes.add(quote)
             return
         remaining = order.quantity - order.filled_quantity
         if remaining > 0:
@@ -289,16 +312,19 @@ async def build_venue_reconciliation_report(
     findings: list[VenueFinding] = []
     warnings: list[str] = []
     try:
-        snapshots = await _managed_snapshots(execution, findings, warnings)
+        managed = await _managed_snapshots(execution, findings, warnings)
     except _VenueUnavailableError as error:
         return _failed_report(now, error.component)
-    inventory = _collect_inventory(snapshots)
+    inventory = _collect_inventory(managed.snapshots)
+    managed_complete = managed.evidence.status == "complete"
     balances, balance_rows = await _read_balances(portfolio, findings)
-    venue_orders, orders_evidence = await _read_open_orders(portfolio, now, findings)
+    venue_orders, orders_evidence = await _read_open_orders(portfolio, findings)
     listing_complete = balances.evidence.status == "complete"
-    assets = _asset_rows(inventory, balance_rows, listing_complete, findings)
-    quotes = _quote_rows(inventory, balance_rows, listing_complete)
-    orders_section = _order_section(inventory, venue_orders, orders_evidence, findings)
+    assets = _asset_rows(inventory, balance_rows, listing_complete, findings, managed_complete)
+    quotes = _quote_rows(inventory, balance_rows, listing_complete, managed_complete)
+    orders_section = _order_section(
+        inventory, venue_orders, orders_evidence, findings, managed_complete
+    )
     demo = balances.demo or orders_evidence.demo
     if demo:
         findings.append(
@@ -322,7 +348,8 @@ async def build_venue_reconciliation_report(
         recommended_next_action=recommend_next_action(components),
         payload=VenueReconciliationPayload(
             observed_at=now,
-            managed_books=len(snapshots),
+            managed_books=len(managed.snapshots) if managed_complete else None,
+            managed_listing=managed.evidence,
             balances_listing=balances.evidence,
             orders_listing=orders_evidence,
             assets=assets,
@@ -333,19 +360,33 @@ async def build_venue_reconciliation_report(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _ManagedRead:
+    """Known snapshots plus explicit completeness; missing reads are never zero inventory."""
+
+    snapshots: tuple[DeploymentSnapshot, ...]
+    evidence: ManagedListingEvidence
+
+
 async def _managed_snapshots(
     execution: ExecutionStore | None,
     findings: list[VenueFinding],
     warnings: list[str],
-) -> tuple[DeploymentSnapshot, ...]:
-    """Load every live book that can still hold venue inventory or working orders.
+) -> _ManagedRead:
+    """Read every live book, including stopped books and their historical order claims.
 
-    Running and paused books always count; a stopped book counts only while it still
-    bears residual exposure (inventory, in-market phases, or working entries), because
-    a stopped flat book cannot hold anything at the venue.
+    A stopped flat book cannot hold inventory but its order IDs still establish local
+    ownership. If the venue returns one as nonterminal, it is drift, not foreign activity.
     """
-    if execution is None:
-        return ()
+    if execution is None or isinstance(execution, DisabledExecutionStore):
+        raise _VenueUnavailableError(
+            ComponentReport(
+                name="venue_reconciliation",
+                status=ReportStatus.FAILED,
+                reason_code="EXECUTION_UNAVAILABLE",
+                detail="No execution store is attached; managed inventory is unknown, not empty.",
+            )
+        )
     try:
         deployments = await execution.list_deployments()
     except Exception as error:
@@ -379,16 +420,38 @@ async def _managed_snapshots(
         warnings.append(
             f"{unreadable} live book(s) could not be read; the managed side is partial."
         )
-    return tuple(
-        snapshot
-        for snapshot in snapshots
-        if snapshot.deployment.status is not DeploymentStatus.STOPPED or _bears_residual(snapshot)
+    known = tuple(snapshots)
+    unsupported = _unsupported_products(known)
+    if unsupported:
+        findings.append(
+            VenueFinding(
+                reason_code="MANAGED_PRODUCT_SCOPE_UNKNOWN",
+                severity=VenueSeverity.UNKNOWN,
+                detail="Managed inventory contains unsupported products; comparisons are unknown.",
+            )
+        )
+    return _ManagedRead(
+        known,
+        ManagedListingEvidence(
+            status="partial" if unreadable or unsupported else "complete",
+            unsupported_products=unsupported,
+            expected_books=len(live),
+            read_books=len(snapshots),
+            missing_deployment_ids=tuple(
+                item.id for item in live if item.id not in {s.deployment.id for s in snapshots}
+            ),
+        ),
     )
 
 
-def _bears_residual(snapshot: DeploymentSnapshot) -> bool:
-    """True when a stopped book still holds inventory or working entries."""
-    return snapshot_has_residual_exposure(snapshot)
+def _unsupported_products(snapshots: Sequence[DeploymentSnapshot]) -> tuple[str, ...]:
+    """Resolve actual managed products; unsupported inventory cannot become foreign."""
+    products = {
+        resolved_product_id(row.product_id, snapshot.deployment)
+        for snapshot in snapshots
+        for row in (*snapshot_positions(snapshot), *snapshot.orders)
+    }
+    return tuple(sorted(product for product in products if not is_spot_product_id(product)))
 
 
 def _failed_report(now: datetime, component: ComponentReport) -> VenueReconciliationReport:
@@ -414,6 +477,9 @@ def _collect_inventory(snapshots: Sequence[DeploymentSnapshot]) -> _ManagedInven
             signed = abs(position.quantity)
             inventory.add_position(currency, signed, long=position.side.value == "long")
         for order in snapshot.orders:
+            inventory.claimed_client_ids.add(order.client_order_id)
+            if order.venue_order_id:
+                inventory.claimed_venue_ids.add(order.venue_order_id)
             if order.status not in _WORKING_STATUSES:
                 continue
             product = resolved_product_id(order.product_id, snapshot.deployment)
@@ -483,6 +549,7 @@ async def _read_balances(
         )
     evidence = VenueListingEvidence(
         status="complete",
+        scope="venue_balances",
         demo=observed.demo,
         observed_at=observed.as_of,
         rows=len(observed.assets),
@@ -491,9 +558,9 @@ async def _read_balances(
 
 
 async def _read_open_orders(
-    portfolio: PortfolioService, observed_at: datetime, findings: list[VenueFinding]
+    portfolio: PortfolioService, findings: list[VenueFinding]
 ) -> tuple[tuple[ForeignOpenOrderRow, ...] | None, VenueListingEvidence]:
-    """Read the venue's resting open orders; None means the listing is unknown."""
+    """Read all nonterminal spot orders; None means unknown, never an empty listing."""
     try:
         orders = await portfolio.list_open_orders()
     except ExchangeReadError as error:
@@ -526,12 +593,17 @@ async def _read_open_orders(
         )
         return None, evidence
     evidence = VenueListingEvidence(
-        status="complete", demo=portfolio.demo, observed_at=observed_at, rows=len(orders)
+        status="complete",
+        scope="spot_order_history_nonterminal",
+        demo=portfolio.demo,
+        observed_at=datetime.now(UTC),
+        rows=len(orders),
     )
     return (
         tuple(
             ForeignOpenOrderRow(
                 venue_order_id=order.venue_order_id,
+                client_order_id=order.client_order_id,
                 product_id=order.product_id,
                 side=order.side,
                 status=order.status,
@@ -560,12 +632,15 @@ def _asset_rows(
     balance_rows: dict[str, tuple[Decimal, Decimal, Decimal, int]],
     complete: bool,
     findings: list[VenueFinding],
+    managed_complete: bool,
 ) -> tuple[AssetReconciliationRow, ...]:
     """Classify every asset with managed quantity or a non-quote venue balance."""
     currencies = set(inventory.currencies())
     currencies.update(
         currency for currency in balance_rows if currency not in SPOT_QUOTE_CURRENCIES
     )
+    if not managed_complete:
+        return _managed_unknown_assets(currencies, balance_rows, complete)
     rows: list[AssetReconciliationRow] = []
     for currency in sorted(currencies):
         managed_net = inventory.net(currency)
@@ -593,12 +668,7 @@ def _asset_rows(
         classification: Literal[
             "matched", "external_inventory", "managed_exceeds_venue", "venue_unknown"
         ]
-        if foreign > 0:
-            classification = "external_inventory"
-        elif foreign < 0:
-            classification = "managed_exceeds_venue"
-        else:
-            classification = "matched"
+        classification = _classify_difference(foreign)
         rows.append(
             AssetReconciliationRow(
                 currency=currency,
@@ -640,14 +710,48 @@ def _asset_rows(
     return tuple(rows)
 
 
+def _classify_difference(
+    foreign: Decimal,
+) -> Literal["matched", "external_inventory", "managed_exceeds_venue"]:
+    """Classify a quantity difference only after both evidence sides are complete."""
+    if foreign > 0:
+        return "external_inventory"
+    if foreign < 0:
+        return "managed_exceeds_venue"
+    return "matched"
+
+
+def _managed_unknown_assets(
+    currencies: set[str],
+    balance_rows: dict[str, tuple[Decimal, Decimal, Decimal, int]],
+    venue_complete: bool,
+) -> tuple[AssetReconciliationRow, ...]:
+    """Disclose observed venue quantities without foreign or shortfall claims."""
+    rows: list[AssetReconciliationRow] = []
+    for currency in sorted(currencies):
+        available, hold, total, count = balance_rows.get(currency, (_ZERO, _ZERO, _ZERO, 0))
+        rows.append(
+            AssetReconciliationRow(
+                currency=currency,
+                classification="managed_unknown",
+                venue_quantity=canonical_decimal(total) if venue_complete else None,
+                venue_available=canonical_decimal(available) if venue_complete else None,
+                venue_hold=canonical_decimal(hold) if venue_complete else None,
+                venue_rows=count if venue_complete else 0,
+            )
+        )
+    return tuple(rows)
+
+
 def _quote_rows(
     inventory: _ManagedInventory,
     balance_rows: dict[str, tuple[Decimal, Decimal, Decimal, int]],
     complete: bool,
+    managed_complete: bool,
 ) -> tuple[QuoteReconciliationRow, ...]:
     """Disclose each quote currency's venue balance beside managed buy reservations."""
     currencies: set[SpotQuoteCurrency] = set()
-    for quote in inventory.buy_notional:
+    for quote in {*inventory.buy_notional, *inventory.unknown_buy_quotes}:
         for candidate in SPOT_QUOTE_CURRENCIES:
             if candidate == quote:
                 currencies.add(candidate)
@@ -664,8 +768,10 @@ def _quote_rows(
                 quote_currency=quote,
                 venue_available=None if venue is None else canonical_decimal(venue[0]),
                 venue_total=None if venue is None else canonical_decimal(venue[2]),
-                managed_working_buy_notional=canonical_decimal(
-                    inventory.buy_notional.get(quote, _ZERO)
+                managed_working_buy_notional=(
+                    canonical_decimal(inventory.buy_notional.get(quote, _ZERO))
+                    if managed_complete and quote not in inventory.unknown_buy_quotes
+                    else None
                 ),
             )
         )
@@ -677,13 +783,14 @@ def _order_section(
     venue_orders: tuple[ForeignOpenOrderRow, ...] | None,
     evidence: VenueListingEvidence,
     findings: list[VenueFinding],
+    managed_complete: bool,
 ) -> OrderReconciliationSection:
-    """Match managed working orders against the venue's resting orders."""
-    if venue_orders is None:
+    """Match only when both sides are complete; pending submits can claim client IDs."""
+    if venue_orders is None or not managed_complete:
         return OrderReconciliationSection(
-            managed_working=len(inventory.working),
-            managed_pending_submit=len(inventory.pending_submit),
-            venue_open=None,
+            managed_working=len(inventory.working) if managed_complete else None,
+            managed_pending_submit=len(inventory.pending_submit) if managed_complete else None,
+            venue_open=None if venue_orders is None else len(venue_orders),
             matched=None,
             foreign=None,
             orphan=None,
@@ -706,7 +813,28 @@ def _order_section(
                 status=order.status.value,
             )
         )
-    foreign = [order for order in venue_orders if order.venue_order_id not in matched_ids]
+    pending_ids = {order.client_order_id for order in inventory.pending_submit}
+    matched_ids.update(
+        order.venue_order_id
+        for order in venue_orders
+        if order.client_order_id is not None and order.client_order_id in pending_ids
+    )
+    foreign = [
+        order
+        for order in venue_orders
+        if order.venue_order_id not in inventory.claimed_venue_ids
+        and order.client_order_id not in inventory.claimed_client_ids
+    ]
+    unmatched_managed = len(venue_orders) - len(foreign) - len(matched_ids)
+    if unmatched_managed:
+        findings.append(
+            VenueFinding(
+                reason_code="MANAGED_ORDER_STATUS_MISMATCH",
+                severity=VenueSeverity.WARNING,
+                detail=f"{unmatched_managed} venue working order(s) are claimed by local terminal "
+                "records. These are not foreign orders; reconcile status before new risk.",
+            )
+        )
     if orphans:
         findings.append(
             VenueFinding(
@@ -715,7 +843,8 @@ def _order_section(
                 deployment_id=orphans[0].deployment_id,
                 detail=(
                     f"{len(orphans)} managed working order(s) are absent from the venue's "
-                    "OPEN listing. Unknown is not rejected: reconcile with the venue before "
+                    "nonterminal spot listing. Unknown is not rejected: reconcile with the "
+                    "venue before "
                     "replacing or cancelling anything. This report changed nothing."
                 ),
             )
@@ -726,7 +855,7 @@ def _order_section(
                 reason_code="EXTERNAL_OPEN_ORDERS",
                 severity=VenueSeverity.INFO,
                 detail=(
-                    f"{len(foreign)} venue-resting order(s) belong to no managed book "
+                    f"{len(foreign)} nonterminal venue order(s) belong to no managed book "
                     "(manual or external activity). They are disclosed, not cancelled."
                 ),
             )
@@ -818,7 +947,7 @@ def _components(
                 detail=(
                     "Demo order listing; not account evidence."
                     if demo
-                    else f"{orders.rows} resting order(s) listed completely."
+                    else f"{orders.rows} nonterminal spot order(s) observed after full pagination."
                 ),
             )
         )

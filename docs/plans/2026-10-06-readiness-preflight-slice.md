@@ -11,12 +11,15 @@ Read-only. No live mutations, no `.env` reads, no production database, no policy
 - CLI: `thytrader-operator venue-reconciliation`
 - Report kinds: `readiness`, `venue_reconciliation` (`thytrader-operator-report-v1`)
 - Models: `thytrader.operator.readiness`, `thytrader.operator.venue_reconciliation`
-- Adapter: `ExchangeAccount.list_open_orders` / `CoinbaseAccount.list_open_orders`
-  (OPEN spot pages, fail-closed cursor). `ExchangeReadOperation.OPEN_ORDERS`.
+- Adapter: `CoinbaseAccount.list_open_orders` plus optional read capability exposed by
+  `PortfolioService` (`ExchangeAccount` is unchanged). Spot-history pages retain all
+  recognized nonterminal statuses; malformed evidence fails closed.
+  `ExchangeReadOperation.OPEN_ORDERS`.
 - UI: `web/src/lib/PreflightPanel.svelte` on Home and Portfolio (`/deployments`).
 
 Neither report places, cancels, or tightens policy. `payload.account.enforcement`
-is `advisory_only`. Venue comparisons that depend on an incomplete listing are null.
+is `advisory_only`. Account math is cost basis plus entry remainders, not live marks.
+Comparisons depending on an incomplete managed OR venue listing are null.
 
 ## Finding codes
 
@@ -47,17 +50,18 @@ HTTP GET-only envelopes.
   not bumped here.
 - Readiness account math uses the policy quote currency only. Books in another
   quote are disclosed, not converted.
-- Open-order listing is Coinbase status `OPEN` only. `CANCEL_QUEUED` is not treated
-  as resting; a managed order in that venue state can look orphaned until the next
-  local status update.
+- Coinbase listing pages all spot history (no status/time/source/account filters),
+  retaining OPEN/PENDING/QUEUED/CANCEL_QUEUED/EDIT_QUEUED after strict validation.
+  Queued cancellation is not confirmed cancellation. Page-bound exhaustion makes
+  the listing unavailable, not partial/complete. Sequential reads are not atomic.
 - Venue order rows are capped at 50 foreign rows (`foreign_truncated`).
 - Portfolio sections use configured capital and stored limits; they do not simulate
-  a new entry.
+  a new entry. Deployment filters narrow displayed rows, NOT sibling cap accounting.
 - UI panel is fleet-scoped readiness, not a per-portfolio filter control.
 - Root GitNexus was locked by the lead rebuild; impact for shared symbols used the
   earlier root read plus source confirmation of `REPORT_KINDS` callers.
 
-## Resume-session corrections (2026-10-06 afternoon)
+## Initial resume-session verification (2026-10-06 afternoon; before lead review)
 
 - `ExchangeAccount` stays exactly as on HEAD. Adding `list_open_orders` to the
   shared protocol made 9 duck-typed test fakes in untouched files fail `ty check`.
@@ -86,3 +90,87 @@ HTTP GET-only envelopes.
   shared (operator routes/service, Coinbase adapter, skill text). No unrelated files
   changed; shared-file edits are additive (report kinds, enum members, schema enums,
   one CLI subcommand pair, one route pair).
+
+## Lead-review follow-up (all six findings)
+
+1. Account capital, inventory cost, entry reservations, exposure and product caps now
+   follow actual product quote. Other-quote products are `excluded_products`, never
+   converted or assigned the policy quote cap. Mixed deployments expose
+   `quote_exposures[]`; their cross-quote totals/allocation remaining are null. The
+   metric is explicitly cost basis plus entry remainders, not live-marked exposure.
+2. `ReadinessInventoryEvidence` records status/read/expected counts, missing deployment
+   IDs, unsupported products, and unpriced entry IDs. Account and portfolio dependent
+   totals/capacities are null if the required managed scope is incomplete. All
+   snapshots are read once; deployment rows stay scoped, while account/portfolio
+   sections use full required inventory. Paper starting cash uses listed deployment
+   configuration so missing snapshots cannot shrink the commitment.
+   Venue `managed_listing` records every live-book read (including stopped books and
+   historical order claims); incomplete managed reads null quantity totals and
+   foreign/orphan/matched claims even when venue reads succeed. `managed_unknown`
+   rows retain observed venue quantities, without classifying ownership.
+3. Venue evidence defaults are unavailable, so `_failed_report` constructs valid
+   envelopes. None/disabled execution stores and list failures produce failed reports,
+   not healthy empty fleets; empty in-memory stores remain a known empty fleet.
+4. Sibling exposures consume portfolio capacity even in a single-deployment preflight.
+   `account_breaker_comparable` is false for paper/other-quote portfolios; daily-stop
+   comparisons are `not_comparable` rather than equivalent scopes. Unknown account
+   allowance or mixed/unreadable members make the comparison unknown.
+5. Runtime failure yields `runtime_available=false`, `breaker_latched=null` and no
+   fabricated drawdown allowance. `portfolio_scope_complete=false` and a material
+   unknown finding grade read failures/missing storage/the 100-row portfolio bound
+   as degraded. UI never shows Clear for failed/degraded envelopes with no findings;
+   refresh failure clears stale evidence, and null capacity remains an em dash.
+6. Coinbase validates orders/has_next and every row; identity/product/side/status
+   gaps, unknown statuses, duplicate IDs, cursor cycles/missing cursors, later-page
+   failures and page exhaustion fail the whole listing. No status filter hides
+   queued cancellation/edit or pending orders. Recognized terminal statuses are
+   filtered only after validation. Malformed balance rows/flags also fail the whole
+   listing, rather than proving an empty venue. Pending managed submits match by
+   client ID. Venue working orders claimed by local terminal/stopped records are
+   `MANAGED_ORDER_STATUS_MISMATCH`, not external orders. No cancel/replace/entry-gate
+   changes, no production resources, credentials, services, or DB access.
+
+### Interfaces for lead integration
+
+- Routes/CLI unchanged. Typed public shapes live only in this slice's two modules.
+- Added account `inventory`, `excluded_products`, `exposure_basis`; current exposure,
+  inventory cost and buy reservations are nullable, as are dependent cap/capacity.
+- Deployment totals are nullable, with per-quote rows and unknown-notional IDs.
+- Added portfolio inventory/exclusions/runtime availability/breaker comparability;
+  latch and exposure/capacity totals are nullable; `not_comparable` is a new daily
+  comparator value. Payload adds scoped inventory and portfolio-scope completeness.
+- Venue adds `managed_listing`, nullable managed book/order/quantity totals,
+  `managed_unknown` asset classification, listing scope, optional order client ID
+  for ownership matching, and `MANAGED_ORDER_STATUS_MISMATCH` finding.
+- No shared JSON Schema, release contract, OPS_CONTRACT_ID, schema revision, ADR index,
+  or version edits in this follow-up. Lead regenerates/integrates those against these
+  models. The initial commit's shared enum additions remain untouched.
+
+### Follow-up verification
+
+- `uv run pytest tests/operator_diagnostics/ tests/exchanges/ tests/portfolio/
+  tests/api/test_operator_readiness.py tests/api/test_portfolio.py tests/api/test_fees.py -q`:
+  **343 passed** in 25.70s; one pre-existing Alembic configuration DeprecationWarning.
+  No production/test PostgreSQL URLs, no live/network calls.
+- `uv run ruff check .`: pass. `uv run ruff format --check .`: pass (869 files).
+  `uv run ty check`: pass, zero diagnostics and no new suppressions.
+- Web: `npx vitest run src/lib/preflight.spec.ts`: **6 passed**;
+  `npm run check`: 0 errors / 0 warnings; `npm run lint`: pass;
+  `npm run build`: pass (Vite client/server builds 2.39s / 7.79s).
+- Final recheck of the six regression files/API readiness: **65 passed** in 4.28s
+  after the credential-visibility docstring clarification; Ruff/format/ty pass again.
+- `git diff --check`: pass.
+- Existing local GitNexus impact: readiness/portfolio/report callers LOW; dynamic
+  Coinbase read method UNKNOWN, confirmed via source/optional capability caller.
+  Local `detect_changes(scope=all, limit=1000)` final raw result: **14 files / 144 symbols /
+  15 processes, HIGH risk**; all 144 symbols and all 15 flows returned, no partial or
+  truncated flags. CLI display abbreviation is not used as evidence of completeness.
+  Outputs: `/tmp/tt-readiness-review-detect.json` and
+  `/tmp/tt-readiness-review-verification.log`.
+
+The initial full-suite result above is historical, not a claim that this follow-up
+ran it. Per lead resource guidance no full graph rebuild or full Python suite was
+launched here. Impact uses the existing worktree graph (metadata one commit behind
+704c799; source confirms dynamic callers). This is not a claim of a fresh integrated
+graph. Lead owns the serialized integrated graph/embedding/PDG rebuild, global JSON
+schema regeneration, release/version contracts, and complete combined suite.

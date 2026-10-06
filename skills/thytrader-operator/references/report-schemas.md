@@ -275,21 +275,38 @@ inventory cost and working buy-entry reservations. Caps are `null` when that bal
 unknown. `ALLOCATION_OVERCOMMITMENT` is advisory (sizing limits, not reserved funds).
 `ACCOUNT_EXPOSURE_CAP_EXCEEDED`, `PRODUCT_EXPOSURE_CAP_EXCEEDED`,
 `PORTFOLIO_EXPOSURE_CAP_EXCEEDED`, and `PORTFOLIO_ASSET_EXPOSURE_CAP_EXCEEDED` are
-violations of current marked exposure. `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC` means a
+violations of recorded position cost plus working entry remainders, not live marks. `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC` means a
 paper book assumes cheaper maker/taker rates than account evidence (for example older
 `0.001`/`0.002` versus account `0.005`/`0.009`). `FEE_EVIDENCE_UNAVAILABLE` means no
 comparison was invented. Quote currencies are never summed; `QUOTE_CURRENCY_MISMATCH`
-excludes other quotes. `portfolios[].tighter_daily_breaker` only names which daily-loss
-stop binds first. The report never publishes or tightens policy.
+excludes other quotes using actual product books (including mixed-product snapshots),
+not only the primary deployment product. Mixed deployments have `quote_exposures[]`
+and null cross-quote totals. `account.inventory` and each portfolio's `inventory`
+state completeness; incomplete managed reads null total exposure, effective account
+caps, and remaining capacity. Scoped deployment rows still use every live book for
+account capacity and every relevant sibling for portfolio exposure.
+`portfolios[].runtime_available=false` means `breaker_latched=null`, never false.
+Missing/truncated portfolio scope sets `payload.portfolio_scope_complete=false` and
+degrades health. `tighter_daily_breaker` compares only live, policy-quote portfolios;
+paper/other-quote stops are `not_comparable`. The report never changes policy.
 
 `venue_reconciliation` (`GET /api/v1/operator/venue-reconciliation`) compares managed live
 books with a fresh venue listing. `EXTERNAL_INVENTORY` and `EXTERNAL_OPEN_ORDERS` are
 information, not errors, and are never flattened or cancelled. `MANAGED_INVENTORY_SHORTFALL`
 and `MANAGED_ORDER_NOT_AT_VENUE` are warnings; unknown is not rejected. `balances_listing`
-and `orders_listing` are `complete` or `unavailable`. An unavailable listing leaves
-dependent `foreign_quantity`, `foreign`, and `orphan` null (`venue_unknown`), never guessed.
-Duplicate balance rows are summed (`venue_rows`, `DUPLICATE_BALANCE_ROWS`). A healthy local
-ledger is not this report. No account identifiers or secrets are included.
+and `orders_listing` are `complete` or `unavailable`; `managed_listing` separately
+states `complete`, `partial`, or `unavailable`, with read/expected counts and missing
+book IDs. Either incomplete side leaves dependent `foreign_quantity`, `foreign`,
+`orphan`, and `matched` null, never guessed; incomplete managed asset rows are
+`managed_unknown`. Missing storage cannot establish an empty managed fleet.
+`orders_listing.scope=spot_order_history_nonterminal` means all spot-history pages
+(no status/time/source/account filter), retaining OPEN/PENDING/QUEUED/CANCEL_QUEUED/
+EDIT_QUEUED. Queued cancellations remain working. Unknown statuses, malformed rows/
+pages, duplicate order IDs, cursor cycles, and page exhaustion fail closed. Managed
+pending submissions match by client ID; a locally terminal managed order still working
+at the venue is `MANAGED_ORDER_STATUS_MISMATCH`, not external activity. Duplicate
+balance rows are summed; malformed balance evidence fails the listing. These are
+sequential REST reads, not an atomic snapshot. No account identifiers or secrets.
 
 ## Safety alerts (ADR 0115)
 

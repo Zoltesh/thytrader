@@ -33,6 +33,24 @@ function report(findings: ReadinessReport['payload']['findings']): ReadinessRepo
 }
 
 describe('readinessHeadline', () => {
+	it.each(['failed', 'degraded'] as const)(
+		'does not show Clear for %s with no findings',
+		(status) => {
+			const partial = report([]);
+			partial.overall_status = status;
+			const headline = readinessHeadline(partial);
+			expect(headline.tone).toBe('warn');
+			expect(headline.summary).toContain('not confirmed');
+			expect(headline.summary).not.toContain('80');
+		}
+	);
+
+	it('shows capacity only for healthy complete evidence', () => {
+		const complete = report([]);
+		complete.overall_status = 'healthy';
+		expect(readinessHeadline(complete).summary).toContain('80 USDC');
+	});
+
 	it('names an allocation overcommitment as a warning, not a violation', () => {
 		const headline = readinessHeadline(
 			report([

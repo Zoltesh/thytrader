@@ -120,9 +120,14 @@ class CoinbaseAccount:
             )
             for account in self._account_items(payload):
                 balance = self._parse_balance(account)
-                if balance is not None and balance.total != 0:
+                if balance is None:
+                    raise _invalid_listing(ExchangeReadOperation.BALANCES)
+                if balance.total != 0:
                     balances.append(balance)
-            if not payload.get("has_next"):
+            has_next = payload.get("has_next")
+            if not isinstance(has_next, bool):
+                raise _invalid_listing(ExchangeReadOperation.BALANCES)
+            if not has_next:
                 return tuple(balances)
             next_cursor = payload.get("cursor")
             if not isinstance(next_cursor, str) or not next_cursor:
@@ -195,29 +200,39 @@ class CoinbaseAccount:
         return self._parse_fee_profile(payload)
 
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
-        """Page every venue-resting OPEN spot order without returning partial rows.
+        """Page spot order history and retain every recognized nonterminal order.
 
-        Read-only observation for venue-wide reconciliation (ADR 0114). Pagination follows
-        the same fail-closed discipline as balances: a declared next page without a
-        cursor, a repeated cursor, or the page limit raises instead of returning a
-        partial listing that callers could mistake for the whole venue.
+        No status/time/source/account filter: OPEN-only hides unresolved CANCEL_QUEUED.
+        OPEN, PENDING, QUEUED, CANCEL_QUEUED and EDIT_QUEUED remain working; known
+        terminal orders are omitted only after validation. Malformed rows/pages, unknown
+        statuses, duplicate order IDs, cursor cycles and page exhaustion fail closed.
+        This is a sequential REST observation, not an atomic venue snapshot.
         """
         cursor: str | None = None
         seen_cursors: set[str] = set()
         orders: list[ExchangeOpenOrder] = []
+        seen_orders: set[str] = set()
         for _page_number in range(_MAX_ORDER_PAGES):
             payload = await self._read(
                 ExchangeReadOperation.OPEN_ORDERS,
                 partial(
                     self._client.list_orders,
-                    order_status=["OPEN"],
                     product_type="SPOT",
                     limit=_ORDER_PAGE_SIZE,
                     cursor=cursor,
                 ),
             )
-            orders.extend(_open_orders_from_page(payload))
-            if not payload.get("has_next"):
+            page = _open_orders_from_page(payload)
+            for order in page:
+                if order.venue_order_id in seen_orders:
+                    raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+                seen_orders.add(order.venue_order_id)
+                if order.status in _NONTERMINAL_ORDER_STATUSES:
+                    orders.append(order)
+            has_next = payload.get("has_next")
+            if not isinstance(has_next, bool):
+                raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+            if not has_next:
                 return tuple(orders)
             next_cursor = payload.get("cursor")
             if not isinstance(next_cursor, str) or not next_cursor:
@@ -336,9 +351,11 @@ class CoinbaseAccount:
     def _account_items(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:
         """Narrow untrusted account payloads to dictionary entries."""
         accounts = payload.get("accounts")
-        if not isinstance(accounts, list):
-            return ()
-        return tuple(account for account in accounts if isinstance(account, dict))
+        if not isinstance(accounts, list) or any(
+            not isinstance(account, dict) for account in accounts
+        ):
+            raise _invalid_listing(ExchangeReadOperation.BALANCES)
+        return tuple(accounts)
 
     @staticmethod
     def _parse_balance(account: dict[str, Any]) -> ExchangeBalance | None:
@@ -348,7 +365,7 @@ class CoinbaseAccount:
             return None
         available = CoinbaseAccount._amount_value(account.get("available_balance"))
         hold = CoinbaseAccount._amount_value(account.get("hold"))
-        if available is None or hold is None:
+        if available is None or hold is None or available < 0 or hold < 0:
             return None
         name = account.get("name")
         return ExchangeBalance(
@@ -367,36 +384,65 @@ class CoinbaseAccount:
         if not isinstance(raw, str):
             return None
         try:
-            return Decimal(raw)
+            amount = Decimal(raw)
+            return amount if amount.is_finite() else None
         except InvalidOperation:
             return None
 
 
-def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, ...]:
-    """Narrow one untrusted orders page into venue-resting order rows.
+_NONTERMINAL_ORDER_STATUSES = frozenset(
+    {"OPEN", "PENDING", "QUEUED", "CANCEL_QUEUED", "EDIT_QUEUED"}
+)
+_TERMINAL_ORDER_STATUSES = frozenset(
+    {"FILLED", "CANCELLED", "CANCELED", "EXPIRED", "FAILED", "REJECTED"}
+)
 
-    Rows without a usable ``order_id`` are dropped: a listing row that cannot be
-    identified cannot be matched against managed orders, and inventing an identity
-    would corrupt reconciliation. Every retained field is validated to plain text.
+
+def _invalid_listing(operation: ExchangeReadOperation) -> ExchangeReadError:
+    """Return redacted invalid-response evidence instead of a guessed complete listing."""
+    return ExchangeReadError(
+        ExchangeReadFailure(
+            operation=operation,
+            kind=ExchangeReadFailureKind.INVALID_RESPONSE,
+        )
+    )
+
+
+def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, ...]:
+    """Validate every historical spot order row; malformed rows invalidate the page.
+
+    ``Any`` is confined to SDK JSON here. Unknown status is not a terminal order;
+    dropping an unidentified or malformed row would fabricate complete coverage.
     """
     items = payload.get("orders")
     if not isinstance(items, list):
-        return ()
+        raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
     rows: list[ExchangeOpenOrder] = []
     for item in items:
         if not isinstance(item, dict):
-            continue
-        venue_order_id = item.get("order_id")
-        if not isinstance(venue_order_id, str) or not venue_order_id.strip():
-            continue
-        side = item.get("side")
-        normalized_side = side.lower() if isinstance(side, str) and side else None
+            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+        venue_order_id = _plain_text(item.get("order_id"))
+        product = _plain_text(item.get("product_id"))
+        side = _plain_text(item.get("side"))
+        status = _plain_text(item.get("status"))
+        if (
+            venue_order_id is None
+            or product is None
+            or len(product.split("-")) != 2
+            or any(not part for part in product.split("-"))
+            or side not in {"BUY", "SELL"}
+            or status not in _NONTERMINAL_ORDER_STATUSES | _TERMINAL_ORDER_STATUSES
+        ):
+            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+        client_id = item.get("client_order_id")
+        if client_id is not None and not isinstance(client_id, str):
+            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
         rows.append(
             ExchangeOpenOrder(
                 venue_order_id=venue_order_id,
-                product_id=_plain_text(item.get("product_id")),
-                side=normalized_side,
-                status=_plain_text(item.get("status")),
+                product_id=product,
+                side=side.lower(),
+                status=status,
                 client_order_id=_plain_text(item.get("client_order_id")),
             )
         )
@@ -405,4 +451,4 @@ def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, 
 
 def _plain_text(value: object) -> str | None:
     """Return one non-empty plain string field, or None."""
-    return value if isinstance(value, str) and value else None
+    return value if isinstance(value, str) and value.strip() and value == value.strip() else None
