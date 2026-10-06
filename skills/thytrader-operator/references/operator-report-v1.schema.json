@@ -4440,6 +4440,25 @@
           },
           "title": "Unsupported Products",
           "type": "array"
+        },
+        "accounting_status": {
+          "default": "unavailable",
+          "enum": [
+            "complete",
+            "unresolved",
+            "unavailable"
+          ],
+          "title": "Accounting Status",
+          "type": "string"
+        },
+        "unresolved_deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Unresolved Deployment Ids",
+          "type": "array"
         }
       },
       "title": "ManagedListingEvidence",
@@ -7330,22 +7349,43 @@
     },
     "ProtectionEvidenceResponse": {
       "additionalProperties": false,
-      "description": "Strict public protection evidence. Quantities are exact decimal strings.",
+      "description": "Strict protection evidence; exact decimal strings, or null for unresolved inventory.",
       "properties": {
         "required_quantity": {
-          "pattern": "^\\d+(?:\\.\\d+)?$",
-          "title": "Required Quantity",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^\\d+(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Required Quantity"
         },
         "covered_quantity": {
-          "pattern": "^\\d+(?:\\.\\d+)?$",
-          "title": "Covered Quantity",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^\\d+(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Covered Quantity"
         },
         "uncovered_quantity": {
-          "pattern": "^\\d+(?:\\.\\d+)?$",
-          "title": "Uncovered Quantity",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^\\d+(?:\\.\\d+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Uncovered Quantity"
         },
         "stop_side": {
           "anyOf": [
@@ -7360,7 +7400,7 @@
               "type": "null"
             }
           ],
-          "description": "Closing side the stop must use, or null when flat.",
+          "description": "Closing side the stop must use, or null when flat or inventory is unresolved.",
           "title": "Stop Side"
         },
         "stop_side_valid": {
@@ -8259,7 +8299,7 @@
     },
     "ReadinessInventoryEvidence": {
       "additionalProperties": false,
-      "description": "Completeness of managed snapshot reads, never inferred from an empty result.",
+      "description": "Storage-read completeness and economic completeness are independent evidence.",
       "properties": {
         "status": {
           "default": "unavailable",
@@ -8314,6 +8354,25 @@
             "type": "string"
           },
           "title": "Unpriced Entry Order Ids",
+          "type": "array"
+        },
+        "accounting_status": {
+          "default": "unavailable",
+          "enum": [
+            "complete",
+            "unresolved",
+            "unavailable"
+          ],
+          "title": "Accounting Status",
+          "type": "string"
+        },
+        "unresolved_deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Unresolved Deployment Ids",
           "type": "array"
         }
       },
@@ -8773,16 +8832,30 @@
           "type": "string"
         },
         "inventory_cost": {
-          "title": "Inventory Cost",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Inventory Cost"
         },
         "working_entry_reserved": {
           "title": "Working Entry Reserved",
           "type": "string"
         },
         "exposure": {
-          "title": "Exposure",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exposure"
         }
       },
       "required": [

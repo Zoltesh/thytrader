@@ -131,8 +131,11 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0113](0113-deploy-anchored-window-cache.md) | Bounded incremental history loading with exact anchored indicator state and explicit cold-cache warming | Accepted |
 | [0114](0114-readiness-preflight-and-venue-reconciliation.md) | Advisory capacity and fee preflight; explicit managed-versus-venue inventory evidence | Accepted |
 | [0115](0115-durable-safety-alerts-and-supervision.md) | Durable deduplicated safety alerts and execution-worker supervision pauses; Alembic 0066 | Accepted |
+| [0116](0116-live-execution-evidence-and-backtest-bar-explanations.md) | Recorded execution quality and bounded reproducible bar explanations; unknown comparisons do not rewrite economics | Accepted |
+| [0117](0117-truthful-inventory-and-fleet-controls.md) | Fenced complete inventory and separate consent-bound disarm, managed stop, flatten and rearm | Accepted |
 | [0118](0118-watched-market-tail-health.md) | All-enabled-watch published-tail health aligned to each clock; history and worker success stay independent | Accepted |
 | [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
+| [0120](0120-verified-risk-opening-evidence.md) | Authoritative accounting and verified UTC opening reconstruction; legacy stamps remain untrusted | Accepted |
 
 ## Status values
 

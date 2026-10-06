@@ -58,8 +58,8 @@ Research worker (N processes) -----------+   backtests, studies, portfolio backt
   pages render body content only (a compact `PageHead` plus the page)
   ([ADR 0079](../decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)):
   - A left rail with four destinations (Home `/`, Strategies `/strategies`, Portfolio
-    `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Audit log, Journal,
-    Memory & why-trade). The rail collapses to icons on narrow desktop widths.
+    `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Alerts, Audit log,
+    Journal, Memory & why-trade). The rail collapses to icons on narrow desktop widths.
   - A per-strategy workspace layout at `/strategies/[id]` with stage routes Build (`/`), Test
     (`/test`), Run (`/run`), and Why (`/why`), and a sticky identity bar with the strategy's
     saved/validation state, shared through Svelte context (`web/src/lib/workspace/`)

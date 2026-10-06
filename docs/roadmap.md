@@ -16,6 +16,9 @@ The all-watch `data-health` slice ([ADR 0118](decisions/0118-watched-market-tail
 adds clock-aware published-tail freshness alongside historical completeness. These changes are
 **not a deployed release** until integrated verification, PR merge, migration and fleet checks
 are complete. Existing policy limits, strategy snapshots and deliberate pauses are preserved.
+The [release acceptance checklist](plans/2026-10-06-release-acceptance.md) freezes further feature
+expansion and tracks the remaining transaction, cancel/fill, scoped mark/exit and reporting
+counterexamples separately from broad test counts.
 
 ## Current delivery focus: remaining destination (phases 0–14 shipped)
 
