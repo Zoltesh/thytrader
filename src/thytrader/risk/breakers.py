@@ -20,6 +20,7 @@ from thytrader.execution.models import (
     snapshot_positions,
 )
 from thytrader.execution.performance import current_drawdown
+from thytrader.execution.protection import missing_occupied_inventory_products
 from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.risk.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
@@ -62,11 +63,12 @@ def unresolved_accounting_verdict(
             not snapshot.accounting_complete
             or unsettled_fill_evidence(snapshot)
             or unprojected_inventory_products(snapshot)
+            or missing_occupied_inventory_products(snapshot)
         ):
             return _deny(
                 RiskReasonCode.BREAKER_MARK_MISSING,
                 f"Accounting incomplete for deployment {snapshot.deployment.id}: "
-                "unsettled executed fills, unprojected inventory, or omitted economics.",
+                "unsettled executed fills, unresolved inventory/runtime, or omitted economics.",
             )
     return None
 
@@ -412,6 +414,7 @@ def _daily_pnl(
         not snapshot.accounting_complete
         or unsettled_fill_evidence(snapshot)
         or unprojected_inventory_products(snapshot)
+        or missing_occupied_inventory_products(snapshot)
     ):
         return None
     ledger = ledger_from_snapshot(snapshot, marks=marks)

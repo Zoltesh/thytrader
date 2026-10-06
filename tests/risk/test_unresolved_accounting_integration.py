@@ -35,13 +35,16 @@ from thytrader.execution.models import (
     RuntimePhase,
 )
 from thytrader.execution.overlay import InstrumentScopedStore
+from thytrader.execution.protection import missing_occupied_inventory_products
 from thytrader.risk.breakers import _daily_pnl
 from thytrader.risk.daily_accounting import flat_day_fill_pnl
 from thytrader.risk.gate import evaluate_new_entry
 from thytrader.risk.models import RiskDecision, RiskReasonCode
 from thytrader.risk.opening_accounting import reconstruct_day_open
 
-Case = Literal["legacy_offset", "canceled_unpublished", "filled_without_quantity"]
+Case = Literal[
+    "legacy_offset", "canceled_unpublished", "filled_without_quantity", "runtime_without_position"
+]
 
 
 def _unresolved(case: Case, mode: DeploymentMode, *, older: bool) -> DeploymentSnapshot:
@@ -59,6 +62,10 @@ def _unresolved(case: Case, mode: DeploymentMode, *, older: bool) -> DeploymentS
     opening = reconstruct_day_open(DeploymentSnapshot(book), as_of=_TODAY)
     assert opening is not None
     book = replace(book, risk_day_open_evidence=opening)
+    if case == "runtime_without_position":
+        return DeploymentSnapshot(
+            book, instrument_runtimes=(InstrumentRuntime("ETH-USD", RuntimePhase.OPEN),)
+        )
     tape = _round_trip(
         book,
         buy_at=_TODAY - timedelta(hours=1),
@@ -97,7 +104,13 @@ def _unresolved(case: Case, mode: DeploymentMode, *, older: bool) -> DeploymentS
 @pytest.mark.parametrize("older", [False, True])
 @pytest.mark.parametrize("observed", [False, True])
 @pytest.mark.parametrize(
-    "case", ["legacy_offset", "canceled_unpublished", "filled_without_quantity"]
+    "case",
+    [
+        "legacy_offset",
+        "canceled_unpublished",
+        "filled_without_quantity",
+        "runtime_without_position",
+    ],
 )
 def test_unresolved_evidence_blocks_even_profit_and_preverified_opening(
     mode: DeploymentMode, older: bool, observed: bool, case: Case
@@ -107,11 +120,12 @@ def test_unresolved_evidence_blocks_even_profit_and_preverified_opening(
     if case == "legacy_offset":
         assert unprojected_inventory_products(snapshot) == ("ETH-USD",)
         assert not unsettled_fill_evidence(snapshot)
+    elif case == "runtime_without_position":
+        assert missing_occupied_inventory_products(snapshot) == ("ETH-USD",)
+        assert not unsettled_fill_evidence(snapshot)
+        assert not unprojected_inventory_products(snapshot)
     else:
         assert unsettled_fill_evidence(snapshot)
-    assert reconstruct_day_open(snapshot, as_of=_TODAY) is None
-    assert flat_day_fill_pnl(snapshot, since=_TODAY.replace(hour=0)) is None
-    assert _daily_pnl(snapshot, marks={}, as_of=_TODAY) is None
     verdict = evaluate_new_entry(
         _policy(daily_loss_limit_fraction="1", max_daily_loss_quote="1000"),
         mode=mode,
@@ -122,12 +136,19 @@ def test_unresolved_evidence_blocks_even_profit_and_preverified_opening(
     )
     assert verdict.decision is RiskDecision.DENY
     assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
+    assert reconstruct_day_open(snapshot, as_of=_TODAY) is None
+    assert flat_day_fill_pnl(snapshot, since=_TODAY.replace(hour=0)) is None
+    assert _daily_pnl(snapshot, marks={}, as_of=_TODAY) is None
 
 
 @pytest.mark.anyio
-async def test_scoped_store_retains_unprojected_sibling_after_display_fault_clears() -> None:
-    """Reload exact ownership/fills: the focused empty BTC view must still deny."""
-    full = _unresolved("legacy_offset", DeploymentMode.LIVE, older=False)
+@pytest.mark.parametrize("case", ["legacy_offset", "runtime_without_position"])
+@pytest.mark.parametrize("observed", [False, True])
+async def test_scoped_store_retains_unprojected_sibling_after_display_fault_clears(
+    case: Case, observed: bool
+) -> None:
+    """Reload runtime/ownership/fills: the focused empty BTC view must still deny."""
+    full = _unresolved(case, DeploymentMode.LIVE, older=False)
     full = replace(
         full,
         deployment=replace(
@@ -138,7 +159,10 @@ async def test_scoped_store_retains_unprojected_sibling_after_display_fault_clea
         ),
         instrument_runtimes=(
             InstrumentRuntime("BTC-USD", RuntimePhase.FLAT),
-            InstrumentRuntime("ETH-USD", RuntimePhase.FLAT),
+            InstrumentRuntime(
+                "ETH-USD",
+                RuntimePhase.OPEN if case == "runtime_without_position" else RuntimePhase.FLAT,
+            ),
         ),
     )
     store = InMemoryExecutionStore()
@@ -156,7 +180,7 @@ async def test_scoped_store_retains_unprojected_sibling_after_display_fault_clea
         quantity=Decimal("0.01"),
         risk_policy=_policy(daily_loss_limit_fraction="1", max_daily_loss_quote="1000"),
         portfolio=(focused,),
-        observation=_observation(),
+        observation=_observation() if observed else None,
     )
     assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
 

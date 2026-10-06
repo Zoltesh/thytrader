@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.models import OrderSide, resolved_product_id
+from thytrader.execution.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -26,6 +27,7 @@ def flat_day_fill_pnl(snapshot: DeploymentSnapshot, *, since: datetime) -> Decim
         not snapshot.accounting_complete
         or unsettled_fill_evidence(snapshot)
         or unprojected_inventory_products(snapshot)
+        or missing_occupied_inventory_products(snapshot)
     ):
         return None
     orders = {order.id: order for order in snapshot.orders}

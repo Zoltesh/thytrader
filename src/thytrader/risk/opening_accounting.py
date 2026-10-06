@@ -17,6 +17,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -51,6 +52,7 @@ def opening_replay(snapshot: DeploymentSnapshot, *, as_of: datetime) -> OpeningR
         not snapshot.accounting_complete
         or unsettled_fill_evidence(snapshot)
         or unprojected_inventory_products(snapshot)
+        or missing_occupied_inventory_products(snapshot)
         or not _orders_covered(snapshot, as_of=as_of)
     ):
         return None

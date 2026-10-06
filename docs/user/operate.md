@@ -16,6 +16,10 @@ and uses the current projected quantity. Missing or partially published fills do
 guessed remaining sell. A breaker pause preserves newer cash, lifecycle intent and deliberate
 stopped/paused state. See [ADR 0121](../decisions/0121-execution-write-boundaries.md).
 
+An occupied product runtime whose position is missing is unknown, not flat—even if another
+product still has a position. The same uncertainty blocks new-entry admission and verified
+opening/flat-day accounting; a prior opening proof cannot repair later missing inventory.
+
 ## Live performance accounting
 
 Bot detail and `uv run thytrader-operator performance --deployment-id UUID` report return and

@@ -35,6 +35,18 @@ worker/control/reporting checks, including separate-engine races. These focused 
 replace final full suites and independent review; an atomic transaction alone never proves
 serialization of two projections from the same base.
 
+## Reporting-to-risk integration closure
+
+After integrating the core correction, lead verification found one remaining consumer gap:
+reporting recognized an occupied runtime without its position, but the no-price entry gate could
+still allow and opening reconstruction could certify an empty-fill midnight balance. Eight
+paper/live, old/new-book and observed/unobserved cases failed before correction. Risk admission,
+daily PnL, opening replay and flat-day accounting now share the reporting predicate. Existing
+independent budget/slot/exposure denials retain precedence. A pyramid-add positive fixture now
+has actual applied entry evidence, matching paid cash and a real position; its missing-position
+negative control still denies. The focused combined risk/reporting/execution selection passed
+265 checks. This is a consumer integration correction, not a new feature or policy change.
+
 ## Integration and release gates
 
 1. Focused failure-before/success-after checks for the matrix, including real separate-connection

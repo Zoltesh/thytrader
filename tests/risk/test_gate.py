@@ -1,14 +1,17 @@
 """Pre-trade gate verdicts for deployments and long entries."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+from tests.risk.test_loss_scope import _round_trip
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    Position,
     RuntimePhase,
 )
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
@@ -235,11 +238,24 @@ def test_pyramid_add_skips_open_position_slot_cap() -> None:
             "allow_intra_strategy_pyramiding": True,
         }
     )
+    book = _deployment(strategy_id=_STRATEGY_A, phase=RuntimePhase.OPEN)
+    tape = _round_trip(book, buy_at=book.created_at, sell_at=book.created_at)
+    buy = tape.fills[0]
+    # Keep only the actual applied entry, with its paid cash and projected position.
     open_peer = DeploymentSnapshot(
-        deployment=_deployment(strategy_id=_STRATEGY_A, phase=RuntimePhase.OPEN),
-        orders=(),
-        fills=(),
-        position=None,
+        deployment=replace(book, cash=book.cash - buy.quantity * buy.price - buy.fee),
+        orders=tape.orders[:1],
+        fills=(buy,),
+        position=Position(
+            deployment_id=book.id,
+            product_id=book.product_id,
+            quantity=buy.quantity,
+            entry_price=buy.price,
+            stop_price=buy.price * Decimal("0.9"),
+            target_price=None,
+            entered_bar=book.created_at,
+            updated_at=book.created_at,
+        ),
     )
     fresh = evaluate_new_entry(
         policy,
@@ -264,6 +280,18 @@ def test_pyramid_add_skips_open_position_slot_cap() -> None:
     )
     assert fresh.reason_code is RiskReasonCode.MAX_OPEN_POSITIONS
     assert add.decision is RiskDecision.ALLOW
+    unresolved_add = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=ProposedEntry(
+            product_id="BTC-USD",
+            strategy_id=_STRATEGY_A,
+            notional=Decimal("100"),
+            is_pyramid_add=True,
+        ),
+        snapshots=(replace(open_peer, position=None),),
+    )
+    assert unresolved_add.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
     assert add.reason_code is RiskReasonCode.ALLOWED
 
 

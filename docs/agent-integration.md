@@ -6,6 +6,9 @@ restricts peer breaker pauses to metadata. A conflicting entry requires fresh ob
 admission, not retrying stale financial state under a new revision. Protection replacement waits
 for applied post-cancel execution evidence; uncertainty cannot supply a sell quantity. No new CLI
 flags, confirmation bypass, public payload or migration is introduced by this correction.
+The report's missing occupied-product inventory predicate also constrains admission without a
+price observation, verified UTC opening reconstruction and flat-day accounting. Successful full
+reads and prior opening proof do not turn a missing OPEN/PENDING_EXIT position into zero risk.
 
 Runtime risk scope and diagnostic semantics follow [ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md).
 Live account fractions use one observed venue quote balance plus managed long inventory cost and

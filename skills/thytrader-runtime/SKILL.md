@@ -104,7 +104,9 @@ complete applied fills reconstruct midnight cash and separate product quantities
 flat midnight needs no price; overnight inventory, including a later closure, needs an actual
 closed midnight mark for each product. The worker can recover an exact complete hourly range.
 Missing/inconsistent economics, filled orders missing fills, or unavailable opening prices deny
-rather than becoming zero loss. Unapplied live fills deny until economics reconcile. Neither
+rather than becoming zero loss. An OPEN/PENDING_EXIT product runtime without its own positive
+position is also unresolved, even when another product's position survives. It blocks new-entry
+admission without a price observation and cannot certify midnight equity or flat-day zero PnL. Unapplied live fills deny until economics reconcile. Neither
 maintenance nor a late restart promotes current equity or legacy stamps into midnight evidence.
 Paper starts share one policy funding envelope, not a separate envelope per quote: occupied
 foreign-quote paper books deny new funding rather than reuse or convert that budget. Retained
