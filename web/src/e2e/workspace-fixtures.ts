@@ -4,6 +4,7 @@
  */
 import type { Page, Route } from '@playwright/test';
 import { isStrategyLibraryRequest } from './harness';
+import { inventoryPageFixture } from './inventory';
 
 export const strategyId = '01985cf0-7b60-7000-8000-000000000003';
 export const fingerprint = `sha256:${'a'.repeat(64)}`;
@@ -342,7 +343,7 @@ export async function mockDeployments(
 				await onCreate(route.request().postDataJSON(), route);
 				return;
 			}
-			await route.fulfill({ json: { deployments: list(), has_more: false } });
+			await route.fulfill({ json: inventoryPageFixture(list()) });
 		}
 	);
 }
