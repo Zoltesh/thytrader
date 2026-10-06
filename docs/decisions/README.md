@@ -118,6 +118,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
 | [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
 | [0118](0118-watched-market-tail-health.md) | All-enabled-watch published-tail health aligned to each clock; history and worker success stay independent | Accepted |
+| [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
 
 ## Status values
 

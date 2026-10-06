@@ -727,6 +727,11 @@ use the covered range. Earlier bars are never invented, and results over quiet b
 adds "· N no-trade" when no-trade bars exist, and shows "Complete from listing" when a floor is
 set.
 
+Venue order observations are separate from local bookkeeping timestamps. A restart or migration
+does not assert that an order was freshly checked; legacy observation times stay unknown until
+reconciliation reads the order. This is not a guarantee that a stop-limit will fill or a full
+account audit ([ADR 0119](../decisions/0119-venue-order-observation-provenance.md)).
+
 For **freshness across all enabled watches**, run `uv run thytrader-operator data-health`, or
 open Home → Data health → Watched-market freshness. This read-only snapshot compares each
 published tail with its own latest closed candle and reports how many closed bars are missing.

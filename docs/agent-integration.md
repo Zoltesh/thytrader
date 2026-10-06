@@ -166,6 +166,10 @@ an archived catalog success cannot clear an execution mismatch. Diagnose through
 reads, repair the cause, then explicitly resume in the runtime lane with the existing confirmation
 and live acknowledgement gates and verify a fresh decision.
 
+Order-state provenance is independent of local row recency: `venue_observed_at` is persisted
+only after identified live order reads, with legacy rows unknown until reconciliation. Do not
+read local `updated_at` as venue verification ([ADR 0119](decisions/0119-venue-order-observation-provenance.md)).
+
 Judge configured market-data coverage by `watch_complete`. For a watched target, catalog, ingest, and gap payloads make `complete` watch-relative and keep `island_complete`; coverage is `watch_covered_candle_count` of `watch_expected_candle_count`. Catalog `watch_sparsity` is `gapped` when the watch is incomplete. Thin markets carry flat no-trade bars (`synthetic_no_trade_intervals`), and `history_floor_at` marks only a proven listing ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). `inspect-gaps` may return `truncated=true` with a partial `gap_summary` when a server-side budget stops the scan ([ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only. `/datasets/latest` and operator `data-catalog` are catalog-grade (structural checks, stat-identity cache, under a second warm); binding a dataset to a backtest, study, or deployment re-verifies its exact content fingerprint ([ADR 0085](decisions/0085-fast-research-ingest.md)). A CLI that prints `Timed out after N s waiting for the ThyTrader API` gave up waiting on a busy API; for a mutation, read state back before retrying.
 
 Every HTTP command preflights `/health/ready` and fails closed on a missing or unequal ops contract. Matching package version `0.1.0` is not current-image evidence.

@@ -221,7 +221,12 @@ class OpsContractPayload(_FrozenModel):
     async_study_planning: Literal["worker"]
     newest_bar_settle_seconds: int = Field(ge=0)
     portfolio_max_sleeves: int = Field(ge=1)
-    portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...]
+    portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...] = Field(
+        description=(
+            "create_with_sleeves saves initial sleeves atomically at portfolio revision 1; "
+            "neither operation grants deployment authority."
+        )
+    )
     same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
     runtime_observability: tuple[
         Literal[
@@ -237,6 +242,8 @@ class OpsContractPayload(_FrozenModel):
             "capital_normalized_performance",
             "exchange_read_failures",
             "audit_failure_evidence",
+            "watched_market_tail_health",
+            "venue_order_observations",
         ],
         ...,
     ]

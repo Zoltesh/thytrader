@@ -219,7 +219,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v66`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v67`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -434,6 +434,12 @@ leave this backtest-only field null; those modes retain their fill-ledger report
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
 The current fee-attribution migration and health contract both require schema revision
-`0064`. After updating main, use `make run` to apply migrations and rebuild the services.
+`0068`. After updating main, use `make run` to apply migrations and rebuild the services.
+
+Venue order-state observation time is persisted separately from local `updated_at`
+([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)). A local write
+cannot renew venue evidence. Existing rows remain unknown until a successful reconciliation
+read; no migration invents a past verification time. This is order-state evidence, not an
+independent venue-geometry or whole-account audit, nor a guarantee that a stop-limit will fill.
 A repeated revision mismatch after that is a contributor defect, not a reason to
 bypass the CLI check or keep restarting unchanged images.

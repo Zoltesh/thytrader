@@ -13,7 +13,7 @@ def test_operator_schema_matches_cost_attribution_contract() -> None:
         (root / "skills/thytrader-operator/references/operator-report-v1.schema.json").read_text()
     )
     assert schema["$defs"]["BacktestCostAttribution"] == BacktestCostAttribution.model_json_schema()
-    assert schema["properties"]["payload"]["properties"]["cost_attribution"]["anyOf"] == [
+    assert schema["$defs"]["PerformancePayload"]["properties"]["cost_attribution"]["anyOf"] == [
         {"$ref": "#/$defs/BacktestCostAttribution"},
         {"type": "null"},
     ]

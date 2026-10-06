@@ -1,5 +1,10 @@
 # Operator report schema
 
+Contributors regenerate the complete report models with
+`uv run python scripts/export_operator_schema.py`; `--check` detects artifact drift after
+integration. This imports typed contracts only and never opens a database or exchange session.
+Operator agents read the committed schema, never regenerate it on a running installation.
+
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`

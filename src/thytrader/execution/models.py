@@ -181,6 +181,9 @@ class Order:
     parent_order_id: UUID | None = None
     attached_child_venue_order_id: str | None = None
     pyramid_add: bool = False
+    # Successful venue order-state read, not an ordinary local write or a geometry audit.
+    # Legacy rows remain unknown until reconciliation actually observes them.
+    venue_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

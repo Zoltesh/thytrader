@@ -871,6 +871,7 @@ execution_orders = Table(
     Column("product_id", String(32), nullable=False),
     Column("parent_order_id", UUID(), nullable=True),
     Column("attached_child_venue_order_id", String(128), nullable=True),
+    Column("venue_observed_at", DateTime(timezone=True), nullable=True),
     Column("pyramid_add", Boolean(), nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),

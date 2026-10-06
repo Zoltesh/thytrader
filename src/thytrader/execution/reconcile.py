@@ -15,6 +15,7 @@ from thytrader.execution.fill_ledger import (
 )
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
+    DeploymentMode,
     DeploymentStatus,
     Fill,
     Order,
@@ -132,6 +133,12 @@ async def _reconcile_one_order(
         status=result.status,
         filled_quantity=result.filled_quantity,
         reject_reason=result.reject_reason,
+        venue_observed_at=(
+            utc_now()
+            if snapshot.deployment.mode is DeploymentMode.LIVE
+            and result.status is not OrderStatus.UNKNOWN
+            else None
+        ),
         # Keep a known attached child; otherwise adopt the one the venue now reports, so an
         # entry whose create response omitted it is still recognized as venue-protected.
         attached_child_venue_order_id=(
@@ -350,6 +357,12 @@ async def _import_attached_children(
             created_at=utc_now(),
             updated_at=utc_now(),
             venue_order_id=child_venue,
+            venue_observed_at=(
+                utc_now()
+                if current.deployment.mode is DeploymentMode.LIVE
+                and result.status is not OrderStatus.UNKNOWN
+                else None
+            ),
             filled_quantity=result.filled_quantity,
             product_id=order.product_id or product_id or snapshot.deployment.product_id,
             parent_order_id=order.id,

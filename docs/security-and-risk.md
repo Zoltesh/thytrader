@@ -166,6 +166,12 @@ and the cover follows as soon as the venue confirms the cancel.
 - On restart, reconcile balances, open orders, recent fills, and local state before resuming strategies.
 - Pause affected strategies when a safe conclusion cannot be reached.
 
+Venue order-state observation time is persisted independently of local accounting updates
+([ADR 0119](decisions/0119-venue-order-observation-provenance.md)). Only a successful identified
+live order read supplies it; unknown results invalidate it. A migration, a local write, or a
+restart does not manufacture a fresh venue observation. Observation freshness does not prove
+venue geometry, complete account reconciliation, or guaranteed stop-limit execution.
+
 ## Audit and observability
 
 Record append-oriented events for:

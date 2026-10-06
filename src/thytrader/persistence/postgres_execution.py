@@ -564,6 +564,7 @@ class PostgresExecutionStore:
                 "quantity": statement.excluded.quantity,
                 "parent_order_id": statement.excluded.parent_order_id,
                 "attached_child_venue_order_id": statement.excluded.attached_child_venue_order_id,
+                "venue_observed_at": statement.excluded.venue_observed_at,
                 "pyramid_add": statement.excluded.pyramid_add,
             },
         )
@@ -942,6 +943,7 @@ def _order_values(order: Order) -> dict[str, object]:
         "product_id": order.product_id,
         "parent_order_id": order.parent_order_id,
         "attached_child_venue_order_id": order.attached_child_venue_order_id,
+        "venue_observed_at": order.venue_observed_at,
         "pyramid_add": order.pyramid_add,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
@@ -1021,6 +1023,7 @@ def _order_from_row(row: RowMapping) -> Order:
         product_id=row["product_id"] if row["product_id"] is not None else "",
         parent_order_id=row.get("parent_order_id"),
         attached_child_venue_order_id=row.get("attached_child_venue_order_id"),
+        venue_observed_at=row.get("venue_observed_at"),
         pyramid_add=bool(row.get("pyramid_add", False)),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
