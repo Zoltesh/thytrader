@@ -38,7 +38,9 @@ describe('deployment inventory pages', () => {
 				has_more: false,
 				as_of: '2026-10-06T00:00:00+00:00',
 				total: 1,
-				order: 'created_at_desc_id_desc'
+				order: 'created_at_desc_id_desc',
+				fingerprint: 'fence',
+				next_cursor: null
 			},
 			1
 		);
@@ -47,7 +49,8 @@ describe('deployment inventory pages', () => {
 	});
 
 	it('treats a legacy full page without has_more as incomplete', () => {
-		const page = inventoryPageFromBody({ deployments: [{ id: 'a' } as never], returned: 1 }, 1);
-		expect(page.hasMore).toBe(true);
+		expect(() =>
+			inventoryPageFromBody({ deployments: [{ id: 'a' } as never], returned: 1 }, 1)
+		).toThrow(/incomplete/);
 	});
 });

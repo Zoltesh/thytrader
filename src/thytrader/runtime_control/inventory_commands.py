@@ -28,7 +28,12 @@ def add_inventory_arguments(parser: argparse.ArgumentParser) -> None:
         "--offset",
         type=int,
         default=0,
-        help="Stable snapshot offset. Requires --limit. Pin as_of by repeating the page.",
+        help="Legacy offset page only (not a complete fleet). Requires --limit.",
+    )
+    parser.add_argument(
+        "--cursor",
+        default=None,
+        help="Fenced next_cursor from the previous inventory page; requires --limit.",
     )
     parser.add_argument(
         "--all",
@@ -98,22 +103,29 @@ def _list(arguments: argparse.Namespace, base_url: str) -> object:
     if arguments.offset < 0:
         raise RuntimeControlError("--offset must be zero or positive.")
     complete = arguments.all or arguments.limit is None
-    if complete and arguments.offset:
-        raise RuntimeControlError("A complete inventory does not take --offset.")
+    if complete and (arguments.offset or arguments.cursor):
+        raise RuntimeControlError("A complete inventory does not take --offset or --cursor.")
+    if arguments.cursor and arguments.offset:
+        raise RuntimeControlError("Use --cursor without --offset.")
     if complete:
         return list_deployments(base_url, page_size=arguments.limit or 200)
-    return _page_with_contract(base_url, limit=arguments.limit, offset=arguments.offset)
+    return _page_with_contract(
+        base_url, limit=arguments.limit, offset=arguments.offset, cursor=arguments.cursor
+    )
 
 
-def _page_with_contract(base_url: str, *, limit: int, offset: int) -> object:
+def _page_with_contract(base_url: str, *, limit: int, offset: int, cursor: str | None) -> object:
     """Mark a single page incomplete when the server says more rows exist."""
-    payload = list_deployments(base_url, limit=limit, offset=offset)
+    payload = list_deployments(
+        base_url, limit=limit, offset=offset, **({"cursor": cursor} if cursor else {})
+    )
     if not isinstance(payload, dict):
         raise RuntimeControlError("Deployment inventory response was not an object.")
     has_more = payload.get("has_more")
     if not isinstance(has_more, bool):
         raise RuntimeControlError("Deployment inventory response omitted boolean has_more.")
     body = dict(payload)
-    body["complete"] = not has_more
+    body["complete"] = False
+    body["page_complete"] = not has_more
     body["inventory"] = "page"
     return body

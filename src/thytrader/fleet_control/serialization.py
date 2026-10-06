@@ -38,6 +38,7 @@ def operation_to_json(operation: FleetOperation) -> str:
         "live_acknowledged": operation.live_acknowledged,
         "audit_recorded": operation.audit_recorded,
         "note": operation.note,
+        "latch_applied": operation.latch_applied,
         "inhibition": _inhibition_payload(operation.inhibition),
         "targets": [_target_payload(item) for item in operation.targets],
     }
@@ -67,6 +68,7 @@ def operation_from_json(text: str) -> FleetOperation:
             live_acknowledged=_bool(raw, "live_acknowledged"),
             audit_recorded=_bool(raw, "audit_recorded"),
             note=_text(raw, "note"),
+            latch_applied=_bool(raw, "latch_applied"),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ExecutionStoreError("Fleet operation record is invalid.") from error

@@ -1,4 +1,5 @@
 import { expect, test } from '../e2e/harness';
+import { inventoryPageFixture } from '../e2e/inventory';
 
 const deploymentId = '01a0ad72-0000-0000-0000-000000000000';
 
@@ -45,10 +46,17 @@ async function mockInventory(page: import('@playwright/test').Page, rows: unknow
 		(route) => {
 			const url = new URL(route.request().url());
 			const limit = Number(url.searchParams.get('limit') ?? '50');
-			const offset = Number(url.searchParams.get('offset') ?? '0');
+			const offset = Number(
+				url.searchParams.get('cursor') ?? url.searchParams.get('offset') ?? '0'
+			);
 			const slice = rows.slice(offset, offset + limit);
 			return route.fulfill({
-				json: { deployments: slice, limit, offset, returned: slice.length }
+				json: inventoryPageFixture(slice, {
+					limit,
+					offset,
+					total: rows.length,
+					nextCursor: offset + slice.length < rows.length ? String(offset + slice.length) : null
+				})
 			});
 		}
 	);
@@ -203,10 +211,12 @@ test('paginates the bounded deployment inventory', async ({ page }) => {
 		id: `01a0ad90-0000-0000-0000-${String(index).padStart(12, '0')}`
 	}));
 	await page.route('**/api/v1/deployments?limit=50&offset=0', (route) =>
-		route.fulfill({ json: { deployments: fullPage, limit: 50, offset: 0, returned: 50 } })
+		route.fulfill({
+			json: inventoryPageFixture(fullPage, { limit: 50, total: 54, nextCursor: '50' })
+		})
 	);
-	await page.route('**/api/v1/deployments?limit=50&offset=50', (route) =>
-		route.fulfill({ json: { deployments: secondPage, limit: 50, offset: 50, returned: 4 } })
+	await page.route('**/api/v1/deployments?limit=50&offset=0&cursor=50', (route) =>
+		route.fulfill({ json: inventoryPageFixture(secondPage, { limit: 50, offset: 50, total: 54 }) })
 	);
 	await page.goto('/deployments');
 	await expect(page.getByTestId('bot-row')).toHaveCount(50);
@@ -231,27 +241,24 @@ test('shows a failed page as a retryable error instead of an empty library', asy
 	await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
-test('an empty trailing page is distinct from an empty inventory', async ({ page }) => {
+test('a deleted inventory is incomplete, not silently an empty trailing page', async ({ page }) => {
 	const fullPage = Array.from({ length: 50 }, (_, index) =>
 		deploymentFixture({ id: `01a0ad72-0000-0000-0000-${String(index).padStart(12, '0')}` })
 	);
 	await page.route('**/api/v1/deployments?limit=50&offset=0', (route) =>
-		route.fulfill({ json: { deployments: fullPage, limit: 50, offset: 0, returned: 50 } })
+		route.fulfill({
+			json: inventoryPageFixture(fullPage, { limit: 50, total: 51, nextCursor: '50' })
+		})
 	);
-	// The inventory shrank to exactly one page while the operator was viewing
-	// page one; offset 50 now returns zero rows.
-	await page.route('**/api/v1/deployments?limit=50&offset=50', (route) =>
-		route.fulfill({ json: { deployments: [], limit: 50, offset: 50, returned: 0 } })
+	await page.route('**/api/v1/deployments?limit=50&offset=0&cursor=50', (route) =>
+		route.fulfill({ status: 409, json: { detail: 'inventory_changed: restart at page one.' } })
 	);
 	await page.goto('/deployments');
 	await expect(page.getByTestId('bot-row')).toHaveCount(50);
 	await page.getByRole('button', { name: 'Next deployment page' }).click();
 
-	// Not "No bots yet": the inventory has rows, this page does not.
-	await expect(page.getByTestId('trailing-empty-page')).toBeVisible();
+	await expect(page.getByText('inventory_changed: restart at page one.')).toBeVisible();
 	await expect(page.getByText('No bots yet')).toHaveCount(0);
-	await page.getByRole('button', { name: 'Back to first page' }).click();
-	await expect(page.getByTestId('bot-row')).toHaveCount(50);
 	await expect(page.getByTestId('trailing-empty-page')).toHaveCount(0);
 });
 

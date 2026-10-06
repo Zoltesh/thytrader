@@ -35,6 +35,7 @@ from thytrader.execution.models import (
 from thytrader.fleet_control.admission import refresh_process_entry_inhibition
 from thytrader.fleet_control.inventory import page_deployments
 from thytrader.fleet_control.models import (
+    ExpectedInhibition,
     ExpectedTarget,
     FleetAction,
     FleetExecuteRequest,
@@ -100,9 +101,11 @@ def test_as_of_excludes_a_row_created_during_the_walk() -> None:
 
 
 def test_entries_allowed_uses_the_process_snapshot() -> None:
-    """A loaded latch blocks entries. An unloaded cache does not invent inhibition."""
+    """Boot/restart without proven latch admission inhibits entries."""
     book = _book(1)
     clear_entry_inhibition_cache()
+    assert entries_allowed(book) is False
+    remember_entry_inhibition({"paper": False, "live": False})
     assert entries_allowed(book) is True
     remember_entry_inhibition({"paper": True, "live": False})
     try:
@@ -136,6 +139,7 @@ def _request(
     targets: tuple[ExpectedTarget, ...] = (),
     live: bool = False,
     allow_empty: bool = False,
+    inhibition: ExpectedInhibition | None = None,
 ) -> FleetExecuteRequest:
     """One confirmed fleet request."""
     return FleetExecuteRequest(
@@ -145,6 +149,7 @@ def _request(
         expected_targets=targets,
         live_acknowledged=live,
         allow_empty_scope=allow_empty,
+        expected_inhibition=inhibition or ExpectedInhibition(0, 0),
     )
 
 
@@ -174,7 +179,12 @@ def test_disarm_refuses_start_across_a_rebound_store_and_does_not_flatten() -> N
         await execute_fleet(
             execution=restarted,
             fleet=gate,
-            request=_request(FleetAction.REARM, key="rearm", allow_empty=True),
+            request=_request(
+                FleetAction.REARM,
+                key="rearm",
+                allow_empty=True,
+                inhibition=ExpectedInhibition(1, 0),
+            ),
             audit=audit,
         )
         await restarted.create_deployment(_book(3))

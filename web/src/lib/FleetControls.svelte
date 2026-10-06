@@ -4,6 +4,7 @@
 	 * Disarm, managed stop, and flatten are separate actions. None of them claims
 	 * that venue cancellation or exits have finished.
 	 */
+	import { onMount } from 'svelte';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import {
 		executeFleet,
@@ -26,6 +27,10 @@
 		{ id: 'rearm', label: 'Rearm entries' }
 	];
 
+	let hydrated = $state(false);
+	onMount(() => {
+		hydrated = true;
+	});
 	let mode = $state<FleetMode>('paper');
 	let inhibition = $state<FleetInhibition | null>(null);
 	let inhibitionError = $state<string | null>(null);
@@ -62,6 +67,7 @@
 	}
 
 	async function loadPreview(action: FleetAction): Promise<void> {
+		if (!hydrated || acting || pendingAction !== null) return;
 		previewError = null;
 		result = null;
 		try {
@@ -82,6 +88,7 @@
 
 	async function confirm(): Promise<void> {
 		if (pendingAction === null || preview === null || idempotencyKey === null) return;
+		if (preview.mode !== mode || preview.action !== pendingAction) return;
 		if (needsAck && !liveAcknowledged) return;
 		acting = true;
 		actionError = null;
@@ -92,7 +99,15 @@
 				expectedTargets:
 					pendingAction === 'managed_stop' || pendingAction === 'flatten' ? confirmedTargets : [],
 				liveAcknowledged: needsAck && liveAcknowledged,
-				allowEmptyScope: confirmedTargets.length === 0
+				allowEmptyScope: confirmedTargets.length === 0,
+				expectedInhibition: {
+					...(mode === 'paper' || mode === 'all'
+						? { paper_revision: preview.inhibition.paper_revision }
+						: {}),
+					...(mode === 'live' || mode === 'all'
+						? { live_revision: preview.inhibition.live_revision }
+						: {})
+				}
 			});
 			pendingAction = null;
 			await refreshInhibition();
@@ -119,7 +134,11 @@
 	<div class="row">
 		<label>
 			Mode
-			<select bind:value={mode} data-testid="fleet-mode">
+			<select
+				bind:value={mode}
+				disabled={!hydrated || acting || pendingAction !== null}
+				data-testid="fleet-mode"
+			>
 				<option value="paper">Paper</option>
 				<option value="live">Live</option>
 				<option value="all">Paper and live</option>
@@ -136,7 +155,12 @@
 	</div>
 	<div class="actions">
 		{#each actions as action (action.id)}
-			<button type="button" class="btn" onclick={() => void loadPreview(action.id)}>
+			<button
+				type="button"
+				class="btn"
+				disabled={!hydrated || acting || pendingAction !== null}
+				onclick={() => void loadPreview(action.id)}
+			>
 				Preview {action.label}
 			</button>
 		{/each}
@@ -148,6 +172,10 @@
 		{@const previewAction = preview.action}
 		<div data-testid="fleet-preview">
 			<p><strong>{fleetEffect(previewAction)}</strong></p>
+			<p>
+				Confirmed latch revisions: paper {preview.inhibition.paper_revision} · live {preview
+					.inhibition.live_revision}
+			</p>
 			<p>
 				Cancels entries: {preview.cancels_entries ? 'yes' : 'no'} · Flattens:
 				{preview.flattens ? 'yes' : 'no'} · Pauses: {preview.pauses ? 'yes' : 'no'}

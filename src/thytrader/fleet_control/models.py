@@ -148,6 +148,15 @@ class FleetOperation:
     live_acknowledged: bool
     audit_recorded: bool
     note: str
+    latch_applied: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ExpectedInhibition:
+    """Latch revisions explicitly confirmed from the read-only preview."""
+
+    paper_revision: int | None = None
+    live_revision: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,6 +169,7 @@ class FleetExecuteRequest:
     expected_targets: tuple[ExpectedTarget, ...]
     live_acknowledged: bool
     allow_empty_scope: bool
+    expected_inhibition: ExpectedInhibition = ExpectedInhibition()
 
 
 InventoryOrder = Literal["created_at_desc_id_desc"]

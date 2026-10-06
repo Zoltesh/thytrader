@@ -26,8 +26,11 @@ exits.
 ## Decision
 
 1. **Stable inventory snapshot.** List pages order by `created_at DESC, id DESC`. The response
-   includes `returned`, `has_more`, `total`, `order`, and `as_of`. Clients pin `as_of` on later
-   offset pages. The HTTP default limit remains 50 so existing callers do not silently receive
+   includes `returned`, `has_more`, `total`, `order`, `as_of`, `fingerprint`, and `next_cursor`.
+   Complete readers follow keyset cursors, which bind the timestamp boundary, strategy filter,
+   immutable last key, and identity/classification digest. Deletion or reclassification between
+   page reads returns `inventory_changed`; the caller restarts or reports incomplete. Legacy
+   offset pages remain explicit pages and cannot certify a complete fleet. The HTTP default limit remains 50 so existing callers do not silently receive
    a larger payload, but `has_more` makes truncation visible. `thytrader-runtime list` walks
    that snapshot to completion unless `--limit`/`--offset` request one page. `--all` is the
    explicit complete walk. A walk that cannot finish raises instead of printing a prefix as
@@ -40,15 +43,36 @@ exits.
    `flatten` is a different route and records the existing flatten lifecycle command. `rearm`
    clears the latch and does not resume books. Live rearm and live-capable flatten require
    `i_understand_live`. All four mutations require `confirm=true`; YOLO does not cover them.
-   The same idempotency key returns the durable result. Book commands are applied one at a
-   time through the existing deployment service. Partial failure is reported. Acceptance is
+   The same idempotency key returns the durable result. PostgreSQL session advisory locking
+   serializes same-key requests across instances, including existing pending intents. Local
+   serialization bounds connection reservations but is not the correctness lock. Each book
+   command uses existing lifecycle semantics, checks the confirmed revision inside the real
+   `FOR UPDATE`/CAS mutation, and commits with its causal target receipt in one transaction. Partial failure is reported. Acceptance is
    not a venue fill and is not an atomic transaction across books.
 4. **Entry latch.** New starts and entry intents are refused while the mode is inhibited.
    Non-entry intents are not. The execution worker refreshes a process snapshot each cycle;
    `entries_allowed` consults it so the existing loop skips new entries and risk-increasing
    reprices without a new broker path. The durable row lock is the start/intent backstop.
+   Missing tables, rows, read failures, or an unloaded process cache fail closed for entry
+   admission only. Disarm/rearm require `expected_inhibition` preview revisions for every scoped
+   mode. Every deliberate latch command advances the revision, even if its bit is unchanged.
+   Latch change and operation receipt commit atomically. Retries replay receipts, never a latch
+   write that can overwrite a newer opposite choice. Operation `inhibition` is the historical
+   receipt snapshot; read `GET /fleet-control` for current state.
+   Admission linearizes on the mode row: a start/entry-intent transaction accepted before disarm
+   may remain in flight after disarm, just as pre-existing open orders may. Disarm is not
+   cancellation; it makes no impossible instantaneous-submission promise.
    Alembic `0067` adds the latch and operation log. This worktree chains it from `0064`; lead
    rechains it after `0065`/`0066`.
+
+### Amendment 2026-10-06 — lead correctness review
+
+This amendment replaces the initial offset/as-of completeness claim and fail-open pre-migration
+behavior. A keyset continuation is checked against full identity/classification membership on each
+page. The initial implementation's separate command/result and latch/result writes are replaced
+by transactionally coupled receipts. Unknown interruptions leave durable progress pending; replay
+uses receipts, not coincidental lifecycle state. No additional migration or venue execution path
+is introduced. These corrections are release prerequisites, not evidence of deployment.
 
 ## Consequences
 

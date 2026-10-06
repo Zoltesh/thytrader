@@ -140,6 +140,7 @@ export function executeFleet(
 		expectedTargets: { deployment_id: string; revision: number }[];
 		liveAcknowledged: boolean;
 		allowEmptyScope: boolean;
+		expectedInhibition: { paper_revision?: number; live_revision?: number };
 	}
 ): Promise<FleetOperation> {
 	return request(`/api/v1/fleet-control/${ACTION_PATH[action]}`, {
@@ -150,7 +151,8 @@ export function executeFleet(
 			idempotency_key: input.idempotencyKey,
 			i_understand_live: input.liveAcknowledged,
 			expected_targets: input.expectedTargets,
-			allow_empty_scope: input.allowEmptyScope
+			allow_empty_scope: input.allowEmptyScope,
+			expected_inhibition: input.expectedInhibition
 		})
 	});
 }

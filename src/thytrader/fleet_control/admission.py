@@ -1,8 +1,7 @@
 """Durable entry-inhibition checks shared by starts and entry intents.
 
-Exits, protection, and cancellations do not call these helpers. A missing latch
-table means the migration is not applied yet and admission keeps the previous
-behavior. A present table with a missing mode row fails closed.
+Exits, protection, and cancellations do not call these helpers. Missing tables,
+rows, or unreadable state fail closed for risk-increasing actions only.
 """
 
 from __future__ import annotations
@@ -53,8 +52,6 @@ async def refuse_postgres_entry(connection: AsyncConnection, *, mode: str, actio
                 )
             ).scalar_one_or_none()
     except SQLAlchemyError as error:
-        if latch_table_missing(error):
-            return
         raise ExecutionStoreError("Entry inhibition storage is unavailable.") from error
     if inhibited is None:
         raise ExecutionConflictError(
@@ -73,11 +70,12 @@ def remember_snapshot(*, paper: bool, live: bool) -> None:
 async def refresh_process_entry_inhibition(store: object) -> None:
     """Load the latch into this process before a worker cycle admits entries.
 
-    A store without a reader leaves the cache untouched. A failed read fails
-    closed for entries only; the caller still runs exits and protection.
+    An absent reader or failed read inhibits entries only; the caller still
+    runs exits, protection, and reconciliation.
     """
     reader = getattr(store, "read_entry_inhibition", None)
     if not callable(reader):
+        remember_entry_inhibition({"paper": True, "live": True})
         return
     try:
         snapshot = await reader()
@@ -92,11 +90,3 @@ async def refresh_process_entry_inhibition(store: object) -> None:
         remember_entry_inhibition({"paper": True, "live": True})
         return
     remember_entry_inhibition({"paper": snapshot["paper"], "live": snapshot["live"]})
-
-
-def latch_table_missing(error: BaseException) -> bool:
-    """True when this database has not applied the fleet latch migration yet."""
-    text = str(error).lower()
-    return "fleet_entry_inhibition" in text and (
-        "does not exist" in text or "undefinedtable" in text or "no such table" in text
-    )

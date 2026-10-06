@@ -392,6 +392,8 @@ class DeploymentListResponse(BaseModel):
     total: int
     order: str
     as_of: str
+    fingerprint: str
+    next_cursor: str | None
 
 
 class FillListResponse(BaseModel):
@@ -480,6 +482,7 @@ async def list_deployments(
         str | None,
         Query(description="Timezone-aware UTC snapshot from a previous page. Omit for a new read."),
     ] = None,
+    cursor: Annotated[str | None, Query(max_length=2048)] = None,
 ) -> DeploymentListResponse:
     """Return one stable inventory page. Default limit 50 is not the whole fleet."""
     pinned = _parse_as_of(as_of)
@@ -490,7 +493,10 @@ async def list_deployments(
             offset=offset,
             strategy_id=strategy_id,
             as_of=pinned,
+            cursor=cursor,
         )
+    except ExecutionConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
     except ExecutionStoreError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
@@ -504,6 +510,22 @@ async def list_deployments(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=str(error),
             ) from None
+        if (
+            summary.deployment.mode,
+            summary.deployment.kind,
+            summary.deployment.strategy_id,
+            summary.deployment.strategy_fingerprint,
+            summary.deployment.product_id,
+        ) != (
+            item.mode,
+            item.kind,
+            item.strategy_id,
+            item.strategy_fingerprint,
+            item.product_id,
+        ):
+            raise HTTPException(
+                status_code=409, detail="inventory_changed: deployment reclassified during read."
+            )
         extra = await _covered_products(publication_store, item)
         bodies.append(
             await _summary_response(
@@ -521,6 +543,8 @@ async def list_deployments(
         total=page.total,
         order=page.order,
         as_of=page.as_of.isoformat(),
+        fingerprint=page.fingerprint,
+        next_cursor=page.next_cursor,
     )
 
 

@@ -42,7 +42,8 @@
 	let pageRows = $state<Deployment[]>([]);
 	let hasMore = $state(false);
 	let offset = $state(0);
-	let snapshotAsOf = $state<string | null>(null);
+	let pageCursors = $state<Record<number, string>>({});
+	let pageFingerprint = $state<string | null>(null);
 	/** Distinguishes a truly empty inventory from an exhausted trailing page. */
 	let everLoaded = $state(false);
 	let listLoading = $state(true);
@@ -80,10 +81,22 @@
 		listLoading = true;
 		listError = null;
 		try {
-			const result = await listDeploymentsPage(PAGE_SIZE, targetOffset, {
-				asOf: targetOffset === 0 ? undefined : (snapshotAsOf ?? undefined)
-			});
-			if (targetOffset === 0) snapshotAsOf = result.asOf;
+			const cursor = targetOffset === 0 ? undefined : pageCursors[targetOffset];
+			if (targetOffset > 0 && cursor === undefined)
+				throw new Error('Inventory continuation is unavailable; restart at page one.');
+			const result = await listDeploymentsPage(PAGE_SIZE, 0, { cursor });
+			if (
+				result.fingerprint === null ||
+				(targetOffset > 0 && result.fingerprint !== pageFingerprint)
+			)
+				throw new Error('Inventory changed; restart at page one.');
+			if (targetOffset === 0) {
+				pageFingerprint = result.fingerprint;
+				pageCursors = {};
+			}
+			if (result.hasMore && result.nextCursor === null)
+				throw new Error('Inventory continuation is missing; incomplete.');
+			if (result.nextCursor !== null) pageCursors[targetOffset + PAGE_SIZE] = result.nextCursor;
 			// Fail closed on a page that claims more while being empty.
 			if (result.deployments.length === 0 && result.hasMore) {
 				throw new Error('Deployment inventory returned an empty page while claiming more rows.');
@@ -93,6 +106,8 @@
 			offset = targetOffset;
 			if (result.deployments.length > 0) everLoaded = true;
 		} catch (caught) {
+			pageRows = [];
+			hasMore = false;
 			listError = caught instanceof Error ? caught.message : 'Could not load deployments.';
 		} finally {
 			listLoading = false;

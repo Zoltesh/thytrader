@@ -6,8 +6,18 @@ log request bodies.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Literal, cast
 from urllib.parse import quote, urlencode
+
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    ValidationError,
+)
 
 from thytrader.agent_http import request_json, request_mutation_json
 
@@ -32,14 +42,15 @@ def list_deployments(
     limit: int | None = None,
     offset: int = 0,
     page_size: int = 200,
+    cursor: str | None = None,
 ) -> object:
     """Return one stable page, or the complete snapshot when ``limit`` is omitted.
 
-    The complete walk pins ``as_of`` from the first page. A failed later page
+    The complete walk follows membership-fenced keyset cursors. A failed later page
     raises instead of returning a prefix as if it were the fleet.
     """
     if limit is not None:
-        return _deployment_page(base_url, limit=limit, offset=offset, as_of=None)
+        return _deployment_page(base_url, limit=limit, offset=offset, as_of=None, cursor=cursor)
     return _complete_deployment_inventory(base_url, page_size=page_size)
 
 
@@ -441,11 +452,15 @@ _INVENTORY_MAX_PAGES = 500
 _FLEET_PREFIX = "/api/v1/fleet-control"
 
 
-def _deployment_page(base_url: str, *, limit: int, offset: int, as_of: str | None) -> object:
+def _deployment_page(
+    base_url: str, *, limit: int, offset: int, as_of: str | None, cursor: str | None = None
+) -> object:
     """Read one stable inventory page."""
     query: dict[str, str] = {"limit": str(limit), "offset": str(offset)}
     if as_of is not None:
         query["as_of"] = as_of
+    if cursor is not None:
+        query["cursor"] = cursor
     return request_json(
         method="GET",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}?{urlencode(query)}",
@@ -453,7 +468,7 @@ def _deployment_page(base_url: str, *, limit: int, offset: int, as_of: str | Non
 
 
 def _complete_deployment_inventory(base_url: str, *, page_size: int) -> object:
-    """Walk a pinned snapshot until ``has_more`` is false."""
+    """Walk a fenced keyset inventory; certify only consistent, complete membership."""
     if not 1 <= page_size <= 200:
         raise RuntimeControlError("Inventory page size must be between 1 and 200.")
     first = _require_inventory_page(
@@ -461,27 +476,44 @@ def _complete_deployment_inventory(base_url: str, *, page_size: int) -> object:
     )
     rows = _rows_of(first)
     as_of = str(first["as_of"])
-    offset = len(rows)
     pages = 1
     has_more = bool(first["has_more"])
+    cursor = first["next_cursor"]
+    seen_cursors: set[str] = set()
+    seen_ids = _inventory_ids(rows)
     while has_more:
         if pages >= _INVENTORY_MAX_PAGES:
             raise RuntimeControlError(
                 f"Deployment inventory incomplete after {len(rows)} rows (has_more=true). "
                 "Not a complete fleet."
             )
+        if not isinstance(cursor, str) or cursor in seen_cursors:
+            raise RuntimeControlError(
+                "Deployment inventory cursor is missing or repeated; incomplete."
+            )
+        seen_cursors.add(cursor)
         page = _require_inventory_page(
-            _deployment_page(base_url, limit=page_size, offset=offset, as_of=as_of)
+            _deployment_page(base_url, limit=page_size, offset=0, as_of=as_of, cursor=cursor)
         )
+        if any(page[key] != first[key] for key in ("fingerprint", "total", "as_of", "order")):
+            raise RuntimeControlError(
+                "Deployment inventory membership changed; incomplete. Restart read."
+            )
         batch = _rows_of(page)
         if not batch:
             raise RuntimeControlError(
                 "Deployment inventory returned an empty page while claiming more rows."
             )
+        identifiers = _inventory_ids(batch)
+        if seen_ids & identifiers:
+            raise RuntimeControlError("Deployment inventory duplicated rows; incomplete.")
+        seen_ids.update(identifiers)
         rows.extend(batch)
-        offset += len(batch)
         pages += 1
         has_more = bool(page["has_more"])
+        cursor = page["next_cursor"]
+    if len(rows) != first["total"]:
+        raise RuntimeControlError("Deployment inventory omitted rows; incomplete.")
     return {
         "deployments": rows,
         "limit": page_size,
@@ -493,24 +525,57 @@ def _complete_deployment_inventory(base_url: str, *, page_size: int) -> object:
         "as_of": as_of,
         "total": first.get("total"),
         "inventory": "complete_snapshot",
+        "fingerprint": first["fingerprint"],
+        "next_cursor": None,
     }
+
+
+class _InventoryMetadata(BaseModel):
+    """Validate untrusted completeness metadata before walking an HTTP inventory."""
+
+    model_config = ConfigDict(extra="ignore")
+    returned: StrictInt = Field(ge=0)
+    total: StrictInt = Field(ge=0)
+    has_more: StrictBool
+    as_of: AwareDatetime
+    order: Literal["created_at_desc_id_desc"]
+    fingerprint: str = Field(min_length=1)
+    next_cursor: str | None
 
 
 def _require_inventory_page(payload: object) -> dict[str, object]:
     """Validate one inventory page before using it as a complete-fleet input."""
     page = _strict_mapping(payload, label="Deployment inventory response")
     rows = _rows_of(page)
-    if "has_more" not in page or "as_of" not in page or "returned" not in page:
+    try:
+        metadata = _InventoryMetadata.model_validate(page)
+    except ValidationError as error:
         raise RuntimeControlError(
-            "Deployment inventory response omitted has_more, returned, or as_of. "
-            "Refusing to treat it as a complete fleet."
-        )
-    returned = page.get("returned")
-    if returned != len(rows):
+            "Deployment inventory metadata is missing/invalid; incomplete."
+        ) from error
+    if (metadata.has_more and not metadata.next_cursor) or (
+        not metadata.has_more and metadata.next_cursor is not None
+    ):
+        raise RuntimeControlError("Deployment inventory continuation contradicts has_more.")
+    if metadata.returned != len(rows):
         raise RuntimeControlError(
             "Deployment inventory is inconsistent: returned does not match the row count."
         )
     return page
+
+
+def _inventory_ids(rows: list[object]) -> set[str]:
+    """Refuse duplicate/missing identities rather than certify a partial fleet."""
+    identifiers: set[str] = set()
+    for row in rows:
+        raw = _strict_mapping(row, label="Deployment inventory row")
+        identifier = raw.get("id")
+        if not isinstance(identifier, str) or identifier in identifiers:
+            raise RuntimeControlError(
+                "Deployment inventory identity missing or duplicated; incomplete."
+            )
+        identifiers.add(identifier)
+    return identifiers
 
 
 def _rows_of(page: dict[str, object]) -> list[object]:

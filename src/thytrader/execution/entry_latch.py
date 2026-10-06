@@ -3,7 +3,7 @@
 The execution loop already asks :func:`thytrader.execution.lifecycle.entries_allowed`
 before a new entry or a risk-increasing reprice. That function is synchronous, so
 this module holds the latest snapshot read by the execution worker. An empty cache
-means this process has not loaded the latch and must not invent an inhibition.
+means this process has not proven entry admission and therefore fails closed.
 Once a snapshot is remembered, a missing mode fails closed.
 """
 
@@ -23,7 +23,7 @@ class _LatchCache:
     """
 
     def __init__(self) -> None:
-        """Start unloaded so a fresh process does not invent inhibition."""
+        """Start unloaded so boot/restart cannot admit entries before a durable read."""
         self.snapshot: dict[str, bool] | None = None
 
 
@@ -33,13 +33,13 @@ _cache = _LatchCache()
 def process_entry_inhibited(mode: DeploymentMode) -> bool:
     """Return whether this process's latest snapshot inhibits one mode.
 
-    ``False`` when no snapshot has been loaded. Callers that admit risk must
+    ``True`` when no snapshot has been loaded. Callers that admit risk must
     refresh the snapshot first; the durable store remains authoritative for
     starts and intent persistence.
     """
     snapshot = _cache.snapshot
     if snapshot is None:
-        return False
+        return True
     return snapshot.get(mode.value, True)
 
 

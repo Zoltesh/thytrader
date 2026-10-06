@@ -30,9 +30,10 @@ import pytest
 import requests
 
 from thytrader.config import Settings
+from thytrader.execution.entry_latch import clear_entry_inhibition_cache, remember_entry_inhibition
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
 
 _KEPT_ENVIRONMENT = frozenset({"THYTRADER_TEST_DATABASE_URL", "THYTRADER_INTEGRATION_DATABASE_URL"})
 _LOOPBACK_NAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
@@ -74,6 +75,14 @@ def _guard_address(sock: socket.socket, address: object) -> None:
     host = address[0] if isinstance(address, tuple) and address else address
     if not is_loopback_host(host):
         raise _blocked(address)
+
+
+@pytest.fixture(autouse=True)
+def initialized_test_entry_cache() -> Iterator[None]:
+    """Explicitly initialize the database-free test harness, not production defaults."""
+    remember_entry_inhibition({"paper": False, "live": False})
+    yield
+    clear_entry_inhibition_cache()
 
 
 @pytest.fixture(autouse=True)

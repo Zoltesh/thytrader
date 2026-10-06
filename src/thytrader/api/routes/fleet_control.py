@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -21,6 +21,7 @@ from thytrader.api.dependencies import (
 from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore
 from thytrader.fleet_control.models import (
+    ExpectedInhibition,
     ExpectedTarget,
     FleetAction,
     FleetExecuteRequest,
@@ -93,7 +94,15 @@ class ExpectedTargetBody(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     deployment_id: UUID
-    revision: int = Field(ge=0)
+    revision: StrictInt = Field(ge=0)
+
+
+class ExpectedInhibitionBody(BaseModel):
+    """Confirmed preview revisions for each scoped entry latch."""
+
+    model_config = ConfigDict(extra="forbid")
+    paper_revision: StrictInt | None = Field(default=None, ge=0)
+    live_revision: StrictInt | None = Field(default=None, ge=0)
 
 
 class FleetExecuteBody(BaseModel):
@@ -106,6 +115,7 @@ class FleetExecuteBody(BaseModel):
     i_understand_live: StrictBool = False
     expected_targets: tuple[ExpectedTargetBody, ...] = ()
     allow_empty_scope: StrictBool = False
+    expected_inhibition: ExpectedInhibitionBody = Field(default_factory=ExpectedInhibitionBody)
 
 
 class TargetResultResponse(BaseModel):
@@ -238,6 +248,9 @@ async def _execute(
         ),
         live_acknowledged=body.i_understand_live,
         allow_empty_scope=body.allow_empty_scope,
+        expected_inhibition=ExpectedInhibition(
+            body.expected_inhibition.paper_revision, body.expected_inhibition.live_revision
+        ),
     )
     try:
         operation = await execute_fleet(

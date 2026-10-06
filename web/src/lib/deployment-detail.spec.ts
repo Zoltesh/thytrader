@@ -322,7 +322,7 @@ describe('stop URL contract', () => {
 });
 
 describe('inventory pagination', () => {
-	it('pages by offset and reports hasMore only on a full page', async () => {
+	it('keeps legacy offset pages explicit while using server has_more', async () => {
 		const full = Array.from({ length: 50 }, (_, index) => deployment({ id: `dep-${index}` }));
 		const calls: string[] = [];
 		const original = globalThis.fetch;
@@ -332,7 +332,18 @@ describe('inventory pagination', () => {
 			const offset = Number(url.searchParams.get('offset'));
 			const rows = offset === 0 ? full : full.slice(0, 5);
 			return new Response(
-				JSON.stringify({ deployments: rows, limit: 50, offset, returned: rows.length }),
+				JSON.stringify({
+					deployments: rows,
+					limit: 50,
+					offset,
+					returned: rows.length,
+					has_more: offset === 0,
+					total: 55,
+					as_of: '2026-10-06T00:00:00Z',
+					order: 'created_at_desc_id_desc',
+					fingerprint: 'fence',
+					next_cursor: offset === 0 ? 'next' : null
+				}),
 				{
 					status: 200,
 					headers: { 'content-type': 'application/json' }
@@ -604,18 +615,29 @@ describe('strategy config summary from the source API', () => {
 });
 
 describe('complete inventory fetch', () => {
-	it('follows hasMore across offset pages instead of taking the first page', async () => {
+	it('follows fenced keyset cursors instead of taking the first page', async () => {
 		const full = Array.from({ length: 200 }, (_, index) => deployment({ id: `dep-${index}` }));
-		const second = full.slice(0, 7);
+		const second = Array.from({ length: 7 }, (_, index) => deployment({ id: `tail-${index}` }));
 		const calls: string[] = [];
 		const original = globalThis.fetch;
 		globalThis.fetch = (async (input: RequestInfo | URL) => {
 			const url = new URL(String(input), 'http://local');
 			calls.push(url.search);
-			const offset = Number(url.searchParams.get('offset'));
-			const rows = offset === 0 ? full : second;
+			const continuing = url.searchParams.has('cursor');
+			const rows = continuing ? second : full;
 			return new Response(
-				JSON.stringify({ deployments: rows, limit: 200, offset, returned: rows.length }),
+				JSON.stringify({
+					deployments: rows,
+					limit: 200,
+					offset: 0,
+					returned: rows.length,
+					has_more: !continuing,
+					total: 207,
+					as_of: '2026-10-06T00:00:00Z',
+					order: 'created_at_desc_id_desc',
+					fingerprint: 'fence',
+					next_cursor: continuing ? null : 'next'
+				}),
 				{ status: 200, headers: { 'content-type': 'application/json' } }
 			);
 		}) as typeof fetch;
@@ -625,17 +647,36 @@ describe('complete inventory fetch', () => {
 		} finally {
 			globalThis.fetch = original;
 		}
-		expect(calls).toEqual(['?limit=200&offset=0', '?limit=200&offset=200']);
+		expect(calls).toEqual(['?limit=200&offset=0', '?limit=200&offset=0&cursor=next']);
 	});
 
 	it('fails closed at the page cap instead of returning a prefix', async () => {
-		const full = Array.from({ length: 200 }, (_, index) => deployment({ id: `dep-${index}` }));
+		let count = 0;
 		const original = globalThis.fetch;
-		globalThis.fetch = (async () =>
-			new Response(JSON.stringify({ deployments: full, limit: 200, offset: 0, returned: 200 }), {
-				status: 200,
-				headers: { 'content-type': 'application/json' }
-			})) as typeof fetch;
+		globalThis.fetch = (async () => {
+			count += 1;
+			const full = Array.from({ length: 200 }, (_, index) =>
+				deployment({ id: `dep-${count}-${index}` })
+			);
+			return new Response(
+				JSON.stringify({
+					deployments: full,
+					limit: 200,
+					offset: 0,
+					returned: 200,
+					has_more: true,
+					total: 6000,
+					as_of: '2026-10-06T00:00:00Z',
+					order: 'created_at_desc_id_desc',
+					fingerprint: 'fence',
+					next_cursor: `next-${count}`
+				}),
+				{
+					status: 200,
+					headers: { 'content-type': 'application/json' }
+				}
+			);
+		}) as typeof fetch;
 		try {
 			await expect(listAllDeployments()).rejects.toThrow(/truncated/);
 		} finally {

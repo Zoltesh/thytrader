@@ -429,10 +429,10 @@ single bots; `--i-understand-live` is never skipped.
 | Show full orders and fills | `uv run thytrader-runtime show UUID --detail full` |
 | Page orders or fills | `uv run thytrader-runtime orders UUID` / `fills UUID` |
 | Preview a fleet action | `uv run thytrader-runtime fleet-preview --action disarm --mode paper` |
-| Disarm entries (no flatten) | `uv run thytrader-runtime fleet-disarm --mode paper --idempotency-key KEY --confirm` |
+| Disarm entries (no flatten) | `uv run thytrader-runtime fleet-disarm --mode paper --idempotency-key KEY --expect-inhibition paper:REV --confirm` |
 | Managed-stop confirmed ids | `uv run thytrader-runtime fleet-stop --mode paper --idempotency-key KEY --expect ID:REV --confirm` |
 | Explicit flatten confirmed ids | `uv run thytrader-runtime fleet-flatten --mode live --idempotency-key KEY --expect ID:REV --confirm --i-understand-live` |
-| Rearm after disarm | `uv run thytrader-runtime fleet-rearm --mode live --idempotency-key KEY --confirm --i-understand-live` |
+| Rearm after disarm | `uv run thytrader-runtime fleet-rearm --mode live --idempotency-key KEY --expect-inhibition live:REV --confirm --i-understand-live` |
 | Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
 | Decisions across a strategy's bots | `uv run thytrader-runtime decisions --strategy-id UUID [DEPLOYMENT_UUID] [--outcome entry_signal --outcome exit]` |
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
@@ -613,14 +613,18 @@ The worker never re-submits an order automatically
 
 Underlying HTTP:
 
-- `GET /api/v1/deployments?limit=&offset=&as_of=` (summary rows; stable `created_at,id` order;
-  `has_more`, `returned`, `total`, `order`, `as_of`. Default limit 50 is one page, not the fleet.
-  Pin `as_of` on the next offset page. No historical orders/fills; `ledger_omission` says so.)
+- `GET /api/v1/deployments?limit=&offset=&as_of=&cursor=` (summary rows; stable `created_at,id`
+  order; `has_more`, `returned`, `total`, `order`, `as_of`, `fingerprint`, `next_cursor`.
+  Default limit 50 is one page, not the fleet. Follow `next_cursor` with offset 0. A changed
+  membership/classification returns 409 `inventory_changed`; restart or report incomplete.
+  Legacy offset pages cannot prove completeness. No historical orders/fills;
+  `ledger_omission` says so.)
 - `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`; summary sets
   `ledger_omission` and omits historical orders/fills)
 - `GET /api/v1/fleet-control` and `GET /api/v1/fleet-control/preview?action=&mode=`
 - `POST /api/v1/fleet-control/{disarm|stop|flatten|rearm}` (`confirm: true`; live rearm and
-  live-capable flatten also `i_understand_live: true`)
+  live-capable flatten also `i_understand_live: true`; disarm/rearm also require
+  `expected_inhibition` preview revisions for every scoped mode)
 - `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
 - `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428)
 - `POST /api/v1/deployments/{id}/pause`
@@ -754,3 +758,24 @@ and flatten are different commands:
 
 YOLO never covers these commands. `--confirm` is always required. A changed revision returns
 `revision_conflict` for that id and does not apply the stale preview.
+
+Disarm/rearm must also confirm latch revisions from `fleet-preview.inhibition`. Pass
+`--expect-inhibition paper:N` for paper, `live:N` for live, and **both** for `--mode all`.
+Do not automatically fetch newer revisions to replace the person's consent. An unchanged but
+newly confirmed disarm still advances its revision, so an earlier rearm preview cannot clear it.
+After a timeout, repeat the **identical** action, mode, expected ids/latch revisions, acknowledgements,
+and idempotency key. A changed request for that key is rejected. A result's `inhibition` is the
+snapshot in its causal receipt, not proof of current latch state; `fleet-status` reads current state.
+Unknown errors leave pending progress, never accepted venue work. Receipts survive restarts and
+are coupled to the latch or revision-guarded lifecycle write; replay never guesses from coincidental
+current state.
+
+Disarm linearizes against the admission commit on the mode latch row. Entry intents and open orders
+accepted before it may remain in flight: disarm does not cancel them. Missing durable state or a
+worker not yet refreshed at boot inhibits new entries, without stopping reconciliation/protection.
+
+`list` / `list --all` follows checked keyset cursors and publishes only a complete walk. For a
+manual page use `list --limit 50`, then `list --limit 50 --cursor CURSOR` from `next_cursor`.
+`list --limit 50 --offset 50` is a legacy page; `complete: false` even at the tail. Membership changes,
+missing/repeated cursors, duplicate ids, or inconsistent totals cause an incomplete error. Restart
+from page one; never present a returned prefix as the full fleet.

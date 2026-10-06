@@ -4,7 +4,8 @@ Revision ID: 0067
 Revises: 0066
 
 Seed the two mode latches without changing existing deployment status or policy.
-The integrated release head is 0068.
+Entry admission fails closed until this migration supplies both mode rows.
+Exits, protection, and reconciliation do not depend on latch availability.
 """
 
 import sqlalchemy as sa

@@ -71,6 +71,13 @@ def add_fleet_parsers(
             help="Confirmed deployment_id:revision from fleet-preview. Repeatable.",
         )
         parser.add_argument(
+            "--expect-inhibition",
+            action="append",
+            default=[],
+            help="Confirmed paper:REVISION or live:REVISION from fleet-preview. "
+            "Required for every scoped mode on disarm/rearm; repeatable.",
+        )
+        parser.add_argument(
             "--allow-empty-scope",
             action="store_true",
             help="Allow stop/flatten when the preview listed no books.",
@@ -102,6 +109,12 @@ def run_fleet_mutation(arguments: argparse.Namespace, base_url: str, settings: S
         raise RuntimeControlError(
             "Pass each fleet-preview id as --expect UUID:REVISION, or --allow-empty-scope."
         )
+    inhibition = _parse_inhibition(arguments.expect_inhibition)
+    modes = ("paper", "live") if mode == "all" else (mode,)
+    if action in {"disarm", "rearm"} and any(
+        f"{item}_revision" not in inhibition for item in modes
+    ):
+        raise RuntimeControlError("Pass --expect-inhibition MODE:REVISION for each previewed mode.")
     require_matching_ops_contract(base_url)
     payload: dict[str, object] = {
         "mode": mode,
@@ -113,6 +126,7 @@ def run_fleet_mutation(arguments: argparse.Namespace, base_url: str, settings: S
             for deployment_id, revision in expects
         ],
         "allow_empty_scope": bool(arguments.allow_empty_scope),
+        "expected_inhibition": inhibition,
     }
     return fleet_execute(base_url, _HTTP[arguments.command], payload, settings=settings)
 
@@ -121,6 +135,22 @@ def _needs_live_ack(action: str, mode: str) -> bool:
     """Live rearm and live-capable flatten require the explicit acknowledgement."""
     includes_live = mode in {"live", "all"}
     return includes_live and action in {"rearm", "flatten"}
+
+
+def _parse_inhibition(values: list[str]) -> dict[str, int]:
+    """Parse explicit latch revision confirmations without fetching newer consent."""
+    revisions: dict[str, int] = {}
+    for value in values:
+        mode, separator, revision = value.partition(":")
+        if separator != ":" or mode not in {"paper", "live"} or not revision.isdecimal():
+            raise RuntimeControlError(
+                "--expect-inhibition must be paper:REVISION or live:REVISION."
+            )
+        key = f"{mode}_revision"
+        if key in revisions:
+            raise RuntimeControlError("Duplicate --expect-inhibition mode.")
+        revisions[key] = int(revision)
+    return revisions
 
 
 def _parse_expect(value: str) -> tuple[str, int]:

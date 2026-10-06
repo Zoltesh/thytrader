@@ -18,7 +18,6 @@ from thytrader.execution.models import (
     ExecutionStoreError,
     LifecycleCommand,
 )
-from thytrader.execution.service import set_deployment_status
 from thytrader.fleet_control.admission import remember_snapshot
 from thytrader.fleet_control.effects import (
     cancels_entries,
@@ -37,7 +36,6 @@ from thytrader.fleet_control.models import (
     FleetPreview,
     FleetTarget,
     FleetTargetStatus,
-    InhibitionSnapshot,
     ResidualPosition,
     TargetResult,
     VenueEffect,
@@ -51,8 +49,6 @@ from thytrader.persistence.audit_events import (
 )
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from thytrader.execution.models import Deployment
     from thytrader.execution.store import ExecutionStore
     from thytrader.fleet_control.store import FleetControlStore
@@ -108,6 +104,7 @@ async def execute_fleet(
 ) -> FleetOperation:
     """Apply one confirmed fleet action, or return the durable result for its key."""
     _require_request(request)
+    fleet.validate_execution(execution)
     fingerprint = _fingerprint(request)
     async with fleet.operation_guard(request.idempotency_key):
         existing = await fleet.get_operation(request.idempotency_key)
@@ -136,17 +133,21 @@ async def _apply_pending(
     audit: AuditEventStore | None,
 ) -> FleetOperation:
     """Continue a pending operation without repeating recorded targets."""
-    inhibition = await _mutate_latch(fleet, request)
-    recorded = {item.deployment_id: item for item in operation.targets}
-    results = list(operation.targets)
-    if request.action in {FleetAction.MANAGED_STOP, FleetAction.FLATTEN}:
-        results = await _apply_books(
+    if request.action in {FleetAction.DISARM, FleetAction.REARM}:
+        operation = await fleet.apply_latch(operation, request, now=datetime.now(UTC))
+    else:
+        operation = await _apply_books(
             execution=execution,
             request=request,
-            recorded=recorded,
             fleet=fleet,
             operation=operation,
         )
+    inhibition = operation.inhibition
+    results = list(operation.targets)
+    current_inhibition = await fleet.read_inhibition()
+    remember_snapshot(
+        paper=current_inhibition.paper_inhibited, live=current_inhibition.live_inhibited
+    )
     note = _completion_note(request.action)
     status = _status_for(request.action, results)
     finished = replace(
@@ -167,120 +168,49 @@ async def _apply_books(
     *,
     execution: ExecutionStore,
     request: FleetExecuteRequest,
-    recorded: dict[UUID, TargetResult],
     fleet: FleetControlStore,
     operation: FleetOperation,
-) -> list[TargetResult]:
-    """Record each confirmed command, persisting after every book."""
-    results = [item for item in operation.targets if item.deployment_id in recorded]
-    confirmed = {item.deployment_id: item for item in request.expected_targets}
-    current = {row.id: row for row in await _scoped_rows(execution, request.mode)}
+) -> FleetOperation:
+    """Commit each confirmed command with its receipt; replay uses receipts only."""
+    recorded = {item.deployment_id for item in operation.targets}
+    confirmed = {item.deployment_id for item in request.expected_targets}
     for expected in request.expected_targets:
         if expected.deployment_id in recorded:
             continue
-        outcome = await _one_target(
-            execution, expected, current.get(expected.deployment_id), request
-        )
-        results.append(outcome)
-        operation = replace(
-            operation,
-            targets=tuple(results),
-            updated_at=datetime.now(UTC),
-        )
-        await fleet.save_operation(operation)
-    for deployment_id, row in current.items():
-        if deployment_id in confirmed or deployment_id in {item.deployment_id for item in results}:
-            continue
-        results.append(_not_confirmed(row))
-    return results
-
-
-async def _one_target(
-    execution: ExecutionStore,
-    expected: ExpectedTarget,
-    row: Deployment | None,
-    request: FleetExecuteRequest,
-) -> TargetResult:
-    """Apply one confirmed revision, or record why it was not applied."""
-    if row is None:
-        return TargetResult(
-            expected.deployment_id,
-            expected.revision,
-            FleetTargetStatus.FAILED,
-            "Deployment is not in the confirmed mode scope.",
-            VenueEffect.NONE,
-        )
-    if row.revision != expected.revision:
-        return TargetResult(
-            expected.deployment_id,
-            expected.revision,
-            FleetTargetStatus.REVISION_CONFLICT,
-            f"Revision is {row.revision}, not the confirmed {expected.revision}.",
-            VenueEffect.NONE,
-        )
-    if _already_applied(row, request.action):
-        return TargetResult(
-            expected.deployment_id,
-            expected.revision,
-            FleetTargetStatus.ALREADY_APPLIED,
-            "The requested lifecycle command is already recorded.",
-            _venue_effect(request.action),
-        )
-    return await _record_command(execution, row, request.action)
-
-
-async def _record_command(
-    execution: ExecutionStore,
-    row: Deployment,
-    action: FleetAction,
-) -> TargetResult:
-    """Persist one existing lifecycle command. Venue work stays with the worker."""
-    try:
-        await set_deployment_status(
-            store=execution,
-            deployment_id=row.id,
-            status=DeploymentStatus.STOPPED,
-            flatten=action is FleetAction.FLATTEN,
-        )
-    except ExecutionConflictError as error:
-        return TargetResult(
-            row.id,
-            row.revision,
-            FleetTargetStatus.REVISION_CONFLICT,
-            str(error),
-            VenueEffect.NONE,
-        )
-    except ExecutionStoreError as error:
-        return TargetResult(
-            row.id,
-            row.revision,
-            FleetTargetStatus.FAILED,
-            str(error),
-            VenueEffect.NONE,
-        )
-    return TargetResult(
-        row.id,
-        row.revision,
-        FleetTargetStatus.COMMAND_RECORDED,
-        "Lifecycle command recorded. Worker completion is asynchronous and not a fill.",
-        _venue_effect(action),
+        operation = await _record_target(execution, fleet, operation, expected)
+    current = await _scoped_rows(execution, request.mode)
+    omitted = tuple(
+        _not_confirmed(row) for row in current if row.id not in confirmed and row.id not in recorded
     )
+    return replace(operation, targets=(*operation.targets, *omitted))
 
 
-async def _mutate_latch(
-    fleet: FleetControlStore, request: FleetExecuteRequest
-) -> InhibitionSnapshot:
-    """Change the latch only for disarm and rearm. Stop and flatten do not."""
-    now = datetime.now(UTC)
-    modes = modes_for(request.mode.value)
-    if request.action is FleetAction.DISARM:
-        snapshot = await fleet.inhibit(modes, now=now)
-    elif request.action is FleetAction.REARM:
-        snapshot = await fleet.release(modes, now=now)
-    else:
-        snapshot = await fleet.read_inhibition()
-    remember_snapshot(paper=snapshot.paper_inhibited, live=snapshot.live_inhibited)
-    return snapshot
+async def _record_target(
+    execution: ExecutionStore,
+    fleet: FleetControlStore,
+    operation: FleetOperation,
+    expected: ExpectedTarget,
+) -> FleetOperation:
+    """Record only known outcomes; unknown exceptions leave progress pending."""
+    try:
+        return await fleet.record_target(execution, operation, expected, now=datetime.now(UTC))
+    except ExecutionConflictError as error:
+        outcome = FleetTargetStatus.REVISION_CONFLICT
+        detail = str(error)
+    except ExecutionStoreError as error:
+        outcome = FleetTargetStatus.FAILED
+        detail = str(error)
+    durable = await fleet.get_operation(operation.idempotency_key)
+    if durable is None:
+        raise ExecutionStoreError("Fleet receipt is unavailable; result remains unknown.")
+    if any(item.deployment_id == expected.deployment_id for item in durable.targets):
+        return durable
+    result = TargetResult(
+        expected.deployment_id, expected.revision, outcome, detail, VenueEffect.NONE
+    )
+    saved = replace(durable, targets=(*durable.targets, result), updated_at=datetime.now(UTC))
+    await fleet.save_operation(saved)
+    return saved
 
 
 async def _preview_target(
@@ -387,6 +317,17 @@ def _require_request(request: FleetExecuteRequest) -> None:
         and not request.live_acknowledged
     ):
         raise ExecutionConflictError(_LIVE_ACK_REQUIRED)
+    if len({item.deployment_id for item in request.expected_targets}) != len(
+        request.expected_targets
+    ):
+        raise ExecutionConflictError("Duplicate confirmed deployment ids are not allowed.")
+    if request.action in {FleetAction.DISARM, FleetAction.REARM}:
+        expected = request.expected_inhibition
+        confirmed = {"paper": expected.paper_revision, "live": expected.live_revision}
+        if any(confirmed[mode] is None for mode in modes_for(request.mode.value)):
+            raise ExecutionConflictError(
+                "expected_inhibition_required: Confirm preview latch revisions."
+            )
     needs_ids = request.action in {FleetAction.MANAGED_STOP, FleetAction.FLATTEN}
     if needs_ids and not request.expected_targets and not request.allow_empty_scope:
         raise ExecutionConflictError(_EMPTY_SCOPE)
@@ -401,6 +342,7 @@ def _fingerprint(request: FleetExecuteRequest) -> str:
         expected=sorted_expected(pairs),
         live_acknowledged=request.live_acknowledged,
         allow_empty_scope=request.allow_empty_scope,
+        inhibition=request.expected_inhibition,
     )
 
 

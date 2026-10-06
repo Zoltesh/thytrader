@@ -66,6 +66,7 @@ def test_http_disarm_requires_confirm_and_blocks_a_later_start() -> None:
         "mode": "paper",
         "confirm": True,
         "idempotency_key": "disarm-1",
+        "expected_inhibition": {"paper_revision": 0},
         "allow_empty_scope": True,
     }
     with TestClient(app) as client:
@@ -107,6 +108,7 @@ def test_fleet_browser_mutation_still_requires_csrf() -> None:
         "mode": "paper",
         "confirm": True,
         "idempotency_key": "disarm-csrf",
+        "expected_inhibition": {"paper_revision": 0},
         "allow_empty_scope": True,
     }
     with TestClient(app) as client:

@@ -1,5 +1,9 @@
 # ADR 0117 slice completion — inventory truth and fleet controls
 
+**Historical initial implementation, not accepted/shipped.** Lead review identified six release
+blockers. The [correctness follow-up](2026-10-06-adr0117-controls-followup.md) supersedes the initial
+fail-open admission, offset completeness, and separate effect/receipt limitations below.
+
 Worktree: `/home/hermes/projects/tt-review-controls` branch `feat/review-controls`.
 GitNexus impact used the copied index via `--repo /home/hermes/projects/thytrader`
 (read-only). That graph resolves the original checkout; this worktree did not mutate it.

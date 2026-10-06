@@ -316,6 +316,8 @@ export type DeploymentListPage = {
 	asOf: string | null;
 	total: number | null;
 	order: string | null;
+	fingerprint: string | null;
+	nextCursor: string | null;
 };
 
 /**
@@ -327,11 +329,12 @@ export type DeploymentListPage = {
 export async function listDeploymentsPage(
 	limit: number,
 	offset: number,
-	options: { strategyId?: string; asOf?: string } = {}
+	options: { strategyId?: string; asOf?: string; cursor?: string } = {}
 ): Promise<DeploymentListPage> {
 	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
 	if (options.strategyId !== undefined) params.set('strategy_id', options.strategyId);
 	if (options.asOf !== undefined && options.asOf !== '') params.set('as_of', options.asOf);
+	if (options.cursor !== undefined) params.set('cursor', options.cursor);
 	const body = await request<{
 		deployments: Deployment[];
 		returned?: number;
@@ -339,6 +342,8 @@ export async function listDeploymentsPage(
 		as_of?: string;
 		total?: number;
 		order?: string;
+		fingerprint?: string;
+		next_cursor?: string | null;
 	}>(`/api/v1/deployments?${params.toString()}`);
 	return inventoryPageFromBody(body, limit);
 }
@@ -352,10 +357,12 @@ export function inventoryPageFromBody(
 		as_of?: string;
 		total?: number;
 		order?: string;
+		fingerprint?: string;
+		next_cursor?: string | null;
 	},
 	limit: number
 ): DeploymentListPage {
-	if (body.deployments === undefined) {
+	if (!Array.isArray(body.deployments)) {
 		throw new Error('Deployment inventory response omitted its rows.');
 	}
 	const returned = body.deployments.length;
@@ -367,7 +374,25 @@ export function inventoryPageFromBody(
 			`Deployment inventory is inconsistent: the server counted ${body.returned} rows but sent ${returned}.`
 		);
 	}
-	const hasMore = body.has_more === undefined ? returned === limit && returned > 0 : body.has_more;
+	if (
+		typeof body.has_more !== 'boolean' ||
+		typeof body.as_of !== 'string' ||
+		!Number.isInteger(body.total) ||
+		(body.total ?? -1) < 0 ||
+		body.order !== 'created_at_desc_id_desc' ||
+		typeof body.fingerprint !== 'string' ||
+		body.returned === undefined ||
+		!('next_cursor' in body)
+	) {
+		throw new Error('Deployment inventory omitted checked pagination metadata; incomplete.');
+	}
+	const hasMore = body.has_more;
+	if (
+		(hasMore && (typeof body.next_cursor !== 'string' || body.next_cursor.length === 0)) ||
+		(!hasMore && body.next_cursor !== null)
+	) {
+		throw new Error('Deployment inventory cursor contradicts has_more; incomplete.');
+	}
 	if (hasMore && returned === 0) {
 		throw new Error('Deployment inventory returned an empty page while claiming more rows.');
 	}
@@ -376,7 +401,9 @@ export function inventoryPageFromBody(
 		hasMore,
 		asOf: body.as_of ?? null,
 		total: body.total ?? null,
-		order: body.order ?? null
+		order: body.order ?? null,
+		fingerprint: body.fingerprint ?? null,
+		nextCursor: body.next_cursor ?? null
 	};
 }
 
@@ -397,18 +424,44 @@ export async function listAllDeployments(
 	options: { strategyId?: string } = {}
 ): Promise<Deployment[]> {
 	const rows: Deployment[] = [];
-	let offset = 0;
-	let asOf: string | undefined;
+	let first: DeploymentListPage | null = null;
+	let cursor: string | undefined;
+	const seenIds = new Set<string>();
+	const seenCursors = new Set<string>();
 	for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
-		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset, {
-			...options,
-			asOf
-		});
-		if (asOf === undefined && result.asOf !== null) asOf = result.asOf;
+		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, 0, { ...options, cursor });
+		if (
+			result.fingerprint === null ||
+			result.asOf === null ||
+			result.total === null ||
+			result.order !== 'created_at_desc_id_desc'
+		) {
+			throw new Error('Deployment inventory omitted its membership fence; incomplete.');
+		}
+		if (first === null) first = result;
+		if (
+			result.fingerprint !== first.fingerprint ||
+			result.total !== first.total ||
+			result.asOf !== first.asOf
+		) {
+			throw new Error('Deployment inventory changed during paging; incomplete. Restart read.');
+		}
+		for (const row of result.deployments) {
+			if (!row.id || seenIds.has(row.id))
+				throw new Error('Deployment inventory duplicated or omitted identity; incomplete.');
+			seenIds.add(row.id);
+		}
 		rows.push(...result.deployments);
-		onPage?.([...rows]);
-		if (!result.hasMore) return rows;
-		offset += result.deployments.length;
+		if (!result.hasMore) {
+			if (result.nextCursor !== null || rows.length !== first.total)
+				throw new Error('Deployment inventory omitted rows; incomplete.');
+			onPage?.([...rows]);
+			return rows;
+		}
+		if (!result.nextCursor || seenCursors.has(result.nextCursor))
+			throw new Error('Deployment inventory missing/repeated cursor; incomplete.');
+		seenCursors.add(result.nextCursor);
+		cursor = result.nextCursor;
 	}
 	throw new Error('Deployment inventory truncated: exceeded the 25-page fetch cap.');
 }

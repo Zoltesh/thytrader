@@ -51,8 +51,9 @@ from thytrader.execution.pagination import (
     encode_order_cursor,
 )
 from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
-from thytrader.fleet_control.admission import latch_table_missing, refuse_postgres_entry
-from thytrader.fleet_control.inventory import InventoryPage
+from thytrader.fleet_control.admission import refuse_postgres_entry
+from thytrader.fleet_control.commands import confirmed_command
+from thytrader.fleet_control.inventory import InventoryPage, page_deployments
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -71,6 +72,12 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+    from thytrader.fleet_control.models import (
+        ExpectedTarget,
+        FleetAction,
+        FleetModeScope,
+        TargetResult,
+    )
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -231,14 +238,55 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Twin link storage is unavailable.") from error
 
+    @property
+    def fleet_database_engine(self) -> AsyncEngine:
+        """Expose database identity for atomic fleet command/receipt coordination."""
+        return self._engine
+
+    async def record_confirmed_fleet_command(
+        self,
+        connection: AsyncConnection,
+        expected: ExpectedTarget,
+        action: FleetAction,
+        mode: FleetModeScope,
+        *,
+        now: datetime,
+    ) -> TargetResult:
+        """Lock, check the confirmed revision, and save within the receipt transaction."""
+        row = (
+            (
+                await connection.execute(
+                    select(deployments)
+                    .where(deployments.c.id == expected.deployment_id)
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        current = None if row is None else _deployment_from_row(row)
+        updated, receipt = confirmed_command(current, expected, action, mode, now)
+        if updated is not None:
+            values = _mutable_deployment_values(updated)
+            values["revision"] = expected.revision + 1
+            result = await connection.execute(
+                deployments.update()
+                .where(
+                    deployments.c.id == expected.deployment_id,
+                    deployments.c.revision == expected.revision,
+                )
+                .values(values)
+            )
+            if result.rowcount != 1:
+                raise ExecutionConflictError("Deployment revision conflict.")
+        return receipt
+
     async def read_entry_inhibition(self) -> dict[str, bool]:
-        """Read the durable latch. A missing table means the migration is not applied."""
+        """Read both durable latch rows; absence or failure cannot admit risk."""
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(select(fleet_entry_inhibition))).mappings().all()
         except SQLAlchemyError as error:
-            if latch_table_missing(error):
-                return {"paper": False, "live": False}
             raise ExecutionStoreError("Entry inhibition storage is unavailable.") from error
         by_mode = {str(row["mode"]): bool(row["inhibited"]) for row in rows}
         if "paper" not in by_mode or "live" not in by_mode:
@@ -323,34 +371,12 @@ class PostgresExecutionStore:
         strategy_id: UUID | None,
         as_of: datetime,
     ) -> InventoryPage:
-        """Return one created-at snapshot page. Updates cannot move a row between pages."""
-        if limit < 1 or offset < 0:
-            raise ExecutionStoreError("Inventory page bounds are invalid.")
-        conditions = [deployments.c.created_at <= as_of]
-        if strategy_id is not None:
-            conditions.append(deployments.c.strategy_id == str(strategy_id))
-        count_statement = select(func.count()).select_from(deployments).where(*conditions)
-        page_statement = (
-            select(deployments)
-            .where(*conditions)
-            .order_by(deployments.c.created_at.desc(), deployments.c.id.desc())
-            .offset(offset)
-            .limit(limit)
-        )
-        try:
-            async with self._engine.connect() as connection:
-                total = int(await connection.scalar(count_statement) or 0)
-                rows = (await connection.execute(page_statement)).mappings().all()
-        except SQLAlchemyError as error:
-            raise ExecutionStoreError("Execution storage is unavailable.") from error
-        page = tuple(_deployment_from_row(row) for row in rows)
-        return InventoryPage(
-            deployments=page,
+        """Read a legacy offset page; complete consumers use the fenced cursor API."""
+        return page_deployments(
+            await self.list_deployments(),
             limit=limit,
             offset=offset,
-            returned=len(page),
-            total=total,
-            has_more=offset + len(page) < total,
+            strategy_id=strategy_id,
             as_of=as_of,
         )
 
@@ -602,8 +628,11 @@ class PostgresExecutionStore:
                     mode = await connection.scalar(
                         select(deployments.c.mode).where(deployments.c.id == intent.deployment_id)
                     )
-                    if isinstance(mode, str):
-                        await refuse_postgres_entry(connection, mode=mode, action="entry")
+                    if not isinstance(mode, str):
+                        raise ExecutionStoreError(
+                            "Entry deployment mode is unavailable; refusing risk."
+                        )
+                    await refuse_postgres_entry(connection, mode=mode, action="entry")
                 await connection.execute(statement)
         except ExecutionConflictError:
             raise

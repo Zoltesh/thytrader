@@ -68,6 +68,7 @@ class InMemoryExecutionStore:
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
+        # Database-free test backend starts with an explicitly clear memory latch.
         self._entry_gate: EntryGate | None = None
 
     def bind_entry_gate(self, gate: EntryGate) -> None:
@@ -380,20 +381,17 @@ class InMemoryExecutionStore:
             existing = await self.get_intent_by_idempotency_key(intent.idempotency_key)
             if existing is not None:
                 raise ExecutionConflictError("idempotency_key already used")
-        await self._refuse_inhibited_entry(intent)
-        self.intents[intent.id] = intent
-        return intent
-
-    async def _refuse_inhibited_entry(self, intent: OrderIntent) -> None:
-        """Refuse an entry intent when the bound latch is set for its mode."""
-        if intent.purpose is not IntentPurpose.ENTRY or self._entry_gate is None:
-            return
-        deployment = self.deployments.get(intent.deployment_id)
-        if deployment is None:
-            return
         gate = self._entry_gate
-        async with gate.hold():
-            gate.raise_if_inhibited(deployment.mode.value, action="entry")
+        if intent.purpose is IntentPurpose.ENTRY and gate is not None:
+            deployment = self.deployments.get(intent.deployment_id)
+            if deployment is None:
+                raise ExecutionStoreError("Entry deployment was not found.")
+            async with gate.hold():
+                gate.raise_if_inhibited(deployment.mode.value, action="entry")
+                self.intents[intent.id] = intent
+        else:
+            self.intents[intent.id] = intent
+        return intent
 
     async def read_entry_inhibition(self) -> dict[str, bool]:
         """Return the bound latch, or both modes clear when no latch is bound."""

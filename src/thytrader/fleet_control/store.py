@@ -9,16 +9,28 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from dataclasses import replace
+import hashlib
 from typing import TYPE_CHECKING, Protocol
 
-from thytrader.execution.models import ExecutionConflictError
+from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.fleet_control.admission import entry_inhibited_detail
-from thytrader.fleet_control.models import FleetOperation, InhibitionSnapshot
+from thytrader.fleet_control.commands import confirmed_command
+from thytrader.fleet_control.models import (
+    ExpectedInhibition,
+    ExpectedTarget,
+    FleetExecuteRequest,
+    FleetOperation,
+    InhibitionSnapshot,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
     from datetime import datetime
+
+    from thytrader.execution.store import ExecutionStore
 
 
 class EntryGate(Protocol):
@@ -39,6 +51,10 @@ class EntryGate(Protocol):
 
 class FleetControlStore(Protocol):
     """Durable latch and operation log used by the fleet service."""
+
+    def validate_execution(self, execution: ExecutionStore) -> None:
+        """Refuse mixed/non-durable command and receipt backends before effects."""
+        ...
 
     async def read_inhibition(self) -> InhibitionSnapshot:
         """Return the current per-mode latch."""
@@ -64,8 +80,25 @@ class FleetControlStore(Protocol):
         """Replace the stored operation for its idempotency key."""
         ...
 
-    def operation_guard(self, idempotency_key: str) -> asyncio.Lock:
-        """Serialize retries of one idempotency key."""
+    def operation_guard(self, idempotency_key: str) -> AbstractAsyncContextManager[None]:
+        """Serialize retries across all instances, including pending operations."""
+        ...
+
+    async def apply_latch(
+        self, operation: FleetOperation, request: FleetExecuteRequest, *, now: datetime
+    ) -> FleetOperation:
+        """Commit the confirmed latch revision and its causal receipt atomically."""
+        ...
+
+    async def record_target(
+        self,
+        execution: ExecutionStore,
+        operation: FleetOperation,
+        expected: ExpectedTarget,
+        *,
+        now: datetime,
+    ) -> FleetOperation:
+        """Commit a revision-fenced lifecycle command and its receipt atomically."""
         ...
 
 
@@ -80,6 +113,11 @@ class InMemoryFleetControlStore:
         self._updated_at: datetime | None = None
         self._operations: dict[str, FleetOperation] = {}
         self._operation_locks: dict[str, asyncio.Lock] = {}
+
+    def validate_execution(self, execution: ExecutionStore) -> None:
+        """Permit only the explicit memory execution harness."""
+        if not isinstance(execution, InMemoryExecutionStore):
+            raise ExecutionStoreError("Memory fleet receipts require memory execution persistence.")
 
     @asynccontextmanager
     async def hold(self) -> AsyncIterator[None]:
@@ -127,9 +165,55 @@ class InMemoryFleetControlStore:
         async with self._lock:
             self._operations[operation.idempotency_key] = operation
 
-    def operation_guard(self, idempotency_key: str) -> asyncio.Lock:
-        """Return the lock that serializes one idempotency key."""
-        return self._operation_locks.setdefault(idempotency_key, asyncio.Lock())
+    @asynccontextmanager
+    async def operation_guard(self, idempotency_key: str) -> AsyncIterator[None]:
+        """Hold the lock serializing one idempotency key."""
+        async with self._operation_locks.setdefault(idempotency_key, asyncio.Lock()):
+            yield
+
+    async def apply_latch(
+        self, operation: FleetOperation, request: FleetExecuteRequest, *, now: datetime
+    ) -> FleetOperation:
+        """Apply the latch and save its receipt without an intervening await."""
+        async with self._lock:
+            if operation.latch_applied:
+                return operation
+            modes = modes_for(request.mode.value)
+            require_inhibition_revisions(self._snapshot(), request.expected_inhibition, modes)
+            for mode in modes:
+                self._inhibited[mode] = request.action.value == "disarm"
+                self._revisions[mode] += 1
+            self._updated_at = now
+            saved = replace(
+                operation, inhibition=self._snapshot(), latch_applied=True, updated_at=now
+            )
+            self._operations[operation.idempotency_key] = saved
+            return saved
+
+    async def record_target(
+        self,
+        execution: ExecutionStore,
+        operation: FleetOperation,
+        expected: ExpectedTarget,
+        *,
+        now: datetime,
+    ) -> FleetOperation:
+        """Couple memory writes without a suspension after command persistence.
+
+        Refuse mixed persistence backends: real PostgreSQL commands must never
+        be coupled to a process-local, non-durable receipt.
+        """
+        self.validate_execution(execution)
+        async with self._lock:
+            snapshot = await execution.get_deployment(expected.deployment_id)
+            updated, result = confirmed_command(
+                snapshot.deployment, expected, operation.action, operation.mode, now
+            )
+            saved = replace(operation, targets=(*operation.targets, result), updated_at=now)
+            if updated is not None:
+                await execution.save_deployment(updated, expected_revision=expected.revision)
+            self._operations[operation.idempotency_key] = saved
+            return saved
 
     def _set(self, modes: tuple[str, ...], *, inhibited: bool, now: datetime) -> None:
         """Apply one latch bit under the caller's lock."""
@@ -167,13 +251,30 @@ def fingerprint_request(
     expected: tuple[tuple[str, int], ...],
     live_acknowledged: bool,
     allow_empty_scope: bool,
+    inhibition: ExpectedInhibition,
 ) -> str:
     """Canonical identity of one fleet request, excluding the idempotency key."""
     targets = ",".join(f"{deployment_id}:{revision}" for deployment_id, revision in expected)
-    return (
+    canonical = (
         f"action={action};mode={mode};live={int(live_acknowledged)};"
-        f"empty={int(allow_empty_scope)};targets={targets}"
+        f"empty={int(allow_empty_scope)};targets={targets};"
+        f"paper_revision={inhibition.paper_revision};live_revision={inhibition.live_revision}"
     )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def require_inhibition_revisions(
+    snapshot: InhibitionSnapshot, expected: ExpectedInhibition, modes: tuple[str, ...]
+) -> None:
+    """Reject absent or stale confirmations, including a repeated deliberate disarm."""
+    actual = {"paper": snapshot.paper_revision, "live": snapshot.live_revision}
+    confirmed = {"paper": expected.paper_revision, "live": expected.live_revision}
+    for mode in modes:
+        if confirmed[mode] is None or confirmed[mode] != actual[mode]:
+            raise ExecutionConflictError(
+                f"inhibition_revision_conflict: {mode} revision is {actual[mode]}, "
+                f"not confirmed {confirmed[mode]}. Read a new fleet preview."
+            )
 
 
 def sorted_expected(expected: tuple[tuple[str, int], ...]) -> tuple[tuple[str, int], ...]:

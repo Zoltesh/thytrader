@@ -15,6 +15,7 @@ import {
 	type Json
 } from '../../../e2e/decision-fixtures';
 import { expect, test } from '../../../e2e/harness';
+import { inventoryPageFixture } from '../../../e2e/inventory';
 
 const deploymentId = '01a0ad72-0000-0000-0000-000000000000';
 const fingerprintA = `sha256:${'a'.repeat(64)}`;
@@ -214,12 +215,7 @@ async function mockDetailRoutes(
 		(url) => url.pathname === '/api/v1/deployments',
 		(route) =>
 			route.fulfill({
-				json: {
-					deployments: overrides.inventory ?? [],
-					limit: 200,
-					offset: 0,
-					returned: (overrides.inventory ?? []).length
-				}
+				json: inventoryPageFixture(overrides.inventory ?? [])
 			})
 	);
 	await page.route(
@@ -425,7 +421,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -486,7 +482,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -776,7 +772,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -838,7 +834,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -887,7 +883,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -954,7 +950,7 @@ test.describe('deployment detail', () => {
 		});
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -1017,7 +1013,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
