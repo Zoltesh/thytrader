@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_protection_evidence import _NOW, _deployment, _order, _position
 from tests.execution.test_reconcile import _LookupBroker, _snapshot_with_order
 from thytrader.api.routes.deployments import _position_response
@@ -143,7 +144,9 @@ def test_local_recency_cannot_resurrect_a_duplicate_open(status: OrderStatus) ->
         venue_observed_at=None if status is OrderStatus.UNKNOWN else _NOW,
     )
     for rows in permutations((old, latest)):
-        snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+        snapshot = settled_snapshot(
+            DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+        )
         evidence = book_protection_evidence(snapshot, product_id="BTC-USD", position=position)
         assert evidence.status is (
             ProtectionStatus.UNKNOWN
@@ -196,7 +199,9 @@ def test_duplicate_partial_fill_history_must_not_regress_in_any_tuple_order() ->
         venue_observed_at=_NOW + timedelta(seconds=2),
     )
     for rows in permutations((first, regressed, latest)):
-        snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+        snapshot = settled_snapshot(
+            DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+        )
         evidence = book_protection_evidence(
             snapshot, product_id="BTC-USD", position=position, now=_NOW + timedelta(seconds=2)
         )

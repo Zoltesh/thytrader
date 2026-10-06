@@ -68,10 +68,11 @@ stopped live book whose strategy was deleted), the snapshot `strategy_fingerprin
 uses the same `books[]` on each deployment row. `protection_status` is classified from verified
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
 ([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)); an open paper book is
-always `covered`, matching its `position_state`
+`covered` when its inventory economics are resolved, matching its `position_state`
 ([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each book also
 carries `protection` ([ADR 0112](../../../docs/decisions/0112-quantitative-protection-evidence.md)):
-coverage quantities, stop side/geometry validity, `mechanism`, `venue_resting`,
+coverage quantities (decimal strings, or null when inventory is unresolved), stop
+side/geometry validity, `mechanism`, `venue_resting`,
 `worker_dependent`, observed/verified time or null, and `reasons`. Live `covered` is a confirmed
 OPEN matching stop, not a take-profit and not a pending or unknown order. Paper `covered` is
 `mechanism: synthetic`. Each row also
@@ -79,11 +80,14 @@ reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_
 breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
 `worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and
 `open_book_count` without cash or quantities. Latches persist across pause.
-`ledger_mark_complete` uses each open product's last journaled close: true when all are marked
-or the deployment is flat, false when any close is missing or the journal is unavailable, null
-when the books could not be read. It shares the deployment detail's journal mark source; the
-separate `performance` report uses market-data closes. Summary reads remain bounded and do not
-load historical fills or fetch venue prices.
+`ledger_mark_complete` is false for unresolved economics or bounded summary accounting,
+not a cash-only flatness certificate. Complete books require each needed mark; null means books
+could not be read. Bounded summaries still expose known local position cover, but cannot prove
+flatness for absent positions or aggregate PnL. Full `performance` reports use market-data closes;
+`ACCOUNTING_UNRESOLVED` nulls dependent aggregate totals without inventing positions/marks.
+Applied-but-unprojected owned fills and unsettled executions report `open_unverified` / `unknown`
+with null protection quantities, surviving mismatch clearing and restart. Recorded fill metrics
+are known-population statistics, not complete-account audits.
 Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
 or `thytrader-runtime stop UUID --flatten --confirm`. Latched breakers clear only through
 `thytrader-runtime reset-breaker-latches UUID --confirm` /
@@ -290,8 +294,12 @@ comparison was invented. Quote currencies are never summed; `QUOTE_CURRENCY_MISM
 excludes other quotes using actual product books (including mixed-product snapshots),
 not only the primary deployment product. Mixed deployments have `quote_exposures[]`
 and null cross-quote totals. `account.inventory` and each portfolio's `inventory`
-state completeness; incomplete managed reads null total exposure, effective account
-caps, and remaining capacity. Scoped deployment rows still use every live book for
+state read `status` separately from `accounting_status` (`complete` / `unresolved` /
+`unavailable`) and `unresolved_deployment_ids`. Incomplete managed reads or retained unresolved
+economics null total exposure, effective account caps, and remaining capacity.
+`BOOK_ACCOUNTING_UNRESOLVED` identifies affected books. Per-quote deployment `inventory_cost`
+and `exposure` can be null while independent working reservations and stored allocations remain
+known. A prior valid day opening/profit does not repair inventory projection. Scoped deployment rows still use every live book for
 account capacity and every relevant sibling for portfolio exposure.
 `portfolios[].runtime_available=false` means `breaker_latched=null`, never false.
 Missing/truncated portfolio scope sets `payload.portfolio_scope_complete=false` and
@@ -304,7 +312,11 @@ information, not errors, and are never flattened or cancelled. `MANAGED_INVENTOR
 and `MANAGED_ORDER_NOT_AT_VENUE` are warnings; unknown is not rejected. `balances_listing`
 and `orders_listing` are `complete` or `unavailable`; `managed_listing` separately
 states `complete`, `partial`, or `unavailable`, with read/expected counts and missing
-book IDs. Either incomplete side leaves dependent `foreign_quantity`, `foreign`,
+book IDs. Separate `accounting_status` (`complete` / `unresolved` / `unavailable`) and
+`unresolved_deployment_ids` disclose retained unresolved inventory/executions even when read
+`status=complete`. `MANAGED_ACCOUNTING_UNRESOLVED` makes affected asset quantities and foreign
+differences null (`managed_unknown`); unaffected assets and order ownership checks remain
+independent. Either incomplete read side leaves dependent `foreign_quantity`, `foreign`,
 `orphan`, and `matched` null, never guessed; incomplete managed asset rows are
 `managed_unknown`. Missing storage cannot establish an empty managed fleet.
 `orders_listing.scope=spot_order_history_nonterminal` means all spot-history pages
@@ -330,7 +342,9 @@ unfilled; supervision does not submit a market order. When every resting closing
 of an occupied live book is triggered-unfilled, the book also reports `STOP_UNCOVERED`:
 the resting orders no longer evidence cover. Unknown evidence never resolves an alert;
 only that check's verified absence (or authoritative deployment removal) does. Partial
-snapshots/inventories and cold/warming caches are not recovery. Implausibly future lease
+snapshots/inventories and cold/warming caches are not recovery. Applied-but-unprojected owned
+fills and unsettled canceled/filled executions likewise cannot clear protection/trigger incidents
+on missing positions or terminal status; independent authoritative checks may still recover. Implausibly future lease
 expiries indicate unknown age/possible clock skew, not verified freshness. Worker error counts persist across
 restart; observing a held supervision pause does not fabricate additional errors.
 

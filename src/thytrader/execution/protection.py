@@ -6,7 +6,7 @@ Only venue_observed_at supplies order-state freshness; local writes never renew 
 of order state is not an independent venue geometry or account audit. A take-profit alone
 is not cover. Pending and unknown orders are not confirmed cover. Parent
 stop/target geometry is never coverage, and an attached child does not bypass those
-checks. An open paper book stays ``covered`` because the worker enforces its stop
+checks. A resolved open paper book stays ``covered`` because the worker enforces its stop
 synthetically, but the evidence says that cover is worker-dependent rather than a
 venue-resting order (ADR 0098, ADR 0112).
 
@@ -26,6 +26,10 @@ from uuid import UUID  # noqa: TC003 - intent maps are keyed at runtime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from thytrader.execution.fill_ledger import (
+    unprojected_inventory_products,
+    unsettled_fill_evidence,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
     DeploymentMode,
@@ -55,6 +59,9 @@ _Freshness = Literal["recent_venue", "stale", "unknown"]
 _GeometryBasis = Literal["working_target", "stop_limit_trigger", "unknown"]
 PROTECTION_REASONS: tuple[str, ...] = (
     "flat",
+    "inventory_projection_unresolved",
+    "fill_economics_unsettled",
+    "inventory_evidence_incomplete",
     "synthetic_worker_dependent",
     "venue_stop_resting",
     "duplicate_order_ignored",
@@ -132,9 +139,9 @@ class ProtectionEvidence:
     """Exact persisted stop cover, with venue order-state provenance, not geometry auditing."""
 
     status: ProtectionStatus
-    required_quantity: Decimal
-    covered_quantity: Decimal
-    uncovered_quantity: Decimal
+    required_quantity: Decimal | None
+    covered_quantity: Decimal | None
+    uncovered_quantity: Decimal | None
     stop_side: OrderSide | None
     stop_side_valid: bool
     stop_geometry_valid: bool
@@ -152,15 +159,15 @@ class ProtectionEvidence:
 
 
 class ProtectionEvidenceResponse(BaseModel):
-    """Strict public protection evidence. Quantities are exact decimal strings."""
+    """Strict protection evidence; exact decimal strings, or null for unresolved inventory."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    required_quantity: str = Field(pattern=r"^\d+(?:\.\d+)?$")
-    covered_quantity: str = Field(pattern=r"^\d+(?:\.\d+)?$")
-    uncovered_quantity: str = Field(pattern=r"^\d+(?:\.\d+)?$")
+    required_quantity: str | None = Field(pattern=r"^\d+(?:\.\d+)?$")
+    covered_quantity: str | None = Field(pattern=r"^\d+(?:\.\d+)?$")
+    uncovered_quantity: str | None = Field(pattern=r"^\d+(?:\.\d+)?$")
     stop_side: Literal["buy", "sell"] | None = Field(
-        description="Closing side the stop must use, or null when flat."
+        description="Closing side the stop must use, or null when flat or inventory is unresolved."
     )
     stop_side_valid: bool
     stop_geometry_valid: bool
@@ -258,19 +265,22 @@ def book_position_state(
 ) -> PositionState:
     """Classify one product book as flat, entering, open (by protection), or exiting.
 
-    A paper book that is not exiting is always ``open_protected``: the worker enforces its
-    stop synthetically on every closed bar. Live books map ``protection_status``. A
-    take-profit alone is not covered, so it is ``open_unprotected``.
+    A resolved paper book that is not exiting is ``open_protected``: the worker enforces
+    its stop synthetically on every closed bar. Unresolved economics stays unverified.
+    Live books map ``protection_status``. A take-profit alone is not covered, so it is
+    ``open_unprotected``.
     """
-    if position is None:
-        return PositionState.ENTERING if phase is RuntimePhase.PENDING_ENTRY else PositionState.FLAT
-    if book_exit_in_flight(snapshot, product_id=product_id, position=position):
-        return PositionState.EXITING
-    if snapshot.deployment.mode is DeploymentMode.PAPER:
-        return PositionState.OPEN_PROTECTED
     observed = evidence or book_protection_evidence(
         snapshot, product_id=product_id, position=position
     )
+    if book_exit_in_flight(snapshot, product_id=product_id, position=position):
+        return PositionState.EXITING
+    if observed.required_quantity is None:
+        return PositionState.OPEN_UNVERIFIED
+    if position is None:
+        return PositionState.ENTERING if phase is RuntimePhase.PENDING_ENTRY else PositionState.FLAT
+    if snapshot.deployment.mode is DeploymentMode.PAPER:
+        return PositionState.OPEN_PROTECTED
     return _OPEN_STATE[observed.status]
 
 
@@ -285,6 +295,12 @@ def deployment_position_state(snapshot: DeploymentSnapshot) -> PositionState:
         )
         for position in snapshot_positions(snapshot)
     }
+    if (
+        unprojected_inventory_products(snapshot)
+        or unsettled_fill_evidence(snapshot)
+        or not snapshot.accounting_complete
+    ):
+        states.add(PositionState.OPEN_UNVERIFIED)
     for state in _STATE_PRIORITY:
         if state in states:
             return state
@@ -315,6 +331,11 @@ def book_protection_evidence(
     evaluated = _aware(now or utc_now())
     if evaluated is None:
         raise ValueError("Protection reporting requires an aware UTC clock.")
+    reasons = book_inventory_reasons(snapshot, product_id=product_id)
+    if not reasons and position is None and not snapshot.accounting_complete:
+        reasons = ("inventory_evidence_incomplete",)
+    if reasons:
+        return _unresolved_evidence(evaluated, reasons)
     if position is None or position.quantity <= 0:
         return _flat_evidence(evaluated)
     if snapshot.deployment.mode is DeploymentMode.PAPER:
@@ -330,7 +351,7 @@ def book_protection_status(
 ) -> ProtectionStatus:
     """Classify protection for one product book from persisted orders and intents.
 
-    Paper books are ``covered`` whether or not a take-profit rests (ADR 0098). Live
+    Resolved paper books are ``covered`` whether or not a take-profit rests (ADR 0098). Live
     ``covered`` requires a confirmed open stop of sufficient remaining quantity and valid
     geometry. A take-profit alone, a pending stop, and an unknown stop are not covered.
     """
@@ -340,9 +361,9 @@ def book_protection_status(
 def protection_evidence_response(evidence: ProtectionEvidence) -> ProtectionEvidenceResponse:
     """Serialize one evidence value with exact decimal strings and unknown times as null."""
     return ProtectionEvidenceResponse(
-        required_quantity=format(evidence.required_quantity, "f"),
-        covered_quantity=format(evidence.covered_quantity, "f"),
-        uncovered_quantity=format(evidence.uncovered_quantity, "f"),
+        required_quantity=_quantity_text(evidence.required_quantity),
+        covered_quantity=_quantity_text(evidence.covered_quantity),
+        uncovered_quantity=_quantity_text(evidence.uncovered_quantity),
         stop_side=(
             None
             if evidence.stop_side is None
@@ -364,6 +385,49 @@ def protection_evidence_response(evidence: ProtectionEvidence) -> ProtectionEvid
         geometry_basis=evidence.geometry_basis,
         reasons=evidence.reasons,
     )
+
+
+def book_inventory_reasons(snapshot: DeploymentSnapshot, *, product_id: str) -> tuple[str, ...]:
+    """Disclose durable unresolved economics on one product, never an exit quantity.
+
+    Product filtering preserves unrelated valid books. Orphan unapplied fills cannot
+    be assigned a product, so they conservatively leave every book unresolved.
+    """
+    product = resolved_product_id(product_id, snapshot.deployment)
+    reasons: list[str] = []
+    if product in unprojected_inventory_products(snapshot):
+        reasons.append("inventory_projection_unresolved")
+    orders = tuple(
+        order
+        for order in snapshot.orders
+        if resolved_product_id(order.product_id, snapshot.deployment) == product
+    )
+    ids = {order.id for order in orders}
+    known_ids = {order.id for order in snapshot.orders}
+    fills = tuple(
+        fill for fill in snapshot.fills if fill.order_id in ids or fill.order_id not in known_ids
+    )
+    if unsettled_fill_evidence(replace(snapshot, orders=orders, fills=fills)):
+        reasons.append("fill_economics_unsettled")
+    return tuple(reasons)
+
+
+def _unresolved_evidence(now: datetime, reasons: tuple[str, ...]) -> ProtectionEvidence:
+    """Missing projection/economics supplies neither flatness nor executable geometry."""
+    return replace(
+        _flat_evidence(now),
+        status=ProtectionStatus.UNKNOWN,
+        required_quantity=None,
+        covered_quantity=None,
+        uncovered_quantity=None,
+        mechanism=ProtectionMechanism.UNVERIFIED,
+        reasons=reasons,
+    )
+
+
+def _quantity_text(quantity: Decimal | None) -> str | None:
+    """Unknown inventory is null, not a zero quantity."""
+    return None if quantity is None else format(quantity, "f")
 
 
 def working_order_count(orders: tuple[Order, ...]) -> int:

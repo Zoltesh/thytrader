@@ -118,6 +118,28 @@ describe('protection badges (ADR 0112)', () => {
 		expect(pending.tone).toBe('warn');
 	});
 
+	it('renders unresolved inventory quantities as unknown, never null or zero', () => {
+		const badge = protectionBadge({
+			position_state: 'open_unverified',
+			protection_status: 'unknown',
+			protection: {
+				...venue,
+				required_quantity: null,
+				covered_quantity: null,
+				uncovered_quantity: null,
+				mechanism: 'unverified',
+				venue_resting: false,
+				verified_at: null,
+				reasons: ['inventory_projection_unresolved']
+			}
+		});
+		expect(badge.text).toBe('Unverified');
+		expect(badge.tone).toBe('warn');
+		expect(badge.detail).toContain('unknown of unknown');
+		expect(badge.detail).not.toContain('null');
+		expect(badge.detail).not.toContain('0 of 0');
+	});
+
 	it('keeps exiting distinct from both synthetic and venue cover', () => {
 		for (const mechanism of ['venue', 'synthetic'] as const) {
 			const badge = protectionBadge({

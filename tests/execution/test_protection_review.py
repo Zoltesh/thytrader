@@ -10,6 +10,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_protection_evidence import _NOW, _deployment, _order, _position
 from thytrader.execution import protection
 from thytrader.execution.models import (
@@ -77,7 +78,9 @@ def test_newer_terminal_duplicate_never_resurrects_an_open_row(
         venue_observed_at=_NOW + timedelta(seconds=1),
     )
     rows = (new, old) if reverse else (old, new)
-    snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+    snapshot = settled_snapshot(
+        DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
+    )
     evidence = book_protection_evidence(
         snapshot, product_id="BTC-USD", position=position, now=_NOW + timedelta(seconds=1)
     )
@@ -138,8 +141,8 @@ def test_duplicate_partial_rows_use_latest_remainder_not_sum_or_old_maximum() ->
         updated_at=_NOW + timedelta(seconds=1),
         venue_observed_at=_NOW + timedelta(seconds=1),
     )
-    snapshot = DeploymentSnapshot(
-        deployment=deployment, positions=(position,), orders=(first, newer)
+    snapshot = settled_snapshot(
+        DeploymentSnapshot(deployment=deployment, positions=(position,), orders=(first, newer))
     )
     evidence = book_protection_evidence(
         snapshot, product_id="BTC-USD", position=position, now=_NOW + timedelta(seconds=1)
@@ -179,8 +182,10 @@ def test_parent_child_alias_is_folded_with_newer_terminal_venue_row() -> None:
         updated_at=_NOW + timedelta(seconds=1),
         venue_observed_at=_NOW + timedelta(seconds=1),
     )
-    snapshot = DeploymentSnapshot(
-        deployment=deployment, positions=(position,), orders=(parent, child, terminal)
+    snapshot = settled_snapshot(
+        DeploymentSnapshot(
+            deployment=deployment, positions=(position,), orders=(parent, child, terminal)
+        )
     )
     evidence = book_protection_evidence(
         snapshot, product_id="BTC-USD", position=position, now=_NOW + timedelta(seconds=1)

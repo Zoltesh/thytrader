@@ -320,7 +320,8 @@ carry them too:
 `exit_in_flight` is true only for `exiting`. A deployment takes its worst book (exiting, then
 unprotected, then unverified, then protected). Open paper books that are not exiting are always
 `open_protected`: the worker enforces the stop on every closed bar. Their `protection_status` is
-`covered` on every read, `list` included, so the two fields agree
+`covered` on every read when inventory economics are resolved, `list` included, so the two
+fields agree
 ([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). That paper
 `covered` is worker-dependent, not a venue-resting order.
 
@@ -360,11 +361,14 @@ allocate entry fees proportionally; adds accumulate paid fees. Future exit fees 
 so this is not a liquidation estimate. Missing, mismatched, or over-1000 applied current-window
 fills leave both fee fields null, retaining the gross mark; never assume null means zero.
 [ADR 0100](../../docs/decisions/0100-fee-adjusted-open-book-pnl.md).
-On `show` (both summary and full HTTP detail), `ledger.mark_complete`, `marked_exposure`,
-`total_net_pnl`, and `total_return_fraction` use the same per-product journaled closes as the
-positions. Every open book needs its own mark; a missing close or unavailable journal leaves
-aggregate PnL and exposure null. Reads never fetch a venue price to fill the gap. Use full
-detail or the paged ledgers when historical fills or round-trip counts are needed.
+On full `show --detail full`, `ledger.mark_complete`, `marked_exposure`, `total_net_pnl`, and
+`total_return_fraction` require resolved inventory/execution economics and every needed product's
+journaled close. Missing projection, unpublished/unapplied execution economics, or missing marks
+leave dependent totals null. Summary `show` omits retained fill economics: it cannot certify
+aggregate accounting or flatness from absent positions. Known local position cover stays visible,
+not a whole-account completeness claim. Unknown protection quantities are null, never zero or an
+executable sell quantity. Reads never fetch a venue price or reconstruct a position to fill the
+gap. Use full detail for retained economics; paged ledgers disclose only their own population.
 
 ## Same-bar exits (paper equals the backtest)
 
@@ -496,6 +500,10 @@ ADR 0058 lifecycle fields
 with `product_id`, `closes_at`, `price`). Legacy opening equity is **not** verified midnight
 provenance. Qualified evidence must belong to the observed UTC day and still match complete
 current accounting; old preserved evidence alone is not permission to trade.
+`capital.inventory_cost`, `reserved_buying_power`, and `performance_equity` are null when report
+accounting is incomplete, including bounded summaries. Independent stored funding/budget history
+and observed venue quote remain visible; they do not repair projection or certify current equity.
+Use operator `readiness` / `venue-reconciliation` to inspect separate read/accounting completeness.
 ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
 ledger fill accounting only. `reserved_buying_power` counts working entry remainders;
 known protective or other exit intents never reserve entry quote, including paper limit exits.

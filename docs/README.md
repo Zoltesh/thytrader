@@ -36,6 +36,9 @@ Lifecycle supervision remains per-product while paused, between bars, or warming
 Canceled executions awaiting fills and applied-but-unprojected inventory are not flatness;
 protection and committed live exits remain supervised across restart. See
 [Operate](user/operate.md) before treating an empty position row as a successful flatten.
+Reporting keeps these books unverified with null dependent totals/quantities. Readiness and venue
+reconciliation disclose accounting completeness separately from successful storage reads; unknown
+inventory is not free capacity, foreign holdings, or recovered protection.
 
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).

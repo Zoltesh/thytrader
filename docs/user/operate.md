@@ -393,6 +393,20 @@ prevented inventory projection, protection remains and the book is not proved fl
 because `positions` is empty or a later read fault changed `mismatch_detail`. Diagnose with
 `thytrader-runtime show UUID` and `thytrader-operator reconciliation`; report the unresolved
 projection instead of resuming the bot or editing historical fills/fees to clear the message.
+Reports keep unresolved books **Unverified** (`unknown` / `open_unverified`), with null protection
+quantities and dependent aggregate PnL/equity/exposure rather than zero or cash-only totals.
+Bounded summaries omit retained fill economics: they cannot prove flatness from a missing position
+or certify aggregate accounting. Full `thytrader-operator performance --deployment-id UUID` reports
+`ACCOUNTING_UNRESOLVED` when needed. Prior profits or a valid old day opening do not fix projection.
+
+Use `thytrader-operator readiness [--deployment-id UUID]` and
+`thytrader-operator venue-reconciliation` for read-only capacity/ownership evidence. Inventory read
+`status=complete` means the reads succeeded; separate `accounting_status` and
+`unresolved_deployment_ids` disclose unresolved economics. Readiness leaves dependent capacity
+null. Venue reconciliation leaves affected assets `managed_unknown`, not foreign, preserving
+independent venue balances and unaffected asset/order observations. Unknown is not recovery:
+protection/trigger incidents remain open until their product's economics are resolved. No report
+places orders or repairs economic records.
 
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with
@@ -409,7 +423,7 @@ an entry fills, the TP/SL bracket (or the stop-only order) rests and the worker'
 `pending_exit`, but the book shows **Open · protected (TP/SL resting)** (or **(stop resting)** with no
 take-profit). **Exiting** appears only while an exit is actually being sent: a marketable exit, a
 matched exit rule, or a flatten. HTTP and operator payloads carry the same reading as
-`position_state` and `exit_in_flight`. An open paper book's `protection_status` is always
+`position_state` and `exit_in_flight`. A resolved open paper book's `protection_status` is
 `covered`, on list and summary reads too: its stop is enforced on every closed bar and any
 take-profit rests in the paper broker
 ([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).

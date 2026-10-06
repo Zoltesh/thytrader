@@ -178,8 +178,18 @@ are published. Applied entry economics with unprojected inventory are unresolved
 not a display-message predicate: a later read fault, restart, or cleared `mismatch_detail` cannot
 prove flatness or authorize removing protection. Read `thytrader-runtime show UUID` and
 `thytrader-operator reconciliation` and report the fault; do not invent a stop/quantity, rewrite
-fills/fees, or resume a deliberately paused book. Payload schemas and confirmation gates are
-unchanged ([ADR 0110](decisions/0110-stopped-lifecycle-reconciliation.md)).
+fills/fees, or resume a deliberately paused book ([ADR 0110](decisions/0110-stopped-lifecycle-reconciliation.md)).
+Reporting exposes these books as `unknown` / `open_unverified` with nullable protection quantities
+and aggregate PnL/equity/exposure. Bounded summaries cannot certify flatness or full accounting;
+valid focused book evidence is not shared-account completeness. Readiness inventory and venue
+`managed_listing` separate read `status` from `accounting_status` (`complete` / `unresolved` /
+`unavailable`) and `unresolved_deployment_ids`. `BOOK_ACCOUNTING_UNRESOLVED` /
+`MANAGED_ACCOUNTING_UNRESOLVED` preserve null dependent capacity and affected asset differences
+(`managed_unknown`), not fake zero/free capacity/foreign holdings. Independent balances, quotes,
+assets and order checks remain known when proved. Protection/trigger incidents do not recover
+just because positions disappear or executions become terminal. Prior opening proof/profits
+cannot repair projection. Full performance reports use `ACCOUNTING_UNRESOLVED`; confirmation
+gates and read-only authority are unchanged.
 
 Order-state provenance is independent of local row recency: `venue_observed_at` is persisted
 only after identified live order reads, with legacy rows unknown until reconciliation. Do not
@@ -456,8 +466,8 @@ for `ledger_mark_complete`. Every open book needs its own close: a missing mark 
 outage leaves aggregate PnL/exposure unknown. These reads stay local and bounded; the separate
 operator `performance` report uses market-data closes.
 `GET /api/v1/portfolios/{id}/fill-comparisons` returns the operator report's
-`paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. An open paper book's
-`protection_status` is `covered` on every read.
+`paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. A resolved open paper
+book's `protection_status` is `covered` on every read.
 Sparse markets ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)): Coinbase returns no candle for an interval without
 trades. The worker publishes each confirmed one as a flat zero-volume bar. Dataset manifests count
 them (`synthetic_no_trade_intervals`), and backtests whose window holds one disclose

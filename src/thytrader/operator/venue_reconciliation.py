@@ -41,6 +41,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.protection import book_inventory_reasons
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
@@ -148,6 +149,8 @@ class ManagedListingEvidence(_FrozenModel):
     read_books: int = Field(default=0, ge=0)
     missing_deployment_ids: tuple[UUID, ...] = ()
     unsupported_products: tuple[str, ...] = ()
+    accounting_status: Literal["complete", "unresolved", "unavailable"] = "unavailable"
+    unresolved_deployment_ids: tuple[UUID, ...] = ()
 
 
 class AssetReconciliationRow(_FrozenModel):
@@ -263,6 +266,7 @@ class _ManagedInventory:
         self.unknown_buy_quotes: set[str] = set()
         self.claimed_venue_ids: set[str] = set()
         self.claimed_client_ids: set[str] = set()
+        self.unresolved_currencies: set[str] = set()
 
     def add_position(self, currency: str, quantity: Decimal, *, long: bool) -> None:
         """Accumulate one signed position into its base currency."""
@@ -290,7 +294,7 @@ class _ManagedInventory:
 
     def currencies(self) -> tuple[str, ...]:
         """Every base currency with any managed position or short."""
-        return tuple(sorted({*self.long, *self.short}))
+        return tuple(sorted({*self.long, *self.short, *self.unresolved_currencies}))
 
 
 class _VenueUnavailableError(RuntimeError):
@@ -402,7 +406,7 @@ async def _managed_snapshots(
     snapshots: list[DeploymentSnapshot] = []
     for deployment in live:
         try:
-            snapshots.append(await execution.get_deployment(deployment.id))
+            snapshots.append(await execution.get_accounting_snapshot(deployment.id))
         except Exception:  # noqa: BLE001 - one unreadable book must not sink the report.
             findings.append(
                 VenueFinding(
@@ -430,10 +434,32 @@ async def _managed_snapshots(
                 detail="Managed inventory contains unsupported products; comparisons are unknown.",
             )
         )
+    unresolved = tuple(
+        item.deployment.id
+        for item in known
+        if not item.accounting_complete or _unresolved_products(item)
+    )
+    findings.extend(
+        VenueFinding(
+            reason_code="MANAGED_ACCOUNTING_UNRESOLVED",
+            severity=VenueSeverity.UNKNOWN,
+            deployment_id=deployment_id,
+            detail=(
+                "Retained fills/executions or incomplete accounting scope leave managed "
+                "inventory unresolved. Dependent quantities cannot be classified as foreign."
+            ),
+        )
+        for deployment_id in unresolved
+    )
+    incomplete_scope = any(not item.accounting_complete for item in known)
     return _ManagedRead(
         known,
         ManagedListingEvidence(
-            status="partial" if unreadable or unsupported else "complete",
+            status="partial" if unreadable or unsupported or incomplete_scope else "complete",
+            accounting_status=(
+                "unresolved" if unreadable or unsupported or unresolved else "complete"
+            ),
+            unresolved_deployment_ids=unresolved,
             unsupported_products=unsupported,
             expected_books=len(live),
             read_books=len(snapshots),
@@ -441,6 +467,24 @@ async def _managed_snapshots(
                 item.id for item in live if item.id not in {s.deployment.id for s in snapshots}
             ),
         ),
+    )
+
+
+def _unresolved_products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
+    """Name affected products without reconstructing quantities or stop geometry."""
+    products = {
+        snapshot.deployment.product_id,
+        *(resolved_product_id(row.product_id, snapshot.deployment) for row in snapshot.orders),
+        *(
+            resolved_product_id(row.product_id, snapshot.deployment)
+            for row in snapshot_positions(snapshot)
+        ),
+        *(row.product_id for row in snapshot.instrument_runtimes),
+    }
+    return tuple(
+        sorted(
+            product for product in products if book_inventory_reasons(snapshot, product_id=product)
+        )
     )
 
 
@@ -471,6 +515,10 @@ def _collect_inventory(snapshots: Sequence[DeploymentSnapshot]) -> _ManagedInven
     """Aggregate managed positions and working orders across every live book."""
     inventory = _ManagedInventory()
     for snapshot in snapshots:
+        inventory.unresolved_currencies.update(
+            base_currency(product) if is_spot_product_id(product) else product
+            for product in _unresolved_products(snapshot)
+        )
         for position in snapshot_positions(snapshot):
             product = resolved_product_id(position.product_id, snapshot.deployment)
             currency = base_currency(product) if is_spot_product_id(product) else product
@@ -643,6 +691,9 @@ def _asset_rows(
         return _managed_unknown_assets(currencies, balance_rows, complete)
     rows: list[AssetReconciliationRow] = []
     for currency in sorted(currencies):
+        if currency in inventory.unresolved_currencies:
+            rows.extend(_managed_unknown_assets({currency}, balance_rows, complete))
+            continue
         managed_net = inventory.net(currency)
         venue = balance_rows.get(currency)
         if not complete:

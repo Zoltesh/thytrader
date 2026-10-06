@@ -11,6 +11,7 @@ from uuid import uuid4
 import pytest
 
 from tests.alerts.test_supervision import _NOW, _candle, _deployment, _no_candles, _position
+from tests.execution.protection_support import settled_snapshot
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -261,7 +262,9 @@ async def test_price_rebound_does_not_recover_unfilled_stop_but_confirmed_fill_d
     # Strictly newer observation than the rebound pass.
     evidence = await gather_safety_findings(
         deployments=(flat,),
-        snapshots=_Snapshots((DeploymentSnapshot(deployment=flat, orders=(filled,)),)),
+        snapshots=_Snapshots(
+            (settled_snapshot(DeploymentSnapshot(deployment=flat, orders=(filled,))),)
+        ),
         closed_candles=_no_candles,
         now=_NOW + timedelta(seconds=2),
         thresholds=AlertThresholds(),

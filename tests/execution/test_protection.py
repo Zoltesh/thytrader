@@ -121,6 +121,7 @@ def test_open_book_without_resting_exit_is_unprotected() -> None:
         quantity=Decimal("0.5"),
         fee=Decimal("0"),
         filled_at=now,
+        economics_applied_at=now,
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment,
@@ -298,6 +299,7 @@ def test_attached_child_bracket_covers_when_prices_and_qty_match() -> None:
         quantity=Decimal("0.5"),
         fee=Decimal("0"),
         filled_at=now,
+        economics_applied_at=now,
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment,
@@ -356,6 +358,7 @@ def test_named_attached_child_missing_from_snapshot_is_unprotected() -> None:
         quantity=Decimal("0.5"),
         fee=Decimal("0"),
         filled_at=now,
+        economics_applied_at=now,
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment,
@@ -430,6 +433,7 @@ def test_unknown_attached_child_is_unknown_not_covered() -> None:
         quantity=Decimal("0.5"),
         fee=Decimal("0"),
         filled_at=now,
+        economics_applied_at=now,
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment,

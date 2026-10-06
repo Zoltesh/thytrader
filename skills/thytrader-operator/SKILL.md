@@ -92,14 +92,19 @@ never zero. Keep the observed fees and PnL separate from those assumptions.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
 
-For `readiness`, inspect inventory completeness and `partial_result_warnings` before
-reading remaining capacity. Exposure is position cost plus working entries, not live
+For `readiness`, inspect inventory read `status`, separate `accounting_status`,
+`unresolved_deployment_ids`, and `partial_result_warnings` before reading remaining capacity.
+Successful full reads can still contain unprojected applied inventory or unpublished/unapplied
+executions (`BOOK_ACCOUNTING_UNRESOLVED`). Dependent exposure/capacity is null, not free capacity. Exposure is position cost plus working entries, not live
 marks. Actual product quotes (not the deployment primary product) determine scope;
 mixed books have per-quote rows and no cross-quote total. A deployment preflight still
 counts portfolio siblings. Missing runtime state has a null latch, not a reset.
 Paper/other-quote portfolio breakers are not compared to the live policy-quote account.
 For `venue-reconciliation`, **both** `managed_listing` and venue listings must be complete
-before foreign/orphan claims mean anything. Missing storage is not an empty fleet.
+before foreign/orphan claims mean anything. Also inspect managed `accounting_status` and
+`unresolved_deployment_ids`: `MANAGED_ACCOUNTING_UNRESOLVED` leaves affected asset quantities
+and `foreign_quantity` null (`managed_unknown`), even if every read succeeded. Independent
+asset/order comparisons can remain known; economic incompleteness is not a failed venue read. Missing storage is not an empty fleet.
 Spot-history pagination includes queued cancellations/edits and pending orders; unknown
 statuses or malformed/duplicate pages fail closed. `CANCEL_QUEUED` is not cancellation
 confirmation. These observations never authorize replacement, cancellation, or flattening.
@@ -128,11 +133,13 @@ bracket (or stop-only protection) merely rests, which is `open_protected`. Only 
 `protection_status` is `flat` / `covered` / `unprotected` / `unknown` from matching persisted
 stop evidence, not inferred parent geometry
 ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). An open paper book is
-always `covered` (its synthetic stop runs every closed bar), so it agrees with `position_state`
+`covered` when its inventory economics are resolved (its synthetic stop runs every closed
+bar), so it agrees with `position_state`
 ([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Do not read that
 paper `covered` as a venue-resting stop. Each book also carries `protection`
 ([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)): `required_quantity`,
-`covered_quantity`, `uncovered_quantity` (exact decimals; these coverage quantities are the
+`covered_quantity`, `uncovered_quantity` (exact decimals or null for unresolved inventory;
+unknown is not zero and is never a sell quantity; these coverage quantities are the
 exception to the no-quantity redaction and are not prices or cash), `stop_side`,
 `stop_side_valid`, `stop_geometry_valid`, `mechanism` (`venue` / `synthetic` / `none` /
 `unverified`), `venue_resting`, `worker_dependent`, `observed_at`, `verified_at` (null means
@@ -174,12 +181,17 @@ For sizes, orders, and fills use `thytrader-runtime show` (`positions`, `instrum
 product-tagged orders/fills, `book_totals`). The singular HTTP `position` field is
 compatibility-only.
 
-`strategies` and `runtime` also report `ledger_mark_complete`: true when every open product
-book has a last-close mark in the decision journal (or the deployment is flat), false when any
-open book has no journaled close or the journal cannot be read, and null when its books cannot
-be loaded. This uses the same journal marks as `thytrader-runtime show`, without fetching venue
-prices or historical fills. The separate `performance` report uses market-data closes and can
-still be marked when journal evidence is unavailable.
+Unprojected applied fills and unsettled executions report `unknown` / `open_unverified`, not
+`flat`, even after restart or clearing a mismatch. Bounded summaries omit retained fill economics:
+absent positions are unverified and aggregate `ledger_mark_complete` is false, not a flatness
+certificate. Full `performance` reports set `ACCOUNTING_UNRESOLVED` and null dependent PnL/equity/
+exposure when economics are unresolved; known recorded fill statistics remain population evidence.
+Use `thytrader-runtime show UUID` (`detail=full`) for retained orders/fills, and `readiness` /
+`venue-reconciliation` for completeness. A prior qualified opening or prior profits do not repair
+projection. Protection/trigger incidents do not recover on missing positions or terminal status
+until their product's economics are resolved; independently proved row checks may still recover.
+For complete books, `ledger_mark_complete` requires every needed last-close mark. Focused valid
+book protection/marks are local evidence, never complete shared-account accounting.
 
 ## Decision timeline
 

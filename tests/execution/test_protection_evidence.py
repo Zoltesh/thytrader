@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from thytrader.api.routes.deployments import _position_response
 from thytrader.execution import protection
 from thytrader.execution.attached import attached_entry_covers
@@ -134,7 +135,9 @@ def _order(
 
 def _evidence(snapshot: DeploymentSnapshot, position: Position) -> ProtectionEvidence:
     """Evidence for ``position`` on ``snapshot``."""
-    return book_protection_evidence(snapshot, product_id=position.product_id, position=position)
+    return book_protection_evidence(
+        settled_snapshot(snapshot), product_id=position.product_id, position=position
+    )
 
 
 def test_matching_eth_and_ada_brackets_stay_covered() -> None:

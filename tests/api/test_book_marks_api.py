@@ -434,8 +434,9 @@ def test_runtime_ledger_uses_each_open_books_journaled_mark(
     assert response.status_code == 200, response.text
     body: JsonBody = response.json()
     ledger = body["ledger"]
-    assert ledger["mark_complete"] is (coverage == "complete")
-    if coverage == "complete":
+    complete_accounting = coverage == "complete" and detail == "full"
+    assert ledger["mark_complete"] is complete_accounting
+    if complete_accounting:
         assert Decimal(ledger["marked_exposure"]) == Decimal("105")
         assert Decimal(ledger["total_net_pnl"]) == Decimal("3")
         assert Decimal(ledger["total_return_fraction"]) == Decimal("0.006")
@@ -445,7 +446,8 @@ def test_runtime_ledger_uses_each_open_books_journaled_mark(
         assert ledger["total_return_fraction"] is None
     report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
     (row,) = report["payload"]["deployments"]
-    assert row["ledger_mark_complete"] is ledger["mark_complete"]
+    # Operator runtime is a bounded summary, not a retained-economics completeness proof.
+    assert row["ledger_mark_complete"] is False
 
 
 def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(

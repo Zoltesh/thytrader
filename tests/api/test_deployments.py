@@ -119,7 +119,7 @@ def test_live_detail_reports_pinned_performance_capital_without_funding_ledger_c
     )
     asyncio.run(execution.create_deployment(deployment))
     with _client(publication, execution) as client:
-        response = client.get(f"/api/v1/deployments/{deployment.id}")
+        response = client.get(f"/api/v1/deployments/{deployment.id}?detail=full")
     assert response.status_code == 200
     payload = response.json()
     assert payload["cash"] == "-0.5"
@@ -951,6 +951,7 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
             quantity=Decimal("0.5"),
             fee=Decimal("0"),
             filled_at=_at(1),
+            economics_applied_at=_at(1),
         )
         asyncio.run(execution.save_position(eth, deployment_id=deployment_id))
         asyncio.run(execution.save_order(order))
@@ -961,8 +962,13 @@ def test_primary_flat_secondary_open_is_labeled_on_api() -> None:
     assert fetched.status_code == 200
     body = fetched.json()
     # ADR 0097: an open paper book is open and protected; the phase stays raw.
+    assert (body["position_state"], body["exit_in_flight"]) == ("open_protected", False)
+    # Bounded summaries retain local position cover, but omit full economic evidence.
+    assert (summary.json()["position_state"], summary.json()["exit_in_flight"]) == (
+        "open_unverified",
+        False,
+    )
     for read in (body, summary.json()):
-        assert (read["position_state"], read["exit_in_flight"]) == ("open_protected", False)
         assert read["positions"][0]["position_state"] == "open_protected"
         assert read["positions"][0]["exit_in_flight"] is False
     assert body["product_id"] == "BTC-USD"

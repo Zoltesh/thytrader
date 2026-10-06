@@ -42,6 +42,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.protection import book_inventory_reasons
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
@@ -148,7 +149,7 @@ class ReadinessVenueQuote(_FrozenModel):
 
 
 class ReadinessInventoryEvidence(_FrozenModel):
-    """Completeness of managed snapshot reads, never inferred from an empty result."""
+    """Storage-read completeness and economic completeness are independent evidence."""
 
     status: Literal["complete", "partial", "unavailable"] = "unavailable"
     expected_books: int | None = Field(default=None, ge=0)
@@ -156,15 +157,17 @@ class ReadinessInventoryEvidence(_FrozenModel):
     missing_deployment_ids: tuple[UUID, ...] = ()
     unsupported_products: tuple[str, ...] = ()
     unpriced_entry_order_ids: tuple[UUID, ...] = ()
+    accounting_status: Literal["complete", "unresolved", "unavailable"] = "unavailable"
+    unresolved_deployment_ids: tuple[UUID, ...] = ()
 
 
 class ReadinessQuoteExposure(_FrozenModel):
     """One book's cost-basis exposure in exactly one quote currency, without FX."""
 
     quote_currency: SpotQuoteCurrency
-    inventory_cost: str
+    inventory_cost: str | None
     working_entry_reserved: str
-    exposure: str
+    exposure: str | None
 
 
 class ReadinessProductCapRow(_FrozenModel):
@@ -437,7 +440,9 @@ async def build_readiness_report(
             live_bearing,
             venue,
             findings,
-            inventory_evidence=_inventory_evidence(live_deployments, live_snapshots),
+            inventory_evidence=_inventory_evidence(
+                live_deployments, live_snapshots, quote=policy.definition.quote_currency
+            ),
         )
     )
     aggregates = await _load_portfolios(portfolios, portfolio_ids, warnings)
@@ -619,14 +624,30 @@ async def _load_snapshots(
     snapshots: dict[UUID, DeploymentSnapshot] = {}
     for deployment in deployments:
         try:
-            snapshots[deployment.id] = await execution.get_deployment(deployment.id)
+            snapshot = await execution.get_accounting_snapshot(deployment.id)
+            snapshots[deployment.id] = snapshot
+            if _inventory_unresolved(snapshot):
+                findings.append(
+                    ReadinessFinding(
+                        reason_code="BOOK_ACCOUNTING_UNRESOLVED",
+                        severity=ReadinessSeverity.UNKNOWN,
+                        deployment_id=deployment.id,
+                        detail=(
+                            "Retained fills/executions or incomplete accounting scope leave "
+                            "managed inventory unresolved; no flatness or exact capacity is proved."
+                        ),
+                    )
+                )
         except Exception:  # noqa: BLE001 - one unreadable book must not sink the report.
             findings.append(_unreadable_snapshot(deployment.id))
     return snapshots
 
 
 def _inventory_evidence(
-    deployments: Sequence[Deployment], snapshots: Mapping[UUID, DeploymentSnapshot]
+    deployments: Sequence[Deployment],
+    snapshots: Mapping[UUID, DeploymentSnapshot],
+    *,
+    quote: SpotQuoteCurrency | None = None,
 ) -> ReadinessInventoryEvidence:
     """Describe expected reads, including unreadable stopped books with unknown residuals."""
     missing = tuple(item.id for item in deployments if item.id not in snapshots)
@@ -635,6 +656,7 @@ def _inventory_evidence(
         product for product in _book_products(read) if not is_spot_product_id(product)
     )
     unpriced = _unpriced_entries(read)
+    unresolved = tuple(item.deployment.id for item in read if _inventory_unresolved(item, quote))
     return ReadinessInventoryEvidence(
         status="partial" if missing or unsupported or unpriced else "complete",
         unpriced_entry_order_ids=unpriced,
@@ -642,6 +664,21 @@ def _inventory_evidence(
         read_books=len(read),
         missing_deployment_ids=missing,
         unsupported_products=unsupported,
+        accounting_status=(
+            "unresolved" if missing or unsupported or unpriced or unresolved else "complete"
+        ),
+        unresolved_deployment_ids=unresolved,
+    )
+
+
+def _inventory_unresolved(
+    snapshot: DeploymentSnapshot, quote: SpotQuoteCurrency | None = None
+) -> bool:
+    """Retained product economics, not a display mismatch, determine completeness."""
+    return not snapshot.accounting_complete or any(
+        book_inventory_reasons(snapshot, product_id=product)
+        for product in _book_products((snapshot,))
+        if quote is None or _product_quote(product) == quote
     )
 
 
@@ -793,7 +830,10 @@ def _account_section(
     definition = policy.definition
     quote = definition.quote_currency
     venue_available = None if not venue.complete else venue.available.get(quote, _ZERO)
-    complete = inventory_evidence.status == "complete"
+    complete = (
+        inventory_evidence.status == "complete"
+        and inventory_evidence.accounting_status == "complete"
+    )
     inventory = sum(
         (
             position.quantity * position.entry_price
@@ -889,7 +929,9 @@ def _account_section(
         inventory=inventory_evidence,
         excluded_products=excluded,
         managed_long_inventory_cost=canonical_decimal(inventory) if complete else None,
-        working_buy_entry_reserved=canonical_decimal(buy_reserved) if complete else None,
+        working_buy_entry_reserved=(
+            canonical_decimal(buy_reserved) if inventory_evidence.status == "complete" else None
+        ),
         current_exposure=canonical_decimal(exposure) if complete else None,
         exposure_fraction=definition.max_portfolio_exposure_fraction,
         absolute_exposure_cap=definition.max_portfolio_exposure_quote,
@@ -1026,9 +1068,13 @@ def _quote_rows(snapshot: DeploymentSnapshot) -> tuple[ReadinessQuoteExposure, .
         rows.append(
             ReadinessQuoteExposure(
                 quote_currency=quote,
-                inventory_cost=canonical_decimal(cost),
+                inventory_cost=(
+                    None if _inventory_unresolved(snapshot, quote) else canonical_decimal(cost)
+                ),
                 working_entry_reserved=canonical_decimal(exposure - cost),
-                exposure=canonical_decimal(exposure),
+                exposure=(
+                    None if _inventory_unresolved(snapshot, quote) else canonical_decimal(exposure)
+                ),
             )
         )
     return tuple(rows)
@@ -1049,7 +1095,7 @@ def _deployment_row(
         allocated, basis = None, "none"
     remaining = (
         None
-        if allocated is None or single is None
+        if allocated is None or single is None or single.exposure is None
         else max(_ZERO, allocated - Decimal(single.exposure))
     )
     maker = taker = None
@@ -1157,7 +1203,7 @@ async def _portfolio_section(
         for item in deployments
         if item.portfolio_id == portfolio.portfolio_id and item.mode is mode
     )
-    inventory = _inventory_evidence(expected, snapshots)
+    inventory = _inventory_evidence(expected, snapshots, quote=portfolio.quote_currency)
     runtime = await _runtime_state(portfolios, portfolio.portfolio_id, warnings)
     capital = Decimal(portfolio.capital_quote)
     limits = portfolio.limits
@@ -1165,7 +1211,11 @@ async def _portfolio_section(
     excluded = tuple(
         p for p in _book_products(bearing) if _product_quote(p) != portfolio.quote_currency
     )
-    complete = inventory.status == "complete" and not excluded
+    complete = (
+        inventory.status == "complete"
+        and inventory.accounting_status == "complete"
+        and not excluded
+    )
     if not complete:
         warnings.append(
             f"Portfolio {portfolio.portfolio_id} inventory scope is incomplete or mixed-quote."
@@ -1208,7 +1258,7 @@ async def _portfolio_section(
         limits=limits,
         total_exposure_cap=canonical_decimal(total_cap),
         per_asset_cap=canonical_decimal(asset_cap),
-        inventory=inventory.model_copy(update={"status": "partial"}) if not complete else inventory,
+        inventory=inventory.model_copy(update={"status": "partial"}) if excluded else inventory,
         excluded_products=excluded,
         current_total_exposure=canonical_decimal(exposure) if complete else None,
         remaining_total_capacity=canonical_decimal(total_cap - exposure) if complete else None,

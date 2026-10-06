@@ -8,9 +8,9 @@ import { compareDecimalStrings } from '$lib/portfolio';
 
 /** Quantitative stop cover from a deployment position or sleeve book. */
 export type ProtectionEvidence = {
-	required_quantity: string;
-	covered_quantity: string;
-	uncovered_quantity: string;
+	required_quantity: string | null;
+	covered_quantity: string | null;
+	uncovered_quantity: string | null;
 	stop_side: 'buy' | 'sell' | null;
 	stop_side_valid: boolean;
 	stop_geometry_valid: boolean;
@@ -122,13 +122,16 @@ function venueCoverConfirmed(book: BadgeBook, evidence: ProtectionEvidence): boo
 		evidence.verified_at !== null &&
 		!evidence.reasons.includes('local_observation_only') &&
 		verificationRecent(evidence) &&
+		evidence.required_quantity !== null &&
+		evidence.covered_quantity !== null &&
+		evidence.uncovered_quantity !== null &&
 		compareDecimalStrings(evidence.covered_quantity, evidence.required_quantity) >= 0 &&
 		compareDecimalStrings(evidence.uncovered_quantity, '0') === 0
 	);
 }
 
 function evidenceDetail(evidence: ProtectionEvidence): string {
-	const qty = `${evidence.covered_quantity} of ${evidence.required_quantity}`;
+	const qty = `${evidence.covered_quantity ?? 'unknown'} of ${evidence.required_quantity ?? 'unknown'}`;
 	if (evidence.worker_dependent || evidence.mechanism === 'synthetic') {
 		return `${qty} worker-dependent · not venue-resting · time unknown`;
 	}

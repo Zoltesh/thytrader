@@ -1040,6 +1040,7 @@ async def _snapshot_response(
             "historical_orders_included": True,
             "historical_fills_included": True,
             "ledger_omission": None,
+            "capital": _accounting_capital_response(response.capital, ledger),
             "ledger": _ledger_summary_response(ledger),
             "orders": tuple(
                 _order_response(order, product_id=order_products[order.id])
@@ -1090,6 +1091,7 @@ async def _summary_response(
             "historical_orders_included": False,
             "historical_fills_included": False,
             "ledger_omission": SUMMARY_LEDGER_OMISSION,
+            "capital": _accounting_capital_response(response.capital, ledger),
             "ledger": _ledger_summary_response(ledger),
             "orders": (),
             "fills": (),
@@ -1105,6 +1107,18 @@ def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapsh
         positions=summary.positions,
         instrument_runtimes=summary.instrument_runtimes,
         orders=summary.open_orders,
+        accounting_complete=False,
+    )
+
+
+def _accounting_capital_response(
+    capital: DeploymentCapitalResponse, ledger: DeploymentLedger
+) -> DeploymentCapitalResponse:
+    """Retain independent funding/budget history, not stale current totals as complete facts."""
+    if ledger.accounting_complete:
+        return capital
+    return capital.model_copy(
+        update={"inventory_cost": None, "reserved_buying_power": None, "performance_equity": None}
     )
 
 

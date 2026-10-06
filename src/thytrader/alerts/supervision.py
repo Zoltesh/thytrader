@@ -38,6 +38,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import (
     ProtectionStatus,
+    book_inventory_reasons,
     book_position_state,
     book_protection_evidence,
 )
@@ -182,7 +183,7 @@ async def gather_safety_findings(
         previous = tuple(
             alert for alert in prior_alerts if alert.subject.split(":", 1)[0] == str(row.id)
         )
-        for finding in _row_findings(deployment):
+        for finding in (*_row_findings(deployment), *_known_unresolved_findings(read)):
             _keep(ordered, finding)
         evaluated.update(AlertCheck(code, str(row.id)) for code in _ROW_CHECKS)
         _keep(ordered, _decision_deadline_finding(deployment, now=now, thresholds=thresholds))
@@ -196,10 +197,9 @@ async def gather_safety_findings(
             ),
         )
         _keep(ordered, _maintenance_deadline_finding(deployment, state=lease_state))
-        if not read.complete or (
-            deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
-            and not snapshot_positions(snapshot)
-        ):
+        if not read.complete or not snapshot.accounting_complete:
+            continue
+        if _unexplained_missing_positions(snapshot):
             continue
         triggered = await _trigger_consumed_orders(
             deployment, snapshot, closed_candles, candle_cache
@@ -261,7 +261,7 @@ def _snapshot_checks(
         evaluated.extend(
             AlertCheck(code, f"{deployment.id}:{product}")
             for code in (AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN)
-            if product not in positions or not uncertain
+            if not uncertain
         )
     watched = {
         f"{deployment.id}:{order.id}"
@@ -276,9 +276,74 @@ def _snapshot_checks(
         if item.code is AlertCode.STOP_TRIGGERED_UNFILLED and item.subject not in watched
     )
     evaluated.extend(
-        AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject) for subject in terminal_subjects
+        AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject)
+        for subject in terminal_subjects
+        if _trigger_recovery_proved(snapshot, subject, previous)
     )
     return tuple(evaluated)
+
+
+def _trigger_recovery_proved(
+    snapshot: DeploymentSnapshot, subject: str, previous: Sequence[OperatorAlert]
+) -> bool:
+    """Terminal status/removal alone cannot settle unresolved product economics."""
+    product = next(
+        (
+            resolved_product_id(order.product_id, snapshot.deployment)
+            for order in snapshot.orders
+            if f"{snapshot.deployment.id}:{order.id}" == subject
+        ),
+        None,
+    )
+    if product is None:
+        product = next((row.product_id for row in previous if row.subject == subject), None)
+    if product is not None:
+        return not book_inventory_reasons(snapshot, product_id=product)
+    return not _unresolved_book_findings(snapshot)
+
+
+def _unexplained_missing_positions(snapshot: DeploymentSnapshot) -> bool:
+    """Legacy occupied phases without any inventory evidence prove no snapshot recovery."""
+    return (
+        snapshot.deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+        and not snapshot_positions(snapshot)
+        and not _unresolved_book_findings(snapshot)
+    )
+
+
+def _known_unresolved_findings(read: SnapshotEvidence) -> tuple[SupervisionFinding, ...]:
+    """Only retained complete inventories support positive derived projection findings."""
+    if not read.complete or not read.snapshot.accounting_complete:
+        return ()
+    return _unresolved_book_findings(read.snapshot)
+
+
+def _unresolved_book_findings(snapshot: DeploymentSnapshot) -> tuple[SupervisionFinding, ...]:
+    """Report durable missing projection/economics without claiming an executable stop."""
+    deployment = snapshot.deployment
+    products = {
+        deployment.product_id,
+        *(resolved_product_id(order.product_id, deployment) for order in snapshot.orders),
+        *(resolved_product_id(row.product_id, deployment) for row in snapshot_positions(snapshot)),
+        *(row.product_id for row in snapshot.instrument_runtimes),
+    }
+    return tuple(
+        SupervisionFinding(
+            code=AlertCode.STOP_COVERAGE_UNKNOWN,
+            scope=AlertScope.DEPLOYMENT,
+            subject=f"{deployment.id}:{product}",
+            severity=AlertSeverity.WARNING,
+            detail=(
+                f"{deployment.mode.value} book on {product} has unresolved inventory projection "
+                "or fill economics; stop quantity and cover cannot be verified. Unknown is "
+                "not flatness or recovery."
+            ),
+            deployment_id=deployment.id,
+            product_id=product,
+        )
+        for product in sorted(products)
+        if book_inventory_reasons(snapshot, product_id=product)
+    )
 
 
 def _cover_evidence_unknown(
@@ -290,6 +355,8 @@ def _cover_evidence_unknown(
     now: datetime,
 ) -> bool:
     """An active live stop needs fresh bar evidence before lost cover can clear."""
+    if book_inventory_reasons(snapshot, product_id=product):
+        return True
     if deployment.mode is not DeploymentMode.LIVE:
         return False
     position = next(

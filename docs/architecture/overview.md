@@ -276,6 +276,17 @@ Rust is a future implementation option for measured hot paths such as feed handl
 
 Internet-connected Coinbase trading should not be marketed as true HFT merely because a component is written in Rust. Exchange and network latency, data quality, execution design, and risk controls dominate.
 
+## Projection-completeness diagnostics
+
+Reporting consumes the durable fill-ledger predicates for unprojected owned inventory and
+unsettled execution economics, not mutable mismatch text. Absent position rows and terminal
+orders alone cannot certify flatness, aggregate PnL/equity/exposure, or protection recovery.
+Unknown protection quantities are null, never an executable reconstruction. Readiness and
+venue reconciliation separate storage-read completeness from economic completeness, name
+affected deployments, and preserve independent quote/asset/order evidence. Bounded summaries
+and focused product snapshots cannot certify complete shared-account accounting. This is
+read-only derived reporting; it does not repair records, change risk policy, or grant orders.
+
 ## Account-read and audit diagnostics
 
 [ADR 0108](../decisions/0108-account-read-and-audit-failure-evidence.md) keeps SDK errors

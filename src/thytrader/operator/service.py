@@ -2244,6 +2244,7 @@ def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapsh
         positions=summary.positions,
         instrument_runtimes=summary.instrument_runtimes,
         orders=summary.open_orders,
+        accounting_complete=False,
     )
 
 
@@ -2359,6 +2360,19 @@ def _deployment_ledger_component(
     deployment: Deployment, ledger: DeploymentLedger
 ) -> tuple[ComponentReport, tuple[str, ...]]:
     """Classify fill-ledger completeness without inventing missing marks or fills."""
+    if not ledger.accounting_complete:
+        return (
+            ComponentReport(
+                name="performance",
+                status=ReportStatus.DEGRADED,
+                reason_code="ACCOUNTING_UNRESOLVED",
+                detail=(
+                    "Inventory projection, fill economics, or accounting scope is unresolved; "
+                    "aggregate PnL, equity and exposure are omitted, not reconstructed."
+                ),
+            ),
+            ("Recorded fill statistics do not certify complete account economics.",),
+        )
     if not ledger.mark_complete:
         return (
             ComponentReport(
