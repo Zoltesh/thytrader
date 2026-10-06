@@ -40,6 +40,7 @@ def test_operator_help_describes_read_only_commands(capsys: pytest.CaptureFixtur
     assert "runtime" in output
     assert "schema-check" in output
     assert "data-catalog" in output
+    assert "data-health" in output
     assert "products" in output
     assert "indicators" in output
     assert "monitor" in output

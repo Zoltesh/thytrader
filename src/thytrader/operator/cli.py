@@ -16,6 +16,7 @@ from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.models import DATASET_TIMEFRAMES
+from thytrader.operator.data_health import data_health_report
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.models import HealthReport
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
@@ -113,6 +114,11 @@ def _parser() -> argparse.ArgumentParser:
             "Local datasets, watchlist, and watch coverage (X of Y bars, no-trade bars, "
             "listing floors)."
         ),
+    )
+    subparsers.add_parser(
+        "data-health",
+        parents=[trailing],
+        help="All enabled watched markets: expected close, tail lag and historical coverage.",
     )
     subparsers.add_parser(
         "indicators",
@@ -249,8 +255,8 @@ async def _dispatch(
         return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
     if command == "products":
         return await diagnostics.products()
-    if command == "data-catalog":
-        return await diagnostics.data_catalog()
+    if command == "data-health":
+        return data_health_report(await diagnostics.data_catalog())
     if command == "indicators":
         return await diagnostics.indicators()
     if command == "performance":
@@ -266,6 +272,7 @@ async def _dispatch(
             deployment_id=_uuid_or_none(getattr(arguments, "deployment_id", None)),
         )
     factories = {
+        "data-catalog": diagnostics.data_catalog,
         "health": lambda: diagnostics.health(probe_api=True),
         "configuration": diagnostics.configuration,
         "exchange": diagnostics.exchange,

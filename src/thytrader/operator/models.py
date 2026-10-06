@@ -41,6 +41,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "exchange",
     "market_data",
     "data_catalog",
+    "data_health",
     "products",
     "indicators",
     "strategies",

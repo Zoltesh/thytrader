@@ -726,6 +726,17 @@ use the covered range. Earlier bars are never invented, and results over quiet b
 (unless a listing floor is set). The Home data-health table shows the same coverage as "X / Y",
 adds "· N no-trade" when no-trade bars exist, and shows "Complete from listing" when a floor is
 set.
+
+For **freshness across all enabled watches**, run `uv run thytrader-operator data-health`, or
+open Home → Data health → Watched-market freshness. This read-only snapshot compares each
+published tail with its own latest closed candle and reports how many closed bars are missing.
+Daily and 6h markets are not judged by a 1-minute clock. A successful ingest chunk and a
+complete historical island do not prove a fresh tail; historical watch coverage remains a
+separate field. `settling` means only the newest close is inside the 120-second publication
+grace. `stale`, `missing`, or `invalid` needs inspection; an incomplete inventory is not an
+all-clear. Refresh explicitly to obtain a new snapshot. This is published-dataset health, not
+proof that an individual bot has evaluated or reconciled its latest bar.
+
 `inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
 stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 

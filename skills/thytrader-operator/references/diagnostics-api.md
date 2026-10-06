@@ -14,6 +14,7 @@ port is `8200`, but installs may override it, so never hard-code a port). For ra
 | GET | `/api/v1/operator/exchange` | `exchange` |
 | GET | `/api/v1/operator/market-data` | `market_data` |
 | GET | `/api/v1/operator/data-catalog` | `data_catalog` |
+| GET | `/api/v1/operator/data-health` | `data_health` |
 | GET | `/api/v1/operator/products` | `products` |
 | GET | `/api/v1/operator/indicators` | `indicators` |
 | GET | `/api/v1/operator/strategies` | `strategies` |

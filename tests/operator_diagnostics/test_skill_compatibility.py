@@ -45,6 +45,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/monitor",
         "/trade-reasons",
         "/data-catalog",
+        "/data-health",
         "/products",
         "/indicators",
         "/support-bundle",

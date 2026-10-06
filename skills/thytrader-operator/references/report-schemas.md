@@ -3,7 +3,7 @@
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -15,6 +15,18 @@ Every JSON report includes:
 - `payload`: report-specific object
 
 `reason_code` matches `^[A-Z][A-Z0-9_]{0,63}$`.
+
+`data_health` covers **all enabled watches** from the local published catalog. Its payload has
+`inventory_complete`, `watched_count`, `attention_count` and `datasets[]`. Every row reports
+`expected_closed_end`, `covered_ends_at` (exclusive closes), `tail_state` (`fresh`, `settling`,
+`stale`, `missing`, `invalid`), `lag_seconds`, `missing_closed_bars`, `settlement_deadline`,
+`watch_complete`, `island_complete`, `worker_status`, and `failure_code`. The latest expected
+close is aligned to that row's timeframe; a daily midnight close is not stale merely because
+hours have passed. Only one missing close inside the existing 120-second settlement grace is
+`settling`; older tails are stale. Unavailable catalog evidence degrades the report and sets
+`inventory_complete=false`, never an empty healthy inventory. A fresh tail does not prove
+complete historical coverage or execution readiness. Home → Data health displays this
+snapshot with an explicit refresh button ([ADR 0118](../../../docs/decisions/0118-watched-market-tail-health.md)).
 
 Ops contract v64 / Alembic `0061` advertises `capital_normalized_performance` and adds
 `performance_capital_quote` / `performance_maximum_drawdown_fraction` to

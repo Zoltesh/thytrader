@@ -115,7 +115,7 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 
 Shipped command groups:
 
-- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, data-health (all enabled watched tails; clock-aware, historical coverage separate), products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
 
 `uv run thytrader-operator indicators` lists the fail-closed catalog an agent may author: 53 kinds
 grouped by `category` (trend, momentum, volatility, volume, statistical, price), each with its

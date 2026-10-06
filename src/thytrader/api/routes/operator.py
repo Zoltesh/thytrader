@@ -42,6 +42,7 @@ from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
+from thytrader.operator.data_health import DataHealthReport, data_health_report
 from thytrader.operator.models import (
     ConfigurationReport,
     DataCatalogReport,
@@ -181,6 +182,14 @@ async def get_operator_data_catalog(
 ) -> DataCatalogReport:
     """Return local dataset coverage joined with the ingestion watchlist."""
     return await diagnostics.data_catalog()
+
+
+@router.get("/data-health", response_model=DataHealthReport)
+async def get_operator_data_health(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> DataHealthReport:
+    """Return clock-aware tails for every enabled watch, without provider reads."""
+    return data_health_report(await diagnostics.data_catalog())
 
 
 @router.get("/indicators", response_model=IndicatorsReport)

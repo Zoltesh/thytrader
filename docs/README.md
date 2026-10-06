@@ -40,6 +40,10 @@ empty timeline.
 The operator strategy report includes the newest 100 library rows; follow its truncation warning
 and use the research CLI to read older strategies or page the full library.
 
+Home → Data health and `thytrader-operator data-health` show freshness across all enabled
+watched markets, aligned to each candle clock. Published-tail health is separate from
+historical coverage and a bot's own decision/reconciliation status.
+
 Exchange diagnostics identify which account read failed and its safe error category.
 Reconciliation links audit failures to their timestamps and observed recovery events.
 See [account and reconciliation diagnostics](user/operate.md#account-and-reconciliation-diagnostics).
