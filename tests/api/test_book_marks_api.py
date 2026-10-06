@@ -28,12 +28,14 @@ from thytrader.execution.models import (
     DeploymentMode,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     Order,
     OrderKind,
     OrderSide,
     OrderStatus,
     Position,
     PositionSide,
+    RuntimePhase,
 )
 from thytrader.portfolios.store import InMemoryPortfolioStore
 from thytrader.risk.models import compiled_default_risk_policy
@@ -475,3 +477,31 @@ def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(
     report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
     (row,) = report["payload"]["deployments"]
     assert row["ledger_mark_complete"] is False
+
+
+def test_portfolio_http_reports_runtime_inventory_uncertainty(world: World) -> None:
+    """Actual route/briefing consumers do not derive current totals from a missing ETH row."""
+    portfolio_id, bot = _started_portfolio(world)
+    _open_long(world, bot, close="60200")
+    asyncio.run(
+        world.execution.save_instrument_runtime(
+            InstrumentRuntime(product_id="ETH-USDC", phase=RuntimePhase.OPEN), deployment_id=bot
+        )
+    )
+    view_response = world.client.get(f"/api/v1/portfolios/{portfolio_id}/deployment")
+    assert view_response.status_code == 200, view_response.text
+    view = view_response.json()
+    assert view["breaker"]["accounting_complete"] is False
+    assert view["breaker"]["equity"] is None and view["breaker"]["daily_pnl"] is None
+    assert view["exposure"]["total_quote"] is None
+    assert UUID(view["exposure"]["unresolved_deployment_ids"][0]) == bot
+    sleeve = view["sleeves"][0]["deployment"]
+    assert sleeve["net_pnl"] is None and sleeve["performance_equity"] is None
+    assert sleeve["position_state"] == "open_unverified"
+    assert sleeve["books"][0]["mark_price"] == "60200"
+    assert sleeve["books"][0]["quantity"] == "0.01"  # Known projected BTC row survives.
+    briefing_response = world.client.get(f"/api/v1/portfolios/{portfolio_id}/briefing")
+    assert briefing_response.status_code == 200, briefing_response.text
+    performance = briefing_response.json()["performance"]
+    assert performance["accounting_complete"] is False
+    assert performance["equity"] is performance["net_pnl"] is performance["return_fraction"] is None

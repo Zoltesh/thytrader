@@ -259,6 +259,28 @@ child `run_fingerprint`/`result_fingerprint`, and `disclosures`. State the discl
 report numbers: sleeves are simulated independently on fixed capital slices; portfolio-level caps
 and cross-sleeve interactions are **not simulated**. Fills are simulated from candles.
 
+## Unknown current accounting
+
+Read `deployment --portfolio-id ID` and `briefing --portfolio-id ID` before using current
+portfolio totals. Sleeve bots, `breaker`, `exposure`, and briefing `performance` carry
+`accounting_complete`; breaker/exposure also list `unresolved_deployment_ids`. An occupied
+`OPEN` / `PENDING_EXIT` product runtime without its own position is unresolved even if a sibling
+position survives, the book is stopped, or all reads succeed. Unprojected owned fills,
+unsettled executions, and missing/focused snapshots also cannot certify complete current totals.
+
+Dependent sleeve PnL/equity/exposure/return/drawdown, portfolio equity/daily PnL/drawdown,
+exposure totals/fractions, and briefing performance become null, **not zero or free capacity**.
+Recorded allocations, limits, baselines, journal/backtest history and independently resolved
+books/assets remain evidence. Run equity covers current-run history (including stopped books);
+exposure still qualifies old occupied/residual books, including detached ones. Other portfolios,
+modes and quote currencies are not combined. An independent quote exposure subtotal does not
+certify complete run accounting. Projected `books[]` quantities/gross marked PnL describe those
+rows only, not missing inventory. A missing sleeve snapshot has `open_books: null`.
+
+Unknown is not recovery or permission to reset/resume. Diagnose with the read-only operator
+readiness/venue-reconciliation and runtime show surfaces; do not invent an exit quantity or
+repair records. This lane still never deploys a portfolio or places orders.
+
 ## HTTP
 
 `GET/POST /api/v1/portfolios`, `GET/PATCH/DELETE /api/v1/portfolios/{id}` (`DELETE ?revision=N`),

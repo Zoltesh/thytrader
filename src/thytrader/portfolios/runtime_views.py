@@ -14,6 +14,8 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from thytrader.execution.book_marks import recorded_position_entry_fees, unrealized_pnl
+from thytrader.execution.ledger import ledger_from_snapshot
+from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.execution.models import (
     DeploymentMode,
     RuntimePhase,
@@ -23,17 +25,20 @@ from thytrader.execution.models import (
 from thytrader.execution.protection import (
     PositionState,
     ProtectionEvidenceResponse,
+    book_inventory_reasons,
     book_position_state,
     book_protection_evidence,
     deployment_position_state,
     protection_evidence_response,
 )
+from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.portfolios.deployment import (
     PortfolioDeploymentState,
     daily_pnl,
     drawdown_fraction,
     net_pnl,
     roll_baselines,
+    run_members,
 )
 from thytrader.portfolios.models import (
     PortfolioMode,
@@ -44,10 +49,10 @@ from thytrader.portfolios.models import (
 from thytrader.portfolios.proposals import Proposal
 from thytrader.research.indicators import canonical_decimal
 from thytrader.risk.exposure import risk_bearing_snapshots
-from thytrader.risk.gate import portfolio_exposure
+from thytrader.risk.gate import product_exposure
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from thytrader.execution.book_marks import BookMark
     from thytrader.execution.models import Deployment, DeploymentSnapshot
@@ -88,7 +93,10 @@ class SleeveOpenBookResponse(BaseModel):
     marked_at: str | None = Field(default=None, description="UTC close of that bar.")
     unrealized_pnl: str | None = Field(
         default=None,
-        description="Gross unrealized PnL at mark_price, before exit fees; null without a mark.",
+        description=(
+            "Gross PnL of this projected row at mark_price, not complete inventory PnL; "
+            "before exit fees and null without a mark."
+        ),
     )
     entry_fees: str | None = Field(
         default=None,
@@ -125,15 +133,20 @@ class SleeveDeploymentResponse(BaseModel):
     allocated_capital: str | None
     paper_starting_cash: str | None
     performance_equity: str | None
-    net_pnl: str = Field(description="Persisted bar-close equity minus starting equity.")
+    accounting_complete: bool = Field(description="Full economic evidence, not a venue audit.")
+    net_pnl: str | None = Field(
+        description="Persisted bar-close equity minus starting equity; null when unresolved."
+    )
     return_fraction: str | None = Field(
         description="net_pnl over the sleeve's capital (starting cash or allocation)."
     )
     drawdown_fraction: str | None = Field(
         description="Drawdown of the sleeve's equity from its own peak this run."
     )
-    exposure_quote: str
-    open_books: int
+    exposure_quote: str | None
+    open_books: int | None = Field(
+        description="Projected positions read, not full occupancy proof."
+    )
     books: tuple[SleeveOpenBookResponse, ...] = Field(
         default=(),
         description=(
@@ -173,7 +186,9 @@ class PortfolioBreakerResponse(BaseModel):
     daily_loss_quote: str | None
     max_drawdown_fraction: str | None
     run_started_at: str | None
-    equity: str = Field(description="Capital plus every run book's net PnL, now.")
+    accounting_complete: bool
+    unresolved_deployment_ids: tuple[UUID, ...] = ()
+    equity: str | None = Field(description="Capital plus run PnL; null with unresolved economics.")
     day_open_equity: str | None
     daily_pnl: str | None
     high_water_mark_equity: str | None
@@ -185,16 +200,18 @@ class AssetExposureResponse(BaseModel):
     """Exposure in one base asset against the per-asset cap."""
 
     asset: str
-    exposure_quote: str
-    fraction_of_capital: str
+    exposure_quote: str | None
+    fraction_of_capital: str | None
     cap_quote: str
 
 
 class PortfolioExposureResponse(BaseModel):
     """Exposure as the entry gate counts it, against the portfolio's caps."""
 
-    total_quote: str
-    fraction_of_capital: str
+    accounting_complete: bool
+    unresolved_deployment_ids: tuple[UUID, ...] = ()
+    total_quote: str | None
+    fraction_of_capital: str | None
     cap_quote: str
     asset_cap_quote: str
     assets: tuple[AssetExposureResponse, ...]
@@ -285,7 +302,11 @@ def deployment_response(
         ),
         detached=tuple(
             sleeve_deployment(
-                item, by_id.get(item.id), current_fingerprint=None, marks=marked.get(item.id)
+                item,
+                by_id.get(item.id),
+                current_fingerprint=None,
+                marks=marked.get(item.id),
+                quote=portfolio.quote_currency,
             )
             for item in snapshot.books.detached
         ),
@@ -346,6 +367,7 @@ def _sleeve_book(
                 by_id.get(deployment.id),
                 current_fingerprint=view.strategy.current_fingerprint,
                 marks=marks.get(deployment.id),
+                quote=quote,
             )
         ),
     )
@@ -381,16 +403,38 @@ def sleeve_deployment(
     *,
     current_fingerprint: str | None,
     marks: Mapping[str, BookMark] | None = None,
+    quote: SpotQuoteCurrency | None = None,
 ) -> SleeveDeploymentResponse:
     """Project one sleeve bot (and its open books, marked when ``marks`` has them)."""
-    pnl = net_pnl(deployment)
+    report_quote = (
+        quote
+        if quote is not None
+        else (
+            quote_currency(deployment.product_id)
+            if is_spot_product_id(deployment.product_id)
+            else None
+        )
+    )
+    complete = (
+        snapshot is not None
+        and report_quote is not None
+        and _performance_complete(snapshot, report_quote)
+    )
+    pnl = net_pnl(deployment) if complete else None
     base = sleeve_capital_base(deployment)
     exposure = (
-        _ZERO
-        if snapshot is None or deployment.portfolio_id is None
-        else portfolio_exposure(deployment.portfolio_id, (snapshot,)).total
+        None
+        if not complete or snapshot is None
+        else sum(
+            (
+                product_exposure(snapshot, product)
+                for product in _products(snapshot)
+                if is_spot_product_id(product) and quote_currency(product) == report_quote
+            ),
+            _ZERO,
+        )
     )
-    drawdown = sleeve_drawdown(deployment)
+    drawdown = sleeve_drawdown(deployment) if complete else None
     state = None if snapshot is None else deployment_position_state(snapshot)
     return SleeveDeploymentResponse(
         deployment_id=deployment.id,
@@ -404,12 +448,13 @@ def sleeve_deployment(
         mismatch_detail=deployment.mismatch_detail,
         allocated_capital=_optional(deployment.allocated_capital),
         paper_starting_cash=_optional(deployment.paper_starting_cash),
-        performance_equity=_optional(deployment.performance_equity),
-        net_pnl=canonical_decimal(pnl),
-        return_fraction=None if base is None or base <= 0 else _fraction(pnl / base),
+        performance_equity=_optional(deployment.performance_equity) if complete else None,
+        accounting_complete=complete,
+        net_pnl=_optional(pnl),
+        return_fraction=None if pnl is None or base is None or base <= 0 else _fraction(pnl / base),
         drawdown_fraction=None if drawdown is None else _fraction(drawdown),
-        exposure_quote=canonical_decimal(exposure),
-        open_books=0 if snapshot is None else len(snapshot.positions),
+        exposure_quote=_optional(exposure),
+        open_books=None if snapshot is None else len(snapshot_positions(snapshot)),
         books=() if snapshot is None else open_books(snapshot, marks or {}),
         strategy_fingerprint=deployment.strategy_fingerprint,
         running_current_rules=(
@@ -426,12 +471,24 @@ def _breaker(snapshot: PortfolioDeploymentSnapshot) -> PortfolioBreakerResponse:
     """The breakers with today's equity overlaid on the recorded baselines."""
     runtime = snapshot.runtime
     limits = snapshot.aggregate.portfolio.limits
+    books = run_members(_portfolio_members(snapshot), runtime)
+    by_id = {item.deployment.id: item for item in snapshot.snapshots}
+    unresolved = _unresolved_deployments(
+        books, by_id, quote=snapshot.aggregate.portfolio.quote_currency
+    )
+    equity = (
+        None
+        if unresolved
+        else Decimal(snapshot.aggregate.portfolio.capital_quote)
+        + sum((net_pnl(by_id[book.id].deployment) for book in books), _ZERO)
+    )
     live = runtime
-    if runtime.run_started_at is not None:
+    if equity is not None and runtime.run_started_at is not None:
         evaluated_at = runtime.last_evaluated_at or runtime.run_started_at
-        live = roll_baselines(runtime, equity=snapshot.equity, now=_latest(evaluated_at))
-    change = daily_pnl(live) if runtime.run_started_at is not None else None
-    drawdown = drawdown_fraction(live) if runtime.run_started_at is not None else None
+        live = roll_baselines(runtime, equity=equity, now=_latest(evaluated_at))
+    evaluated = equity is not None and runtime.run_started_at is not None
+    change = daily_pnl(live) if evaluated else None
+    drawdown = drawdown_fraction(live) if evaluated else None
     return PortfolioBreakerResponse(
         latched=runtime.breaker_latched,
         reason_code=runtime.breaker_reason,
@@ -440,7 +497,9 @@ def _breaker(snapshot: PortfolioDeploymentSnapshot) -> PortfolioBreakerResponse:
         daily_loss_quote=limits.daily_loss_quote,
         max_drawdown_fraction=limits.max_drawdown_fraction,
         run_started_at=_optional_time(runtime.run_started_at),
-        equity=canonical_decimal(snapshot.equity),
+        accounting_complete=not unresolved,
+        unresolved_deployment_ids=unresolved,
+        equity=_optional(equity),
         day_open_equity=_optional(live.day_open_equity),
         daily_pnl=None if change is None else canonical_decimal(change),
         high_water_mark_equity=_optional(live.high_water_mark_equity),
@@ -460,13 +519,35 @@ def _exposure(snapshot: PortfolioDeploymentSnapshot) -> PortfolioExposureRespons
     portfolio = snapshot.aggregate.portfolio
     capital = Decimal(portfolio.capital_quote)
     mode = DeploymentMode.LIVE if portfolio.mode == "live" else DeploymentMode.PAPER
-    exposure = portfolio_exposure(
-        portfolio.portfolio_id, risk_bearing_snapshots(snapshot.snapshots, mode)
+    by_id = {item.deployment.id: item for item in snapshot.snapshots}
+    books = tuple(
+        book
+        for book in _portfolio_members(snapshot)
+        if book.id in by_id
+        or occupies_running_slot(book)
+        or book.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
     )
+    bearing = risk_bearing_snapshots(
+        tuple(by_id[book.id] for book in books if book.id in by_id), mode
+    )
+    amounts: dict[str, Decimal] = {}
+    for book in bearing:
+        for product in _products(book):
+            if is_spot_product_id(product) and quote_currency(product) == portfolio.quote_currency:
+                asset = product.split("-", 1)[0]
+                amounts[asset] = amounts.get(asset, _ZERO) + product_exposure(book, product)
+    unresolved, unknown = _exposure_uncertainty(books, by_id, portfolio.quote_currency)
+    total = None if unresolved else sum(amounts.values(), _ZERO)
     asset_cap = capital * Decimal(portfolio.limits.max_per_asset_fraction)
     return PortfolioExposureResponse(
-        total_quote=canonical_decimal(exposure.total),
-        fraction_of_capital=_fraction(exposure.total / capital) if capital > 0 else "0",
+        accounting_complete=not unresolved,
+        unresolved_deployment_ids=unresolved,
+        total_quote=_optional(total),
+        fraction_of_capital=None
+        if total is None
+        else _fraction(total / capital)
+        if capital > 0
+        else "0",
         cap_quote=canonical_decimal(
             capital * Decimal(portfolio.limits.max_total_exposure_fraction)
         ),
@@ -474,15 +555,115 @@ def _exposure(snapshot: PortfolioDeploymentSnapshot) -> PortfolioExposureRespons
         assets=tuple(
             AssetExposureResponse(
                 asset=asset,
-                exposure_quote=canonical_decimal(amount),
-                fraction_of_capital=_fraction(amount / capital) if capital > 0 else "0",
+                exposure_quote=(
+                    None if unknown is None or asset in unknown else canonical_decimal(amount)
+                ),
+                fraction_of_capital=(
+                    None
+                    if unknown is None or asset in unknown
+                    else _fraction(amount / capital)
+                    if capital > 0
+                    else "0"
+                ),
                 cap_quote=canonical_decimal(asset_cap),
             )
             for asset, amount in sorted(
-                exposure.assets.items(), key=lambda item: (-item[1], item[0])
+                (amounts | {asset: amounts.get(asset, _ZERO) for asset in unknown or ()}).items(),
+                key=lambda item: (-item[1], item[0]),
             )
         ),
     )
+
+
+def _portfolio_members(snapshot: PortfolioDeploymentSnapshot) -> tuple[Deployment, ...]:
+    """Keep reporting in this portfolio's mode and membership, never other accounts' books."""
+    portfolio = snapshot.aggregate.portfolio
+    return tuple(
+        book
+        for book in snapshot.tagged
+        if book.portfolio_id == portfolio.portfolio_id and book.mode.value == portfolio.mode
+    )
+
+
+def _unresolved_deployments(
+    books: Sequence[Deployment],
+    by_id: Mapping[UUID, DeploymentSnapshot],
+    *,
+    quote: SpotQuoteCurrency,
+) -> tuple[UUID, ...]:
+    """Missing full reads or unresolved ledgers cannot certify current run performance."""
+    return tuple(
+        book.id
+        for book in books
+        if book.id not in by_id or not _performance_complete(by_id[book.id], quote)
+    )
+
+
+def _performance_complete(snapshot: DeploymentSnapshot, quote: SpotQuoteCurrency) -> bool:
+    """A complete ledger does not define aggregate PnL across different quote currencies."""
+    return ledger_from_snapshot(snapshot).accounting_complete and all(
+        is_spot_product_id(product) and quote_currency(product) == quote
+        for product in _products(snapshot)
+    )
+
+
+def _products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
+    """Name actual inventory/runtime/order products without reconstructing quantities."""
+    return tuple(
+        sorted(
+            {
+                snapshot.deployment.product_id,
+                *(
+                    resolved_product_id(row.product_id, snapshot.deployment)
+                    for row in snapshot_positions(snapshot)
+                ),
+                *(
+                    resolved_product_id(row.product_id, snapshot.deployment)
+                    for row in snapshot.orders
+                ),
+                *(
+                    resolved_product_id(row.product_id, snapshot.deployment)
+                    for row in snapshot.instrument_runtimes
+                ),
+            }
+        )
+    )
+
+
+def _exposure_uncertainty(
+    books: Sequence[Deployment], by_id: Mapping[UUID, DeploymentSnapshot], quote: SpotQuoteCurrency
+) -> tuple[tuple[UUID, ...], set[str] | None]:
+    """Qualify quote-scoped exposure; independent resolved assets can remain exact."""
+    unresolved: list[UUID] = []
+    unknown: set[str] = set()
+    unassignable = False
+    for book in books:
+        snapshot = by_id.get(book.id)
+        if snapshot is None or not snapshot.accounting_complete:
+            unresolved.append(book.id)
+            unassignable = True
+            continue
+        order_ids = {order.id for order in snapshot.orders}
+        if any(
+            fill.order_id not in order_ids and fill.economics_applied_at is None
+            for fill in snapshot.fills
+        ):
+            unresolved.append(book.id)
+            unassignable = True
+            continue
+        products = tuple(
+            product
+            for product in _products(snapshot)
+            if (not is_spot_product_id(product) or quote_currency(product) == quote)
+            and book_inventory_reasons(snapshot, product_id=product)
+        )
+        if products:
+            unresolved.append(book.id)
+            unknown.update(
+                product.split("-", 1)[0] for product in products if is_spot_product_id(product)
+            )
+            unassignable |= any(not is_spot_product_id(product) for product in products)
+    return tuple(unresolved), None if unassignable else unknown
 
 
 def _fraction(value: Decimal) -> str:
@@ -508,7 +689,12 @@ def open_books(
     for position in snapshot_positions(snapshot):
         product_id = resolved_product_id(position.product_id, snapshot.deployment)
         mark = marks.get(product_id)
-        fees = None if mark is None else recorded_position_entry_fees(snapshot, position)
+        resolved = not book_inventory_reasons(snapshot, product_id=product_id)
+        fees = (
+            None
+            if mark is None or not resolved
+            else recorded_position_entry_fees(snapshot, position)
+        )
         evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
         state = book_position_state(
             snapshot,

@@ -279,13 +279,18 @@ Internet-connected Coinbase trading should not be marketed as true HFT merely be
 ## Projection-completeness diagnostics
 
 Reporting consumes the durable fill-ledger predicates for unprojected owned inventory and
-unsettled execution economics, not mutable mismatch text. Absent position rows and terminal
+unsettled execution economics, not mutable mismatch text. It also rejects per-product occupancy
+contradictions: an occupied runtime without its own position is unknown even with sibling inventory. Absent position rows and terminal
 orders alone cannot certify flatness, aggregate PnL/equity/exposure, or protection recovery.
 Unknown protection quantities are null, never an executable reconstruction. Readiness and
 venue reconciliation separate storage-read completeness from economic completeness, name
 affected deployments, and preserve independent quote/asset/order evidence. Bounded summaries
 and focused product snapshots cannot certify complete shared-account accounting. This is
 read-only derived reporting; it does not repair records, change risk policy, or grant orders.
+Portfolio report views qualify current-run equity and residual exposure separately, using ledger
+completeness rather than letting stored counters repair missing economics. Dependent totals are
+nullable; recorded allocations/limits/baselines/history and independent resolved books/assets stay
+visible. Report qualification never changes portfolio control, admission, or breaker policy.
 
 ## Account-read and audit diagnostics
 

@@ -445,8 +445,9 @@ async def _managed_snapshots(
             severity=VenueSeverity.UNKNOWN,
             deployment_id=deployment_id,
             detail=(
-                "Retained fills/executions or incomplete accounting scope leave managed "
-                "inventory unresolved. Dependent quantities cannot be classified as foreign."
+                "Retained fills/executions, occupied runtimes without positions, or incomplete "
+                "accounting scope leave managed inventory unresolved. Dependent quantities "
+                "cannot be classified as foreign."
             ),
         )
         for deployment_id in unresolved

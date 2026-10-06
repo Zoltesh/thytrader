@@ -770,8 +770,18 @@ across restart; `canceled` does not mean its executed quantity was zero. If boug
 inventory has applied cash/fee economics but could not acquire position metadata, retained
 entry orders and fills keep it unresolved even if `mismatch_detail` later changes. Protection
 is kept; no stop geometry or sell quantity is invented. A missing position row is not proof
-of flatness. Read `show UUID` and `thytrader-operator reconciliation`, report the projection
+of flatness. This also applies to an `OPEN` / `PENDING_EXIT` product runtime whose own position
+is absent while another product remains projected, in running, paused and stopped books.
+Read `show UUID` and `thytrader-operator reconciliation`, report the projection
 fault, and do not clear it by resuming, restarting, or editing storage/recorded fills.
+
+`portfolio-status --portfolio-id ID` qualifies current accounting separately from lifecycle
+state. Sleeve, breaker and exposure `accounting_complete` flags and breaker/exposure
+`unresolved_deployment_ids` disclose uncertainty. Dependent equity/PnL/exposure/return/drawdown
+are null, not free capacity; stored limits/allocations/baselines and independent projected books
+remain visible. Run performance includes stopped current-run books, while exposure also qualifies
+older occupied/residual books. Missing sleeve reads have `open_books: null`. These reporting
+flags grant no mutation authority and do not reset a breaker or override a deliberate pause.
 
 ## Fleet controls (ADR 0117)
 

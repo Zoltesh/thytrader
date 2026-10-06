@@ -60,6 +60,7 @@ _GeometryBasis = Literal["working_target", "stop_limit_trigger", "unknown"]
 PROTECTION_REASONS: tuple[str, ...] = (
     "flat",
     "inventory_projection_unresolved",
+    "runtime_position_unresolved",
     "fill_economics_unsettled",
     "inventory_evidence_incomplete",
     "synthetic_worker_dependent",
@@ -297,6 +298,7 @@ def deployment_position_state(snapshot: DeploymentSnapshot) -> PositionState:
     }
     if (
         unprojected_inventory_products(snapshot)
+        or missing_occupied_inventory_products(snapshot)
         or unsettled_fill_evidence(snapshot)
         or not snapshot.accounting_complete
     ):
@@ -390,13 +392,16 @@ def protection_evidence_response(evidence: ProtectionEvidence) -> ProtectionEvid
 def book_inventory_reasons(snapshot: DeploymentSnapshot, *, product_id: str) -> tuple[str, ...]:
     """Disclose durable unresolved economics on one product, never an exit quantity.
 
-    Product filtering preserves unrelated valid books. Orphan unapplied fills cannot
+    Occupied product runtimes without positive projected inventory also prove uncertainty,
+    regardless of sibling inventory or deployment status. Orphan unapplied fills cannot
     be assigned a product, so they conservatively leave every book unresolved.
     """
     product = resolved_product_id(product_id, snapshot.deployment)
     reasons: list[str] = []
     if product in unprojected_inventory_products(snapshot):
         reasons.append("inventory_projection_unresolved")
+    if product in missing_occupied_inventory_products(snapshot):
+        reasons.append("runtime_position_unresolved")
     orders = tuple(
         order
         for order in snapshot.orders
@@ -410,6 +415,29 @@ def book_inventory_reasons(snapshot: DeploymentSnapshot, *, product_id: str) -> 
     if unsettled_fill_evidence(replace(snapshot, orders=orders, fills=fills)):
         reasons.append("fill_economics_unsettled")
     return tuple(reasons)
+
+
+def missing_occupied_inventory_products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
+    """Name occupied runtimes missing inventory, without inventing a position or exit size.
+
+    Deployment phase is aggregate, not per-product evidence. Its legacy occupied/empty
+    contradiction remains unknown when no positive inventory exists anywhere.
+    """
+    occupied = {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}
+    projected = {
+        resolved_product_id(position.product_id, snapshot.deployment)
+        for position in snapshot_positions(snapshot)
+        if position.quantity > 0
+    }
+    missing = {
+        resolved_product_id(runtime.product_id, snapshot.deployment)
+        for runtime in snapshot.instrument_runtimes
+        if runtime.phase in occupied
+        and resolved_product_id(runtime.product_id, snapshot.deployment) not in projected
+    }
+    if not projected and snapshot.deployment.phase in occupied:
+        missing.add(snapshot.deployment.product_id)
+    return tuple(sorted(missing))
 
 
 def _unresolved_evidence(now: datetime, reasons: tuple[str, ...]) -> ProtectionEvidence:

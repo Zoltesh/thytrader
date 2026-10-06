@@ -334,9 +334,9 @@ def _unresolved_book_findings(snapshot: DeploymentSnapshot) -> tuple[Supervision
             subject=f"{deployment.id}:{product}",
             severity=AlertSeverity.WARNING,
             detail=(
-                f"{deployment.mode.value} book on {product} has unresolved inventory projection "
-                "or fill economics; stop quantity and cover cannot be verified. Unknown is "
-                "not flatness or recovery."
+                f"{deployment.mode.value} book on {product} has unresolved inventory projection, "
+                "occupied runtime, or fill economics; stop quantity and cover cannot be verified. "
+                "Unknown is not flatness or recovery."
             ),
             deployment_id=deployment.id,
             product_id=product,

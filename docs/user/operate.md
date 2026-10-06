@@ -393,6 +393,8 @@ prevented inventory projection, protection remains and the book is not proved fl
 because `positions` is empty or a later read fault changed `mismatch_detail`. Diagnose with
 `thytrader-runtime show UUID` and `thytrader-operator reconciliation`; report the unresolved
 projection instead of resuming the bot or editing historical fills/fees to clear the message.
+An occupied `open` / `pending_exit` product runtime without its own position is also unresolved,
+even if a sibling position remains and the deployment is running, paused or stopped.
 Reports keep unresolved books **Unverified** (`unknown` / `open_unverified`), with null protection
 quantities and dependent aggregate PnL/equity/exposure rather than zero or cash-only totals.
 Bounded summaries omit retained fill economics: they cannot prove flatness from a missing position
@@ -407,6 +409,15 @@ null. Venue reconciliation leaves affected assets `managed_unknown`, not foreign
 independent venue balances and unaffected asset/order observations. Unknown is not recovery:
 protection/trigger incidents remain open until their product's economics are resolved. No report
 places orders or repairs economic records.
+
+Portfolio `deployment` / `briefing` and runtime `portfolio-status --portfolio-id ID` reads carry
+`accounting_complete` on sleeves, breaker, exposure and briefing performance; breaker/exposure
+also name `unresolved_deployment_ids`. Dependent current equity/PnL/return/drawdown/exposure are
+null and display **unknown**, not zero or free capacity. Recorded limits, allocations, baselines,
+journal/backtest history and independently resolved projected books/assets remain visible.
+Run equity includes stopped books in the current run; exposure still qualifies older occupied or
+residual books. Missing sleeve reads have `open_books: null`. Do not reset/resume to hide unknown
+accounting: these reports neither repair records nor change control or risk policy.
 
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with

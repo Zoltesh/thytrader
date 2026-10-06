@@ -28,6 +28,8 @@ import {
 	portfolioActions,
 	portfolioApiError,
 	portfolioSubtitle,
+	portfolioRunPnl,
+	quoteText,
 	proposalKindLabel,
 	proposalStatusText,
 	quoteInput,
@@ -335,6 +337,7 @@ function sleeveBot(overrides: Partial<SleeveDeployment> = {}): SleeveDeployment 
 		allocated_capital: '500',
 		paper_starting_cash: '500',
 		performance_equity: '512',
+		accounting_complete: true,
 		net_pnl: '12',
 		return_fraction: '0.024',
 		drawdown_fraction: '0',
@@ -379,6 +382,8 @@ function deploymentView(overrides: Partial<PortfolioDeployment> = {}): Portfolio
 			daily_loss_quote: null,
 			max_drawdown_fraction: null,
 			run_started_at: '2026-10-02T12:00:00Z',
+			accounting_complete: true,
+			unresolved_deployment_ids: [],
 			equity: '1012',
 			day_open_equity: '1000',
 			daily_pnl: '12',
@@ -387,6 +392,8 @@ function deploymentView(overrides: Partial<PortfolioDeployment> = {}): Portfolio
 			evaluated_at: null
 		},
 		exposure: {
+			accounting_complete: true,
+			unresolved_deployment_ids: [],
 			total_quote: '0',
 			fraction_of_capital: '0',
 			cap_quote: '1000',
@@ -397,6 +404,33 @@ function deploymentView(overrides: Partial<PortfolioDeployment> = {}): Portfolio
 		...overrides
 	};
 }
+
+describe('unresolved portfolio accounting', () => {
+	it('renders null economics as unknown without decimal coercion or invented zero', () => {
+		const view = deploymentView();
+		view.breaker = { ...view.breaker, accounting_complete: false, equity: null };
+		expect(portfolioRunPnl(view)).toBeNull();
+		expect(portfolioRunPnl(null)).toBeNull();
+		expect(quoteText(view.breaker.equity, 'USDC')).toBe('unknown');
+		expect(signedQuote(null, 'USDC')).toBe('unknown');
+		expect(weightPercent(null)).toBe('unknown');
+		expect(portfolioRunPnl(deploymentView())).toBe('12');
+	});
+
+	it('does not hide an unverified runtime because no position row survived', () => {
+		expect(
+			sleevePositionText(
+				sleeveBot({
+					accounting_complete: false,
+					net_pnl: null,
+					exposure_quote: null,
+					position_state: 'open_unverified',
+					open_books: 0
+				})
+			)
+		).toBe('Open · protection unverified');
+	});
+});
 
 function proposal(overrides: Partial<Proposal> = {}): Proposal {
 	return {

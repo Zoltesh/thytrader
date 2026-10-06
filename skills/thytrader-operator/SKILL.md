@@ -262,6 +262,14 @@ The worker uses fresh complete sibling fill economics and actual closed midnight
 needed ([ADR 0120](../../docs/decisions/0120-verified-risk-opening-evidence.md)). Missing opening
 provenance blocks new risk; resetting a latch cannot establish it.
 
+An occupied product runtime (`open` / `pending_exit`) with no position for that product stays
+`unknown` / `open_unverified`, even when another product survives and every collection read
+succeeds. This holds for running, paused and stopped deployments. Reason
+`runtime_position_unresolved` does not supply a quantity; prior coverage/trigger incidents cannot
+recover from that absence. Independent sibling/row findings and verified flat products still work.
+Portfolio deployment/briefing reads in the portfolio/runtime lanes separately qualify run and
+exposure `accounting_complete` and list affected IDs; null totals are unknown, not zero.
+
 ## Portfolio vs deployment inventory
 
 Three read-only surfaces answer different questions. Do not conflate them.

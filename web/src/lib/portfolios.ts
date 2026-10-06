@@ -117,11 +117,12 @@ export type SleeveDeployment = {
 	allocated_capital: string | null;
 	paper_starting_cash: string | null;
 	performance_equity: string | null;
-	net_pnl: string;
+	accounting_complete: boolean;
+	net_pnl: string | null;
 	return_fraction: string | null;
 	drawdown_fraction: string | null;
-	exposure_quote: string;
-	open_books: number;
+	exposure_quote: string | null;
+	open_books: number | null;
 	/** Each open book with entry, stop, target, state, and last-bar PnL (ADR 0098). */
 	books?: OpenBook[];
 	strategy_fingerprint: string | null;
@@ -150,7 +151,9 @@ export type PortfolioBreaker = {
 	daily_loss_quote: string | null;
 	max_drawdown_fraction: string | null;
 	run_started_at: string | null;
-	equity: string;
+	accounting_complete: boolean;
+	unresolved_deployment_ids: string[];
+	equity: string | null;
 	day_open_equity: string | null;
 	daily_pnl: string | null;
 	high_water_mark_equity: string | null;
@@ -160,14 +163,16 @@ export type PortfolioBreaker = {
 
 export type AssetExposure = {
 	asset: string;
-	exposure_quote: string;
-	fraction_of_capital: string;
+	exposure_quote: string | null;
+	fraction_of_capital: string | null;
 	cap_quote: string;
 };
 
 export type PortfolioExposure = {
-	total_quote: string;
-	fraction_of_capital: string;
+	accounting_complete: boolean;
+	unresolved_deployment_ids: string[];
+	total_quote: string | null;
+	fraction_of_capital: string | null;
 	cap_quote: string;
 	asset_cap_quote: string;
 	assets: AssetExposure[];
@@ -966,8 +971,8 @@ export function multiplyDecimals(left: string, right: string): string {
 }
 
 /** `0.3333` → `33.33%`, `0.5` → `50%` (exact; weights carry at most four places). */
-export function weightPercent(fraction: string): string {
-	return `${shiftDecimal(fraction, 2)}%`;
+export function weightPercent(fraction: string | null): string {
+	return fraction === null ? 'unknown' : `${shiftDecimal(fraction, 2)}%`;
 }
 
 /** A form's percent text (`33.33`) as a fraction (`0.3333`), or null when not a percent. */
@@ -1015,14 +1020,24 @@ export function checkAllocation(weights: readonly string[], reserve: string): Al
 }
 
 /** `1,234.50 USDC` (display rounding to cents; data stays exact). */
-export function quoteText(amount: string, currency: string): string {
-	return `${formatQuoteAmount(amount)} ${currency}`;
+export function quoteText(amount: string | null, currency: string): string {
+	return amount === null ? 'unknown' : `${formatQuoteAmount(amount)} ${currency}`;
 }
 
 /** A signed quote amount (`+12.30 USDC`, `-4.80 USDC`, `0.00 USDC`). */
-export function signedQuote(amount: string, currency: string): string {
+export function signedQuote(amount: string | null, currency: string): string {
+	if (amount === null) return 'unknown';
 	const text = quoteText(amount, currency);
 	return compareDecimalStrings(amount, '0') > 0 ? `+${text}` : text;
+}
+
+/** Run PnL is unknown when current portfolio equity is not certified. */
+export function portfolioRunPnl(
+	view: Pick<PortfolioDeployment, 'breaker' | 'capital_quote'> | null
+): string | null {
+	return view === null || view.breaker.equity === null
+		? null
+		: subtractDecimalStrings(view.breaker.equity, view.capital_quote);
 }
 
 /** A signed fraction as a percent with two decimals (`+14.92%`, `-4.80%`). */
@@ -1111,7 +1126,9 @@ export function pausedByBreaker(
 export function botStatusText(deployment: SleeveDeployment): string {
 	if (pausedByBreaker(deployment)) return 'Paused by breaker';
 	if (deployment.status === 'stopped') {
-		return deployment.lifecycle_command === 'flatten' && deployment.open_books > 0
+		return deployment.lifecycle_command === 'flatten' &&
+			deployment.open_books !== null &&
+			deployment.open_books > 0
 			? 'Stopping (flatten)'
 			: 'Stopped';
 	}
@@ -1123,7 +1140,7 @@ export function botStatusText(deployment: SleeveDeployment): string {
  * rests, "Exiting" only while an exit is sent. Null when flat or not reported.
  */
 export function sleevePositionText(deployment: SleeveDeployment): string | null {
-	if (deployment.open_books === 0) return null;
+	if (deployment.open_books === 0 && deployment.position_state !== 'open_unverified') return null;
 	return positionStateLabel(deployment.position_state);
 }
 

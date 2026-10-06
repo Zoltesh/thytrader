@@ -633,8 +633,9 @@ async def _load_snapshots(
                         severity=ReadinessSeverity.UNKNOWN,
                         deployment_id=deployment.id,
                         detail=(
-                            "Retained fills/executions or incomplete accounting scope leave "
-                            "managed inventory unresolved; no flatness or exact capacity is proved."
+                            "Retained fills/executions, occupied runtimes without positions, or "
+                            "incomplete accounting scope leave managed inventory unresolved; "
+                            "no flatness or exact capacity is proved."
                         ),
                     )
                 )
@@ -674,7 +675,7 @@ def _inventory_evidence(
 def _inventory_unresolved(
     snapshot: DeploymentSnapshot, quote: SpotQuoteCurrency | None = None
 ) -> bool:
-    """Retained product economics, not a display mismatch, determine completeness."""
+    """Product economics and runtime/inventory consistency, not display text, prove completeness."""
     return not snapshot.accounting_complete or any(
         book_inventory_reasons(snapshot, product_id=product)
         for product in _book_products((snapshot,))

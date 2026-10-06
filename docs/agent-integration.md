@@ -179,7 +179,9 @@ not a display-message predicate: a later read fault, restart, or cleared `mismat
 prove flatness or authorize removing protection. Read `thytrader-runtime show UUID` and
 `thytrader-operator reconciliation` and report the fault; do not invent a stop/quantity, rewrite
 fills/fees, or resume a deliberately paused book ([ADR 0110](decisions/0110-stopped-lifecycle-reconciliation.md)).
-Reporting exposes these books as `unknown` / `open_unverified` with nullable protection quantities
+An occupied product runtime (`open` / `pending_exit`) without its own position is likewise
+unresolved (`runtime_position_unresolved`), even with surviving sibling inventory and regardless
+of running/paused/stopped status. Reporting exposes these books as `unknown` / `open_unverified` with nullable protection quantities
 and aggregate PnL/equity/exposure. Bounded summaries cannot certify flatness or full accounting;
 valid focused book evidence is not shared-account completeness. Readiness inventory and venue
 `managed_listing` separate read `status` from `accounting_status` (`complete` / `unresolved` /
@@ -188,7 +190,13 @@ valid focused book evidence is not shared-account completeness. Readiness invent
 (`managed_unknown`), not fake zero/free capacity/foreign holdings. Independent balances, quotes,
 assets and order checks remain known when proved. Protection/trigger incidents do not recover
 just because positions disappear or executions become terminal. Prior opening proof/profits
-cannot repair projection. Full performance reports use `ACCOUNTING_UNRESOLVED`; confirmation
+cannot repair projection. Portfolio deployment/briefing readers qualify sleeve, breaker, exposure
+and briefing performance with `accounting_complete`; breaker/exposure list affected deployment IDs.
+Dependent current equity/PnL/exposure/return/drawdown are null, not zero. Run history includes
+stopped current-run books; exposure also qualifies older occupied/residual books. Independent
+allocations, baselines, historical evidence and resolved projected books/assets remain available.
+Other portfolio/mode/quote scopes are not combined; a quote exposure subtotal cannot certify full
+run accounting. No reporting flag resets latches, changes admission, or grants order authority. Full performance reports use `ACCOUNTING_UNRESOLVED`; confirmation
 gates and read-only authority are unchanged.
 
 Order-state provenance is independent of local row recency: `venue_observed_at` is persisted

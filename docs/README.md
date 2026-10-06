@@ -80,7 +80,9 @@ shared limits — backtest them together, then start the portfolio as one bot pe
 shared caps and loss stops. A manager agent can propose rebalances and pauses with its reasons;
 you approve or decline anything outside its permissions, and it never places orders. Agents can
 [create a complete portfolio with sleeves](user/operate.md#create-a-portfolio-from-a-file) in one
-confirmed call; creation saves the definition and does not start trading.
+confirmed call; creation saves the definition and does not start trading. Current portfolio
+reports qualify economic completeness: unresolved inventory makes dependent equity/PnL/exposure
+unknown, not zero. Recorded allocations and historical evidence remain separate.
 
 You can:
 

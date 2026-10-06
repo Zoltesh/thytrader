@@ -23,7 +23,10 @@ from thytrader.execution.performance import (
     ledger_starting_equity,
     performance_capital,
 )
-from thytrader.execution.protection import book_inventory_reasons
+from thytrader.execution.protection import (
+    book_inventory_reasons,
+    missing_occupied_inventory_products,
+)
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
@@ -256,6 +259,7 @@ def _inventory_checked_ledger(
     complete = (
         snapshot.accounting_complete
         and not unprojected_inventory_products(snapshot)
+        and not missing_occupied_inventory_products(snapshot)
         and not unsettled_fill_evidence(snapshot)
     )
     if complete:

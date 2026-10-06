@@ -185,6 +185,20 @@ order constraints `price_increment`, `base_increment`, `quote_increment`, `base_
 
 The support-bundle `payload` nests the other reports unchanged (it does not nest `runtime`, `data_catalog`, `products`, `indicators`, or `studies`).
 
+Occupied product runtimes (`open` / `pending_exit`) missing their own position add protection
+reason `runtime_position_unresolved`, nullable quantitative cover and unresolved accounting even
+when sibling inventory survives. Read success does not certify product flatness or incident recovery.
+
+Portfolio deployment/briefing report models additionally qualify current accounting: sleeve,
+`breaker`, `exposure` and briefing `performance` carry `accounting_complete`; breaker/exposure
+carry `unresolved_deployment_ids`. Sleeve `net_pnl` / `exposure_quote` and missing-read
+`open_books`, breaker `equity`, exposure `total_quote` / `fraction_of_capital`, affected asset
+`exposure_quote` / `fraction_of_capital`, and briefing `equity` / `net_pnl` / `return_fraction`
+are nullable. Existing nullable current equity/return/drawdown/daily-PnL fields also become unknown
+when dependent economics are unresolved. Recorded baselines, allocations, caps, historical
+backtests/journal and independent projected-row/asset evidence remain available. Run history and
+residual exposure have different scopes; no report changes policy, controls or order authority.
+
 The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1.schema.json). Run `uv run thytrader-operator schema-check` to verify skill docs against `SCHEMA_VERSION`.
 
 Decision schema shape is unchanged by ADR 0106. Protective maintenance with inventory is
