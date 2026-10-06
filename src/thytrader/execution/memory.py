@@ -187,6 +187,10 @@ class InMemoryExecutionStore:
             instrument_runtimes=runtimes,
         )
 
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Read all products' current economics from the authoritative in-memory store."""
+        return await self.get_deployment(deployment_id)
+
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
         snapshot = await self.get_deployment(deployment_id)

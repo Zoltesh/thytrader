@@ -72,6 +72,8 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
     Fill,
     IntentPurpose,
     Order,
@@ -112,6 +114,7 @@ from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.research.signal_evaluator import SignalEvaluationError
 from thytrader.research.trace import EntryConditionOutcome
+from thytrader.risk.accounting_evidence import accounting_portfolio, accounting_snapshot
 from thytrader.risk.breakers import (
     EntryObservation,
     breaker_pause_detail,
@@ -1655,8 +1658,9 @@ async def _reprice_entry(
         target_price=sized.target_price,
     )
     policy = risk_policy or compiled_default_risk_policy()
-    admitted = _entry_verdict(
+    admitted = await _entry_verdict(
         snapshot,
+        store=store,
         product_id=product.product_id,
         notional=entry_price * remaining_qty,
         quantity=remaining_qty,
@@ -2371,8 +2375,9 @@ async def _submit_sized_entry(
                 "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
             ),
         )
-    admitted = _entry_verdict(
+    admitted = await _entry_verdict(
         snapshot,
+        store=store,
         product_id=product.product_id,
         notional=sized.notional,
         quantity=sized.quantity,
@@ -2433,9 +2438,10 @@ async def _submit_sized_entry(
     return snapshot
 
 
-def _entry_admitted(
+async def _entry_admitted(
     snapshot: DeploymentSnapshot,
     *,
+    store: ExecutionStore,
     product_id: str,
     notional: Decimal,
     risk_policy: RiskPolicyDefinition,
@@ -2445,24 +2451,24 @@ def _entry_admitted(
     quantity: Decimal | None = None,
 ) -> bool:
     """Return whether the active risk policy allows this sized entry."""
-    return (
-        _entry_verdict(
-            snapshot,
-            product_id=product_id,
-            notional=notional,
-            quantity=quantity,
-            risk_policy=risk_policy,
-            portfolio=portfolio,
-            observation=observation,
-            is_pyramid_add=is_pyramid_add,
-        ).decision
-        is RiskDecision.ALLOW
+    verdict = await _entry_verdict(
+        snapshot,
+        store=store,
+        product_id=product_id,
+        notional=notional,
+        quantity=quantity,
+        risk_policy=risk_policy,
+        portfolio=portfolio,
+        observation=observation,
+        is_pyramid_add=is_pyramid_add,
     )
+    return verdict.decision is RiskDecision.ALLOW
 
 
-def _entry_verdict(
+async def _entry_verdict(
     snapshot: DeploymentSnapshot,
     *,
+    store: ExecutionStore,
     product_id: str,
     notional: Decimal,
     risk_policy: RiskPolicyDefinition,
@@ -2471,8 +2477,22 @@ def _entry_verdict(
     is_pyramid_add: bool = False,
     quantity: Decimal | None = None,
 ) -> RiskVerdict:
-    """Return the entry gate verdict for this sized order."""
-    live_cash = live_capital_base(snapshot.deployment)
+    """Admit only against fresh full accounting, never the product view or cache."""
+    observation = observation or EntryObservation(
+        as_of=utc_now(), proposed_price=None, reference_price=None, marks={}
+    )
+    try:
+        current_portfolio = await _portfolio_with_current(portfolio, snapshot, store=store)
+    except ExecutionStoreError:
+        return RiskVerdict(
+            decision=RiskDecision.DENY,
+            reason_code=RiskReasonCode.BREAKER_MARK_MISSING,
+            detail="Fresh complete risk accounting evidence is unavailable; entries are disabled.",
+        )
+    current = next(
+        item for item in current_portfolio if item.deployment.id == snapshot.deployment.id
+    )
+    live_cash = live_capital_base(current.deployment)
     if snapshot.deployment.mode is DeploymentMode.LIVE and live_cash is None:
         return RiskVerdict(
             decision=RiskDecision.DENY,
@@ -2489,7 +2509,7 @@ def _entry_verdict(
             is_pyramid_add=is_pyramid_add,
             quantity=quantity,
         ),
-        snapshots=_portfolio_with_current(portfolio, snapshot),
+        snapshots=current_portfolio,
         live_quote_cash=live_cash,
         observation=observation,
         portfolio=portfolio_risk_for(snapshot.deployment),
@@ -2524,13 +2544,18 @@ def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:
     return len(products)
 
 
-def _portfolio_with_current(
+async def _portfolio_with_current(
     portfolio: Sequence[DeploymentSnapshot],
     snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Overlay this deployment's latest snapshot onto occupied peers."""
-    others = tuple(item for item in portfolio if item.deployment.id != snapshot.deployment.id)
-    return (*others, snapshot)
+    """Reload authoritative shared books, including sibling fills reconciled this cycle."""
+    loaded = await accounting_portfolio(store, as_of=utc_now())
+    expected = {item.deployment.id for item in portfolio} | {snapshot.deployment.id}
+    if not expected.issubset({item.deployment.id for item in loaded}):
+        raise ExecutionStoreError("Risk accounting inventory is incomplete.")
+    return loaded
 
 
 async def _cancel_open_orders(
@@ -2622,12 +2647,20 @@ async def _apply_circuit_breakers(
     marks: Mapping[str, Decimal] | None,
 ) -> DeploymentSnapshot:
     """Pause when daily-loss or drawdown has already tripped before a new entry."""
-    live_cash = live_capital_base(snapshot.deployment)
+    try:
+        current_portfolio = await _portfolio_with_current(portfolio, snapshot, store=store)
+    except ExecutionStoreError:
+        # Entry admission fails closed separately; protection must keep flowing.
+        return snapshot
+    current = next(
+        item for item in current_portfolio if item.deployment.id == snapshot.deployment.id
+    )
+    live_cash = live_capital_base(current.deployment)
     verdict = evaluate_runtime_breakers(
         risk_policy,
         mode=snapshot.deployment.mode,
-        snapshot=snapshot,
-        snapshots=_portfolio_with_current(portfolio, snapshot),
+        snapshot=current,
+        snapshots=current_portfolio,
         live_quote_cash=live_cash,
         observation=_bar_observation(
             product_id=snapshot.deployment.product_id,
@@ -2652,6 +2685,8 @@ async def _pause_for_breaker(
     verdict: RiskVerdict,
 ) -> DeploymentSnapshot:
     """Pause this book, and same-quote books in the mode when daily loss trips."""
+    # Admission may have observed sibling fills newer than the caller's runtime view.
+    snapshot = await store.get_deployment(snapshot.deployment.id)
     detail = breaker_pause_detail(verdict.reason_code, verdict.detail)
     latched_daily = verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
     latched_dd = verdict.reason_code is RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT
@@ -2662,14 +2697,14 @@ async def _pause_for_breaker(
             daily_loss_latched=True if latched_daily else None,
             drawdown_latched=True if latched_dd else None,
         )
-        await store.save_deployment(stamped)
+        await store.save_deployment(stamped, expected_revision=snapshot.deployment.revision)
         snapshot = await store.get_deployment(snapshot.deployment.id)
     if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
         await _pause_mode_running(
             store=store,
             mode=snapshot.deployment.mode,
             product_id=snapshot.deployment.product_id,
-            portfolio=_portfolio_with_current(portfolio, snapshot),
+            portfolio=await _portfolio_with_current(portfolio, snapshot, store=store),
             detail=detail,
         )
         return await store.get_deployment(snapshot.deployment.id)
@@ -2827,10 +2862,34 @@ async def _persist_performance(
     """Stamp inventory cost, equity, HWM, and UTC day-open without changing phase."""
     combined: dict[str, Decimal] = dict(marks) if marks is not None else {}
     combined[product_id] = mark_price
-    marked = refresh_performance(snapshot, marks=combined, now=utc_now())
-    if marked == snapshot.deployment:
+    now = utc_now()
+    try:
+        full = await accounting_snapshot(store, snapshot.deployment.id, as_of=now)
+    except ExecutionStoreError:
         return snapshot
-    await store.save_deployment(marked)
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.revision != full.deployment.revision:
+        return current
+    marked = refresh_performance(full, marks=combined, now=now)
+    # Copy only metadata onto the fresh runtime view; never write cached sibling cash.
+    marked = replace(
+        current.deployment,
+        inventory_cost=marked.inventory_cost,
+        reserved_buying_power=marked.reserved_buying_power,
+        performance_equity=marked.performance_equity,
+        performance_capital_quote=marked.performance_capital_quote,
+        performance_maximum_drawdown_fraction=marked.performance_maximum_drawdown_fraction,
+        initial_equity=marked.initial_equity,
+        baseline_equity=marked.baseline_equity,
+        high_water_mark_equity=marked.high_water_mark_equity,
+        risk_day_open_evidence=marked.risk_day_open_evidence,
+        updated_at=marked.updated_at,
+    )
+    try:
+        await store.save_deployment(marked, expected_revision=full.deployment.revision)
+    except ExecutionConflictError:
+        # A newly applied fill makes these derived values obsolete; the next cycle retries.
+        return await store.get_deployment(snapshot.deployment.id)
     return await store.get_deployment(snapshot.deployment.id)
 
 

@@ -59,6 +59,7 @@ from thytrader.execution.trade_reason_scope import (
 )
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.exposure import counts_for_daily_loss
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
@@ -676,7 +677,7 @@ async def _accounting_snapshots(
     for item in deployments:
         if item.id == exclude_id or not counts_for_daily_loss(item.status):
             continue
-        peers.append(await store.get_deployment(item.id))
+        peers.append(await accounting_snapshot(store, item.id, as_of=utc_now()))
     return tuple(peers)
 
 

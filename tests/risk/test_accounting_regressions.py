@@ -20,6 +20,7 @@ from tests.risk.test_loss_scope import (
     _round_trip,
     _verdict,
 )
+from thytrader.execution.day_open import MidnightMark
 from thytrader.execution.discretionary import _pause_on_breaker, parse_discretionary_request
 from thytrader.execution.loop import _pause_for_breaker
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -40,6 +41,7 @@ from thytrader.risk.breakers import _daily_pnl
 from thytrader.risk.daily_accounting import flat_day_fill_pnl
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_runtime_breakers
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
+from thytrader.risk.opening_accounting import reconstruct_day_open
 
 _MIDNIGHT = datetime(2026, 10, 6, tzinfo=UTC)
 
@@ -202,6 +204,7 @@ def _old_flat(*, mode: DeploymentMode = DeploymentMode.PAPER) -> DeploymentSnaps
             created_at=_YESTERDAY,
             utc_day_open_at=_YESTERDAY,
             utc_day_open_equity=Decimal("10000"),
+            cash=Decimal("9950"),
         ),
         buy_at=_TODAY - timedelta(hours=2),
         sell_at=_TODAY - timedelta(hours=1),
@@ -243,9 +246,14 @@ def test_interleaved_products_replay_exact_day_cash_and_fees() -> None:
         sell_at=_TODAY - timedelta(minutes=10),
         sell_price=Decimal("150"),
     )
+    eth = replace(
+        eth,
+        fills=tuple(replace(fill, venue_fill_id=f"eth-{fill.venue_fill_id}") for fill in eth.fills),
+    )
     # BTC loses 50, ETH gains 50. Four recorded fees leave an exact four-quote loss.
     merged = replace(
         btc,
+        deployment=replace(btc.deployment, cash=Decimal("9996")),
         orders=(*btc.orders, *eth.orders),
         fills=tuple(replace(fill, fee=Decimal("1")) for fill in (*eth.fills, *btc.fills)),
     )
@@ -290,8 +298,19 @@ def test_overnight_trade_uses_recorded_day_equity_when_available() -> None:
         sell_at=_TODAY,
         sell_price=Decimal("200"),
     )
-    # Lifetime gain is 100, but today's disclosed opening equity shows a 100 loss.
-    assert _daily_pnl(overnight, marks={}, as_of=_TODAY) == Decimal("-100")
+    # The legacy stamp alone proves nothing; an actual midnight mark resolves the day.
+    assert _daily_pnl(overnight, marks={}, as_of=_TODAY) is None
+    evidence = reconstruct_day_open(
+        overnight,
+        as_of=_TODAY,
+        marks=(MidnightMark(product_id="BTC-USD", closes_at=_MIDNIGHT, price=Decimal("300")),),
+    )
+    assert evidence is not None
+    qualified = replace(
+        overnight, deployment=replace(overnight.deployment, risk_day_open_evidence=evidence)
+    )
+    # Lifetime gain is 100, but verified midnight equity shows today's 100 loss.
+    assert _daily_pnl(qualified, marks={}, as_of=_TODAY) == Decimal("-100")
 
 
 def test_distinct_midnight_assets_cannot_cancel_one_another() -> None:

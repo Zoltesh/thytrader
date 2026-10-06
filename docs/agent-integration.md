@@ -508,6 +508,27 @@ Default `detail=summary` omits historical orders and fills; paginate **`/fills`*
 `runtime` expose redacted `books[]` only. Numbered recipe:
 [`docs/agent/portfolio-research-ops-playbook.md`](agent/portfolio-research-ops-playbook.md).
 
+### Verified daily-risk evidence
+
+Admission and runtime breakers reload fresh unfiltered accounting for all retained books;
+a current product overlay or cached portfolio never replaces sibling fill evidence.
+`capital.utc_day_open_equity` remains preserved legacy data, not verified midnight equity.
+Nullable `capital.risk_day_open_evidence` contains `source: per_product_applied_fills_v1`, UTC
+`day_start`, exact decimal `equity`, `fills_fingerprint`, and per-product midnight `marks[]`
+(`product_id`, `closes_at`, exact `price`). Complete applied fills reconstruct opening cash and
+signed quantities separately; genuine flat midnight needs no price. Nonzero overnight inventory
+needs actual closed midnight prices, recoverable through an exact complete hourly range.
+Readers revalidate against current fills and UTC day; old evidence or an old stamp cannot bypass
+`BREAKER_MARK_MISSING`. Maintenance, late restart and latch reset never invent opening equity.
+See [ADR 0120](decisions/0120-verified-risk-opening-evidence.md).
+
+Primary operator `risk` reports `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` as nullable configuration strings, never observed balances.
+`PUT /api/v1/risk-policy` and `set-risk-policy --confirm` replace the whole policy: omission
+unsets optional bounds in the successor. Read the current policy and resupply bounds to retain
+them; immutable historical documents and compiled fingerprints are unchanged. The current
+frontend reads risk policy; it has no separate direct risk-policy editor/publication path.
+
 ### Orchestration skill
 
 `thytrader-playbook` sequences data → research → optional paper by calling existing CLIs. It

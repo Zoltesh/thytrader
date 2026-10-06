@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -17,9 +16,13 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.performance import performance_capital
 from thytrader.risk.exposure import working_entry_notional
+from thytrader.risk.opening_accounting import reconstruct_day_open, utc_day_start
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from datetime import datetime
+
+    from thytrader.execution.day_open import DailyOpeningEvidence
 
 _ZERO = Decimal("0")
 
@@ -114,7 +117,7 @@ def refresh_performance(
     high_water = deployment.high_water_mark_equity
     if equity is not None:
         high_water = equity if high_water is None else max(high_water, equity)
-    day_open, day_at = _roll_utc_day_open(deployment, equity=equity, now=now)
+    day_open_evidence = _roll_utc_day_open(snapshot, now=now)
     return replace(
         deployment,
         inventory_cost=inventory_cost,
@@ -133,17 +136,19 @@ def refresh_performance(
         initial_equity=initial,
         baseline_equity=baseline,
         high_water_mark_equity=high_water,
-        utc_day_open_equity=day_open,
-        utc_day_open_at=day_at,
+        risk_day_open_evidence=day_open_evidence,
         updated_at=now,
     )
 
 
-def daily_pnl_from_day_open(deployment: Deployment, *, equity: Decimal | None) -> Decimal | None:
-    """Return UTC-day equity change from the persisted day-open baseline."""
-    if equity is None or deployment.utc_day_open_equity is None:
+def daily_pnl_from_day_open(
+    deployment: Deployment, *, equity: Decimal | None, as_of: datetime
+) -> Decimal | None:
+    """Return day change only for qualified evidence from the observed UTC day."""
+    evidence = deployment.risk_day_open_evidence
+    if equity is None or evidence is None or evidence.day_start != utc_day_start(as_of):
         return None
-    return equity - deployment.utc_day_open_equity
+    return equity - evidence.equity
 
 
 def _inventory_cost(snapshot: DeploymentSnapshot) -> Decimal:
@@ -166,15 +171,16 @@ def _reserved_working(snapshot: DeploymentSnapshot) -> Decimal:
 
 
 def _roll_utc_day_open(
-    deployment: Deployment, *, equity: Decimal | None, now: datetime
-) -> tuple[Decimal | None, datetime | None]:
-    """Keep day-open equity until UTC midnight, then snapshot the new day's open."""
-    aware = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    as_utc = aware.astimezone(UTC)
-    day_start = datetime(as_utc.year, as_utc.month, as_utc.day, tzinfo=UTC)
-    if deployment.utc_day_open_at is None or deployment.utc_day_open_at < day_start:
-        return equity, day_start
-    return deployment.utc_day_open_equity, deployment.utc_day_open_at
+    snapshot: DeploymentSnapshot, *, now: datetime
+) -> DailyOpeningEvidence | None:
+    """Recover a proven opening without rewriting or promoting legacy equity stamps.
+
+    Preserve prior derived evidence when recovery is incomplete. Readers revalidate
+    it against current fills and the observation day, so preservation is not permission
+    to reuse yesterday's baseline or to hide a late fill.
+    """
+    recovered = reconstruct_day_open(snapshot, as_of=now)
+    return recovered if recovered is not None else snapshot.deployment.risk_day_open_evidence
 
 
 def marked_inventory_value(position: Position | None, mark: Decimal | None) -> Decimal | None:

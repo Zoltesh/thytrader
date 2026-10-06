@@ -87,7 +87,9 @@ You can:
 3. **Share the wheel** — the agent edits a strategy; you backtest and arm (or the reverse).
 
 Safety that outlives any one screen: [Safety](user/safety.md) and the
-[security and trading-risk baseline](security-and-risk.md).
+[security and trading-risk baseline](security-and-risk.md). Daily-risk checks require fresh
+complete accounting and genuine UTC opening evidence; old opening stamps and late observations
+are not midnight equity. See [daily-risk evidence and full-policy publication](user/safety.md#daily-risk-evidence-and-policy-publication).
 
 
 To select intended paper/live comparison partners, use **Paper/live twin** on Bot detail or

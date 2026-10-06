@@ -62,6 +62,10 @@ class ExecutionStore(Protocol):
         """Load one deployment with its related records or fail."""
         ...
 
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Read fresh unfiltered shared-book evidence, even through a product wrapper."""
+        ...
+
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
         ...
@@ -188,6 +192,11 @@ class DisabledExecutionStore:
 
     async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
         """Refuse deployment reads without durable storage."""
+        del deployment_id
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Refuse accounting evidence reads without durable storage."""
         del deployment_id
         raise ExecutionStoreError("Execution storage is unavailable.")
 

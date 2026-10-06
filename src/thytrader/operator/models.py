@@ -768,6 +768,9 @@ class RiskPayload(_FrozenModel):
     max_daily_loss_quote: str | None = None
     max_portfolio_exposure_quote: str | None = None
     max_venue_order_actions_per_minute: int | None = None
+    max_order_quantity: str | None = None
+    max_order_notional_quote: str | None = None
+    min_available_quote_reserve: str | None = None
     findings: tuple[RiskFinding, ...]
 
 

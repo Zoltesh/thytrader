@@ -339,14 +339,18 @@ def _parser() -> argparse.ArgumentParser:
         "--max-order-quantity",
         default=None,
         help=(
-            "Optional maximum base quantity for one new entry. Unset by default; "
-            "omitting it does not change compiled or previously published limits."
+            "Optional maximum base quantity for one new entry. Publication replaces the "
+            "whole active policy: omitting this flag unsets the bound in the new version. "
+            "Resupply it to retain an existing bound; historical versions remain immutable."
         ),
     )
     set_policy.add_argument(
         "--max-order-notional-quote",
         default=None,
-        help=("Optional maximum quote notional for one new entry. Unset by default."),
+        help=(
+            "Optional maximum quote notional for one new entry. Omitting this flag unsets "
+            "the bound in the replacement policy; resupply it to retain an existing bound."
+        ),
     )
     set_policy.add_argument(
         "--min-available-quote-reserve",
@@ -355,7 +359,8 @@ def _parser() -> argparse.ArgumentParser:
             "Optional same-quote notional admission headroom. Live fees/slippage are not "
             "included: this is not a guaranteed post-fill balance. Confirmed venue holds "
             "are not subtracted twice; ambiguous holds deny. Paper includes recorded cash "
-            "debits and modeled fees. Requires matching --quote-currency. Unset by default."
+            "debits and modeled fees. Requires matching --quote-currency. Omitting this "
+            "flag unsets the reserve in the replacement policy; resupply it to retain it."
         ),
     )
     set_policy.add_argument(

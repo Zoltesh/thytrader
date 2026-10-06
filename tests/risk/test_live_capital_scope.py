@@ -9,6 +9,7 @@ import pytest
 
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.loop import _entry_verdict
+from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -85,7 +86,8 @@ def _observation() -> EntryObservation:
     )
 
 
-def test_small_bot_allocation_does_not_cap_other_bots_account_exposure() -> None:
+@pytest.mark.anyio
+async def test_small_bot_allocation_does_not_cap_other_bots_account_exposure() -> None:
     """A small probe may enter beside another book while its own allocation still binds."""
     probe = _snapshot()
     peer = _snapshot(product="ETH-USD", cost="16")
@@ -98,8 +100,13 @@ def test_small_bot_allocation_does_not_cap_other_bots_account_exposure() -> None
         }
     )
     assert live_capital_base(probe.deployment) == Decimal("100")
-    verdict = _entry_verdict(
+    store = InMemoryExecutionStore()
+    for snapshot in (probe, peer):
+        await store.create_deployment(snapshot.deployment)
+        await store.save_position(snapshot.position, deployment_id=snapshot.deployment.id)
+    verdict = await _entry_verdict(
         probe,
+        store=store,
         product_id="BTC-USD",
         notional=Decimal("7"),
         risk_policy=policy,
@@ -108,8 +115,9 @@ def test_small_bot_allocation_does_not_cap_other_bots_account_exposure() -> None
     )
     assert verdict.decision is RiskDecision.ALLOW
     tighter = policy.model_copy(update={"max_portfolio_exposure_quote": "20"})
-    refused = _entry_verdict(
+    refused = await _entry_verdict(
         probe,
+        store=store,
         product_id="BTC-USD",
         notional=Decimal("7"),
         risk_policy=tighter,
@@ -124,8 +132,9 @@ def test_small_bot_allocation_does_not_cap_other_bots_account_exposure() -> None
     allocation = policy.model_copy(
         update={"allocations": (CapitalAllocation(strategy_id=strategy_id, allocated_quote="5"),)}
     )
-    refused = _entry_verdict(
+    refused = await _entry_verdict(
         probe,
+        store=store,
         product_id="BTC-USD",
         notional=Decimal("7"),
         risk_policy=allocation,
@@ -265,12 +274,16 @@ def test_pending_buy_remainder_is_quote_capital_without_double_counting_partial_
     assert unknown.decision is RiskDecision.DENY
 
 
-def test_allocation_cannot_replace_unknown_venue_quote() -> None:
+@pytest.mark.anyio
+async def test_allocation_cannot_replace_unknown_venue_quote() -> None:
     """A funded-looking bot allocation is not evidence of a healthy account balance."""
     book = _snapshot()
     book = replace(book, deployment=replace(book.deployment, venue_available_quote=None))
-    verdict = _entry_verdict(
+    store = InMemoryExecutionStore()
+    await store.create_deployment(book.deployment)
+    verdict = await _entry_verdict(
         book,
+        store=store,
         product_id="BTC-USD",
         notional=Decimal("7"),
         risk_policy=compiled_default_risk_policy(),

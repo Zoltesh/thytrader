@@ -20,9 +20,9 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.performance import current_drawdown
 from thytrader.market_data.products import is_spot_product_id, quote_currency
-from thytrader.risk.daily_accounting import flat_day_fill_pnl
 from thytrader.risk.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
+from thytrader.risk.opening_accounting import reconstruct_day_open
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -85,9 +85,7 @@ def evaluate_circuit_breakers(
     daily = _daily_loss_verdict(
         policy, mode=mode, occupied=daily_books, observation=observation, capital=capital
     )
-    if daily is not None:
-        return daily
-    return _drawdown_verdict(
+    drawdown = _drawdown_verdict(
         policy,
         snapshots=snapshots,
         mode=mode,
@@ -96,6 +94,22 @@ def evaluate_circuit_breakers(
         proposed_product_id=proposed_product_id,
         observation=observation,
     )
+    return _select_loss_verdict(daily, drawdown)
+
+
+def _select_loss_verdict(
+    daily: RiskVerdict | None, drawdown: RiskVerdict | None
+) -> RiskVerdict | None:
+    """Unknown daily evidence must not hide an independently proven local drawdown trip."""
+    if daily is None:
+        return drawdown
+    if (
+        daily.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
+        and drawdown is not None
+        and drawdown.reason_code is RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT
+    ):
+        return drawdown
+    return daily
 
 
 def evaluate_rate_and_collar(
@@ -362,32 +376,25 @@ def _daily_pnl(
 ) -> Decimal | None:
     """Return this UTC day's equity change, never a previous day's stale baseline.
 
-    Same-day opening equity remains authoritative. Unapplied live fills make cash
-    incomplete, not unchanged. Without that baseline, a flat old book's day fills
-    must prove flat inventory at midnight; overnight closures require an opening
-    mark and fail closed. Lifetime realized PnL cannot replace UTC-day equity change.
+    Legacy UTC opening stamps lack provenance and are not trusted. Exact applied
+    per-product fills reconstruct midnight cash/inventory; overnight inventory needs
+    genuine closed midnight marks. Current marks and lifetime PnL cannot substitute.
+    A focused product view is incomplete even when it contains no fills.
     """
-    if _unapplied_live_fills(snapshot):
+    if not snapshot.accounting_complete or _unapplied_live_fills(snapshot):
         return None
-    day_start = _utc_day_start(as_of)
-    day_open_at = snapshot.deployment.utc_day_open_at
-    day_open = snapshot.deployment.utc_day_open_equity
-    same_day_open = (
-        day_open_at is not None
-        and day_open is not None
-        and _utc_day_start(day_open_at) == day_start
-    )
-    started_today = _utc_day_start(snapshot.deployment.created_at) == day_start
-    if not same_day_open and not started_today and not snapshot_positions(snapshot):
-        return flat_day_fill_pnl(snapshot, since=day_start)
     ledger = ledger_from_snapshot(snapshot, marks=marks)
     if not ledger.mark_complete or ledger.equity is None:
         return None
-    if same_day_open and day_open is not None:
-        return ledger.equity - day_open
-    if started_today:
+    day_start = _utc_day_start(as_of)
+    if _utc_day_start(snapshot.deployment.created_at) == day_start:
+        # Recorded deployment funding is genuine same-day opening evidence; a later
+        # utc_day_open_* performance stamp is not. No legacy midnight stamp is used.
         return _pnl_from_opening_equity(snapshot, equity=ledger.equity)
-    return None
+    evidence = reconstruct_day_open(snapshot, as_of=as_of)
+    if evidence is None:
+        return None
+    return ledger.equity - evidence.equity
 
 
 def _pnl_from_opening_equity(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal | None:
@@ -420,7 +427,8 @@ def _daily_loss_missing_detail(
         if _daily_pnl(snapshot, marks=observation.marks, as_of=observation.as_of) is None:
             if snapshot_positions(snapshot):
                 return (
-                    f"Daily-loss unavailable for {identity}: missing same-UTC-day equity baseline."
+                    f"Daily-loss unavailable for {identity}: missing verified same-UTC-day "
+                    "equity baseline or complete applied fill projections."
                 )
             return (
                 f"Daily-loss unavailable for {identity}: incomplete fill economics or missing "

@@ -1,6 +1,7 @@
 # 0111: Durable risk-accounting scopes
 
-- Status: Accepted
+- Status: Accepted; UTC opening provenance and unconditional flat-book zero fallback
+  superseded by [0120](0120-verified-risk-opening-evidence.md)
 - Date: 2026-10-06
 - Supersedes in part: [0050](0050-daily-loss-drawdown-rate-collars.md), daily-loss occupancy,
   quote and drawdown scope; [0082](0082-strategy-root-mutable-strategies-auto-snapshots.md),

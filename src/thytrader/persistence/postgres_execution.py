@@ -11,6 +11,7 @@ from sqlalchemy import and_, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from thytrader.execution.day_open import DailyOpeningEvidence
 from thytrader.execution.fill_ledger import (
     applied_fill_quantity,
     fill_projection_deployment,
@@ -360,6 +361,27 @@ class PostgresExecutionStore:
                 return await _snapshot(connection, _deployment_from_row(row))
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Read complete shared-book evidence in one repeatable database observation."""
+        try:
+            async with self._engine.connect() as connection:
+                await connection.execution_options(isolation_level="REPEATABLE READ")
+                async with connection.begin():
+                    row = (
+                        (
+                            await connection.execute(
+                                select(deployments).where(deployments.c.id == deployment_id)
+                            )
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
+                    if row is None:
+                        raise ExecutionStoreError("Deployment was not found.")
+                    return await _snapshot(connection, _deployment_from_row(row))
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Accounting evidence is unavailable.") from error
 
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
@@ -1016,6 +1038,11 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "baseline_equity": _text(deployment.baseline_equity),
         "utc_day_open_equity": _text(deployment.utc_day_open_equity),
         "utc_day_open_at": deployment.utc_day_open_at,
+        "risk_day_open_evidence": (
+            None
+            if deployment.risk_day_open_evidence is None
+            else deployment.risk_day_open_evidence.model_dump_json()
+        ),
         "high_water_mark_equity": _text(deployment.high_water_mark_equity),
         "daily_loss_latched": deployment.daily_loss_latched,
         "drawdown_latched": deployment.drawdown_latched,
@@ -1096,6 +1123,11 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         baseline_equity=_decimal(row.get("baseline_equity")),
         utc_day_open_equity=_decimal(row.get("utc_day_open_equity")),
         utc_day_open_at=row.get("utc_day_open_at"),
+        risk_day_open_evidence=(
+            None
+            if row.get("risk_day_open_evidence") is None
+            else DailyOpeningEvidence.model_validate_json(str(row["risk_day_open_evidence"]))
+        ),
         high_water_mark_equity=_decimal(row.get("high_water_mark_equity")),
         daily_loss_latched=bool(row.get("daily_loss_latched", False)),
         drawdown_latched=bool(row.get("drawdown_latched", False)),

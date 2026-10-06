@@ -84,10 +84,13 @@ It gates paper and live **entries** (not exits) with:
   are never added together. An open book without a same-UTC-day baseline, or a book
   whose quote cannot be read, denies with `BREAKER_MARK_MISSING`
   ([ADR 0111](decisions/0111-durable-risk-accounting-scopes.md)). Strategy deletion retains stopped
-  paper/live books, fills, latches, and snapshots. Flat books with no current-day fills contribute
-  zero after rollover; day fills must prove flat per-product inventory at midnight unless a
-  current-day opening equity exists. Overnight closure without opening marks and unapplied live
-  economics deny rather than guessing day PnL. UTC rollover never auto-resets a latch;
+  paper/live books, fills, latches, and snapshots. Fresh unfiltered accounting must prove applied
+  fill cash and separate midnight product quantities. Flat midnight inventory needs no price;
+  overnight inventory needs actual closed midnight marks, even if closed later that day.
+  Legacy opening stamps are preserved but unverified; current equity is never relabeled as
+  midnight equity ([ADR 0120](decisions/0120-verified-risk-opening-evidence.md)). Missing or
+  contradictory accounting and unapplied live economics deny, never imply zero loss. Qualified
+  evidence is separate and revalidated against current fills. UTC rollover never resets a latch;
 - per-strategy fill-ledger drawdown fraction. A drawdown latch or breach blocks only
   that strategy, or a discretionary book on the same product. It does not block
   unrelated strategies in the mode;

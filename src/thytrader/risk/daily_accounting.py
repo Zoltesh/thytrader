@@ -21,9 +21,8 @@ def flat_day_fill_pnl(snapshot: DeploymentSnapshot, *, since: datetime) -> Decim
     change; its lifetime realized PnL is not a substitute. No fills today on a currently
     flat book means zero today, even when yesterday's equity baseline is stale.
     """
-    today = tuple(fill for fill in snapshot.fills if fill.filled_at >= since)
-    if not today:
-        return Decimal("0")
+    if not snapshot.accounting_complete:
+        return None
     orders = {order.id: order for order in snapshot.orders}
     opening: dict[str, Decimal] = {}
     closing: dict[str, Decimal] = {}

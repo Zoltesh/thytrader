@@ -28,6 +28,7 @@ from thytrader.execution.book_marks import (
     last_bar_marks,
     signed_unrealized_pnl,
 )
+from thytrader.execution.day_open import DailyOpeningEvidence
 from thytrader.execution.decision_store import (
     DecisionJournalStore,
 )
@@ -253,7 +254,10 @@ class DeploymentCapitalResponse(BaseModel):
     initial_equity: str | None = None
     baseline_equity: str | None = None
     high_water_mark_equity: str | None = None
-    utc_day_open_equity: str | None = None
+    utc_day_open_equity: str | None = Field(
+        default=None, description="Preserved legacy observation, not verified midnight evidence."
+    )
+    risk_day_open_evidence: DailyOpeningEvidence | None = None
 
 
 class OrderResponse(BaseModel):
@@ -938,6 +942,7 @@ def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
         baseline_equity=_optional_decimal_string(deployment.baseline_equity),
         high_water_mark_equity=_optional_decimal_string(deployment.high_water_mark_equity),
         utc_day_open_equity=_optional_decimal_string(deployment.utc_day_open_equity),
+        risk_day_open_evidence=deployment.risk_day_open_evidence,
     )
 
 

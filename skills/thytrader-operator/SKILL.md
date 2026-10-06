@@ -239,6 +239,16 @@ distinguishes missing inventory marks from unavailable equity/day-open baselines
 live ledger baseline is not missing. Use the runtime lane's `show` and `show-risk-policy` for
 capital and policy evidence; never infer that a flat bot or a healthy reconciliation permits
 bypassing a risk denial ([ADR 0106](../../docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+The primary `risk` payload also echoes `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` as nullable decimal strings: null means the optional bound is unset,
+not that account funds are missing. These are configured limits, never observed balances.
+Risk publication replaces the entire policy; omitting a previously configured bound removes it
+from the successor, so read `show-risk-policy` and resupply bounds you intend to retain.
+Runtime `show` exposes `capital.risk_day_open_evidence` separately from preserved legacy
+`utc_day_open_equity`; a legacy stamp or an old evidence day is not verified current-day equity.
+The worker uses fresh complete sibling fill economics and actual closed midnight marks when
+needed ([ADR 0120](../../docs/decisions/0120-verified-risk-opening-evidence.md)). Missing opening
+provenance blocks new risk; resetting a latch cannot establish it.
 
 ## Portfolio vs deployment inventory
 

@@ -801,6 +801,9 @@ class OperatorDiagnostics:
                 max_daily_loss_quote=policy.max_daily_loss_quote,
                 max_portfolio_exposure_quote=policy.max_portfolio_exposure_quote,
                 max_venue_order_actions_per_minute=policy.max_venue_order_actions_per_minute,
+                max_order_quantity=policy.max_order_quantity,
+                max_order_notional_quote=policy.max_order_notional_quote,
+                min_available_quote_reserve=policy.min_available_quote_reserve,
                 findings=findings,
             ),
         )

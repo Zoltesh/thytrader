@@ -722,6 +722,7 @@ deployments = Table(
     Column("baseline_equity", String(64), nullable=True),
     Column("utc_day_open_equity", String(64), nullable=True),
     Column("utc_day_open_at", DateTime(timezone=True), nullable=True),
+    Column("risk_day_open_evidence", Text, nullable=True),
     Column("high_water_mark_equity", String(64), nullable=True),
     Column("daily_loss_latched", Boolean(), nullable=False, server_default="false"),
     Column("drawdown_latched", Boolean(), nullable=False, server_default="false"),

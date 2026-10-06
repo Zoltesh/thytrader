@@ -137,12 +137,14 @@ def test_losing_live_ledger_keeps_initial_equity_baseline() -> None:
         DeploymentSnapshot(deployment=deployment), mark_price=Decimal("100"), now=_NOW
     )
     assert refreshed.performance_equity == Decimal("9000")
-    assert daily_pnl_from_day_open(refreshed, equity=Decimal("9000")) == Decimal("-1000")
+    # Missing fill history cannot qualify the preserved legacy opening stamp.
+    assert daily_pnl_from_day_open(refreshed, equity=Decimal("9000"), as_of=_NOW) is None
+    assert refreshed.utc_day_open_equity == Decimal("10000")
     assert refreshed.high_water_mark_equity == Decimal("10000")
 
 
-def test_utc_midnight_rolls_day_open_without_trades() -> None:
-    """F13: overnight inventory snapshots a new UTC day-open equity."""
+def test_utc_midnight_does_not_relabel_unproven_current_equity() -> None:
+    """F13: missing historical economics preserve raw opening evidence instead of minting it."""
     deployment = replace(
         _paper_deployment(),
         cash=Decimal("8000"),
@@ -156,8 +158,9 @@ def test_utc_midnight_rolls_day_open_without_trades() -> None:
     refreshed = refresh_performance(
         DeploymentSnapshot(deployment=deployment), mark_price=None, now=next_day
     )
-    assert refreshed.utc_day_open_at == datetime(2026, 1, 2, tzinfo=UTC)
-    assert refreshed.utc_day_open_equity == Decimal("8000")
+    assert refreshed.utc_day_open_at == datetime(2026, 1, 1, tzinfo=UTC)
+    assert refreshed.utc_day_open_equity == Decimal("10000")
+    assert refreshed.risk_day_open_evidence is None
     assert refreshed.high_water_mark_equity == Decimal("11000")
 
 

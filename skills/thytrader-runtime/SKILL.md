@@ -89,9 +89,15 @@ strategy; deletion is not a reset. A null strategy FK does not turn that strateg
 discretionary drawdown. Daily loss pauses only running books of that mode and quote; deliberate
 pauses and stopped choices are preserved. A first discretionary denial can leave its latch on a
 persisted same-quote peer even though no new candidate book was created. Reset the specific row
-carrying the latch, not unrelated books. No current-day fills on a flat old book contribute zero;
-an overnight closure without recorded opening marks denies rather than inventing day equity.
-Unapplied live fills also deny new risk until economics reconcile.
+carrying the latch, not unrelated books. Risk checks reload fresh complete accounting for every
+retained book; a product-focused view or cached portfolio cannot hide sibling fills.
+Older books need verified opening evidence ([ADR 0120](../../docs/decisions/0120-verified-risk-opening-evidence.md)):
+complete applied fills reconstruct midnight cash and separate product quantities. A genuinely
+flat midnight needs no price; overnight inventory, including a later closure, needs an actual
+closed midnight mark for each product. The worker can recover an exact complete hourly range.
+Missing/inconsistent economics, filled orders missing fills, or unavailable opening prices deny
+rather than becoming zero loss. Unapplied live fills deny until economics reconcile. Neither
+maintenance nor a late restart promotes current equity or legacy stamps into midnight evidence.
 Paper starts share one policy funding envelope, not a separate envelope per quote: occupied
 foreign-quote paper books deny new funding rather than reuse or convert that budget. Retained
 stopped flat loss evidence does not occupy funding. Concurrent multi-quote paper funding is not
@@ -485,7 +491,11 @@ ADR 0058 lifecycle fields
 `capital` block with `allocated_capital`, `venue_available_quote`, `reserved_buying_power`,
 `inventory_cost`, `performance_equity`, `performance_capital_quote`,
 `performance_maximum_drawdown_fraction`, `initial_equity`, `baseline_equity`,
-`high_water_mark_equity`, and `utc_day_open_equity`
+`high_water_mark_equity`, preserved legacy `utc_day_open_equity`, and optional
+`risk_day_open_evidence` (`source`, `day_start`, `equity`, `fills_fingerprint`, product `marks[]`
+with `product_id`, `closes_at`, `price`). Legacy opening equity is **not** verified midnight
+provenance. Qualified evidence must belong to the observed UTC day and still match complete
+current accounting; old preserved evidence alone is not permission to trade.
 ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
 ledger fill accounting only. `reserved_buying_power` counts working entry remainders;
 known protective or other exit intents never reserve entry quote, including paper limit exits.

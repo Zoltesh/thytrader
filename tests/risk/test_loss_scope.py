@@ -344,8 +344,8 @@ def test_daily_latch_survives_stop_and_is_not_an_implicit_reset() -> None:
     assert stopped.daily_loss_latched is True
 
 
-def test_late_fill_on_a_stopped_flat_book_counts_when_cash_is_stale() -> None:
-    """A fill dated today counts even when operational cash was not updated after stop."""
+def test_late_fill_on_a_stopped_flat_book_blocks_when_cash_is_stale() -> None:
+    """Contradictory applied fills and stale cash deny instead of establishing a false baseline."""
     stopped = _deployment(
         status=DeploymentStatus.STOPPED,
         created_at=_YESTERDAY,
@@ -361,15 +361,15 @@ def test_late_fill_on_a_stopped_flat_book_counts_when_cash_is_stale() -> None:
         sell_price=Decimal("50"),
     )
     verdict = _verdict((snapshot,), _entry(strategy_id=_STRATEGY_B))
-    assert verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+    assert verdict.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
 
 
 def test_utc_day_rollover_does_not_carry_yesterday_loss() -> None:
-    """A stale day-open on a flat stopped book is not today's loss."""
+    """Complete flat history proves today's zero movement without trusting legacy stamps."""
     stopped = _deployment(
         status=DeploymentStatus.STOPPED,
         created_at=_YESTERDAY,
-        cash=Decimal("9000"),
+        cash=Decimal("9950"),
         paper_starting_cash=Decimal("10000"),
         utc_day_open_equity=Decimal("10000"),
         utc_day_open_at=_YESTERDAY,
@@ -388,11 +388,11 @@ def test_utc_day_rollover_does_not_carry_yesterday_loss() -> None:
         created_at=_YESTERDAY,
     )
     still_today = _verdict(
-        (DeploymentSnapshot(deployment=same_day),),
+        (replace(yesterday, deployment=same_day),),
         _entry(strategy_id=_STRATEGY_B),
         as_of=_TODAY,
     )
-    assert still_today.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
+    assert still_today.decision is RiskDecision.ALLOW
 
 
 def test_open_book_without_a_same_day_baseline_fails_closed() -> None:
@@ -548,20 +548,22 @@ def test_reset_clears_the_latch_without_erasing_same_day_loss() -> None:
 
 
 def test_reset_allows_a_new_day_after_the_latch_clears() -> None:
-    """After reset, a previous UTC day's loss does not keep denying today's entry."""
+    """After reset, complete applied history proves yesterday's loss is not today's loss."""
     deployment = _deployment(
         status=DeploymentStatus.STOPPED,
         daily_loss_latched=False,
         created_at=_YESTERDAY,
-        cash=Decimal("9000"),
+        cash=Decimal("9950"),
         paper_starting_cash=Decimal("10000"),
         utc_day_open_equity=Decimal("10000"),
         utc_day_open_at=_YESTERDAY,
     )
-    verdict = _verdict(
-        (DeploymentSnapshot(deployment=deployment),),
-        _entry(strategy_id=_STRATEGY_B),
+    history = _round_trip(
+        deployment,
+        buy_at=_YESTERDAY - timedelta(hours=1),
+        sell_at=_YESTERDAY,
     )
+    verdict = _verdict((history,), _entry(strategy_id=_STRATEGY_B))
     assert verdict.decision is RiskDecision.ALLOW
 
 

@@ -34,6 +34,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -666,8 +667,9 @@ async def test_reference_collar_skips_entry_without_pausing() -> None:
     assert result.deployment.last_signal == "matched"
 
 
-def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
-    """Admission overlays the current snapshot so a stale OPEN copy cannot block itself."""
+@pytest.mark.anyio
+async def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
+    """Admission uses fresh persisted runtime so a cached OPEN copy cannot occupy its slot."""
     now = utc_now()
     strategy_id = uuid7(now)
     deployment = Deployment(
@@ -677,6 +679,8 @@ def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
         product_id="BTC-USD",
         mode=DeploymentMode.PAPER,
         status=DeploymentStatus.RUNNING,
+        initial_equity=Decimal("10000"),
+        high_water_mark_equity=Decimal("10000"),
         paper_starting_cash=Decimal("10000"),
         cash=Decimal("10000"),
         phase=RuntimePhase.FLAT,
@@ -691,12 +695,21 @@ def test_stale_self_snapshot_does_not_consume_an_open_slot() -> None:
         position=None,
     )
     policy = compiled_default_risk_policy().model_copy(update={"max_concurrent_open_positions": 1})
-    assert _entry_admitted(
+    store = InMemoryExecutionStore()
+    await store.create_deployment(deployment)
+    assert await _entry_admitted(
         current,
+        store=store,
         product_id="BTC-USD",
         notional=Decimal("100"),
         risk_policy=policy,
         portfolio=(stale_self,),
+        observation=EntryObservation(
+            as_of=now,
+            proposed_price=Decimal("100"),
+            reference_price=Decimal("100"),
+            marks={"BTC-USD": Decimal("100")},
+        ),
     )
 
 

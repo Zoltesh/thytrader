@@ -70,6 +70,7 @@ from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.research.multi_timeframe import closed_bar_required_coverage, ltf_close
+from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.exposure import daily_loss_snapshots
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
@@ -805,33 +806,35 @@ async def _process_one(
             snapshot, store=store, publication_store=publication_store
         )
     if snapshot.deployment.kind is DeploymentKind.DISCRETIONARY:
-        await _process_discretionary(
+        with risk_market_data_scope(market_data):
+            await _process_discretionary(
+                snapshot,
+                store=store,
+                market_data=market_data,
+                paper_broker=paper_broker,
+                live_broker=live_broker,
+                quote_reader=quote_reader,
+                user_feed_store=user_feed_store,
+                risk_policy=risk_policy,
+                memory_store=memory_store,
+            )
+        return
+    if strategy is None:
+        return
+    with risk_market_data_scope(market_data):
+        await _advance_strategy(
             snapshot,
+            strategy=strategy,
             store=store,
             market_data=market_data,
             paper_broker=paper_broker,
             live_broker=live_broker,
             quote_reader=quote_reader,
-            user_feed_store=user_feed_store,
             risk_policy=risk_policy,
+            portfolio=portfolio,
+            user_feed_store=user_feed_store,
             memory_store=memory_store,
         )
-        return
-    if strategy is None:
-        return
-    await _advance_strategy(
-        snapshot,
-        strategy=strategy,
-        store=store,
-        market_data=market_data,
-        paper_broker=paper_broker,
-        live_broker=live_broker,
-        quote_reader=quote_reader,
-        risk_policy=risk_policy,
-        portfolio=portfolio,
-        user_feed_store=user_feed_store,
-        memory_store=memory_store,
-    )
 
 
 async def _stopped_strategy_definition(

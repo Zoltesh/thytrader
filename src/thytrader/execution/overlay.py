@@ -58,6 +58,7 @@ def overlay_snapshot(snapshot: DeploymentSnapshot, product_id: str) -> Deploymen
         intents=_intents_for(snapshot, product_id),
         positions=snapshot_positions(snapshot),
         instrument_runtimes=_ensure_runtime(snapshot, runtime),
+        accounting_complete=False,
     )
 
 
@@ -152,6 +153,10 @@ class InstrumentScopedStore:
         snapshot = await self._inner.get_deployment(deployment_id)
         return overlay_snapshot(snapshot, self._product_id)
 
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Bypass the product view without using a cached pre-reconciliation snapshot."""
+        return await self._inner.get_accounting_snapshot(deployment_id)
+
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load summary rows from the inner store without product overlay."""
         return await self._inner.get_deployment_summary(deployment_id)
@@ -222,6 +227,9 @@ class InstrumentScopedStore:
             reserved_buying_power=deployment.reserved_buying_power,
             inventory_cost=deployment.inventory_cost,
             performance_equity=deployment.performance_equity,
+            performance_capital_quote=deployment.performance_capital_quote,
+            performance_maximum_drawdown_fraction=deployment.performance_maximum_drawdown_fraction,
+            risk_day_open_evidence=deployment.risk_day_open_evidence,
             initial_equity=deployment.initial_equity,
             baseline_equity=deployment.baseline_equity,
             utc_day_open_equity=deployment.utc_day_open_equity,

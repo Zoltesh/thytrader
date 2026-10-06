@@ -85,6 +85,10 @@ class RevisionFencedStore:
         """Load one deployment with its related records or fail."""
         return await self._inner.get_deployment(deployment_id)
 
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Forward a fresh full read without dropping revision fencing on writes."""
+        return await self._inner.get_accounting_snapshot(deployment_id)
+
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
         return await self._inner.get_deployment_summary(deployment_id)
