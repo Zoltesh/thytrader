@@ -60,6 +60,7 @@ from thytrader.execution.trade_reason_scope import (
 )
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
+from thytrader.fleet_control.admission import refresh_process_entry_inhibition
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.persistence.audit_events import AuditEventOutcome
@@ -271,6 +272,7 @@ async def _run_cycle(
     a book that fails too many consecutive cycles has its entries paused while
     exits and reconciliation keep running.
     """
+    await refresh_process_entry_inhibition(store)
     policy = (await load_effective_policy(risk_store)).definition
     deployments = await store.list_deployments()
     books = await supervise_portfolios(

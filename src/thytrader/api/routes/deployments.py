@@ -75,6 +75,8 @@ from thytrader.execution.twins import (
     TwinValidationError,
     load_twin_snapshots,
 )
+from thytrader.fleet_control.inventory import read_stable_inventory
+from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
@@ -369,15 +371,27 @@ class DeploymentResponse(BaseModel):
     ledger: DeploymentLedgerSummaryResponse | None = None
     orders: tuple[OrderResponse, ...] = ()
     fills: tuple[FillResponse, ...] = ()
+    detail: Literal["summary", "full"] = "summary"
+    historical_orders_included: bool = False
+    historical_fills_included: bool = False
+    ledger_omission: str | None = SUMMARY_LEDGER_OMISSION
 
 
 class DeploymentListResponse(BaseModel):
-    """Newest-first deployment summaries without historical orders or fills."""
+    """Stable created-at inventory page without historical orders or fills.
+
+    ``has_more`` is exact for this snapshot. Pass the returned ``as_of`` on the
+    next offset page so a deployment created during the walk cannot shift rows.
+    """
 
     deployments: tuple[DeploymentResponse, ...]
     limit: int
     offset: int
     returned: int
+    has_more: bool
+    total: int
+    order: str
+    as_of: str
 
 
 class FillListResponse(BaseModel):
@@ -462,24 +476,34 @@ async def list_deployments(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     strategy_id: Annotated[UUID | None, Query()] = None,
+    as_of: Annotated[
+        str | None,
+        Query(description="Timezone-aware UTC snapshot from a previous page. Omit for a new read."),
+    ] = None,
 ) -> DeploymentListResponse:
-    """Return deployment summaries, optionally only one strategy's bots (indexed)."""
+    """Return one stable inventory page. Default limit 50 is not the whole fleet."""
+    pinned = _parse_as_of(as_of)
     try:
-        if strategy_id is None:
-            deployment_rows = await store.list_deployments(limit=limit, offset=offset)
-        else:
-            owned = await store.list_by_strategy(str(strategy_id))
-            deployment_rows = owned[offset : offset + limit]
+        page = await read_stable_inventory(
+            store,
+            limit=limit,
+            offset=offset,
+            strategy_id=strategy_id,
+            as_of=pinned,
+        )
     except ExecutionStoreError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from None
     bodies: list[DeploymentResponse] = []
-    for item in deployment_rows:
+    for item in page.deployments:
         try:
             summary = await store.get_deployment_summary(item.id)
-        except ExecutionStoreError:
-            continue
+        except ExecutionStoreError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(error),
+            ) from None
         extra = await _covered_products(publication_store, item)
         bodies.append(
             await _summary_response(
@@ -490,9 +514,13 @@ async def list_deployments(
         )
     return DeploymentListResponse(
         deployments=tuple(bodies),
-        limit=limit,
-        offset=offset,
+        limit=page.limit,
+        offset=page.offset,
         returned=len(bodies),
+        has_more=page.has_more,
+        total=page.total,
+        order=page.order,
+        as_of=page.as_of.isoformat(),
     )
 
 
@@ -979,6 +1007,10 @@ async def _snapshot_response(
                 working_orders=working_order_count(snapshot.orders),
                 fill_count=len(snapshot.fills),
             ),
+            "detail": "full",
+            "historical_orders_included": True,
+            "historical_fills_included": True,
+            "ledger_omission": None,
             "ledger": _ledger_summary_response(ledger),
             "orders": tuple(
                 _order_response(order, product_id=order_products[order.id])
@@ -1025,6 +1057,10 @@ async def _summary_response(
                 working_orders=summary.book_totals.working_orders,
                 fill_count=summary.book_totals.fill_count,
             ),
+            "detail": "summary",
+            "historical_orders_included": False,
+            "historical_fills_included": False,
+            "ledger_omission": SUMMARY_LEDGER_OMISSION,
             "ledger": _ledger_summary_response(ledger),
             "orders": (),
             "fills": (),
@@ -1192,6 +1228,25 @@ def _fill_response(fill: Fill, *, product_id: str) -> FillResponse:
         fee=format(fill.fee, "f"),
         filled_at=fill.filled_at.isoformat(),
     )
+
+
+def _parse_as_of(value: str | None) -> datetime | None:
+    """Parse a pinned inventory snapshot. Naive timestamps are refused."""
+    if value is None or value == "":
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="as_of must be a timezone-aware ISO-8601 timestamp.",
+        ) from error
+    if parsed.tzinfo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="as_of must be a timezone-aware ISO-8601 timestamp.",
+        )
+    return parsed.astimezone(UTC)
 
 
 def _optional_decimal(value: Decimal | None) -> str | None:

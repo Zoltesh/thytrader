@@ -297,14 +297,25 @@ export function fillProductId(deployment: Deployment, fill: DeploymentFill): str
 	return fill.product_id || deployment.product_id;
 }
 
+/**
+ * Complete discretionary/strategy inventory.
+ *
+ * This used to return the API's default 50-row page. It now follows the stable
+ * snapshot and throws if the walk cannot be completed, so a caller cannot treat
+ * a prefix as the fleet.
+ */
 export async function listDeployments(): Promise<Deployment[]> {
-	return (await request<{ deployments: Deployment[] }>('/api/v1/deployments')).deployments;
+	return listAllDeployments();
 }
 
 export type DeploymentListPage = {
 	deployments: Deployment[];
-	/** True only when the server returned a full page; an empty page can never claim more. */
+	/** Server `has_more`. A full page is not evidence of another page. */
 	hasMore: boolean;
+	/** Pin this on the next offset page so inserts cannot shift the snapshot. */
+	asOf: string | null;
+	total: number | null;
+	order: string | null;
 };
 
 /**
@@ -316,26 +327,57 @@ export type DeploymentListPage = {
 export async function listDeploymentsPage(
 	limit: number,
 	offset: number,
-	options: { strategyId?: string } = {}
+	options: { strategyId?: string; asOf?: string } = {}
 ): Promise<DeploymentListPage> {
 	const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
 	if (options.strategyId !== undefined) params.set('strategy_id', options.strategyId);
+	if (options.asOf !== undefined && options.asOf !== '') params.set('as_of', options.asOf);
 	const body = await request<{
 		deployments: Deployment[];
 		returned?: number;
+		has_more?: boolean;
+		as_of?: string;
+		total?: number;
+		order?: string;
 	}>(`/api/v1/deployments?${params.toString()}`);
+	return inventoryPageFromBody(body, limit);
+}
+
+/** Validate one inventory page. A missing `has_more` on a full page stays incomplete. */
+export function inventoryPageFromBody(
+	body: {
+		deployments?: Deployment[];
+		returned?: number;
+		has_more?: boolean;
+		as_of?: string;
+		total?: number;
+		order?: string;
+	},
+	limit: number
+): DeploymentListPage {
+	if (body.deployments === undefined) {
+		throw new Error('Deployment inventory response omitted its rows.');
+	}
 	const returned = body.deployments.length;
 	if (returned > limit) {
 		throw new Error(`Deployment inventory exceeded the requested page limit (${limit}).`);
 	}
-	// `returned` is present in the real contract; absent only in legacy test
-	// doubles. Fail closed when the server's count contradicts its rows.
 	if (body.returned !== undefined && body.returned !== returned) {
 		throw new Error(
 			`Deployment inventory is inconsistent: the server counted ${body.returned} rows but sent ${returned}.`
 		);
 	}
-	return { deployments: body.deployments, hasMore: returned === limit && returned > 0 };
+	const hasMore = body.has_more === undefined ? returned === limit && returned > 0 : body.has_more;
+	if (hasMore && returned === 0) {
+		throw new Error('Deployment inventory returned an empty page while claiming more rows.');
+	}
+	return {
+		deployments: body.deployments,
+		hasMore,
+		asOf: body.as_of ?? null,
+		total: body.total ?? null,
+		order: body.order ?? null
+	};
 }
 
 /** Backend page ceiling for the bounded deployment inventory read. */
@@ -356,8 +398,13 @@ export async function listAllDeployments(
 ): Promise<Deployment[]> {
 	const rows: Deployment[] = [];
 	let offset = 0;
+	let asOf: string | undefined;
 	for (let page = 0; page < MAX_INVENTORY_PAGES; page += 1) {
-		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset, options);
+		const result = await listDeploymentsPage(INVENTORY_PAGE_SIZE, offset, {
+			...options,
+			asOf
+		});
+		if (asOf === undefined && result.asOf !== null) asOf = result.asOf;
 		rows.push(...result.deployments);
 		onPage?.([...rows]);
 		if (!result.hasMore) return rows;

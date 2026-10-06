@@ -28,6 +28,7 @@
 		type StrategyIdentity
 	} from '$lib/deployment-portfolio';
 	import { listAllDeployments, listDeploymentsPage, type Deployment } from '$lib/deployments';
+	import FleetControls from '$lib/FleetControls.svelte';
 	import { lifecycleContractNote } from '$lib/lifecycle-contract';
 	import { listStrategies } from '$lib/strategies';
 
@@ -41,6 +42,7 @@
 	let pageRows = $state<Deployment[]>([]);
 	let hasMore = $state(false);
 	let offset = $state(0);
+	let snapshotAsOf = $state<string | null>(null);
 	/** Distinguishes a truly empty inventory from an exhausted trailing page. */
 	let everLoaded = $state(false);
 	let listLoading = $state(true);
@@ -78,7 +80,10 @@
 		listLoading = true;
 		listError = null;
 		try {
-			const result = await listDeploymentsPage(PAGE_SIZE, targetOffset);
+			const result = await listDeploymentsPage(PAGE_SIZE, targetOffset, {
+				asOf: targetOffset === 0 ? undefined : (snapshotAsOf ?? undefined)
+			});
+			if (targetOffset === 0) snapshotAsOf = result.asOf;
 			// Fail closed on a page that claims more while being empty.
 			if (result.deployments.length === 0 && result.hasMore) {
 				throw new Error('Deployment inventory returned an empty page while claiming more rows.');
@@ -136,6 +141,8 @@
 
 <main>
 	<PortfolioWorkspace {inventory} />
+
+	<FleetControls />
 
 	<div class="bots-head">
 		<div>

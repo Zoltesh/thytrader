@@ -30,6 +30,7 @@ from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
 from thytrader.api.routes.execution_quality import router as execution_quality_router
 from thytrader.api.routes.fees import router as fees_router
+from thytrader.api.routes.fleet_control import router as fleet_control_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
@@ -62,6 +63,8 @@ from thytrader.execution.user_feed_state import (
     DisabledUserOrderFeedStateStore,
     UserOrderFeedStateStore,
 )
+from thytrader.fleet_control.postgres import PostgresFleetControlStore
+from thytrader.fleet_control.store import FleetControlStore, InMemoryFleetControlStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.feed_state import (
@@ -198,6 +201,7 @@ def create_app(
     credentials_env_file: Path | None = None,
     decision_journal_store: DecisionJournalStore | None = None,
     portfolio_store: PortfolioStorage | None = None,
+    fleet_control_store: FleetControlStore | None = None,
     research_execution: ResearchExecutionMode | None = None,
     alert_store: AlertStore | None = None,
 ) -> FastAPI:
@@ -233,6 +237,7 @@ def create_app(
     external_notification_sender = notification_sender
     external_portfolio_store = portfolio_store
     external_alert_store = alert_store
+    external_fleet_store = fleet_control_store
     engine: AsyncEngine | None = None
 
     @asynccontextmanager
@@ -341,6 +346,9 @@ def create_app(
         _app.state.strategy_store = strategy_rows or DisabledStrategyStore()
         _app.state.strategy_snapshot_store = publication_store or DisabledStrategySnapshotStore()
         _app.state.execution_store = execution or DisabledExecutionStore()
+        _app.state.fleet_control_store = _resolve_fleet_control_store(
+            external_fleet_store, engine, execution
+        )
         _attach_execution_brokers(
             _app,
             paper_broker=paper_broker,
@@ -428,6 +436,7 @@ def create_app(
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
     app.include_router(deployments_router)
+    app.include_router(fleet_control_router)
     app.include_router(decisions_router)
     app.include_router(execution_quality_router)
     app.include_router(discretionary_orders_router)
@@ -439,6 +448,27 @@ def create_app(
     app.include_router(backtests_router)
     app.include_router(campaigns_router)
     return app
+
+
+def _resolve_fleet_control_store(
+    external: FleetControlStore | None,
+    engine: AsyncEngine | None,
+    execution: ExecutionStore | None,
+) -> FleetControlStore:
+    """Resolve the fleet store and bind it as the execution store's entry gate.
+
+    A store without ``bind_entry_gate`` (e.g. the disabled store) simply does
+    not get a latch; a store without ``raise_if_inhibited`` is not a gate.
+    """
+    fleet_store = external
+    if fleet_store is None:
+        fleet_store = (
+            PostgresFleetControlStore(engine) if engine is not None else InMemoryFleetControlStore()
+        )
+    bind_entry_gate = getattr(execution, "bind_entry_gate", None)
+    if callable(bind_entry_gate) and hasattr(fleet_store, "raise_if_inhibited"):
+        bind_entry_gate(fleet_store)
+    return fleet_store
 
 
 def _configure_trust_boundary(

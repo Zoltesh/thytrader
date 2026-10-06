@@ -387,8 +387,16 @@ single bots; `--i-understand-live` is never skipped.
 | Resume a portfolio (or one sleeve) | `uv run thytrader-runtime portfolio-resume --portfolio-id ID [--sleeve-id ID] --confirm [--i-understand-live]` |
 | Stop a portfolio (managed, or flatten) | `uv run thytrader-runtime portfolio-stop --portfolio-id ID [--sleeve-id ID] [--flatten] --confirm` |
 | Reset a latched portfolio breaker | `uv run thytrader-runtime portfolio-reset-breaker --portfolio-id ID --confirm` |
-| List deployments | `uv run thytrader-runtime list` |
-| Show one snapshot | `uv run thytrader-runtime show UUID` |
+| List deployments (complete stable snapshot) | `uv run thytrader-runtime list` |
+| One inventory page (`has_more` is explicit) | `uv run thytrader-runtime list --limit 50 --offset 0` |
+| Show summary (labels omitted history) | `uv run thytrader-runtime show UUID` |
+| Show full orders and fills | `uv run thytrader-runtime show UUID --detail full` |
+| Page orders or fills | `uv run thytrader-runtime orders UUID` / `fills UUID` |
+| Preview a fleet action | `uv run thytrader-runtime fleet-preview --action disarm --mode paper` |
+| Disarm entries (no flatten) | `uv run thytrader-runtime fleet-disarm --mode paper --idempotency-key KEY --confirm` |
+| Managed-stop confirmed ids | `uv run thytrader-runtime fleet-stop --mode paper --idempotency-key KEY --expect ID:REV --confirm` |
+| Explicit flatten confirmed ids | `uv run thytrader-runtime fleet-flatten --mode live --idempotency-key KEY --expect ID:REV --confirm --i-understand-live` |
+| Rearm after disarm | `uv run thytrader-runtime fleet-rearm --mode live --idempotency-key KEY --confirm --i-understand-live` |
 | Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
 | Decisions across a strategy's bots | `uv run thytrader-runtime decisions --strategy-id UUID [DEPLOYMENT_UUID] [--outcome entry_signal --outcome exit]` |
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
@@ -427,7 +435,10 @@ strategy's paper starting cash stays bounded by its allocation (a rehearsal of t
 reservation). The allocations may not sum above `--paper-capital-quote`. Omit `--allocation`
 unless the user wants exactly that live restriction.
 
-`list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
+`list` and summary `show` return `positions[]`, `instrument_runtimes[]`, and aggregate
+`book_totals`. They do **not** include historical `orders`/`fills`. Summary `show` sets
+`ledger_omission` to say so. `show --detail full` includes those collections; otherwise read
+`orders` / `fills` pages. A full detail response still returns product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
 ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the snapshot's
 `timeframe` (copied from the strategy snapshot when the stored deployment row is null;
@@ -566,8 +577,14 @@ The worker never re-submits an order automatically
 
 Underlying HTTP:
 
-- `GET /api/v1/deployments?limit=&offset=` (summary rows; no historical orders/fills)
-- `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`)
+- `GET /api/v1/deployments?limit=&offset=&as_of=` (summary rows; stable `created_at,id` order;
+  `has_more`, `returned`, `total`, `order`, `as_of`. Default limit 50 is one page, not the fleet.
+  Pin `as_of` on the next offset page. No historical orders/fills; `ledger_omission` says so.)
+- `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`; summary sets
+  `ledger_omission` and omits historical orders/fills)
+- `GET /api/v1/fleet-control` and `GET /api/v1/fleet-control/preview?action=&mode=`
+- `POST /api/v1/fleet-control/{disarm|stop|flatten|rearm}` (`confirm: true`; live rearm and
+  live-capable flatten also `i_understand_live: true`)
 - `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
 - `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428)
 - `POST /api/v1/deployments/{id}/pause`
@@ -682,3 +699,22 @@ discretionary books and every covered book, including a sole secondary position,
 supervised. Cancel/fill races, late fills, and unknown cancels remain supervised across
 worker restarts. Diagnose with `show` and `thytrader-operator reconciliation`; do not
 treat a pending flatten as flat.
+
+## Fleet controls (ADR 0117)
+
+`fleet-preview` is read-only. It lists affected deployment ids, current revisions, and residual
+positions. Unknown position reads stay unknown; do not treat them as flat. Disarm, managed stop,
+and flatten are different commands:
+
+- `fleet-disarm` inhibits new starts and entries for `--mode paper|live|all` until `fleet-rearm`.
+  It does not pause, cancel, or flatten. It does not need `--i-understand-live`.
+- `fleet-stop` records managed shutdown only for each `--expect ID:REVISION` from the preview.
+  Protection stays. This is not a flatten. Repeat the same `--idempotency-key` after a timeout.
+- `fleet-flatten` is explicit. Live scope also needs `--i-understand-live`. Acceptance means the
+  lifecycle command was recorded. The worker exits asynchronously. A partial `status` means at
+  least one confirmed book was not commanded. Do not claim positions are flat.
+- `fleet-rearm` clears the latch and does not resume books. Live scope needs `--i-understand-live`.
+  A later live `resume` still needs its own acknowledgement.
+
+YOLO never covers these commands. `--confirm` is always required. A changed revision returns
+`revision_conflict` for that id and does not apply the stale preview.

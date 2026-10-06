@@ -44,6 +44,7 @@ from thytrader.strategies.library import StrategyStore
 from thytrader.strategies.snapshots import StrategySnapshotStore
 
 if TYPE_CHECKING:
+    from thytrader.fleet_control.store import FleetControlStore
     from thytrader.research.jobs import ResearchJobStore
 
 
@@ -255,6 +256,15 @@ def get_alert_store(request: Request) -> AlertStore:
     if isinstance(store, AlertStore):
         return store
     return DisabledAlertStore()
+
+
+def get_fleet_control_store(request: Request) -> FleetControlStore:
+    """Return the fleet latch and operation log attached during app startup."""
+    store = getattr(request.app.state, "fleet_control_store", None)
+    if store is None or not hasattr(store, "read_inhibition"):
+        message = "Fleet control store is unavailable."
+        raise TypeError(message)
+    return store
 
 
 def get_decision_journal_store(request: Request) -> DecisionJournalStore:

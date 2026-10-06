@@ -30,7 +30,6 @@ from thytrader.runtime_control.client import (
     clear_coinbase_credentials,
     link_twin,
     list_decisions,
-    list_deployments,
     place_discretionary_order,
     reset_breaker_latches,
     set_coinbase_credentials,
@@ -44,6 +43,18 @@ from thytrader.runtime_control.client import (
     show_yaml_settings,
     start_deployment,
     unlink_twin,
+)
+from thytrader.runtime_control.fleet_commands import (
+    FLEET_MUTATIONS,
+    add_fleet_parsers,
+    run_fleet_mutation,
+    run_fleet_read,
+)
+from thytrader.runtime_control.inventory_commands import (
+    add_inventory_arguments,
+    add_ledger_parser,
+    add_show_arguments,
+    run_inventory_read,
 )
 from thytrader.runtime_control.portfolio_commands import (
     PORTFOLIO_COMMANDS,
@@ -106,13 +117,25 @@ def _parser() -> argparse.ArgumentParser:
         parents=[shared],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser(
+    listing = subparsers.add_parser(
         "list",
         parents=[trailing],
-        help="List deployments without mutating them.",
+        help=(
+            "List deployments. Default is a complete stable snapshot, not a silent 50-row page. "
+            "--limit/--offset return one page with has_more."
+        ),
     )
-    show = subparsers.add_parser("show", parents=[trailing], help="Show one deployment snapshot.")
+    add_inventory_arguments(listing)
+    show = subparsers.add_parser(
+        "show",
+        parents=[trailing],
+        help="Show one deployment. Default summary labels omitted historical orders and fills.",
+    )
     show.add_argument("deployment_id", help="Deployment UUID.")
+    add_show_arguments(show)
+    add_ledger_parser(subparsers, trailing, "orders")
+    add_ledger_parser(subparsers, trailing, "fills")
+    add_fleet_parsers(subparsers, trailing, confirm_help=_CONFIRM_HELP, live_help=_LIVE_HELP)
     _add_decisions_parser(subparsers, trailing)
     _add_twin_parsers(subparsers, trailing)
     start = subparsers.add_parser(
@@ -509,10 +532,10 @@ def _read_only_command(arguments: argparse.Namespace, base_url: str) -> object:
     command = arguments.command
     if command == "decisions":
         return _decisions(arguments, base_url)
+    if command in {"fleet-preview", "fleet-status"}:
+        return run_fleet_read(arguments, base_url)
     require_matching_ops_contract(base_url)
-    if command == "list":
-        return list_deployments(base_url)
-    return show_deployment(base_url, arguments.deployment_id)
+    return run_inventory_read(arguments, base_url)
 
 
 def _decisions(arguments: argparse.Namespace, base_url: str) -> object:
@@ -650,7 +673,7 @@ def _run(arguments: argparse.Namespace) -> str:
 def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
-    if command in {"list", "show", "decisions"}:
+    if command in {"list", "show", "decisions", "orders", "fills", "fleet-preview", "fleet-status"}:
         return _read_only_command(arguments, base_url)
     if command == "start":
         return _start(arguments, base_url, settings)
@@ -658,7 +681,7 @@ def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) 
         return _place_order(arguments, base_url, settings)
     if command in {"pause", "resume", "stop", "reset-breaker-latches"}:
         return _runtime_mutation(arguments, base_url, settings)
-    if command in {*PORTFOLIO_COMMANDS, "show-twin", "link-twin", "unlink-twin"}:
+    if command in {*PORTFOLIO_COMMANDS, "show-twin", "link-twin", "unlink-twin", *FLEET_MUTATIONS}:
         return _extended_runtime_command(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
@@ -944,4 +967,6 @@ def _extended_runtime_command(
     """Route portfolio lifecycle and separately gated comparison metadata controls."""
     if arguments.command in PORTFOLIO_COMMANDS:
         return run_portfolio_command(arguments, base_url, settings)
+    if arguments.command in FLEET_MUTATIONS:
+        return run_fleet_mutation(arguments, base_url, settings)
     return _twin_command(arguments, base_url, settings)

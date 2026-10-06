@@ -51,6 +51,8 @@ from thytrader.execution.pagination import (
     encode_order_cursor,
 )
 from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
+from thytrader.fleet_control.admission import latch_table_missing, refuse_postgres_entry
+from thytrader.fleet_control.inventory import InventoryPage
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -58,6 +60,7 @@ from thytrader.persistence.schema import (
     execution_instrument_state,
     execution_orders,
     execution_positions,
+    fleet_entry_inhibition,
     order_intents,
 )
 
@@ -228,11 +231,26 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Twin link storage is unavailable.") from error
 
+    async def read_entry_inhibition(self) -> dict[str, bool]:
+        """Read the durable latch. A missing table means the migration is not applied."""
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(select(fleet_entry_inhibition))).mappings().all()
+        except SQLAlchemyError as error:
+            if latch_table_missing(error):
+                return {"paper": False, "live": False}
+            raise ExecutionStoreError("Entry inhibition storage is unavailable.") from error
+        by_mode = {str(row["mode"]): bool(row["inhibited"]) for row in rows}
+        if "paper" not in by_mode or "live" not in by_mode:
+            raise ExecutionStoreError("Entry inhibition state is incomplete.")
+        return by_mode
+
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
         statement = insert(deployments).values(_deployment_values(deployment))
         try:
             async with self._engine.begin() as connection:
+                await refuse_postgres_entry(connection, mode=deployment.mode.value, action="start")
                 await connection.execute(statement)
         except IntegrityError as error:
             if "ux_deployments_active_strategy_mode" in str(error).lower():
@@ -296,6 +314,45 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
+
+    async def list_stable_inventory(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        strategy_id: UUID | None,
+        as_of: datetime,
+    ) -> InventoryPage:
+        """Return one created-at snapshot page. Updates cannot move a row between pages."""
+        if limit < 1 or offset < 0:
+            raise ExecutionStoreError("Inventory page bounds are invalid.")
+        conditions = [deployments.c.created_at <= as_of]
+        if strategy_id is not None:
+            conditions.append(deployments.c.strategy_id == str(strategy_id))
+        count_statement = select(func.count()).select_from(deployments).where(*conditions)
+        page_statement = (
+            select(deployments)
+            .where(*conditions)
+            .order_by(deployments.c.created_at.desc(), deployments.c.id.desc())
+            .offset(offset)
+            .limit(limit)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                total = int(await connection.scalar(count_statement) or 0)
+                rows = (await connection.execute(page_statement)).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+        page = tuple(_deployment_from_row(row) for row in rows)
+        return InventoryPage(
+            deployments=page,
+            limit=limit,
+            offset=offset,
+            returned=len(page),
+            total=total,
+            has_more=offset + len(page) < total,
+            as_of=as_of,
+        )
 
     async def get_position_entry_fees(
         self, position: Position, *, product_id: str
@@ -541,7 +598,15 @@ class PostgresExecutionStore:
         )
         try:
             async with self._engine.begin() as connection:
+                if intent.purpose is IntentPurpose.ENTRY:
+                    mode = await connection.scalar(
+                        select(deployments.c.mode).where(deployments.c.id == intent.deployment_id)
+                    )
+                    if isinstance(mode, str):
+                        await refuse_postgres_entry(connection, mode=mode, action="entry")
                 await connection.execute(statement)
+        except ExecutionConflictError:
+            raise
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return intent

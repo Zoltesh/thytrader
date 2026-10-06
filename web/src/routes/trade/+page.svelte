@@ -45,6 +45,7 @@
 	let error = $state<string | null>(null);
 	let result = $state<Deployment | null>(null);
 	let books = $state<Deployment[]>([]);
+	let booksError = $state<string | null>(null);
 	let tradeReasons = $state<TradeReasonRecord[]>([]);
 	let hydrated = $state(false);
 	let riskPolicy = $state<RiskPolicySnapshot | 'unknown' | null>(null);
@@ -100,8 +101,11 @@
 		try {
 			const deployments = await listDeployments();
 			books = deployments.filter((item) => item.kind === 'discretionary');
-		} catch {
+			booksError = null;
+		} catch (caught) {
 			books = [];
+			booksError =
+				caught instanceof Error ? caught.message : 'Discretionary book inventory is incomplete.';
 		}
 	}
 
@@ -409,7 +413,9 @@
 
 	<section class="card panel">
 		<p class="label">Discretionary books</p>
-		{#if books.length === 0}
+		{#if booksError !== null}
+			<p class="empty" data-testid="discretionary-books-incomplete">{booksError}</p>
+		{:else if books.length === 0}
 			<p class="empty">No discretionary books yet.</p>
 		{:else}
 			<ul>

@@ -22,6 +22,7 @@ from thytrader.execution.models import (
     ExecutionStoreError,
     Fill,
     InstrumentRuntime,
+    IntentPurpose,
     Order,
     OrderIntent,
     OrderStatus,
@@ -44,6 +45,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from decimal import Decimal
 
+    from thytrader.fleet_control.store import EntryGate
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -66,6 +68,11 @@ class InMemoryExecutionStore:
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
+        self._entry_gate: EntryGate | None = None
+
+    def bind_entry_gate(self, gate: EntryGate) -> None:
+        """Bind the fleet latch that must be held across a start insert."""
+        self._entry_gate = gate
 
     async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
         """Read a saved pair from either member."""
@@ -133,8 +140,14 @@ class InMemoryExecutionStore:
         del self.twin_links[current.paper_deployment_id]
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
-        """Insert one new deployment row."""
-        self.deployments[deployment.id] = deployment
+        """Insert one new deployment row unless the bound latch refuses the mode."""
+        gate = self._entry_gate
+        if gate is None:
+            self.deployments[deployment.id] = deployment
+            return deployment
+        async with gate.hold():
+            gate.raise_if_inhibited(deployment.mode.value, action="start")
+            self.deployments[deployment.id] = deployment
         return deployment
 
     async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
@@ -358,13 +371,37 @@ class InMemoryExecutionStore:
         return saved
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
-        """Insert one order intent before venue submission."""
+        """Insert one order intent before venue submission.
+
+        Entry intents consult the bound fleet latch. Exit and protection intents
+        do not, so disarm cannot block a risk-reducing order.
+        """
         if intent.idempotency_key is not None:
             existing = await self.get_intent_by_idempotency_key(intent.idempotency_key)
             if existing is not None:
                 raise ExecutionConflictError("idempotency_key already used")
+        await self._refuse_inhibited_entry(intent)
         self.intents[intent.id] = intent
         return intent
+
+    async def _refuse_inhibited_entry(self, intent: OrderIntent) -> None:
+        """Refuse an entry intent when the bound latch is set for its mode."""
+        if intent.purpose is not IntentPurpose.ENTRY or self._entry_gate is None:
+            return
+        deployment = self.deployments.get(intent.deployment_id)
+        if deployment is None:
+            return
+        gate = self._entry_gate
+        async with gate.hold():
+            gate.raise_if_inhibited(deployment.mode.value, action="entry")
+
+    async def read_entry_inhibition(self) -> dict[str, bool]:
+        """Return the bound latch, or both modes clear when no latch is bound."""
+        gate = self._entry_gate
+        if gate is None:
+            return {"paper": False, "live": False}
+        snapshot = await gate.read_inhibition()
+        return {"paper": snapshot.paper_inhibited, "live": snapshot.live_inhibited}
 
     async def save_order(self, order: Order) -> Order:
         """Insert or replace one venue-visible order snapshot."""

@@ -4,6 +4,10 @@
 read-only live round-trip fee and slippage evidence, explicit twin cannot-compare rules, and
 bounded backtest bar explanations. It does not rewrite historical fills or the backtest engine.
 
+[ADR 0117](0117-truthful-inventory-and-fleet-controls.md) is accepted: deployment inventory
+pages use a stable created-at snapshot, and fleet disarm, managed stop, and flatten are
+separate confirmation-gated controls. Disarm inhibits entries and never flattens.
+
 [ADR 0107](0107-capital-normalized-live-performance.md) is accepted: pinned performance capital
 and durable observed drawdown correct zero-based live percentages without rewriting ledger cash
 or historical baselines. It amends ADRs 0050/0058 and preserves ADR 0106's account risk scope.

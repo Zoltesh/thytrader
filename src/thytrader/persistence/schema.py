@@ -1685,6 +1685,48 @@ Index(
     portfolio_proposals.c.created_at.desc(),
 )
 
+fleet_entry_inhibition = Table(
+    "fleet_entry_inhibition",
+    metadata,
+    Column("mode", String(16), primary_key=True),
+    Column("inhibited", Boolean(), nullable=False),
+    Column("revision", Integer(), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("reason", Text(), nullable=True),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_fleet_entry_inhibition_mode"),
+)
+
+fleet_control_operations = Table(
+    "fleet_control_operations",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("action", String(32), nullable=False),
+    Column("mode", String(16), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("request_fingerprint", String(4000), nullable=False),
+    Column("request_json", Text(), nullable=False),
+    Column("result_json", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "action IN ('disarm', 'managed_stop', 'flatten', 'rearm')",
+        name="ck_fleet_control_operations_action",
+    ),
+    CheckConstraint("mode IN ('paper', 'live', 'all')", name="ck_fleet_control_operations_mode"),
+    CheckConstraint(
+        "status IN ('pending', 'accepted', 'partial', 'completed', 'rejected')",
+        name="ck_fleet_control_operations_status",
+    ),
+    UniqueConstraint("idempotency_key", name="ux_fleet_control_operations_idempotency_key"),
+)
+
+Index(
+    "ix_deployments_inventory_created_id",
+    deployments.c.created_at.desc(),
+    deployments.c.id.desc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "audit_events",
@@ -1700,6 +1742,8 @@ __all__ = [
     "experiential_notifications",
     "experiential_pattern_observations",
     "experiential_sentiment_snapshots",
+    "fleet_control_operations",
+    "fleet_entry_inhibition",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",

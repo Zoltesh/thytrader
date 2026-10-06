@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.execution.entry_latch import process_entry_inhibited
 from thytrader.execution.models import Deployment, DeploymentStatus, LifecycleCommand
 from thytrader.risk.exposure import snapshot_has_residual_exposure
 
@@ -30,6 +31,8 @@ def occupies_risk(snapshot: DeploymentSnapshot) -> bool:
 
 def entries_allowed(deployment: Deployment) -> bool:
     """True when new risk-increasing entries may be submitted on this book."""
+    if process_entry_inhibited(deployment.mode):
+        return False
     return (
         deployment.status is DeploymentStatus.RUNNING
         and deployment.lifecycle_command is LifecycleCommand.NONE
