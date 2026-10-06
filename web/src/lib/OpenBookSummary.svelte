@@ -8,13 +8,12 @@
 	import { groupIntegerDigits } from '$lib/money';
 	import {
 		bookSizeText,
-		bookStateChip,
-		bookStateTitle,
 		heldText,
 		markTitle,
 		unrealizedText,
 		type OpenBook
 	} from '$lib/open-books';
+	import { protectionBadge } from '$lib/protection-evidence';
 
 	let {
 		book,
@@ -31,15 +30,18 @@
 		showProduct?: boolean;
 	} = $props();
 
-	const chip = $derived(bookStateChip(book.position_state));
+	const badge = $derived(protectionBadge(book));
 	const pnl = $derived(unrealizedText(book, quote));
 </script>
 
 <div class="book" data-testid="open-book">
 	<div class="line">
-		<span class="state {chip.tone}" title={bookStateTitle(book)} data-testid="open-book-state"
-			>{chip.text}</span
+		<span class="state {badge.tone}" title={badge.title} data-testid="open-book-state"
+			>{badge.text}</span
 		>
+		{#if book.protection}
+			<span class="faint" data-testid="protection-evidence">{badge.detail}</span>
+		{/if}
 		{#if pnl !== null}
 			<span class="pnl {pnl.tone}" title={markTitle(book)} data-testid="open-book-pnl"
 				>{pnl.text}</span

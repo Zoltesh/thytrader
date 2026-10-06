@@ -22,8 +22,11 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import (
     PositionState,
+    ProtectionEvidenceResponse,
     book_position_state,
+    book_protection_evidence,
     deployment_position_state,
+    protection_evidence_response,
 )
 from thytrader.portfolios.deployment import (
     PortfolioDeploymentState,
@@ -68,6 +71,12 @@ class SleeveOpenBookResponse(BaseModel):
     entered_bar: str = Field(description="UTC start of the bar the book was entered on.")
     position_state: str = Field(
         description="open_protected, open_unprotected, open_unverified, or exiting (ADR 0097)."
+    )
+    protection: ProtectionEvidenceResponse = Field(
+        description=(
+            "Quantitative stop cover (ADR 0112). Paper is worker-dependent, not a "
+            "venue-resting stop. A take-profit alone is not cover."
+        ),
     )
     mark_price: str | None = Field(
         default=None,
@@ -503,6 +512,7 @@ def open_books(
         state = book_position_state(
             snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
         )
+        evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
         rows.append(
             SleeveOpenBookResponse(
                 product_id=product_id,
@@ -513,6 +523,7 @@ def open_books(
                 target_price=_optional(position.target_price),
                 entered_bar=utc_text(position.entered_bar),
                 position_state=state.value,
+                protection=protection_evidence_response(evidence),
                 mark_price=None if mark is None else canonical_decimal(mark.price),
                 marked_at=None if mark is None else utc_text(mark.bar_closes_at),
                 unrealized_pnl=(

@@ -371,6 +371,37 @@ test('long portfolio names keep the header usable at 1440 px', async ({ page }) 
 	await expect(page.getByTestId('portfolio-switch').first()).toHaveAttribute('title', names[0]);
 });
 
+test('a sleeve worker stop is not shown as venue-resting protection', async ({ page }) => {
+	const state = newPortfolioState([portfolioFixture()]);
+	const ema = '5eee0000-0000-7000-8000-000000000001';
+	state.bots[ema] = 'running';
+	state.books[ema] = [
+		openBookFixture({
+			protection_status: 'covered',
+			protection: {
+				required_quantity: '0.0083',
+				covered_quantity: '0.0083',
+				uncovered_quantity: '0',
+				stop_side: 'sell',
+				stop_side_valid: true,
+				stop_geometry_valid: true,
+				mechanism: 'synthetic',
+				venue_resting: false,
+				worker_dependent: true,
+				observed_at: null,
+				verified_at: null,
+				reasons: ['synthetic_worker_dependent']
+			}
+		})
+	];
+	await mockPortfolioApi(page, state);
+	await page.goto('/deployments');
+	const book = page.getByTestId('open-book');
+	await expect(book.getByTestId('open-book-state')).toHaveText('Worker stop');
+	await expect(book.getByTestId('protection-evidence')).toContainText('not venue-resting');
+	await expect(book.getByTestId('open-book-state')).not.toHaveClass(/ok/);
+});
+
 test('sleeve rows show each open book and the paper vs live fill panel', async ({ page }) => {
 	const state = newPortfolioState([portfolioFixture()]);
 	const ema = '5eee0000-0000-7000-8000-000000000001';

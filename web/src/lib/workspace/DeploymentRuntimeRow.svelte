@@ -16,6 +16,7 @@
 		type LifecycleAction
 	} from '$lib/deployment-detail';
 	import { canonicalPositions, type Deployment } from '$lib/deployments';
+	import { protectionBadge } from '$lib/protection-evidence';
 	import { lifecycleContractNote, lifecycleControlsAvailable } from '$lib/lifecycle-contract';
 	import type { BuilderModel } from '$lib/strategies';
 	import EarlierEditNotice from './EarlierEditNotice.svelte';
@@ -91,7 +92,9 @@
 						<span class="position"
 							>{position.side ?? 'long'}
 							{position.quantity} @ {position.entry_price} · stop {position.stop_price} · target {position.target_price}
-							· protection {position.protection_status ?? 'unknown'}</span
+							· {position.protection
+								? protectionBadge(position).text
+								: `protection ${position.protection_status ?? 'unknown'}`}</span
 						>
 					{/each}
 				{/if}

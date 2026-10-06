@@ -5,6 +5,7 @@
  */
 import { formatQuoteAmount } from './deployment-portfolio';
 import { positionStateLabel } from './deployments';
+import type { ProtectionEvidence } from './protection-evidence';
 import { compareDecimalStrings } from './portfolio';
 
 /** The fields of an open book that bot detail and sleeve rows both carry. */
@@ -19,6 +20,9 @@ export type OpenBook = {
 	/** UTC start of the bar the book was entered on. */
 	entered_bar: string;
 	position_state?: string | null;
+	protection_status?: string | null;
+	/** Quantitative stop cover (ADR 0112), when the read includes it. */
+	protection?: ProtectionEvidence | null;
 	/** Close of the newest bar the bot evaluated for this product; null without one. */
 	mark_price?: string | null;
 	marked_at?: string | null;

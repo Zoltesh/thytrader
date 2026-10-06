@@ -14,6 +14,7 @@ import {
 	type DeploymentPosition
 } from './deployments';
 import { marketLabel, productIdQuote, workingOrderCount } from './deployment-detail';
+import { protectionBadge } from './protection-evidence';
 import { lifecycleControlsAvailable } from './lifecycle-contract';
 import { sumDecimalStrings } from './money';
 import { compareDecimalStrings, formatUsd } from './portfolio';
@@ -276,6 +277,10 @@ export function protectionText(
 		return `Protection: ${statuses.join(', ')}`;
 	}
 	const position = positions[0];
+	if (position.protection) {
+		const badge = protectionBadge(position);
+		return `Stop ${position.stop_price} · TP ${position.target_price ?? 'none'} · ${badge.text} · ${badge.detail}`;
+	}
 	const state =
 		positionStateLabel(position.position_state, { hasTarget: position.target_price !== null }) ??
 		position.protection_status ??

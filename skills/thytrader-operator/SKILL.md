@@ -92,7 +92,10 @@ rows. Its absence does not mean deletion or a rule mismatch. Read its current ru
 `thytrader-research list-strategies --limit 100` and the returned `--cursor`.
 
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
-`side`, `protection_status`, `position_state`, `exit_in_flight`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+`side`, `protection_status`, `protection`, `position_state`, `exit_in_flight`). They omit prices,
+cash, and order payloads. `protection` coverage quantities are the only sizes on the row
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md),
+[ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)).
 Each row also carries the deployment's worst-book `position_state` / `exit_in_flight`
 ([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). Report a book by
 `position_state`, not by `phase`: `phase: pending_exit` includes an open book whose TP/SL
@@ -102,7 +105,17 @@ bracket (or stop-only protection) merely rests, which is `open_protected`. Only 
 coverage and venue-visible exits, not inferred parent geometry
 ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). An open paper book is
 always `covered` (its synthetic stop runs every closed bar), so it agrees with `position_state`
-([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Rows also include
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Do not read that
+paper `covered` as a venue-resting stop. Each book also carries `protection`
+([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)): `required_quantity`,
+`covered_quantity`, `uncovered_quantity` (exact decimals; these coverage quantities are the
+exception to the no-quantity redaction and are not prices or cash), `stop_side`,
+`stop_side_valid`, `stop_geometry_valid`, `mechanism` (`venue` / `synthetic` / `none` /
+`unverified`), `venue_resting`, `worker_dependent`, `observed_at`, `verified_at` (null means
+unknown — do not invent a time), and `reasons`. Live `covered` requires a confirmed OPEN stop on
+the closing side whose remaining quantity and stop geometry match the book. A take-profit alone,
+a pending stop, and an unknown stop are not covered. The same attached child is counted once.
+Paper `mechanism` is `synthetic` and `worker_dependent` is true. Rows also include
 `lifecycle_command`, breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic
 `revision`, and `worker_lease_held` (boolean only; no holder identity). Latches persist across
 pause and managed shutdown until an explicit operator reset via

@@ -52,10 +52,12 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import (
     PositionState,
+    ProtectionEvidenceResponse,
     book_exit_in_flight,
     book_position_state,
-    book_protection_status,
+    book_protection_evidence,
     deployment_position_state,
+    protection_evidence_response,
     working_order_count,
 )
 from thytrader.execution.service import (
@@ -148,14 +150,27 @@ class PositionResponse(BaseModel):
             "exiting (ADR 0093). Null when no signal exit is pending."
         ),
     )
-    protection_status: str
+    protection_status: str = Field(
+        description=(
+            "flat, covered, unprotected, or unknown. Live covered requires a confirmed "
+            "open stop of sufficient remaining quantity and valid geometry. A take-profit "
+            "alone is not covered. Pending and unknown are not covered (ADR 0112)."
+        ),
+    )
+    protection: ProtectionEvidenceResponse = Field(
+        description=(
+            "Quantitative stop cover: required, covered, and uncovered quantity, stop "
+            "side and geometry, synthetic versus venue, and observed or verified time. "
+            "Null times mean unknown. Paper cover is worker-dependent, not venue-resting."
+        ),
+    )
     position_state: str = Field(
         default="open_protected",
         description=(
-            "Operator reading of this book (ADR 0097): open_protected (TP/SL bracket, "
-            "stop-only protection, or the paper synthetic stop rests), open_unprotected, "
-            "open_unverified, or exiting. Prefer it over the raw phase, which reads "
-            "pending_exit while protection merely rests."
+            "Operator reading of this book (ADR 0097): open_protected (matching venue "
+            "stop, or the paper synthetic stop), open_unprotected, open_unverified, or "
+            "exiting. Prefer it over the raw phase, which reads pending_exit while "
+            "protection merely rests. A take-profit alone is not open_protected."
         ),
     )
     exit_in_flight: bool = Field(
@@ -1082,6 +1097,7 @@ def _position_response(
 ) -> PositionResponse:
     """Serialize one open long or short product book."""
     product_id = resolved_product_id(position.product_id, snapshot.deployment)
+    evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
     return PositionResponse(
         product_id=product_id,
         quantity=format(position.quantity, "f"),
@@ -1097,9 +1113,8 @@ def _position_response(
         signal_exit_bar=(
             None if position.signal_exit_bar is None else position.signal_exit_bar.isoformat()
         ),
-        protection_status=book_protection_status(
-            snapshot, product_id=product_id, position=position
-        ).value,
+        protection_status=evidence.status.value,
+        protection=protection_evidence_response(evidence),
         position_state=book_position_state(
             snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
         ).value,

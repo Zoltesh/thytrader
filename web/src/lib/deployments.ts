@@ -1,3 +1,4 @@
+import type { ProtectionEvidence } from '$lib/protection-evidence';
 import { ensureBrowserCsrfSession, mutationHeaders } from '$lib/security';
 
 export type DeploymentPosition = {
@@ -14,6 +15,8 @@ export type DeploymentPosition = {
 	/** Bar whose exit rule matched; the book is exiting until flat (ADR 0093). */
 	signal_exit_bar?: string | null;
 	protection_status?: string;
+	/** Quantitative stop cover (ADR 0112). Absent only on older payloads. */
+	protection?: ProtectionEvidence | null;
 	/** Operator reading of this book (ADR 0097); prefer it over the raw phase. */
 	position_state?: PositionState | string;
 	/** True only while this book's exit is being sent; a resting TP/SL is not an exit. */

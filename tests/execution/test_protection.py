@@ -126,7 +126,7 @@ def test_open_book_without_resting_exit_is_unprotected() -> None:
 
 
 def test_working_stop_covers_the_matching_product_only() -> None:
-    """A BTC stop does not cover an ETH book."""
+    """A matching ETH stop-limit covers ETH only; a BTC stop does not."""
     deployment = _deployment()
     position = _position(deployment_id=deployment.id)
     now = _at()
@@ -134,12 +134,13 @@ def test_working_stop_covers_the_matching_product_only() -> None:
         id=uuid4(),
         deployment_id=deployment.id,
         client_order_id="stop",
-        purpose=IntentPurpose.STOP,
+        purpose=IntentPurpose.BRACKET,
         side=OrderSide.BUY,
-        kind=OrderKind.MARKETABLE,
+        kind=OrderKind.STOP_LIMIT,
         quantity=Decimal("0.5"),
         created_at=now,
         candle_starts_at=now,
+        stop_trigger_price=Decimal("3200"),
         product_id="ETH-USD",
     )
     stop = Order(
@@ -148,11 +149,12 @@ def test_working_stop_covers_the_matching_product_only() -> None:
         intent_id=intent.id,
         client_order_id="stop",
         side=OrderSide.BUY,
-        kind=OrderKind.MARKETABLE,
+        kind=OrderKind.STOP_LIMIT,
         quantity=Decimal("0.5"),
         status=OrderStatus.OPEN,
         created_at=now,
         updated_at=now,
+        stop_trigger_price=Decimal("3200"),
         product_id="ETH-USD",
     )
     other = Order(
@@ -509,8 +511,8 @@ def test_paper_book_with_no_resting_order_is_covered() -> None:
     assert _EXPECTED_STATE[status] is _open_state(snapshot, position)
 
 
-def test_live_resting_take_profit_reads_the_same_with_or_without_intents() -> None:
-    """A live closing-side limit is cover on the bounded read, as on the full read."""
+def test_live_resting_take_profit_is_not_cover_on_full_or_summary_reads() -> None:
+    """A take-profit alone is not a stop, with or without its intent (ADR 0112)."""
     deployment = _deployment()
     position = _position(deployment_id=deployment.id)
     intent = _take_profit_intent(deployment)
@@ -523,7 +525,7 @@ def test_live_resting_take_profit_reads_the_same_with_or_without_intents() -> No
     )
     for snapshot in (summary, full):
         status = book_protection_status(snapshot, product_id="ETH-USD", position=position)
-        assert status is ProtectionStatus.COVERED
+        assert status is ProtectionStatus.UNPROTECTED
         assert _EXPECTED_STATE[status] is _open_state(snapshot, position)
 
 

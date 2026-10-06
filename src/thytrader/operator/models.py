@@ -21,6 +21,7 @@ from thytrader.execution.decisions import (
     BarDecision,
     DecisionOutcome,
 )
+from thytrader.execution.protection import ProtectionEvidenceResponse
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
@@ -615,6 +616,13 @@ class DeploymentBookSummary(_FrozenModel):
     phase: str
     side: str | None = None
     protection_status: str
+    protection: ProtectionEvidenceResponse = Field(
+        description=(
+            "Quantitative stop cover (ADR 0112). Includes coverage quantities. Prices, "
+            "cash, and order payloads stay omitted. Paper is worker-dependent, not a "
+            "venue-resting stop. Null times mean unknown."
+        ),
+    )
     position_state: str = "flat"
     exit_in_flight: bool = False
 

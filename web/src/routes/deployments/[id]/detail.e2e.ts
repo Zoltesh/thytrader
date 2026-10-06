@@ -604,6 +604,116 @@ test.describe('deployment detail', () => {
 		);
 	});
 
+	test('protection evidence is not a green venue badge for a worker stop or a take-profit', async ({
+		page
+	}) => {
+		const book = {
+			product_id: 'ETH-USDC',
+			quantity: '0.5',
+			entry_price: '3000',
+			stop_price: '2800',
+			target_price: '3400',
+			entered_bar: '2026-09-21T20:00:00+00:00',
+			side: 'long',
+			protection_status: 'covered',
+			position_state: 'open_protected',
+			exit_in_flight: false,
+			protection: {
+				required_quantity: '0.5',
+				covered_quantity: '0.5',
+				uncovered_quantity: '0',
+				stop_side: 'sell',
+				stop_side_valid: true,
+				stop_geometry_valid: true,
+				mechanism: 'synthetic',
+				venue_resting: false,
+				worker_dependent: true,
+				observed_at: null,
+				verified_at: null,
+				reasons: ['synthetic_worker_dependent']
+			}
+		};
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'paper',
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [book]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Worker stop/);
+		await expect(page.getByTestId('protection-evidence')).toContainText('not venue-resting');
+		await expect(page.getByTestId('position-state')).not.toHaveText('Venue TP/SL');
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'live',
+				phase: 'open',
+				position_state: 'open_unprotected',
+				positions: [
+					{
+						...book,
+						protection_status: 'unprotected',
+						position_state: 'open_unprotected',
+						protection: {
+							...book.protection,
+							covered_quantity: '0',
+							uncovered_quantity: '0.5',
+							mechanism: 'none',
+							worker_dependent: false,
+							stop_side_valid: false,
+							stop_geometry_valid: false,
+							reasons: ['take_profit_only', 'no_resting_stop']
+						}
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Unprotected/);
+		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
+	});
+
+	test('a matching venue bracket stays a confirmed protection badge', async ({ page }) => {
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'live',
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [
+					{
+						product_id: 'ADA-USDC',
+						quantity: '20',
+						entry_price: '0.40',
+						stop_price: '0.36',
+						target_price: '0.48',
+						entered_bar: '2026-09-21T20:00:00+00:00',
+						side: 'long',
+						protection_status: 'covered',
+						position_state: 'open_protected',
+						protection: {
+							required_quantity: '20',
+							covered_quantity: '20',
+							uncovered_quantity: '0',
+							stop_side: 'sell',
+							stop_side_valid: true,
+							stop_geometry_valid: true,
+							mechanism: 'venue',
+							venue_resting: true,
+							worker_dependent: false,
+							observed_at: '2026-09-21T20:05:00+00:00',
+							verified_at: '2026-09-21T20:05:00+00:00',
+							reasons: ['venue_stop_resting']
+						}
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Venue TP\/SL/);
+		await expect(page.getByTestId('protection-evidence')).toContainText('20 of 20');
+	});
+
 	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {
 		await mockDetailRoutes(page, {
 			deployment: detailDeployment({

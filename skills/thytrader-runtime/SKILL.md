@@ -264,7 +264,19 @@ carry them too:
 unprotected, then unverified, then protected). Open paper books that are not exiting are always
 `open_protected`: the worker enforces the stop on every closed bar. Their `protection_status` is
 `covered` on every read, `list` included, so the two fields agree
-([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). That paper
+`covered` is worker-dependent, not a venue-resting order.
+
+`show` and `list` positions, operator runtime `books[]`, and portfolio sleeve `books[]` include
+`protection` ([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)). Read it
+before treating `protection_status: covered` or `position_state: open_protected` as a green venue
+stop. Live cover requires a confirmed OPEN stop on the closing side, with remaining quantity at
+least the book quantity and stop geometry matching the working stop (a bracket target must match
+too). A take-profit alone is `unprotected`. Pending and unknown stops are `unknown`, not covered.
+`covered_quantity` + `uncovered_quantity` equals `required_quantity`. `verified_at` / `observed_at`
+are null when unknown. Paper evidence has `mechanism: synthetic` and `worker_dependent: true`.
+Partial fills, pyramid adds, and stale mismatched brackets leave `uncovered_quantity` above zero.
+The same attached child is not counted twice. This does not change order submission.
 
 `show` (`GET /api/v1/deployments/{id}`) also marks each `positions[]` row: `mark_price` is the
 close of the newest bar the bot evaluated for that product (from the decision journal),

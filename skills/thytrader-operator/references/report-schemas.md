@@ -69,7 +69,12 @@ uses the same `books[]` on each deployment row. `protection_status` is classifie
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
 ([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)); an open paper book is
 always `covered`, matching its `position_state`
-([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each row also
+([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each book also
+carries `protection` ([ADR 0112](../../../docs/decisions/0112-quantitative-protection-evidence.md)):
+coverage quantities, stop side/geometry validity, `mechanism`, `venue_resting`,
+`worker_dependent`, observed/verified time or null, and `reasons`. Live `covered` is a confirmed
+OPEN matching stop, not a take-profit and not a pending or unknown order. Paper `covered` is
+`mechanism: synthetic`. Each row also
 reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`),
 breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
 `worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and

@@ -42,8 +42,9 @@ from thytrader.execution.protection import (
     PositionState,
     book_exit_in_flight,
     book_position_state,
-    book_protection_status,
+    book_protection_evidence,
     deployment_position_state,
+    protection_evidence_response,
 )
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
@@ -2266,14 +2267,16 @@ def _book_summaries(
     rows: list[DeploymentBookSummary] = []
     for runtime in visible_instrument_runtimes(snapshot, extra_product_ids=extra_product_ids):
         position = positions.get(runtime.product_id)
+        evidence = book_protection_evidence(
+            snapshot, product_id=runtime.product_id, position=position
+        )
         rows.append(
             DeploymentBookSummary(
                 product_id=runtime.product_id,
                 phase=runtime.phase.value,
                 side=None if position is None else position.side.value,
-                protection_status=book_protection_status(
-                    snapshot, product_id=runtime.product_id, position=position
-                ).value,
+                protection_status=evidence.status.value,
+                protection=protection_evidence_response(evidence),
                 position_state=book_position_state(
                     snapshot, product_id=runtime.product_id, position=position, phase=runtime.phase
                 ).value,

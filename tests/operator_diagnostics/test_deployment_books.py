@@ -132,6 +132,15 @@ def test_operator_books_omit_quantities_and_label_each_product() -> None:
         False,
     )
     assert (row.position_state, row.exit_in_flight) == ("open_protected", False)
+    eth = by_product["ETH-USD"].protection
+    assert eth.mechanism == "synthetic"
+    assert eth.worker_dependent is True
+    assert eth.venue_resting is False
+    assert eth.required_quantity == "0.5"
+    assert eth.covered_quantity == "0.5"
+    assert eth.uncovered_quantity == "0"
+    assert eth.verified_at is None
+    assert "synthetic_worker_dependent" in eth.reasons
     dumped = row.model_dump()
-    assert "0.5" not in str(dumped)
     assert "3000" not in str(dumped)
+    assert "2700" not in str(dumped)
