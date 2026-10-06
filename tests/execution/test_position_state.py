@@ -103,6 +103,7 @@ def _order(
         price=Decimal("57900") if kind is OrderKind.STOP_LIMIT else Decimal("64000"),
         stop_trigger_price=Decimal("58000"),
         venue_order_id=f"venue-{uuid4()}",
+        venue_observed_at=_NOW,
         product_id=product_id,
     )
 

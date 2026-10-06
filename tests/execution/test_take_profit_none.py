@@ -43,7 +43,12 @@ from thytrader.execution.models import (
     RuntimePhase,
 )
 from thytrader.execution.paper import PaperBroker
-from thytrader.execution.protection import ProtectionStatus, book_protection_status
+from thytrader.execution.protection import (
+    ProtectionStatus,
+    book_protection_evidence,
+    book_protection_status,
+)
+from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import SizedEntry
 from thytrader.market_data.models import Candle
 from thytrader.strategies.authoring import create_template_strategy
@@ -197,10 +202,19 @@ async def test_live_book_without_take_profit_rests_one_stop_limit(
     assert updated.position is not None
     assert (
         book_protection_status(updated, product_id="BTC-USD", position=updated.position)
-        is ProtectionStatus.COVERED
+        is ProtectionStatus.UNKNOWN
     )
+    submitted = book_protection_evidence(updated, product_id="BTC-USD", position=updated.position)
+    assert submitted.stop_geometry_valid
+    assert submitted.verified_at is None  # Submission alone is not an order-state read.
+    observed = await reconcile_open_orders(updated, store=store, broker=broker)
+    evidence = book_protection_evidence(observed, product_id="BTC-USD", position=updated.position)
+    assert evidence.status is ProtectionStatus.COVERED
+    assert evidence.verified_at is not None
+    assert evidence.observation_source == "venue_order_state"
+    assert evidence.geometry_basis == "stop_limit_trigger"
     again = await process_closed_bar(
-        updated,
+        observed,
         strategy=strategy,
         product=_product(),
         candles=(_candle(0), _candle(1), _candle(2), _candle(3)),

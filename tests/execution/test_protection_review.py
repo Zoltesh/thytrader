@@ -69,7 +69,13 @@ def test_newer_terminal_duplicate_never_resurrects_an_open_row(
     deployment = _deployment()
     position = _position(deployment, product_id="BTC-USD", side=PositionSide.SHORT)
     old = _order(deployment, position, stop="3200", price="2700")
-    new = replace(old, id=uuid4(), status=terminal, updated_at=_NOW + timedelta(seconds=1))
+    new = replace(
+        old,
+        id=uuid4(),
+        status=terminal,
+        updated_at=_NOW + timedelta(seconds=1),
+        venue_observed_at=_NOW + timedelta(seconds=1),
+    )
     rows = (new, old) if reverse else (old, new)
     snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=rows)
     evidence = book_protection_evidence(
@@ -88,7 +94,11 @@ def test_newer_unknown_duplicate_overrides_older_open(reverse: bool) -> None:
     position = _position(deployment, product_id="BTC-USD", side=PositionSide.SHORT)
     old = _order(deployment, position, stop="3200", price="2700")
     new = replace(
-        old, id=uuid4(), status=OrderStatus.UNKNOWN, updated_at=_NOW + timedelta(seconds=1)
+        old,
+        id=uuid4(),
+        status=OrderStatus.UNKNOWN,
+        updated_at=_NOW + timedelta(seconds=1),
+        venue_observed_at=None,
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment, positions=(position,), orders=(new, old) if reverse else (old, new)
@@ -122,7 +132,11 @@ def test_duplicate_partial_rows_use_latest_remainder_not_sum_or_old_maximum() ->
     position = _position(deployment, product_id="BTC-USD", side=PositionSide.SHORT)
     first = _order(deployment, position, stop="3200", price="2700", filled="0.1")
     newer = replace(
-        first, id=uuid4(), filled_quantity=Decimal("0.3"), updated_at=_NOW + timedelta(seconds=1)
+        first,
+        id=uuid4(),
+        filled_quantity=Decimal("0.3"),
+        updated_at=_NOW + timedelta(seconds=1),
+        venue_observed_at=_NOW + timedelta(seconds=1),
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment, positions=(position,), orders=(first, newer)
@@ -163,6 +177,7 @@ def test_parent_child_alias_is_folded_with_newer_terminal_venue_row() -> None:
         parent_order_id=None,
         status=OrderStatus.CANCELED,
         updated_at=_NOW + timedelta(seconds=1),
+        venue_observed_at=_NOW + timedelta(seconds=1),
     )
     snapshot = DeploymentSnapshot(
         deployment=deployment, positions=(position,), orders=(parent, child, terminal)
@@ -186,17 +201,20 @@ def test_open_without_venue_identity_is_unverified() -> None:
     assert "venue_identity_missing" in evidence.reasons
 
 
-@pytest.mark.parametrize("bad_time", ["stale", "naive", "future"])
+@pytest.mark.parametrize("bad_time", ["stale", "naive", "future", "missing"])
 def test_stale_missing_or_future_local_timestamp_is_not_confirmed(bad_time: str) -> None:
-    """Age uses reporting clock, not the hourly candle or a worker lease."""
+    """Venue age uses reporting clock; a fresh local write cannot renew any bad observation."""
     deployment = _deployment()
     position = _position(deployment, product_id="BTC-USD", side=PositionSide.SHORT)
     times = {
         "stale": _NOW - LOCAL_EVIDENCE_MAX_AGE - timedelta(microseconds=1),
         "naive": _NOW.replace(tzinfo=None),
         "future": _NOW + timedelta(seconds=1),
+        "missing": None,
     }
-    order = _order(deployment, position, stop="3200", price="2700", updated_at=times[bad_time])
+    order = _order(
+        deployment, position, stop="3200", price="2700", venue_observed_at=times[bad_time]
+    )
     snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=(order,))
     evidence = book_protection_evidence(snapshot, product_id="BTC-USD", position=position)
     assert evidence.status is ProtectionStatus.UNKNOWN
@@ -204,21 +222,28 @@ def test_stale_missing_or_future_local_timestamp_is_not_confirmed(bad_time: str)
     assert evidence.verified_at is None
     assert evidence.freshness == ("stale" if bad_time == "stale" else "unknown")
     assert evidence.evaluated_at == _NOW
-    assert evidence.observation_source == "persisted_order"
+    assert evidence.observation_source == (
+        "venue_order_state" if bad_time in {"stale", "future"} else "persisted_order"
+    )
+    if bad_time == "stale":
+        assert "venue_evidence_stale" in evidence.reasons
+    assert evidence.observed_at != order.updated_at
 
 
 def test_recent_local_timestamp_is_never_claimed_as_venue_verification() -> None:
-    """A recent local write proves only row recency; verified_at stays explicitly unknown."""
+    """A recent local write cannot prove venue observation for a legacy stop."""
     deployment = _deployment()
     position = _position(deployment, product_id="BTC-USD", side=PositionSide.SHORT)
     order = _order(
-        deployment, position, stop="3200", price="2700", updated_at=_NOW - LOCAL_EVIDENCE_MAX_AGE
+        deployment, position, stop="3200", price="2700", updated_at=_NOW, venue_observed_at=None
     )
     snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=(order,))
     evidence = book_protection_evidence(snapshot, product_id="BTC-USD", position=position)
-    assert evidence.status is ProtectionStatus.COVERED
+    assert evidence.status is ProtectionStatus.UNKNOWN
+    assert evidence.covered_quantity == 0
+    assert evidence.observed_at is None
     assert evidence.verified_at is None
-    assert evidence.freshness == "recent_local"
+    assert evidence.freshness == "unknown"
     assert evidence.freshness_max_age_seconds == 120
     assert "local_observation_only" in evidence.reasons
 

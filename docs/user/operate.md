@@ -355,7 +355,8 @@ protection status. Orders and fills carry `product_id`. `book_totals` must match
 collections. The singular `position` field is compatibility-only (the focused book, always
 product-tagged); do not treat it as the full inventory
 ([ADR 0060](../decisions/0060-multi-book-deployment-api.md)). Operator `strategies` / `runtime`
-reports include redacted `books[]` (product, phase, side, protection — no quantities).
+reports include redacted `books[]` (product, phase, side, protection coverage quantities only —
+no prices, cash, or order payloads).
 
 Bot detail, Portfolio rows, Home, and portfolio sleeves describe a book by its **position state**,
 not its raw phase ([ADR 0097](../decisions/0097-runtime-parity-and-observability.md)). Right after
@@ -367,6 +368,20 @@ matched exit rule, or a flatten. HTTP and operator payloads carry the same readi
 `covered`, on list and summary reads too: its stop is enforced on every closed bar and any
 take-profit rests in the paper broker
 ([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).
+
+Protection badges distinguish **Worker stop** (paper), **Order state fresh** (live, amber), and
+**Unverified** (missing/stale evidence). Fresh live coverage requires enough identified OPEN
+stop quantity, matching executable kind and persisted stop/target geometry, with each contributing
+order's actual `venue_observed_at` receipt within 120 seconds. Local bookkeeping timestamps never
+refresh it; UNKNOWN/error reads clear it and legacy rows stay unknown until actually read.
+`protection.observed_at` is the latest relevant receipt; `verified_at` is the oldest contributing
+fresh receipt (only the covered fraction when coverage is partial). The badge's submitted
+`geometry_basis` is not an independent venue geometry audit, whole-account reconciliation, or
+fill guarantee. Even fresh order state is amber, explicitly **venue geometry not independently
+verified**. Profitable trailing stops may cross entry; partial or TP-only orders cannot provide
+full stop cover. These are read-only reporting rules, not an automatic pause or replacement order.
+See [ADR 0112](../decisions/0112-quantitative-protection-evidence.md) and
+[ADR 0119](../decisions/0119-venue-order-observation-provenance.md).
 
 Each open book also shows its **unrealized PnL** at the close of the last bar the bot evaluated,
 and how long it has been held. On bot detail these are the **Unrealized** and **Held** columns of

@@ -1,9 +1,10 @@
 """Observable per-product protection status from a deployment snapshot.
 
-HTTP and operator reports classify live cover from recent persisted OPEN venue-identified
-stops whose closing side, remaining quantity, and executable geometry match the book.
-Local row updates do not prove venue reconciliation: verified_at stays unknown. A take-profit
-alone is not cover. Pending and unknown orders are not confirmed cover. Parent
+HTTP and operator reports classify live cover from freshly observed OPEN venue-identified
+stops whose persisted closing side, remaining quantity, and executable geometry match the book.
+Only venue_observed_at supplies order-state freshness; local writes never renew it. Receipt
+of order state is not an independent venue geometry or account audit. A take-profit alone
+is not cover. Pending and unknown orders are not confirmed cover. Parent
 stop/target geometry is never coverage, and an attached child does not bypass those
 checks. An open paper book stays ``covered`` because the worker enforces its stop
 synthetically, but the evidence says that cover is worker-dependent rather than a
@@ -49,8 +50,8 @@ _STOP_PURPOSES = frozenset({IntentPurpose.STOP, IntentPurpose.BRACKET})
 _ZERO = Decimal(0)
 LOCAL_EVIDENCE_MAX_AGE = timedelta(seconds=120)
 """Reporting recency bound: four default worker polls, never a strategy candle clock."""
-_ObservationSource = Literal["persisted_order", "synthetic_worker", "none"]
-_Freshness = Literal["recent_local", "stale", "unknown"]
+_ObservationSource = Literal["venue_order_state", "persisted_order", "synthetic_worker", "none"]
+_Freshness = Literal["recent_venue", "stale", "unknown"]
 _GeometryBasis = Literal["working_target", "stop_limit_trigger", "unknown"]
 PROTECTION_REASONS: tuple[str, ...] = (
     "flat",
@@ -66,7 +67,7 @@ PROTECTION_REASONS: tuple[str, ...] = (
     "unsupported_stop_kind",
     "venue_identity_missing",
     "local_observation_only",
-    "local_evidence_stale",
+    "venue_evidence_stale",
     "observation_time_unknown",
     "observation_time_future",
     "stop_quantity_short",
@@ -79,7 +80,7 @@ PROTECTION_REASONS: tuple[str, ...] = (
 
 
 class ProtectionStatus(StrEnum):
-    """Whether one book shows matching recent persisted stop cover, not a fresh venue guarantee."""
+    """Whether fresh order-state evidence matches persisted stop cover, not a venue audit."""
 
     FLAT = "flat"
     COVERED = "covered"
@@ -99,8 +100,8 @@ class ProtectionMechanism(StrEnum):
 class PositionState(StrEnum):
     """What a book (or a whole deployment) is doing, in operator terms (ADR 0097).
 
-    ``open_protected`` has matching recent persisted stop evidence or the paper synthetic
-    stop. Evidence separately discloses unknown venue freshness. ``exiting`` is an in-flight exit.
+    ``open_protected`` has fresh order-state evidence matching persisted stop geometry or
+    the paper synthetic stop. Neither proves a venue geometry audit. ``exiting`` is in flight.
     """
 
     FLAT = "flat"
@@ -128,7 +129,7 @@ _HitRole = Literal["confirmed", "pending", "unknown", "ignored"]
 
 @dataclass(frozen=True, slots=True)
 class ProtectionEvidence:
-    """Exact persisted stop cover, with local provenance distinct from venue verification."""
+    """Exact persisted stop cover, with venue order-state provenance, not geometry auditing."""
 
     status: ProtectionStatus
     required_quantity: Decimal
@@ -165,23 +166,27 @@ class ProtectionEvidenceResponse(BaseModel):
     stop_geometry_valid: bool
     mechanism: Literal["venue", "synthetic", "none", "unverified"]
     venue_resting: bool = Field(
-        description="Recent persisted OPEN venue stops contributed; not a fresh venue read."
+        description="Fresh identified OPEN state reads contributed with matching local geometry."
     )
     worker_dependent: bool = Field(
         description="True for the paper synthetic stop. That cover is not a venue order."
     )
     observed_at: str | None = Field(
-        description="Latest local row update, not a venue observation time; null if unknown."
+        description="Latest relevant venue order-state receipt time; never a local row update."
     )
     verified_at: str | None = Field(
-        description="Venue verification time; null because row updates do not prove reconciliation."
+        description="Oldest contributing fresh OPEN receipt; not a venue geometry audit."
     )
     observation_source: _ObservationSource
-    freshness: _Freshness = Field(description="Local-row recency only; never venue freshness.")
-    evaluated_at: str = Field(description="UTC reporting clock used to assess local-row recency.")
+    freshness: _Freshness = Field(
+        description="Conservative order-state recency, not geometry auditing."
+    )
+    evaluated_at: str = Field(
+        description="UTC reporting clock used to assess venue order-state age."
+    )
     freshness_max_age_seconds: int = Field(gt=0)
     geometry_basis: _GeometryBasis = Field(
-        description="Geometry checked vs working target or stop-limit trigger, never entry."
+        description="Persisted geometry vs working target or stop-limit trigger, not venue audited."
     )
     reasons: tuple[str, ...]
 
@@ -193,7 +198,7 @@ class _Hit:
     remaining: Decimal
     role: _HitRole
     flags: frozenset[str]
-    updated_at: datetime | None
+    observed_at: datetime | None
     side_valid: bool = False
     geometry_valid: bool = False
 
@@ -207,6 +212,7 @@ class _Fold:
     unknown: bool
     flags: frozenset[str]
     observed_at: datetime | None
+    verified_at: datetime | None
     side_valid: bool
     geometry_valid: bool
 
@@ -422,7 +428,7 @@ def _paper_evidence(position: Position, now: datetime) -> ProtectionEvidence:
 def _live_evidence(
     snapshot: DeploymentSnapshot, product_id: str, position: Position, now: datetime
 ) -> ProtectionEvidence:
-    """Classify a live book from folded identities and recent persisted stop evidence."""
+    """Classify a live book from folded identities and fresh venue order-state evidence."""
     closing = _closing_side(position)
     book_ok = _book_stop_on_protective_side(position)
     scoped = resolved_product_id(product_id or position.product_id, snapshot.deployment)
@@ -469,9 +475,13 @@ def _evidence_from_fold(
         venue_resting=fold.confirmed > _ZERO,
         worker_dependent=False,
         observed_at=fold.observed_at,
-        verified_at=None,
+        verified_at=fold.verified_at,
         observation_source=(
-            "persisted_order" if fold.observed_at is not None or fold.flags else "none"
+            "venue_order_state"
+            if fold.observed_at is not None
+            else "persisted_order"
+            if fold.flags
+            else "none"
         ),
         freshness=_fold_freshness(fold),
         evaluated_at=now,
@@ -530,7 +540,12 @@ def _deduped_active(
     )
     chosen: dict[str, Order] = {}
     duplicate = False
-    for order in active:
+    # Venue-time ordering makes folds deterministic, including contradictory partial-fill
+    # histories. UNKNOWN/missing provenance is processed first and cannot be washed away.
+    ordered = sorted(
+        active, key=lambda order: _venue_observed(order) or datetime.min.replace(tzinfo=UTC)
+    )
+    for order in ordered:
         key = _cover_identity(snapshot, order)
         prior = chosen.get(key)
         if prior is None:
@@ -562,16 +577,27 @@ def _parent_attached_venue_id(snapshot: DeploymentSnapshot, order: Order) -> str
 
 
 def _prefer_duplicate(left: Order, right: Order) -> Order:
-    """Prefer latest evidence; tied contradictory observations never confirm OPEN."""
-    left_time, right_time = _aware(left.updated_at), _aware(right.updated_at)
-    if left_time is not None and right_time is not None and left_time != right_time:
-        return left if left_time > right_time else right
+    """Prefer actual venue receipts, never local rewrites; unresolved histories fail closed.
+
+    State reads cannot resolve conflicting submitted geometry or original quantities.
+    UNKNOWN/missing provenance is absorbing within a duplicate history. A venue id cannot
+    reopen after a terminal state, and remaining quantity cannot grow after a later read.
+    """
     smaller = left if _remaining(left) <= _remaining(right) else right
-    if _order_geometry(left) != _order_geometry(right) or left.status is not right.status:
-        return replace(smaller, status=OrderStatus.UNKNOWN)
+    conflict = replace(smaller, status=OrderStatus.UNKNOWN, venue_observed_at=None)
+    if _order_geometry(left) != _order_geometry(right) or left.quantity != right.quantity:
+        return conflict
+    left_time, right_time = _venue_observed(left), _venue_observed(right)
     if left_time is None or right_time is None:
-        return replace(smaller, status=OrderStatus.UNKNOWN)
-    return smaller
+        return conflict
+    if left_time == right_time:
+        return smaller if left.status is right.status else conflict
+    newer, older = (left, right) if left_time > right_time else (right, left)
+    if older.status not in _ACTIVE_STATUSES and newer.status in _ACTIVE_STATUSES:
+        return conflict
+    if _remaining(newer) > _remaining(older):
+        return conflict
+    return newer
 
 
 def _classify_order(
@@ -586,47 +612,48 @@ def _classify_order(
     now: datetime,
 ) -> _Hit:
     """Classify one active order. Confirmed cover requires an open matching stop."""
-    updated = _aware(order.updated_at)
+    observed = _venue_observed(order)
     if order.status not in _ACTIVE_STATUSES:
-        return _Hit(_ZERO, "ignored", frozenset(), updated)
+        return _Hit(_ZERO, "ignored", frozenset(), None)
     if order.side is not closing:
         flags = _wrong_side_flags(order, purposes)
-        return _Hit(_ZERO, "ignored", flags, updated)
+        return _Hit(_ZERO, "ignored", flags, None)
     if _take_profit_only(order, purposes, known_intents):
-        return _Hit(_ZERO, "ignored", frozenset({"take_profit_only"}), updated)
+        return _Hit(_ZERO, "ignored", frozenset({"take_profit_only"}), None)
     if not _stop_shaped(order):
         flags = _unsupported_kind_flags(order, purposes)
         role: _HitRole = "unknown" if order.status is OrderStatus.UNKNOWN and flags else "ignored"
-        return _Hit(_ZERO, role, flags, updated)
+        return _Hit(_ZERO, role, flags, None)
     geometry = _geometry_flags(order, position, book_ok=book_ok)
     if order.status is OrderStatus.UNKNOWN:
-        flags = _observation_flags(updated, now, venue_identity=venue_identity)
+        flags = _observation_flags(observed, now, venue_identity=venue_identity)
         return _Hit(
             _ZERO,
             "unknown",
             flags | geometry | frozenset({"unknown_not_confirmed"}),
-            updated,
+            observed,
             side_valid=True,
             geometry_valid=not geometry,
         )
     if geometry:
-        return _Hit(_ZERO, _unreadable_role(order, geometry), geometry, updated, side_valid=True)
+        return _Hit(_ZERO, _unreadable_role(order, geometry), geometry, None, side_valid=True)
     remaining = _remaining(order)
     if remaining <= 0:
         return _Hit(
             _ZERO,
             "ignored",
             frozenset({"stop_quantity_short"}),
-            updated,
+            None,
             side_valid=True,
             geometry_valid=True,
         )
-    flags = _observation_flags(updated, now, venue_identity=venue_identity)
+    flags = _observation_flags(observed, now, venue_identity=venue_identity)
     role = _open_role(order)
     if flags and role == "confirmed":
         role = "unknown"
-    flags = flags | frozenset({"local_observation_only"})
-    return _Hit(remaining, role, flags, updated, side_valid=True, geometry_valid=True)
+    if observed is None:
+        flags = flags | frozenset({"local_observation_only"})
+    return _Hit(remaining, role, flags, observed, side_valid=True, geometry_valid=True)
 
 
 def _wrong_side_flags(order: Order, purposes: dict[UUID, IntentPurpose]) -> frozenset[str]:
@@ -732,7 +759,7 @@ def _stop_shaped(order: Order) -> bool:
 
 
 def _fold_hits(hits: tuple[_Hit, ...], *, duplicate: bool) -> _Fold:
-    """Sum unique recent OPEN remainders; fold local geometry and update timestamps."""
+    """Sum only fresh OPEN remainders; use the oldest contributing receipt for verification."""
     confirmed = _ZERO
     flags: set[str] = set()
     if duplicate:
@@ -744,7 +771,7 @@ def _fold_hits(hits: tuple[_Hit, ...], *, duplicate: bool) -> _Fold:
     unknown = False
     for hit in hits:
         flags.update(hit.flags)
-        observed = _later(observed, hit.updated_at)
+        observed = _later(observed, hit.observed_at)
         side_valid = side_valid or hit.side_valid
         geometry_valid = geometry_valid or hit.geometry_valid
         if hit.role == "confirmed":
@@ -753,8 +780,23 @@ def _fold_hits(hits: tuple[_Hit, ...], *, duplicate: bool) -> _Fold:
             pending = True
         elif hit.role == "unknown":
             unknown = True
+    verified = min(
+        (
+            hit.observed_at
+            for hit in hits
+            if hit.role == "confirmed" and hit.observed_at is not None
+        ),
+        default=None,
+    )
     return _Fold(
-        confirmed, pending, unknown, frozenset(flags), observed, side_valid, geometry_valid
+        confirmed,
+        pending,
+        unknown,
+        frozenset(flags),
+        observed,
+        verified,
+        side_valid,
+        geometry_valid,
     )
 
 
@@ -823,7 +865,7 @@ def _stop_limit_flags(order: Order, position: Position) -> frozenset[str]:
 def _observation_flags(
     observed: datetime | None, now: datetime, *, venue_identity: bool
 ) -> frozenset[str]:
-    """Check identity and local-row age without inventing a successful reconciliation."""
+    """Check identity and actual order-state receipt age, never local-row recency."""
     flags: set[str] = set()
     if not venue_identity:
         flags.add("venue_identity_missing")
@@ -832,20 +874,21 @@ def _observation_flags(
     elif observed > now:
         flags.add("observation_time_future")
     elif now - observed > LOCAL_EVIDENCE_MAX_AGE:
-        flags.add("local_evidence_stale")
+        flags.add("venue_evidence_stale")
     return frozenset(flags)
 
 
 def _fold_freshness(fold: _Fold) -> _Freshness:
-    """Expose local-row recency separately from the always-unknown venue verification."""
-    if "local_evidence_stale" in fold.flags:
+    """Disclose the worst candidate freshness; a newer partial read cannot refresh others."""
+    if "venue_evidence_stale" in fold.flags:
         return "stale"
-    if fold.observed_at is None or fold.flags & {
+    if fold.verified_at is None or fold.flags & {
         "observation_time_unknown",
         "observation_time_future",
+        "venue_identity_missing",
     }:
         return "unknown"
-    return "recent_local"
+    return "recent_venue"
 
 
 def _remaining(order: Order) -> Decimal:
@@ -863,9 +906,14 @@ def _later(current: datetime | None, candidate: datetime | None) -> datetime | N
     return current
 
 
-def _aware(value: datetime) -> datetime | None:
-    """Drop a naive timestamp rather than presenting it as a verified instant."""
-    if value.tzinfo is None or value.utcoffset() is None:
+def _venue_observed(order: Order) -> datetime | None:
+    """Return actual receipt provenance, invalidated by UNKNOWN even on inconsistent rows."""
+    return None if order.status is OrderStatus.UNKNOWN else _aware(order.venue_observed_at)
+
+
+def _aware(value: datetime | None) -> datetime | None:
+    """Drop missing/naive timestamps rather than presenting them as verified instants."""
+    if value is None or value.tzinfo is None or value.utcoffset() is None:
         return None
     return value.astimezone(UTC)
 

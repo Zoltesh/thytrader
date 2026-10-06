@@ -106,6 +106,7 @@ def _order(
     parent_order_id: UUID | None = None,
     intent_id: UUID | None = None,
     updated_at: datetime | None = None,
+    venue_observed_at: datetime | None = _NOW,
 ) -> Order:
     """Return one order. Stop and target are set only when the caller passes them."""
     closing = OrderSide.BUY if position.side is PositionSide.SHORT else OrderSide.SELL
@@ -120,6 +121,7 @@ def _order(
         status=status,
         created_at=_NOW,
         updated_at=_NOW if updated_at is None else updated_at,
+        venue_observed_at=venue_observed_at,
         price=None if price is None else Decimal(price),
         filled_quantity=Decimal(filled),
         stop_trigger_price=None if stop is None else Decimal(stop),
@@ -177,10 +179,11 @@ def test_matching_eth_and_ada_brackets_stay_covered() -> None:
         assert evidence.stop_geometry_valid is True
         assert evidence.covered_quantity == position.quantity
         assert evidence.uncovered_quantity == Decimal(0)
-        assert evidence.verified_at is None
-        assert evidence.observation_source == "persisted_order"
-        assert evidence.freshness == "recent_local"
-        assert "local_observation_only" in evidence.reasons
+        assert evidence.observed_at == _NOW
+        assert evidence.verified_at == _NOW
+        assert evidence.observation_source == "venue_order_state"
+        assert evidence.freshness == "recent_venue"
+        assert "local_observation_only" not in evidence.reasons
         assert "venue_stop_resting" in evidence.reasons
 
 
@@ -319,7 +322,7 @@ def test_pending_and_unknown_matching_stops_are_not_confirmed_cover() -> None:
         assert evidence.stop_side_valid is True
         assert evidence.stop_geometry_valid is True
         assert evidence.verified_at is None
-        assert evidence.observed_at == _NOW
+        assert evidence.observed_at == (None if status is OrderStatus.UNKNOWN else _NOW)
         assert reason in evidence.reasons
         assert book_protection_status(snapshot, product_id="ADA-USD", position=position) is (
             ProtectionStatus.UNKNOWN
@@ -638,6 +641,10 @@ def test_position_and_sleeve_payloads_carry_the_same_evidence() -> None:
     assert body.protection.uncovered_quantity == "0"
     assert body.protection.stop_side == "sell"
     assert body.protection.worker_dependent is False
+    assert body.model_dump(mode="json")["protection"]["verified_at"] == _NOW.isoformat()
+    assert body.protection.observation_source == "venue_order_state"
+    assert body.protection.freshness == "recent_venue"
+    assert body.protection.geometry_basis == "working_target"
     sleeve = open_books(snapshot, {})[0]
     assert sleeve.protection == body.protection
     assert sleeve.position_state == "open_protected"

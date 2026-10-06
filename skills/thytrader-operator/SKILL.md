@@ -139,16 +139,25 @@ exception to the no-quantity redaction and are not prices or cash), `stop_side`,
 unknown — do not invent a time), and `reasons`. Live `covered` requires a recent OPEN stop on
 the closing side whose remaining quantity and stop geometry match the book. A take-profit alone,
 a pending stop, and an unknown stop are not covered. The same attached child is counted once.
-`observation_source` names `persisted_order`, `synthetic_worker`, or `none`; `observed_at` is a
-local row update, **not** a venue reconciliation instant. `verified_at` is null because existing
-rows do not persist a dedicated verification time. `freshness` (`recent_local` / `stale` /
-`unknown`) describes local-row age against `evaluated_at`, with
-`freshness_max_age_seconds: 120` (worker-poll based, not strategy candle frequency). Missing,
-stale, future-dated, or unidentified OPEN rows are unverified and contribute no covered quantity.
-Do not promote `covered` plus `local_observation_only` to a live venue guarantee or green badge.
+`observation_source` names `venue_order_state`, `persisted_order` (legacy/local-only),
+`synthetic_worker`, or `none`. Live timestamps come only from `Order.venue_observed_at`
+([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)), never local
+`updated_at`: `observed_at` is the latest relevant receipt; `verified_at` is the oldest receipt
+among contributing fresh OPEN stops. With partial cover it verifies only that fraction, not
+the book. `freshness` (`recent_venue` / `stale` / `unknown`) conservatively describes order-state
+age against `evaluated_at`, with `freshness_max_age_seconds: 120` (worker-poll based, not candle
+frequency). Every contributing partial needs its own fresh receipt. Missing, stale, future-dated,
+or unidentified OPEN rows contribute no covered quantity. UNKNOWN/error reads clear receipt
+provenance; legacy rows stay unknown until actually observed. Local writes cannot refresh it.
+`covered` plus `recent_venue` proves fresh order state matching **persisted submitted geometry**,
+not an independent venue geometry audit or whole-account reconciliation. UI says **Order state
+fresh** in amber and discloses the geometry limitation; do not report audited/guaranteed venue
+cover or a green audit claim. Old `recent_local` payloads remain unverified.
 `geometry_basis` is `working_target`, `stop_limit_trigger`, or `unknown`; profitable trailing
-stops may cross entry. A STOP tag or trigger on a plain limit is not an executable stop. Latest
-duplicate observations win, including cancellations; equal-time conflicts stay unverified.
+stops may cross entry. A STOP tag or trigger on a plain limit is not an executable stop.
+Duplicate precedence uses real venue receipts, not local recency. Terminal/UNKNOWN histories,
+missing provenance, geometry/quantity conflicts, and regressing fills cannot resurrect OPEN
+coverage through another local write.
 Paper `mechanism` is `synthetic` and `worker_dependent` is true. These are read-only reporting
 rules: do not automatically pause/resume or replace orders based on them. Rows also include
 `lifecycle_command`, breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic

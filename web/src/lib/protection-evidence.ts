@@ -17,12 +17,13 @@ export type ProtectionEvidence = {
 	mechanism: 'venue' | 'synthetic' | 'none' | 'unverified';
 	venue_resting: boolean;
 	worker_dependent: boolean;
-	/** Local-row update only; not proof of venue observation. */
+	/** Latest relevant order-state receipt; old persisted_order payloads used local row time. */
 	observed_at: string | null;
-	/** Null means the stop was not verified at a known time. */
+	/** Oldest receipt among contributing fresh OPEN stops, not a venue geometry audit. */
 	verified_at: string | null;
-	observation_source: 'persisted_order' | 'synthetic_worker' | 'none';
-	freshness: 'recent_local' | 'stale' | 'unknown';
+	observation_source: 'venue_order_state' | 'persisted_order' | 'synthetic_worker' | 'none';
+	/** recent_local is legacy evidence and never proves venue freshness. */
+	freshness: 'recent_venue' | 'recent_local' | 'stale' | 'unknown';
 	evaluated_at: string;
 	freshness_max_age_seconds: number;
 	geometry_basis: 'working_target' | 'stop_limit_trigger' | 'unknown';
@@ -96,8 +97,8 @@ function evidenceBadge(book: BadgeBook, evidence: ProtectionEvidence): Protectio
 		return { text: 'Worker stop', tone: 'warn', title, detail };
 	}
 	if (venueCoverConfirmed(book, evidence)) {
-		const text = book.target_price ? 'Venue TP/SL' : 'Venue stop';
-		return { text, tone: 'ok', title, detail };
+		// A successful status read does not independently verify venue stop geometry.
+		return { text: 'Order state fresh', tone: 'warn', title, detail };
 	}
 	if (
 		book.protection_status === 'unknown' ||
@@ -116,7 +117,8 @@ function venueCoverConfirmed(book: BadgeBook, evidence: ProtectionEvidence): boo
 		evidence.venue_resting &&
 		evidence.stop_side_valid &&
 		evidence.stop_geometry_valid &&
-		evidence.freshness === 'recent_local' &&
+		evidence.observation_source === 'venue_order_state' &&
+		evidence.freshness === 'recent_venue' &&
 		evidence.verified_at !== null &&
 		!evidence.reasons.includes('local_observation_only') &&
 		verificationRecent(evidence) &&
@@ -131,15 +133,23 @@ function evidenceDetail(evidence: ProtectionEvidence): string {
 		return `${qty} worker-dependent · not venue-resting · time unknown`;
 	}
 	const recency = `${evidence.observation_source} · ${evidence.freshness}`;
-	const geometry = `geometry: ${evidence.geometry_basis}`;
-	if (evidence.venue_resting && evidence.verified_at && verificationRecent(evidence)) {
-		return `${qty} venue stop · verified ${evidence.verified_at} · ${recency} · ${geometry}`;
+	const geometry = `submitted geometry: ${evidence.geometry_basis} · venue geometry not independently verified`;
+	if (
+		evidence.observation_source === 'venue_order_state' &&
+		evidence.freshness === 'recent_venue' &&
+		evidence.venue_resting &&
+		evidence.verified_at &&
+		verificationRecent(evidence)
+	) {
+		return `${qty} matching stop quantity · oldest contributing order-state receipt ${evidence.verified_at} · ${recency} · ${geometry}`;
 	}
 	const when = evidence.observed_at ?? 'time unknown';
-	return `${qty} · ${evidence.mechanism} · local update ${when} · venue verification unknown · ${recency} · ${geometry}`;
+	const source =
+		evidence.observation_source === 'venue_order_state' ? 'order-state receipt' : 'local update';
+	return `${qty} · ${evidence.mechanism} · ${source} ${when} · venue order-state freshness unverified · ${recency} · ${geometry}`;
 }
 
-/** A render-time age check also prevents a frozen old API response from staying green. */
+/** Render-time age prevents a frozen API response from claiming fresh order-state evidence. */
 function verificationRecent(evidence: ProtectionEvidence): boolean {
 	if (!evidence.verified_at) return false;
 	const verified = Date.parse(evidence.verified_at);

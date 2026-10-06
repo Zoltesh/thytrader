@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-06
+- Extended by: [0119](0119-venue-order-observation-provenance.md) (real order-state receipt provenance)
 - Amends: [0058](0058-protection-lifecycle-accounting.md) (a resting exit is not cover unless it is
   a confirmed stop), [0097](0097-runtime-parity-and-observability.md) (open_protected follows the
   stricter status), and [0098](0098-library-views-book-marks-portfolio-fills.md) (a live
@@ -23,7 +24,7 @@ working geometry, and whether the observation is confirmed.
 
 Classification stays in `execution/protection.py`. It does not submit, cancel, or replace orders.
 
-Live `protection_status: covered` requires sufficient recent persisted OPEN stop evidence that:
+Live `protection_status: covered` requires sufficient freshly venue-observed OPEN stop evidence that:
 
 - has a venue identity (directly or through an attached-child link), and is on the closing side;
 - has remaining quantity (original minus filled, floored at zero), with unique orders summed and
@@ -46,28 +47,34 @@ the only candidate, status is `unknown`. A partial stop is `unprotected` with th
 evidence, unless an unconfirmed candidate remains, in which case status is `unknown` and covered
 quantity is only the confirmed remainder. Stale brackets whose stop or target do not match the
 current book do not count. Identity folding includes terminal rows before filtering active
-statuses: a newer canceled/filled/rejected/unknown observation never resurrects an older OPEN
-row. Latest aware timestamps win; equal-time contradictory status/geometry or missing timestamp
-ordering is unverified. Duplicate partial rows never sum; tied matching rows use the smaller
-remainder.
+statuses. Precedence uses actual `venue_observed_at`, never local `updated_at`: a local rewrite
+cannot resurrect older OPEN evidence over terminal or UNKNOWN evidence. Duplicate histories
+with UNKNOWN/missing receipt provenance, conflicting submitted geometry/original quantities,
+equal-receipt status conflicts, terminal-to-active transitions, or regressing partial fills stay
+unverified. A status read cannot resolve a submitted-geometry conflict. Matching histories fold
+in venue-receipt order; duplicates never sum, and tied matching rows use the smaller remainder.
 
-Local order timestamps are **not** a guaranteed successful venue reconciliation instant.
-`observed_at` is the latest inspected persisted row update; `observation_source` says
-`persisted_order`, `synthetic_worker`, or `none`. `verified_at` is always null in this slice:
-there is no dedicated persisted venue-verification timestamp in the existing model. The report
-never manufactures one. `evaluated_at` is the actual reporting clock. `freshness` is
-`recent_local`, `stale`, or `unknown`, strictly describing local-row recency, never venue
-freshness. A contributing OPEN row must be aware, not future-dated, and no more than 120 seconds
-old (`freshness_max_age_seconds`). This reporting bound is four default 30-second worker polls,
-independent of strategy candle frequency. Custom slow polling may show unverified protection;
-it does not change supervision, pause choices, or broker behavior. Stale, undated, future-dated,
-or unidentified OPEN stops do not add covered quantity.
+[ADR 0119](0119-venue-order-observation-provenance.md) adds the real order-state receipt timestamp.
+`observed_at` is the latest relevant stop's venue receipt, never a local row update.
+`verified_at` is the **oldest receipt among contributing fresh OPEN stops**; for partial cover it
+verifies only that fraction, not the whole book. Both are null if that evidence is unavailable.
+`observation_source` is `venue_order_state` for actual receipts, `persisted_order` for legacy/local
+unverified evidence, `synthetic_worker` for paper, or `none`. `freshness` is `recent_venue`,
+`stale`, or `unknown`, assessed against the reporting clock `evaluated_at`. Each contributing
+stop needs its own aware, non-future receipt no more than 120 seconds old
+(`freshness_max_age_seconds`, four default 30-second worker polls, independent of candle clock).
+The newest partial stop cannot refresh an older one. Mixed stale/unknown matching candidates
+are disclosed conservatively; only fresh quantity contributes. Local writes never renew this
+bound. Custom slower polling can show unverified protection without changing operation.
+UNKNOWN reads invalidate old receipt evidence; legacy rows remain unknown until actually read.
 
-`covered` therefore remains a qualified **persisted-state** claim for matching recent ETH/ADA
-brackets, not a live venue guarantee. `local_observation_only` and null `verified_at` prevent a
-green venue badge. Missing evidence on a legacy payload is also unverified in the UI. Side and
-geometry validity are independent of confirmation/quantity: a pending matching stop can have
-valid geometry but zero covered quantity.
+`covered` is a qualified **order-state plus persisted submitted geometry** claim, not an
+independent venue-geometry audit, whole-account reconciliation, current market mark, or fill
+guarantee. `geometry_basis` always names the persisted geometry check. The UI labels sufficient
+fresh state evidence **Order state fresh** in amber, with **venue geometry not independently
+verified**, never a blanket green audit claim. Legacy/local-only, stale, and missing evidence
+remain **Unverified**. Side and geometry validity are independent of confirmation/quantity:
+a pending matching stop can have valid persisted geometry but zero covered quantity.
 
 Paper books remain `covered` and `open_protected`. Evidence `mechanism` is `synthetic`,
 `worker_dependent` is true, `venue_resting` is false, and observed/verified times are null.
@@ -80,8 +87,9 @@ stop as a green venue badge.
 Operator books still omit prices, cash, and order payloads; coverage quantities are the
 protection evidence, not an inventory dump.
 
-Ops contract and the generated operator JSON schema are unchanged in this slice. Lead integrates
-those after the other slices merge.
+Ops contract and the generated global operator JSON schema remain lead-owned. This narrow
+provenance follow-up changes the evidence enums to `venue_order_state` / `recent_venue` and adds
+`venue_evidence_stale`; lead must regenerate the integrated schema before release.
 
 ## Consequences
 

@@ -13,8 +13,8 @@ const venue: ProtectionEvidence = {
 	worker_dependent: false,
 	observed_at: '2026-10-06T12:00:00+00:00',
 	verified_at: '2026-10-06T12:00:00+00:00',
-	observation_source: 'persisted_order',
-	freshness: 'recent_local',
+	observation_source: 'venue_order_state',
+	freshness: 'recent_venue',
 	evaluated_at: '2026-10-06T12:00:00+00:00',
 	freshness_max_age_seconds: 120,
 	geometry_basis: 'working_target',
@@ -77,7 +77,7 @@ describe('protection badges (ADR 0112)', () => {
 		expect(partial.detail).toContain('0.3 of 0.5');
 	});
 
-	it('requires recent verification for green and keeps a pending stop unverified', () => {
+	it('labels fresh order state without claiming audited venue geometry', () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date('2026-10-06T12:00:00Z'));
 		expect(
@@ -86,14 +86,20 @@ describe('protection badges (ADR 0112)', () => {
 				target_price: '3400',
 				protection: venue
 			}).text
-		).toBe('Venue TP/SL');
+		).toBe('Order state fresh');
 		expect(
 			protectionBadge({
 				protection_status: 'covered',
 				target_price: null,
 				protection: venue
 			}).text
-		).toBe('Venue stop');
+		).toBe('Order state fresh');
+		const fresh = protectionBadge({ protection_status: 'covered', protection: venue });
+		expect(fresh.tone).toBe('warn');
+		expect(fresh.detail).toContain('oldest contributing order-state receipt');
+		expect(fresh.title).toContain('submitted geometry: working_target');
+		expect(fresh.title).toContain('venue geometry not independently verified');
+		expect(fresh.title).not.toContain('venue stop · verified');
 		const pending = protectionBadge({
 			protection_status: 'unknown',
 			protection: {
@@ -132,7 +138,12 @@ describe('protection badges (ADR 0112)', () => {
 			{ ...venue, freshness: 'stale' as const },
 			{ ...venue, verified_at: '2026-10-06T11:55:00Z' },
 			{ ...venue, verified_at: '2026-10-06T12:01:00Z' },
-			{ ...venue, verified_at: 'not-a-time' }
+			{ ...venue, verified_at: 'not-a-time' },
+			{
+				...venue,
+				observation_source: 'persisted_order' as const,
+				freshness: 'recent_local' as const
+			}
 		]) {
 			const badge = protectionBadge({ protection_status: 'covered', protection: evidence });
 			expect(badge.text).toBe('Unverified');
@@ -140,10 +151,20 @@ describe('protection badges (ADR 0112)', () => {
 		}
 		const persisted = protectionBadge({
 			protection_status: 'covered',
-			protection: { ...venue, verified_at: null, reasons: ['local_observation_only'] }
+			protection: {
+				...venue,
+				verified_at: null,
+				observation_source: 'persisted_order',
+				freshness: 'recent_local',
+				reasons: ['local_observation_only']
+			}
 		});
-		expect(persisted.detail).toContain('venue verification unknown');
+		expect(persisted.detail).toContain('venue order-state freshness unverified');
 		expect(persisted.detail).toContain('recent_local');
+		vi.setSystemTime(new Date('2026-10-06T12:02:01Z'));
+		const frozen = protectionBadge({ protection_status: 'covered', protection: venue });
+		expect(frozen.text).toBe('Unverified');
+		expect(frozen.tone).toBe('warn');
 		const legacy = protectionBadge({ position_state: 'open_protected' });
 		expect(legacy.text).toBe('Protected · unverified');
 		expect(legacy.tone).toBe('warn');
