@@ -11,6 +11,7 @@
 	 */
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import PreflightPanel from '$lib/PreflightPanel.svelte';
 	import Segmented from '$lib/Segmented.svelte';
 	import PortfolioWorkspace from '$lib/portfolios/PortfolioWorkspace.svelte';
 	import {
@@ -155,6 +156,8 @@
 			<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
 		</div>
 	</div>
+
+	<PreflightPanel />
 
 	<section class="card idbar" aria-label="Bot summary" data-testid="portfolio-metrics">
 		<div class="counts">

@@ -21,6 +21,7 @@
 	import BotsCard from '$lib/home/BotsCard.svelte';
 	import DataHealth from '$lib/home/DataHealth.svelte';
 	import FeeTierCard from '$lib/home/FeeTierCard.svelte';
+	import PreflightPanel from '$lib/PreflightPanel.svelte';
 	import HoldingsCard from '$lib/home/HoldingsCard.svelte';
 	import KpiTile from '$lib/home/KpiTile.svelte';
 	import {
@@ -404,6 +405,7 @@
 			demo={current?.demo === true}
 			onretry={() => void fees.reload()}
 		/>
+		<PreflightPanel />
 		<DataHealth
 			catalog={catalog.state}
 			problems={datasetProblems}

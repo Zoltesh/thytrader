@@ -33,6 +33,10 @@ class FailingExchangeAccount:
         """Raise a synthetic upstream failure."""
         raise RuntimeError("synthetic secret detail")
 
+    async def list_open_orders(self) -> tuple[object, ...]:
+        """Fail closed without returning a partial order listing."""
+        raise RuntimeError("synthetic secret detail")
+
 
 def test_portfolio_endpoint_returns_demo_data_without_credentials() -> None:
     """A clean install should expose a practical demo portfolio immediately."""

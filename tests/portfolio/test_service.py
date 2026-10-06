@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.exchanges.models import ExchangeBalance
+from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.portfolio.service import PortfolioService
 
 
@@ -55,6 +55,10 @@ class StubExchangeAccount:
             as_of=datetime.now(UTC),
             source="coinbase",
         )
+
+    async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """The stub venue rests no orders."""
+        return ()
 
 
 def test_portfolio_values_balances_and_accepts_extra_permissions() -> None:

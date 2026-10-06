@@ -12,6 +12,7 @@ class ExchangeReadOperation(StrEnum):
     PERMISSIONS = "permissions"
     PRICE = "price"
     FEES = "fees"
+    OPEN_ORDERS = "open_orders"
 
 
 class ExchangeReadFailureKind(StrEnum):
@@ -21,6 +22,7 @@ class ExchangeReadFailureKind(StrEnum):
     TIMEOUT = "timeout"
     NETWORK = "network"
     INVALID_RESPONSE = "invalid_response"
+    UNSUPPORTED = "unsupported"
 
 
 class ExchangeReadFailure(BaseModel):

@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -260,3 +260,28 @@ own `attribution_fingerprint`, source `result_fingerprint` / `run_fingerprint`,
 spread/slippage are already in fill prices. The residual is ledger net minus
 (before-fees PnL minus both fees); the delta is summary net minus ledger net.
 This report does not change canonical result bytes and is null for paper/live.
+
+## Readiness preflight and venue reconciliation (ADR 0114)
+
+`readiness` (`GET /api/v1/operator/readiness`, optional `deployment_id` or `portfolio_id`;
+neither is the fleet) is advisory. `payload.account.enforcement` is `advisory_only`.
+`capital_base` is venue available quote in the policy quote currency plus managed long
+inventory cost and working buy-entry reservations. Caps are `null` when that balance is
+unknown. `ALLOCATION_OVERCOMMITMENT` is advisory (sizing limits, not reserved funds).
+`ACCOUNT_EXPOSURE_CAP_EXCEEDED`, `PRODUCT_EXPOSURE_CAP_EXCEEDED`,
+`PORTFOLIO_EXPOSURE_CAP_EXCEEDED`, and `PORTFOLIO_ASSET_EXPOSURE_CAP_EXCEEDED` are
+violations of current marked exposure. `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC` means a
+paper book assumes cheaper maker/taker rates than account evidence (for example older
+`0.001`/`0.002` versus account `0.005`/`0.009`). `FEE_EVIDENCE_UNAVAILABLE` means no
+comparison was invented. Quote currencies are never summed; `QUOTE_CURRENCY_MISMATCH`
+excludes other quotes. `portfolios[].tighter_daily_breaker` only names which daily-loss
+stop binds first. The report never publishes or tightens policy.
+
+`venue_reconciliation` (`GET /api/v1/operator/venue-reconciliation`) compares managed live
+books with a fresh venue listing. `EXTERNAL_INVENTORY` and `EXTERNAL_OPEN_ORDERS` are
+information, not errors, and are never flattened or cancelled. `MANAGED_INVENTORY_SHORTFALL`
+and `MANAGED_ORDER_NOT_AT_VENUE` are warnings; unknown is not rejected. `balances_listing`
+and `orders_listing` are `complete` or `unavailable`. An unavailable listing leaves
+dependent `foreign_quantity`, `foreign`, and `orphan` null (`venue_unknown`), never guessed.
+Duplicate balance rows are summed (`venue_rows`, `DUPLICATE_BALANCE_ROWS`). A healthy local
+ledger is not this report. No account identifiers or secrets are included.

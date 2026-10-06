@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from requests import HTTPError, RequestException, Timeout
 
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.exchanges.models import ExchangeBalance
+from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.exchanges.read_errors import (
     ExchangeReadError,
     ExchangeReadFailure,
@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 
 _ACCOUNT_PAGE_SIZE = 250
 _MAX_ACCOUNT_PAGES = 100
+_ORDER_PAGE_SIZE = 100
+_MAX_ORDER_PAGES = 100
 _SDK_LOGGER_NAME = "coinbase.RESTClient"
 _logger = logging.getLogger(__name__)
 
@@ -80,6 +82,10 @@ class CoinbaseClient(Protocol):
 
     def get_transaction_summary(self, **kwargs: Any) -> CoinbaseResponse:
         """Return 30-day volume and fee tier summary."""
+        ...
+
+    def list_orders(self, **kwargs: Any) -> CoinbaseResponse:
+        """Return one page of historical orders for the given filters."""
         ...
 
 
@@ -187,6 +193,45 @@ class CoinbaseAccount:
         """Fetch 30-day volume and fee tier details from Coinbase."""
         payload = await self._read(ExchangeReadOperation.FEES, self._client.get_transaction_summary)
         return self._parse_fee_profile(payload)
+
+    async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """Page every venue-resting OPEN spot order without returning partial rows.
+
+        Read-only observation for venue-wide reconciliation (ADR 0114). Pagination follows
+        the same fail-closed discipline as balances: a declared next page without a
+        cursor, a repeated cursor, or the page limit raises instead of returning a
+        partial listing that callers could mistake for the whole venue.
+        """
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        orders: list[ExchangeOpenOrder] = []
+        for _page_number in range(_MAX_ORDER_PAGES):
+            payload = await self._read(
+                ExchangeReadOperation.OPEN_ORDERS,
+                partial(
+                    self._client.list_orders,
+                    order_status=["OPEN"],
+                    product_type="SPOT",
+                    limit=_ORDER_PAGE_SIZE,
+                    cursor=cursor,
+                ),
+            )
+            orders.extend(_open_orders_from_page(payload))
+            if not payload.get("has_next"):
+                return tuple(orders)
+            next_cursor = payload.get("cursor")
+            if not isinstance(next_cursor, str) or not next_cursor:
+                raise CoinbasePaginationError(
+                    "Coinbase order pagination declared a next page with a missing cursor."
+                )
+            if next_cursor in seen_cursors:
+                raise CoinbasePaginationError(
+                    "Coinbase order pagination returned a repeated cursor."
+                )
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
+        message = f"Coinbase order pagination exceeded the {_MAX_ORDER_PAGES}-page limit."
+        raise CoinbasePaginationError(message)
 
     async def _read(
         self, operation: ExchangeReadOperation, call: Callable[[], CoinbaseResponse]
@@ -325,3 +370,39 @@ class CoinbaseAccount:
             return Decimal(raw)
         except InvalidOperation:
             return None
+
+
+def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, ...]:
+    """Narrow one untrusted orders page into venue-resting order rows.
+
+    Rows without a usable ``order_id`` are dropped: a listing row that cannot be
+    identified cannot be matched against managed orders, and inventing an identity
+    would corrupt reconciliation. Every retained field is validated to plain text.
+    """
+    items = payload.get("orders")
+    if not isinstance(items, list):
+        return ()
+    rows: list[ExchangeOpenOrder] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        venue_order_id = item.get("order_id")
+        if not isinstance(venue_order_id, str) or not venue_order_id.strip():
+            continue
+        side = item.get("side")
+        normalized_side = side.lower() if isinstance(side, str) and side else None
+        rows.append(
+            ExchangeOpenOrder(
+                venue_order_id=venue_order_id,
+                product_id=_plain_text(item.get("product_id")),
+                side=normalized_side,
+                status=_plain_text(item.get("status")),
+                client_order_id=_plain_text(item.get("client_order_id")),
+            )
+        )
+    return tuple(rows)
+
+
+def _plain_text(value: object) -> str | None:
+    """Return one non-empty plain string field, or None."""
+    return value if isinstance(value, str) and value else None

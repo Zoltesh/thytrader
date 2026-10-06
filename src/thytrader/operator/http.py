@@ -32,6 +32,8 @@ from thytrader.operator.models import (
     SupportBundleReport,
     TradeReasonsReport,
 )
+from thytrader.operator.readiness import ReadinessReport
+from thytrader.operator.venue_reconciliation import VenueReconciliationReport
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -58,6 +60,8 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "portfolio": PortfolioReport,
     "fees": FeesReport,
     "portfolios": PortfoliosReport,
+    "readiness": ReadinessReport,
+    "venue-reconciliation": VenueReconciliationReport,
 }
 
 

@@ -133,8 +133,13 @@ from thytrader.operator.models import (
     current_ops_contract,
 )
 from thytrader.operator.portfolios_report import build_portfolios_report
+from thytrader.operator.readiness import ReadinessReport, build_readiness_report
 from thytrader.operator.research_workers import research_worker_health, stale_after_seconds
 from thytrader.operator.status import aggregate_status, recommend_next_action
+from thytrader.operator.venue_reconciliation import (
+    VenueReconciliationReport,
+    build_venue_reconciliation_report,
+)
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
 from thytrader.persistence.backtest_results import (
     BacktestResultNotFoundError,
@@ -512,6 +517,33 @@ class OperatorDiagnostics:
     async def portfolios_report(self) -> PortfoliosReport:
         """List portfolios with sleeves, deployment and breaker state, and the newest backtest."""
         return await build_portfolios_report(self.portfolios, self.execution)
+
+    async def readiness_report(
+        self,
+        deployment_id: UUID | None = None,
+        portfolio_id: UUID | None = None,
+    ) -> ReadinessReport:
+        """Advisory allocation, cap, fee, and breaker preflight (ADR 0114).
+
+        Read-only. It never tightens the published risk policy or changes a bot.
+        """
+        return await build_readiness_report(
+            portfolio=self.portfolio,
+            execution=self.execution,
+            risk_policies=self.risk_policies,
+            portfolios=self.portfolios,
+            deployment_id=deployment_id,
+            portfolio_id=portfolio_id,
+        )
+
+    async def venue_reconciliation_report(self) -> VenueReconciliationReport:
+        """Compare managed live books with a fresh venue listing (ADR 0114).
+
+        Read-only. It never creates, cancels, or replaces an order.
+        """
+        return await build_venue_reconciliation_report(
+            portfolio=self.portfolio, execution=self.execution
+        )
 
     async def market_data_report(
         self,

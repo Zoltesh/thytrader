@@ -54,6 +54,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/fees",
         "/decisions",
         "/portfolios",
+        "/readiness",
+        "/venue-reconciliation",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill

@@ -65,7 +65,9 @@ from thytrader.operator.models import (
     SupportBundleReport,
     TradeReasonsReport,
 )
+from thytrader.operator.readiness import ReadinessReport
 from thytrader.operator.service import OperatorDiagnostics
+from thytrader.operator.venue_reconciliation import VenueReconciliationReport
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
@@ -284,6 +286,32 @@ async def get_operator_portfolios(
 ) -> PortfoliosReport:
     """List portfolios with sleeves, allocation, limits, manager settings, newest backtest."""
     return await diagnostics.portfolios_report()
+
+
+@router.get("/readiness", response_model=ReadinessReport)
+async def get_operator_readiness(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    deployment_id: UUID | None = None,
+    portfolio_id: UUID | None = None,
+) -> ReadinessReport:
+    """Return an advisory allocation, cap, fee, and breaker preflight.
+
+    Read-only. This route never tightens risk policy or changes a deployment.
+    """
+    return await diagnostics.readiness_report(
+        deployment_id=deployment_id, portfolio_id=portfolio_id
+    )
+
+
+@router.get("/venue-reconciliation", response_model=VenueReconciliationReport)
+async def get_operator_venue_reconciliation(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> VenueReconciliationReport:
+    """Compare managed inventory and working orders with a fresh venue listing.
+
+    Read-only. This route never creates, cancels, or replaces an order.
+    """
+    return await diagnostics.venue_reconciliation_report()
 
 
 @router.get("/trade-reasons", response_model=TradeReasonsReport)

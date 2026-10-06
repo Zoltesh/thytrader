@@ -30,6 +30,8 @@ port is `8200`, but installs may override it, so never hard-code a port). For ra
 | GET | `/api/v1/operator/portfolio` | `portfolio` |
 | GET | `/api/v1/operator/fees` | `fees` |
 | GET | `/api/v1/operator/portfolios` | `portfolios` |
+| GET | `/api/v1/operator/readiness` | `readiness` |
+| GET | `/api/v1/operator/venue-reconciliation` | `venue_reconciliation` |
 
 Query parameters:
 
@@ -38,6 +40,8 @@ Query parameters:
 - `runtime`: optional `deployment_id` (UUID)
 - `trade-reasons`: optional `intent_id` (UUID) and/or `deployment_id` (UUID)
 - `decisions`: optional `deployment_id` (UUID) or `strategy_id` (UUID) (neither pages every bot), repeated `outcome` (`entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), `limit` 1..200 (default 50), and `cursor` (the previous page's `payload.next_cursor`)
+- `readiness`: optional `deployment_id` (UUID) or `portfolio_id` (UUID). Neither means the fleet. Advisory only; it does not publish or tighten risk policy.
+- `venue-reconciliation`: no query parameters. Read-only venue listing versus managed live books. It never cancels orders or flattens foreign holdings.
 
 HTTP `200` means the diagnostics document was produced. Judge instance health from `overall_status`, not from the HTTP status code.
 

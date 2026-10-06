@@ -9,6 +9,101 @@
       "title": "ActorOrigin",
       "type": "string"
     },
+    "AssetReconciliationRow": {
+      "additionalProperties": false,
+      "description": "One base asset: managed books versus the venue's total holding.\n\n``venue_quantity`` sums every venue balance row of the currency (duplicate wallet\nrows are summed, and ``venue_rows`` discloses when there was more than one).\n``foreign_quantity`` is ``venue - managed_net``: positive means external holdings\nthe installation does not manage (not an error); negative means the venue holds\nless than managed books claim.",
+      "properties": {
+        "currency": {
+          "title": "Currency",
+          "type": "string"
+        },
+        "venue_quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Quantity"
+        },
+        "venue_available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Available"
+        },
+        "venue_hold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Hold"
+        },
+        "venue_rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Venue Rows",
+          "type": "integer"
+        },
+        "managed_long_quantity": {
+          "default": "0",
+          "title": "Managed Long Quantity",
+          "type": "string"
+        },
+        "managed_short_quantity": {
+          "default": "0",
+          "title": "Managed Short Quantity",
+          "type": "string"
+        },
+        "managed_net_quantity": {
+          "default": "0",
+          "title": "Managed Net Quantity",
+          "type": "string"
+        },
+        "foreign_quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Foreign Quantity"
+        },
+        "classification": {
+          "enum": [
+            "matched",
+            "external_inventory",
+            "managed_exceeds_venue",
+            "venue_unknown"
+          ],
+          "title": "Classification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "currency",
+        "classification"
+      ],
+      "title": "AssetReconciliationRow",
+      "type": "object"
+    },
     "AuditFailureEvidence": {
       "additionalProperties": false,
       "description": "One historical failure and an explicitly matched later recovery, when observed.",
@@ -2824,7 +2919,8 @@
         "http",
         "timeout",
         "network",
-        "invalid_response"
+        "invalid_response",
+        "unsupported"
       ],
       "title": "ExchangeReadFailureKind",
       "type": "string"
@@ -2835,7 +2931,8 @@
         "balances",
         "permissions",
         "price",
-        "fees"
+        "fees",
+        "open_orders"
       ],
       "title": "ExchangeReadOperation",
       "type": "string"
@@ -3198,6 +3295,57 @@
         "payload"
       ],
       "title": "FeesReport",
+      "type": "object"
+    },
+    "ForeignOpenOrderRow": {
+      "additionalProperties": false,
+      "description": "One venue-resting order no managed book claims (external, not an error).",
+      "properties": {
+        "venue_order_id": {
+          "title": "Venue Order Id",
+          "type": "string"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Id"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Side"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "venue_order_id"
+      ],
+      "title": "ForeignOpenOrderRow",
       "type": "object"
     },
     "HealthPayload": {
@@ -5394,6 +5542,88 @@
       "title": "OrderKind",
       "type": "string"
     },
+    "OrderReconciliationSection": {
+      "additionalProperties": false,
+      "description": "Managed working orders versus the venue's resting open orders.\n\n``foreign`` and ``orphan`` are ``None`` (not empty) when the venue listing is\nincomplete, so \"no rows\" can never be misread as \"nothing at the venue\".",
+      "properties": {
+        "managed_working": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Managed Working",
+          "type": "integer"
+        },
+        "managed_pending_submit": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Managed Pending Submit",
+          "type": "integer"
+        },
+        "venue_open": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Open"
+        },
+        "matched": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Matched"
+        },
+        "foreign": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ForeignOpenOrderRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Foreign"
+        },
+        "foreign_truncated": {
+          "default": false,
+          "title": "Foreign Truncated",
+          "type": "boolean"
+        },
+        "orphan": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/OrphanManagedOrderRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orphan"
+        },
+        "listing": {
+          "$ref": "#/$defs/VenueListingEvidence"
+        }
+      },
+      "title": "OrderReconciliationSection",
+      "type": "object"
+    },
     "OrderSide": {
       "description": "Spot order side.",
       "enum": [
@@ -5415,6 +5645,55 @@
       ],
       "title": "OrderStatus",
       "type": "string"
+    },
+    "OrphanManagedOrderRow": {
+      "additionalProperties": false,
+      "description": "One managed working order a complete venue listing did not return.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "order_id": {
+          "format": "uuid",
+          "title": "Order Id",
+          "type": "string"
+        },
+        "client_order_id": {
+          "title": "Client Order Id",
+          "type": "string"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "order_id",
+        "client_order_id",
+        "product_id",
+        "status"
+      ],
+      "title": "OrphanManagedOrderRow",
+      "type": "object"
     },
     "PaperLiveFillComparison": {
       "additionalProperties": false,
@@ -6625,6 +6904,1217 @@
         "payload"
       ],
       "title": "ProductsReport",
+      "type": "object"
+    },
+    "QuoteReconciliationRow": {
+      "additionalProperties": false,
+      "description": "One quote currency: venue balance next to managed working buy notional.",
+      "properties": {
+        "quote_currency": {
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "venue_available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Available"
+        },
+        "venue_total": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Total"
+        },
+        "managed_working_buy_notional": {
+          "default": "0",
+          "title": "Managed Working Buy Notional",
+          "type": "string"
+        },
+        "note": {
+          "default": "Quote funds are a shared pool: foreign cash and managed reservations cannot be attributed exactly, so the venue balance is disclosed next to managed working buy notional instead of being reconciled.",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "quote_currency"
+      ],
+      "title": "QuoteReconciliationRow",
+      "type": "object"
+    },
+    "ReadinessAccountCaps": {
+      "additionalProperties": false,
+      "description": "Account-level capacity in the policy's quote currency (ADR 0106 scope).\n\n``capital_base`` is observed venue available quote plus managed long inventory cost\nand working buy-entry reservations — never a bot allocation or duplicated ledger\ncash. Caps and capacities are ``None`` when the venue balance is unknown; they are\nnever guessed. Books quoted in another currency are excluded and disclosed.",
+      "properties": {
+        "quote_currency": {
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "policy_source": {
+          "enum": [
+            "compiled_default",
+            "published"
+          ],
+          "title": "Policy Source",
+          "type": "string"
+        },
+        "policy_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Policy Fingerprint",
+          "type": "string"
+        },
+        "enforcement": {
+          "const": "advisory_only",
+          "default": "advisory_only",
+          "title": "Enforcement",
+          "type": "string"
+        },
+        "capital_base": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Capital Base"
+        },
+        "venue_available_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Available Quote"
+        },
+        "managed_long_inventory_cost": {
+          "default": "0",
+          "title": "Managed Long Inventory Cost",
+          "type": "string"
+        },
+        "working_buy_entry_reserved": {
+          "default": "0",
+          "title": "Working Buy Entry Reserved",
+          "type": "string"
+        },
+        "current_exposure": {
+          "default": "0",
+          "title": "Current Exposure",
+          "type": "string"
+        },
+        "exposure_fraction": {
+          "title": "Exposure Fraction",
+          "type": "string"
+        },
+        "absolute_exposure_cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Absolute Exposure Cap"
+        },
+        "effective_exposure_cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Exposure Cap"
+        },
+        "remaining_entry_capacity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining Entry Capacity"
+        },
+        "per_product_fraction": {
+          "title": "Per Product Fraction",
+          "type": "string"
+        },
+        "product_caps": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessProductCapRow"
+          },
+          "title": "Product Caps",
+          "type": "array"
+        },
+        "daily_loss_fraction": {
+          "title": "Daily Loss Fraction",
+          "type": "string"
+        },
+        "daily_loss_quote_cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Loss Quote Cap"
+        },
+        "effective_daily_loss_cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective Daily Loss Cap"
+        },
+        "drawdown_fraction": {
+          "title": "Drawdown Fraction",
+          "type": "string"
+        },
+        "venue_read_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExchangeReadFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "quote_currency",
+        "policy_source",
+        "policy_fingerprint",
+        "exposure_fraction",
+        "per_product_fraction",
+        "daily_loss_fraction",
+        "drawdown_fraction"
+      ],
+      "title": "ReadinessAccountCaps",
+      "type": "object"
+    },
+    "ReadinessAssetCapRow": {
+      "additionalProperties": false,
+      "description": "One base asset's exposure inside one portfolio versus its per-asset cap.",
+      "properties": {
+        "asset": {
+          "title": "Asset",
+          "type": "string"
+        },
+        "exposure": {
+          "title": "Exposure",
+          "type": "string"
+        },
+        "cap": {
+          "title": "Cap",
+          "type": "string"
+        },
+        "remaining": {
+          "title": "Remaining",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset",
+        "exposure",
+        "cap",
+        "remaining"
+      ],
+      "title": "ReadinessAssetCapRow",
+      "type": "object"
+    },
+    "ReadinessDeploymentRow": {
+      "additionalProperties": false,
+      "description": "One in-scope book's allocation and capacity facts (no order payloads).",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "paper",
+            "live"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "strategy_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strategy Name"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quote_currency": {
+          "anyOf": [
+            {
+              "enum": [
+                "USD",
+                "USDC",
+                "USDT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Currency"
+        },
+        "portfolio_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Id"
+        },
+        "allocated_capital": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allocated Capital"
+        },
+        "allocation_basis": {
+          "default": "none",
+          "enum": [
+            "stored",
+            "portfolio_weight",
+            "paper_starting_cash",
+            "none"
+          ],
+          "title": "Allocation Basis",
+          "type": "string"
+        },
+        "inventory_cost": {
+          "default": "0",
+          "title": "Inventory Cost",
+          "type": "string"
+        },
+        "working_entry_reserved": {
+          "default": "0",
+          "title": "Working Entry Reserved",
+          "type": "string"
+        },
+        "exposure": {
+          "default": "0",
+          "title": "Exposure",
+          "type": "string"
+        },
+        "allocation_remaining": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allocation Remaining"
+        },
+        "daily_loss_latched": {
+          "default": false,
+          "title": "Daily Loss Latched",
+          "type": "boolean"
+        },
+        "drawdown_latched": {
+          "default": false,
+          "title": "Drawdown Latched",
+          "type": "boolean"
+        },
+        "paper_maker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Maker Fee Rate"
+        },
+        "paper_taker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Taker Fee Rate"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "mode",
+        "status",
+        "kind",
+        "product_id"
+      ],
+      "title": "ReadinessDeploymentRow",
+      "type": "object"
+    },
+    "ReadinessFeeEvidence": {
+      "additionalProperties": false,
+      "description": "Account fee evidence and every scoped paper book's assumption against it.\n\n``unavailable_reason`` is set when the account rates could not be read; assumed\npaper rates are still listed, but no optimism conclusion is drawn from invented\nnumbers. Demo data is labeled and never compared against real expectations.",
+      "properties": {
+        "account_maker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Maker Fee Rate"
+        },
+        "account_taker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Taker Fee Rate"
+        },
+        "account_fee_tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Fee Tier"
+        },
+        "account_as_of": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account As Of"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "demo_or_missing_credentials",
+                "read_failure"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable Reason"
+        },
+        "read_failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExchangeReadFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "paper_books_compared": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Paper Books Compared",
+          "type": "integer"
+        },
+        "paper_books_defaulting_rates": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Paper Books Defaulting Rates",
+          "type": "integer"
+        },
+        "optimistic_books": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessFeeGapRow"
+          },
+          "title": "Optimistic Books",
+          "type": "array"
+        },
+        "comparison_note": {
+          "default": "Paper books carry documented maker/taker assumptions; live books pay venue-recorded fees. Backtest and paper suggestions prefill from the account's reported rates; older runs may assume cheaper fees. Compare with `thytrader-operator fees`.",
+          "title": "Comparison Note",
+          "type": "string"
+        }
+      },
+      "title": "ReadinessFeeEvidence",
+      "type": "object"
+    },
+    "ReadinessFeeGapRow": {
+      "additionalProperties": false,
+      "description": "One paper book's assumed fees versus the account's reported fee evidence.\n\nA gap is ``account rate - assumed rate``: positive means the paper book assumes\ncheaper fees than the account reports, so its results read more optimistic.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "assumed_maker_fee_rate": {
+          "title": "Assumed Maker Fee Rate",
+          "type": "string"
+        },
+        "assumed_taker_fee_rate": {
+          "title": "Assumed Taker Fee Rate",
+          "type": "string"
+        },
+        "account_maker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Maker Fee Rate"
+        },
+        "account_taker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Taker Fee Rate"
+        },
+        "maker_gap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maker Gap"
+        },
+        "taker_gap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taker Gap"
+        },
+        "more_optimistic": {
+          "default": false,
+          "title": "More Optimistic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "product_id",
+        "assumed_maker_fee_rate",
+        "assumed_taker_fee_rate"
+      ],
+      "title": "ReadinessFeeGapRow",
+      "type": "object"
+    },
+    "ReadinessFinding": {
+      "additionalProperties": false,
+      "description": "One advisory, violation, or unknown-capacity observation with a stable code.",
+      "properties": {
+        "reason_code": {
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/ReadinessSeverity"
+        },
+        "deployment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Id"
+        },
+        "portfolio_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Id"
+        },
+        "detail": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason_code",
+        "severity",
+        "detail"
+      ],
+      "title": "ReadinessFinding",
+      "type": "object"
+    },
+    "ReadinessPaperSection": {
+      "additionalProperties": false,
+      "description": "Paper-book capacity in the policy quote currency (advisory, rehearsal money).",
+      "properties": {
+        "paper_capital_quote": {
+          "title": "Paper Capital Quote",
+          "type": "string"
+        },
+        "committed_starting_cash": {
+          "title": "Committed Starting Cash",
+          "type": "string"
+        },
+        "books": {
+          "minimum": 0,
+          "title": "Books",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "paper_capital_quote",
+        "committed_starting_cash",
+        "books"
+      ],
+      "title": "ReadinessPaperSection",
+      "type": "object"
+    },
+    "ReadinessPayload": {
+      "additionalProperties": false,
+      "description": "Everything the preflight compares, with its scope made explicit.",
+      "properties": {
+        "scope": {
+          "enum": [
+            "deployment",
+            "portfolio",
+            "fleet"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "deployment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Id"
+        },
+        "portfolio_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Id"
+        },
+        "modes_in_scope": {
+          "default": [],
+          "items": {
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "type": "string"
+          },
+          "title": "Modes In Scope",
+          "type": "array"
+        },
+        "note": {
+          "default": "Advisory only: this report never tightens or changes the published risk policy, allocations, or bot state. The entry gate enforces caps at order time.",
+          "title": "Note",
+          "type": "string"
+        },
+        "venue_quotes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessVenueQuote"
+          },
+          "title": "Venue Quotes",
+          "type": "array"
+        },
+        "account": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadinessAccountCaps"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "paper": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadinessPaperSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "deployments": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessDeploymentRow"
+          },
+          "title": "Deployments",
+          "type": "array"
+        },
+        "portfolios": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessPortfolioSection"
+          },
+          "title": "Portfolios",
+          "type": "array"
+        },
+        "fee_evidence": {
+          "$ref": "#/$defs/ReadinessFeeEvidence"
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "title": "ReadinessPayload",
+      "type": "object"
+    },
+    "ReadinessPortfolioSection": {
+      "additionalProperties": false,
+      "description": "One portfolio's caps, exposure, and both breaker tiers side by side.\n\n``tighter_daily_breaker`` only *names* which daily-loss stop binds first; nothing\nhere tightens either breaker. Exposure caps are fractions of the portfolio's\nconfigured ``capital_quote`` exactly as the entry gate applies them (ADR 0091).",
+      "properties": {
+        "portfolio_id": {
+          "format": "uuid",
+          "title": "Portfolio Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "paper",
+            "live"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "quote_currency": {
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "capital_quote": {
+          "title": "Capital Quote",
+          "type": "string"
+        },
+        "cash_reserve_fraction": {
+          "title": "Cash Reserve Fraction",
+          "type": "string"
+        },
+        "allocated_quote": {
+          "title": "Allocated Quote",
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/$defs/PortfolioLimits"
+        },
+        "total_exposure_cap": {
+          "title": "Total Exposure Cap",
+          "type": "string"
+        },
+        "per_asset_cap": {
+          "title": "Per Asset Cap",
+          "type": "string"
+        },
+        "current_total_exposure": {
+          "title": "Current Total Exposure",
+          "type": "string"
+        },
+        "remaining_total_capacity": {
+          "title": "Remaining Total Capacity",
+          "type": "string"
+        },
+        "asset_caps": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ReadinessAssetCapRow"
+          },
+          "title": "Asset Caps",
+          "type": "array"
+        },
+        "breaker_latched": {
+          "default": false,
+          "title": "Breaker Latched",
+          "type": "boolean"
+        },
+        "breaker_reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Breaker Reason Code"
+        },
+        "daily_loss_quote_stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Loss Quote Stop"
+        },
+        "drawdown_fraction_stop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drawdown Fraction Stop"
+        },
+        "drawdown_stop_loss_allowance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Drawdown Stop Loss Allowance"
+        },
+        "account_daily_loss_cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Account Daily Loss Cap"
+        },
+        "tighter_daily_breaker": {
+          "default": "unknown",
+          "enum": [
+            "portfolio",
+            "account",
+            "neither_set",
+            "unknown"
+          ],
+          "title": "Tighter Daily Breaker",
+          "type": "string"
+        }
+      },
+      "required": [
+        "portfolio_id",
+        "name",
+        "mode",
+        "quote_currency",
+        "capital_quote",
+        "cash_reserve_fraction",
+        "allocated_quote",
+        "limits",
+        "total_exposure_cap",
+        "per_asset_cap",
+        "current_total_exposure",
+        "remaining_total_capacity"
+      ],
+      "title": "ReadinessPortfolioSection",
+      "type": "object"
+    },
+    "ReadinessProductCapRow": {
+      "additionalProperties": false,
+      "description": "Account-wide marked exposure on one product versus the per-product cap.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quote_currency": {
+          "anyOf": [
+            {
+              "enum": [
+                "USD",
+                "USDC",
+                "USDT"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quote Currency"
+        },
+        "exposure": {
+          "title": "Exposure",
+          "type": "string"
+        },
+        "cap": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cap"
+        },
+        "remaining": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remaining"
+        }
+      },
+      "required": [
+        "product_id",
+        "exposure"
+      ],
+      "title": "ReadinessProductCapRow",
+      "type": "object"
+    },
+    "ReadinessReport": {
+      "additionalProperties": false,
+      "description": "Advisory readiness preflight; never mutates policy, allocations, or bots.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "readiness",
+          "default": "readiness",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ReadinessPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "ReadinessReport",
+      "type": "object"
+    },
+    "ReadinessSeverity": {
+      "description": "How hard one readiness finding should press on the operator.",
+      "enum": [
+        "info",
+        "advisory",
+        "violation",
+        "unknown"
+      ],
+      "title": "ReadinessSeverity",
+      "type": "string"
+    },
+    "ReadinessVenueQuote": {
+      "additionalProperties": false,
+      "description": "One quote currency's venue balance, exactly as observed.\n\nBalances are disclosed (``balances_omitted=false``) because the report exists to\ncompare them against caps. Account identifiers and secrets stay out.",
+      "properties": {
+        "quote_currency": {
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "venue_available": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Available"
+        },
+        "venue_hold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Hold"
+        },
+        "venue_total": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Total"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "quote_currency"
+      ],
+      "title": "ReadinessVenueQuote",
       "type": "object"
     },
     "ReconciliationFinding": {
@@ -8566,6 +10056,246 @@
       "title": "UserOrderFeedPayload",
       "type": "object"
     },
+    "VenueFinding": {
+      "additionalProperties": false,
+      "description": "One venue-side observation with a stable code and severity.",
+      "properties": {
+        "reason_code": {
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "severity": {
+          "$ref": "#/$defs/VenueSeverity"
+        },
+        "deployment_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Deployment Id"
+        },
+        "detail": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason_code",
+        "severity",
+        "detail"
+      ],
+      "title": "VenueFinding",
+      "type": "object"
+    },
+    "VenueListingEvidence": {
+      "additionalProperties": false,
+      "description": "Completeness of one venue listing read.\n\n``status`` is ``complete`` only when the adapter paged the whole listing and every\npage parsed; a read failure or pagination anomaly leaves it ``unavailable`` and\nevery comparison depending on it unknown (fail closed). The adapter never returns\npartial rows.",
+      "properties": {
+        "status": {
+          "enum": [
+            "complete",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "demo": {
+          "default": false,
+          "title": "Demo",
+          "type": "boolean"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "rows": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "failure": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExchangeReadFailure"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "VenueListingEvidence",
+      "type": "object"
+    },
+    "VenueReconciliationPayload": {
+      "additionalProperties": false,
+      "description": "Everything the venue-wide comparison observed, with scope made explicit.",
+      "properties": {
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "note": {
+          "default": "A healthy local ledger is not venue reconciliation: managed inventory and working orders are compared against a fresh venue-wide listing. External (foreign) holdings and orders are disclosed, not treated as errors and not flattened. Unknown listings make the dependent comparisons unknown, never guessed.",
+          "title": "Note",
+          "type": "string"
+        },
+        "managed_books": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Managed Books",
+          "type": "integer"
+        },
+        "balances_listing": {
+          "$ref": "#/$defs/VenueListingEvidence"
+        },
+        "orders_listing": {
+          "$ref": "#/$defs/VenueListingEvidence"
+        },
+        "assets": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/AssetReconciliationRow"
+          },
+          "title": "Assets",
+          "type": "array"
+        },
+        "quote_currencies": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/QuoteReconciliationRow"
+          },
+          "title": "Quote Currencies",
+          "type": "array"
+        },
+        "orders": {
+          "$ref": "#/$defs/OrderReconciliationSection"
+        },
+        "findings": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/VenueFinding"
+          },
+          "title": "Findings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "observed_at"
+      ],
+      "title": "VenueReconciliationPayload",
+      "type": "object"
+    },
+    "VenueReconciliationReport": {
+      "additionalProperties": false,
+      "description": "Read-only venue-wide reconciliation; never places, cancels, or edits orders.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "venue_reconciliation",
+          "default": "venue_reconciliation",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/VenueReconciliationPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "VenueReconciliationReport",
+      "type": "object"
+    },
+    "VenueSeverity": {
+      "description": "How hard one venue-reconciliation finding should press on the operator.",
+      "enum": [
+        "info",
+        "warning",
+        "unknown"
+      ],
+      "title": "VenueSeverity",
+      "type": "string"
+    },
     "WatchedTail": {
       "additionalProperties": false,
       "description": "One published data tail; worker success and historical completion are independent.",
@@ -8797,7 +10527,9 @@
         "support_bundle",
         "portfolio",
         "fees",
-        "portfolios"
+        "portfolios",
+        "readiness",
+        "venue_reconciliation"
       ]
     },
     "payload": {
@@ -8881,6 +10613,12 @@
     },
     {
       "$ref": "#/$defs/PortfoliosReport"
+    },
+    {
+      "$ref": "#/$defs/ReadinessReport"
+    },
+    {
+      "$ref": "#/$defs/VenueReconciliationReport"
     }
   ]
 }

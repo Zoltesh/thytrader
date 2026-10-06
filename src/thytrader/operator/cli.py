@@ -189,6 +189,24 @@ def _parser() -> argparse.ArgumentParser:
             "backtest (read-only; no deployment authority)."
         ),
     )
+    readiness = subparsers.add_parser(
+        "readiness",
+        parents=[trailing],
+        help=(
+            "Advisory preflight: allocations vs venue balance vs account and portfolio "
+            "caps, fee assumptions, and breaker disclosures. Never changes policy."
+        ),
+    )
+    readiness.add_argument("--deployment-id", default=None, help="One book's preflight.")
+    readiness.add_argument("--portfolio-id", default=None, help="One portfolio's sleeves and caps.")
+    subparsers.add_parser(
+        "venue-reconciliation",
+        parents=[trailing],
+        help=(
+            "Managed live inventory and working orders versus the venue listing. "
+            "Read-only; never cancels or flattens foreign holdings."
+        ),
+    )
     subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
@@ -251,8 +269,9 @@ async def _dispatch(
             limit=arguments.limit,
             cursor=arguments.cursor,
         )
-    if command == "market-data":
-        return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
+    scoped = await _argument_report(diagnostics, arguments)
+    if scoped is not None:
+        return scoped
     if command == "products":
         return await diagnostics.products()
     if command == "data-health":
@@ -292,6 +311,23 @@ async def _dispatch(
     return await factory()
 
 
+async def _argument_report(
+    diagnostics: OperatorDiagnostics, arguments: argparse.Namespace
+) -> OperatorEnvelope | None:
+    """Reports whose flags do not fit the no-argument factory table."""
+    command = arguments.command
+    if command == "market-data":
+        return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
+    if command == "readiness":
+        return await diagnostics.readiness_report(
+            deployment_id=_uuid_or_none(getattr(arguments, "deployment_id", None)),
+            portfolio_id=_uuid_or_none(getattr(arguments, "portfolio_id", None)),
+        )
+    if command == "venue-reconciliation":
+        return await diagnostics.venue_reconciliation_report()
+    return None
+
+
 def _uuid_or_none(value: str | None) -> UUID | None:
     """Parse an optional UUID argument."""
     if value is None:
@@ -319,6 +355,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     intent_id = getattr(arguments, "intent_id", None)
     if isinstance(intent_id, str) and intent_id:
         query["intent_id"] = intent_id
+    portfolio_id = getattr(arguments, "portfolio_id", None)
+    if isinstance(portfolio_id, str) and portfolio_id:
+        query["portfolio_id"] = portfolio_id
     return query
 
 

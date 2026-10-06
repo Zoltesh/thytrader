@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.exchanges.models import ExchangeBalance
+from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 
 
 class DemoExchangeAccount:
@@ -36,3 +36,7 @@ class DemoExchangeAccount:
             as_of=datetime(2026, 8, 17, 12, 0, 0, tzinfo=UTC),
             source="coinbase",
         )
+
+    async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """The demo venue rests no orders."""
+        return ()
