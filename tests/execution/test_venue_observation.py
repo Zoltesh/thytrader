@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 from tests.execution.test_reconcile import _LookupBroker, _snapshot_with_order
-from thytrader.execution.broker import SubmitResult
+from thytrader.execution.broker import BrokerError, SubmitResult
 from thytrader.execution.ids import uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import DeploymentMode, Order, OrderKind, OrderSide, OrderStatus
@@ -105,6 +105,28 @@ async def test_attached_child_receives_its_own_observation() -> None:
     assert child.venue_observed_at is not None
     assert before <= child.venue_observed_at <= datetime.now(UTC)
     assert child.venue_observed_at != parent.venue_observed_at
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failed_read", ["get_order", "list_fills"])
+async def test_failed_read_invalidates_observation(
+    failed_read: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lifecycle read failures cannot retain apparently current venue verification."""
+    store = InMemoryExecutionStore()
+    order = replace(observation_order(), venue_observed_at=_NOW)
+    bot = await _snapshot_with_order(store, order)
+    broker = _LookupBroker(SubmitResult(status=OrderStatus.OPEN, venue_order_id="observed-stop"))
+
+    async def fail(**_kwargs: object) -> None:
+        raise BrokerError("Unavailable")
+
+    monkeypatch.setattr(broker, failed_read, fail)
+    result = await reconcile_open_orders(
+        await store.get_deployment(bot.id), broker=broker, store=store
+    )
+    assert result.orders[0].status is OrderStatus.UNKNOWN
+    assert result.orders[0].venue_observed_at is None
 
 
 def test_legacy_order_has_no_observation_by_default() -> None:

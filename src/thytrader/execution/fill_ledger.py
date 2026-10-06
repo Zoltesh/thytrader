@@ -23,6 +23,7 @@ from thytrader.execution.models import (
     resolved_product_id,
     with_runtime,
 )
+from thytrader.execution.overlay import overlay_snapshot
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -83,7 +84,14 @@ def project_fill_economics(
     cooldown_bars: int = 0,
     timeframe: str | None = None,
 ) -> tuple[DeploymentSnapshot, Fill]:
-    """Apply one fill to cash/position in memory without persisting."""
+    """Apply one fill to its own product book without persisting.
+
+    Atomic stores load the full deployment, so the product must be selected here,
+    not merely in the caller's overlay. Sibling positions are never the exit target.
+    """
+    snapshot = overlay_snapshot(
+        snapshot, resolved_product_id(order.product_id, snapshot.deployment)
+    )
     now = utc_now()
     stamped = (
         fill if fill.economics_applied_at is not None else replace(fill, economics_applied_at=now)
@@ -120,6 +128,12 @@ def _project_entry(
     deployment = snapshot.deployment
     side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
     cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
+    # Shutdown remains durable even if a late entry fill lacks projection metadata.
+    fault_status = (
+        DeploymentStatus.STOPPED
+        if deployment.status is DeploymentStatus.STOPPED
+        else DeploymentStatus.PAUSED
+    )
     stop = deployment.pending_stop_price
     # A None target is legal: the strategy declares no take-profit (ADR 0090), and the
     # book is protected by its stop alone. The stop is always required.
@@ -130,7 +144,7 @@ def _project_entry(
             deployment,
             updated_at=now,
             cash=cash,
-            status=DeploymentStatus.PAUSED,
+            status=fault_status,
             mismatch_detail="Entry fill is missing its stored stop price.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
@@ -150,7 +164,7 @@ def _project_entry(
             deployment,
             updated_at=now,
             cash=cash,
-            status=DeploymentStatus.PAUSED,
+            status=fault_status,
             mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
@@ -288,10 +302,9 @@ def _project_exit(
         for item in snapshot.positions
         if product_id is None or resolved_product_id(item.product_id, deployment) != product_id
     )
-    focused = None if not positions else positions[0]
     return DeploymentSnapshot(
         deployment=updated,
-        position=focused,
+        position=None,
         orders=snapshot.orders,
         fills=_upsert_fill(snapshot.fills, fill),
         intents=snapshot.intents,

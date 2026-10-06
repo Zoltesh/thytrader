@@ -48,7 +48,11 @@ from thytrader.execution.exit_guards import (
     rejection_latched,
     stale_position_fault,
 )
-from thytrader.execution.fill_ledger import ingest_fill, prior_fills_for_order
+from thytrader.execution.fill_ledger import (
+    applied_fill_quantity,
+    ingest_fill,
+    prior_fills_for_order,
+)
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
 from thytrader.execution.geometry import (
     EntrySkipReason,
@@ -82,7 +86,12 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
-from thytrader.execution.reconcile import import_attached_children, ingest_order_fills
+from thytrader.execution.reconcile import (
+    FILLED_WITHOUT_REST_FILLS_DETAIL,
+    import_attached_children,
+    ingest_order_fills,
+    reconcile_open_orders,
+)
 from thytrader.execution.signals import (
     evaluate_latest_entry_evidence,
     evaluate_latest_signal_exit,
@@ -177,6 +186,13 @@ async def maintain_open_inventory(
     )
 
 
+FLATTEN_AWAITING_EXECUTABLE_CONTEXT = (
+    "Flatten is pending: no verified closed price is available, so protective orders "
+    "were kept and no exit was submitted."
+)
+"""Operator detail when flatten cannot exit without inventing a price."""
+
+
 async def flatten_stopped_residual(
     snapshot: DeploymentSnapshot,
     *,
@@ -190,22 +206,240 @@ async def flatten_stopped_residual(
 
     Protective children are cancelled before the exit (``_marketable_exit``); once the
     book is flat with nothing working it settles as STOPPED/FLAT with no stale detail.
+    Without a verified candle the position is not exited and protection is not cancelled.
+    """
+    return await flatten_residual_book(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+        cooldown_bars=strategy.entry.cooldown_bars,
+    )
+
+
+async def flatten_discretionary_residual(
+    snapshot: DeploymentSnapshot,
+    *,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Flatten one stopped discretionary book without a strategy snapshot."""
+    return await flatten_residual_book(
+        snapshot,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+        cooldown_bars=0,
+    )
+
+
+async def flatten_residual_book(
+    snapshot: DeploymentSnapshot,
+    *,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+    strategy: StrategyDefinition | None = None,
+    cooldown_bars: int = 0,
+) -> DeploymentSnapshot:
+    """Exit one book only after cancels and live fills are known.
+
+    An empty candle sequence never submits an exit and never cancels protection.
+    A cancel that races a fill is reconciled before another exit is sent. An
+    unconfirmed cancel stays supervised and is not treated as success.
     """
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
-    if snapshot.position is not None and candles:
-        candle = candles[-1]
-        snapshot = await _marketable_exit(
+    if snapshot.position is not None and not candles:
+        return await defer_flatten_without_executable_context(snapshot, broker=broker, store=store)
+    if snapshot.position is None:
+        return await _cancel_and_settle(snapshot, broker=broker, store=store)
+    return await _exit_after_confirmed_cancels(
+        snapshot,
+        strategy=strategy,
+        product=product,
+        candles=candles,
+        broker=broker,
+        store=store,
+        cooldown_bars=cooldown_bars,
+    )
+
+
+async def defer_flatten_without_executable_context(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Keep protection and record that flatten has no verified exit price.
+
+    Only orders whose intent is an entry may be cancelled. Venue brackets,
+    stop-limits, and take-profit orders stay so the book is not left naked.
+    """
+    snapshot = await _cancel_open_entries(snapshot, broker=broker, store=store)
+    current = await _reconcile_stopped_live(
+        await store.get_deployment(snapshot.deployment.id), broker=broker, store=store
+    )
+    if current.deployment.mismatch_detail is not None:
+        # Do not hide a genuine reconciliation/cancellation fault behind a data wait.
+        return current
+    noted = with_runtime(
+        current.deployment,
+        updated_at=utc_now(),
+        status=current.deployment.status,
+        mismatch_detail=FLATTEN_AWAITING_EXECUTABLE_CONTEXT,
+    )
+    await store.save_deployment(noted)
+    await record_execution_audit(
+        action="flatten_awaiting_price",
+        outcome=AuditEventOutcome.FAILURE,
+        detail=(
+            f"deployment_id={current.deployment.id}: flatten has no verified closed price; "
+            "protective orders were kept and no exit was submitted."
+        ),
+        product_id=current.position.product_id if current.position is not None else None,
+    )
+    return await store.get_deployment(current.deployment.id)
+
+
+async def maintain_discretionary_protection(
+    snapshot: DeploymentSnapshot,
+    *,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Keep a discretionary stop or target working, including after shutdown.
+
+    Missing candles do nothing: a shutdown must not invent an exit price or
+    cancel protection merely because the decision window is empty.
+    """
+    if not candles or snapshot.position is None:
+        return snapshot
+    broker = bind_paper_broker_fees(broker, snapshot.deployment)
+    candle = candles[-1]
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        snapshot = await _match_resting_orders(
             snapshot,
-            strategy=strategy,
+            candle=candle,
+            broker=broker,
+            store=store,
+            cooldown_bars=0,
+            stop_first=True,
+        )
+    position = snapshot.position
+    if position is None:
+        return snapshot
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        return await _ensure_live_bracket(
+            snapshot, candle=candle, product=product, broker=broker, store=store
+        )
+    if paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price):
+        return await _marketable_exit(
+            snapshot,
             candle=candle,
             product=product,
             broker=broker,
             store=store,
             purpose=IntentPurpose.STOP,
-            price=candle.close,
+            price=paper_stop_fill_price(
+                side=position.side, candle=candle, stop_price=position.stop_price
+            ),
+            cooldown_bars=0,
         )
-    snapshot = await cancel_resting_orders(snapshot, broker=broker, store=store)
-    return await _settle_flat_book(snapshot, store=store)
+    return await _ensure_take_profit(
+        snapshot, candle=candle, product=product, broker=broker, store=store
+    )
+
+
+async def _cancel_and_settle(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Cancel remainders on a book that no longer has inventory, then settle."""
+    cleared = await cancel_resting_orders(snapshot, broker=broker, store=store)
+    cleared = await _reconcile_stopped_live(cleared, broker=broker, store=store)
+    return await _settle_flat_book(cleared, store=store)
+
+
+async def _exit_after_confirmed_cancels(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition | None,
+    product: MarketProduct,
+    candles: Sequence[Candle],
+    broker: Broker,
+    store: ExecutionStore,
+    cooldown_bars: int,
+) -> DeploymentSnapshot:
+    """Cancel resting orders, learn any racing fill, then exit only if still open."""
+    candle = candles[-1]
+    exited = await _marketable_exit(
+        snapshot,
+        strategy=strategy,
+        cooldown_bars=cooldown_bars,
+        candle=candle,
+        product=product,
+        broker=broker,
+        store=store,
+        purpose=IntentPurpose.STOP,
+        price=candle.close,
+    )
+    if exited.position is not None:
+        return exited
+    return await _cancel_and_settle(exited, broker=broker, store=store)
+
+
+async def _reconcile_stopped_live(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Apply live fills before a flatten decision; paper books stay local."""
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return snapshot
+    return await reconcile_open_orders(
+        snapshot,
+        broker=broker,
+        store=store,
+        product_id=snapshot.position.product_id if snapshot.position is not None else None,
+        cooldown_bars=0,
+    )
+
+
+async def _cancel_open_entries(
+    snapshot: DeploymentSnapshot,
+    *,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Cancel working entries and leave protective orders untouched."""
+    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    for order in tuple(snapshot.orders):
+        if order.status not in _ACTIVE or order.intent_id not in entry_ids:
+            continue
+        if is_venue_protection(order.kind):
+            continue
+        snapshot = await _cancel_one_order(order, broker=broker, store=store)
+    return await store.get_deployment(snapshot.deployment.id)
+
+
+def _exit_cooldown(strategy: StrategyDefinition | None, cooldown_bars: int | None) -> int:
+    """Use an explicit cooldown, else the strategy's, else zero for discretionary books."""
+    if cooldown_bars is not None:
+        return cooldown_bars
+    if strategy is None:
+        return 0
+    return strategy.entry.cooldown_bars
 
 
 async def cancel_risk_increasing_orders(
@@ -366,9 +600,15 @@ async def cancel_resting_orders(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Cancel every locally open order for a stopped or flattening deployment."""
+    """Cancel every locally open order, retaining ambiguous stopped remainders."""
     await _cancel_open_orders(snapshot, broker=broker, store=store)
-    return await store.get_deployment(snapshot.deployment.id)
+    current = await store.get_deployment(snapshot.deployment.id)
+    blocking = active_orders(current)
+    if current.deployment.status is DeploymentStatus.STOPPED and blocking:
+        if all(cancel_pending(order) for order in blocking):
+            return current
+        return await _pause(current, store=store, detail=CANCEL_BEFORE_EXIT_DETAIL)
+    return current
 
 
 async def _match_resting_orders(
@@ -1527,13 +1767,14 @@ def _legal_reprice_geometry(
 async def _marketable_exit(
     snapshot: DeploymentSnapshot,
     *,
-    strategy: StrategyDefinition,
     candle: Candle,
     product: MarketProduct,
     broker: Broker,
     store: ExecutionStore,
     purpose: IntentPurpose,
     price: Decimal,
+    strategy: StrategyDefinition | None = None,
+    cooldown_bars: int | None = None,
 ) -> DeploymentSnapshot:
     """Cancel resting exits, then submit a marketable cover of the open position.
 
@@ -1544,6 +1785,7 @@ async def _marketable_exit(
     if snapshot.position is None:
         return snapshot
     if snapshot.deployment.mode is DeploymentMode.LIVE:
+        snapshot = await _reconcile_stopped_live(snapshot, broker=broker, store=store)
         snapshot = await _adopt_venue_attached_child(
             snapshot, broker=broker, store=store, product_id=product.product_id
         )
@@ -1555,13 +1797,20 @@ async def _marketable_exit(
             broker=broker,
             store=store,
             product_id=product.product_id,
-            cooldown_bars=strategy.entry.cooldown_bars,
+            cooldown_bars=_exit_cooldown(strategy, cooldown_bars),
         )
+    if _unsettled_fill_evidence(snapshot):
+        return await _pause(snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL)
     await _cancel_open_orders(snapshot, broker=broker, store=store)
     snapshot = await store.get_deployment(snapshot.deployment.id)
+    if active_orders(snapshot) and all(cancel_pending(order) for order in active_orders(snapshot)):
+        return await _mark_pending_exit(snapshot, store=store)
+    snapshot = await _reconcile_stopped_live(snapshot, broker=broker, store=store)
     position = snapshot.position
     if position is None:
         return snapshot
+    if _unsettled_fill_evidence(snapshot):
+        return await _pause(snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL)
     blocking = active_orders(snapshot)
     if blocking:
         if all(cancel_pending(order) for order in blocking):
@@ -1570,7 +1819,7 @@ async def _marketable_exit(
     return await _submit_marketable_exit(
         snapshot,
         position=position,
-        cooldown_bars=strategy.entry.cooldown_bars,
+        cooldown_bars=_exit_cooldown(strategy, cooldown_bars),
         candle=candle,
         product=product,
         broker=broker,
@@ -2437,6 +2686,26 @@ async def _pause(
     return await store.get_deployment(snapshot.deployment.id)
 
 
+def _unsettled_fill_evidence(snapshot: DeploymentSnapshot) -> bool:
+    """Detect unapplied economics and terminal orders still awaiting their fills."""
+    if any(fill.economics_applied_at is None for fill in snapshot.fills):
+        return True
+    for order in snapshot.orders:
+        if order.status is not OrderStatus.FILLED:
+            continue
+        covered = max(order.quantity, order.filled_quantity)
+        if applied_fill_quantity(snapshot, order.id) < covered:
+            return True
+    return False
+
+
+async def settle_stopped_book(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Finish a requested flatten once every book is flat and idle."""
+    return await _settle_flat_book(snapshot, store=store)
+
+
 async def _settle_flat_book(
     snapshot: DeploymentSnapshot, *, store: ExecutionStore
 ) -> DeploymentSnapshot:
@@ -2447,7 +2716,10 @@ async def _settle_flat_book(
     the open position's protection or exit is overwritten (paused) or cleared.
     """
     deployment = snapshot.deployment
-    if not flat_and_idle(snapshot):
+    if not flat_and_idle(snapshot) or _unsettled_fill_evidence(snapshot):
+        return snapshot
+    # Fill-ledger projection faults are not proof of zero venue inventory.
+    if (deployment.mismatch_detail or "").startswith("Entry fill is missing"):
         return snapshot
     if flatten_requested(snapshot) and deployment.status in {
         DeploymentStatus.PAUSED,

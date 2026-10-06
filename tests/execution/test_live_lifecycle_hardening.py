@@ -137,10 +137,13 @@ class _ScriptedVenue:
         """Record one cancel and answer with its scripted result (CANCELED by default)."""
         del client_order_id
         self.events.append(("cancel", venue_order_id))
-        return self.cancel_results.get(
+        result = self.cancel_results.get(
             venue_order_id,
             SubmitResult(status=OrderStatus.CANCELED, venue_order_id=venue_order_id),
         )
+        if result.status is OrderStatus.CANCELED:
+            self.statuses[venue_order_id] = [OrderStatus.CANCELED]
+        return result
 
     async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
         """Pop the next scripted status (the last one repeats); report attached children."""
@@ -276,6 +279,7 @@ async def _filled_attached_entry(
             quantity=_QTY,
             fee=Decimal("0"),
             filled_at=_candle(1).starts_at,
+            economics_applied_at=now,
         )
     )
 

@@ -30,9 +30,7 @@ from thytrader.execution.geometry import base_currency, entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution.loop import (
-    cancel_resting_orders,
-    cancel_risk_increasing_orders,
-    flatten_stopped_residual,
+    maintain_discretionary_protection,
     maintain_open_inventory,
     process_closed_bar,
 )
@@ -46,6 +44,11 @@ from thytrader.execution.models import (
 from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.references import ReferenceGate, reference_gate
+from thytrader.execution.stopped import (
+    load_verified_exit_context,
+    stopped_product_ids,
+    supervise_stopped_deployment,
+)
 from thytrader.execution.trade_reason_scope import (
     discretionary_trade_reason_scope,
     strategy_trade_reason_scope,
@@ -59,6 +62,7 @@ from thytrader.market_data.no_trade import (
     has_interior_gaps,
     merge_confirmed_candles,
 )
+from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.research.multi_timeframe import closed_bar_required_coverage, ltf_close
@@ -299,85 +303,226 @@ async def _process_stopped(
     paper_broker: Broker,
     live_broker: Broker | None,
 ) -> None:
-    """Apply flatten or managed-shutdown to a stopped book without dropping residual risk."""
-    broker = paper_broker
-    if snapshot.deployment.mode is DeploymentMode.LIVE:
-        if live_broker is None:
-            return
-        broker = live_broker
-    command = snapshot.deployment.lifecycle_command
-    if command is LifecycleCommand.FLATTEN:
-        if strategy is None:
-            await cancel_resting_orders(snapshot, broker=broker, store=store)
-            return
-        product, candles, _expected = await _closed_window(
-            market_data, strategy, deploy_anchor=snapshot.deployment.created_at
+    """Apply flatten or managed-shutdown to every stopped book without dropping risk."""
+
+    async def _signal_windows(
+        strategy: StrategyDefinition, *, product_id: str, deploy_anchor: datetime
+    ) -> tuple[tuple[Candle, ...], dict[str, tuple[Candle, ...]], dict[str, tuple[Candle, ...]]]:
+        """Load one stopped product's signal-exit clocks, or nothing on a gap."""
+        htf, extra = await _signal_exit_windows(
+            market_data, strategy, product_id=product_id, deploy_anchor=deploy_anchor
         )
-        if not candles:
-            await flatten_stopped_residual(
-                snapshot,
-                strategy=strategy,
-                product=product,
-                candles=candles,
-                broker=broker,
-                store=store,
-            )
-            return
-        await _journaled_bar(
-            snapshot,
-            strategy=strategy,
-            product_id=product.product_id,
-            candle=candles[-1],
-            allow_new_entries=False,
-            require_activity=True,
-            advance=partial(
-                flatten_stopped_residual,
-                snapshot,
-                strategy=strategy,
-                product=product,
-                candles=candles,
-                broker=broker,
-                store=store,
-            ),
-        )
-        return
-    await cancel_risk_increasing_orders(snapshot, broker=broker, store=store)
-    snapshot = await store.get_deployment(snapshot.deployment.id)
-    if snapshot.position is None or strategy is None:
-        return
-    product, candles, _expected = await _closed_window(
-        market_data, strategy, deploy_anchor=snapshot.deployment.created_at
-    )
-    if candles:
-        htf_candles, extra_candles = await _signal_exit_windows(
-            market_data, strategy, deploy_anchor=snapshot.deployment.created_at
-        )
-        reference_candles = (
+        references = (
             {}
             if signal_exit_condition(strategy.exits) is None
-            else await _closed_reference_windows(
-                market_data, strategy, deploy_anchor=snapshot.deployment.created_at
-            )
+            else await _closed_reference_windows(market_data, strategy, deploy_anchor=deploy_anchor)
         )
-        await _journaled_bar(
-            snapshot,
+        return htf, extra, references
+
+    await supervise_stopped_deployment(
+        snapshot,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+        load_closed_window=_closed_window_for,
+        load_signal_windows=_signal_windows,
+        journal_strategy_bar=_journal_stopped_bar,
+    )
+
+
+_MISSING_DECISION_CANDLES = "Market-data window is gapped or missing the latest closed bar."
+
+
+async def _journal_stopped_bar(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    product: MarketProduct,
+    candles: tuple[Candle, ...],
+    advance: Callable[[], Awaitable[DeploymentSnapshot]],
+    require_activity: bool,
+) -> None:
+    """Journal one stopped strategy bar without allowing a new entry."""
+    await _journaled_bar(
+        snapshot,
+        strategy=strategy,
+        product_id=product.product_id,
+        candle=candles[-1],
+        allow_new_entries=False,
+        require_activity=require_activity,
+        advance=advance,
+    )
+
+
+async def _supervise_without_decision_candles(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    product: MarketProduct,
+    expected_last: datetime,
+    feed_paused: bool,
+) -> None:
+    """Pause new entries when the decision window is empty, and still reconcile live orders.
+
+    No candle is fabricated and no market order is priced from an invented close.
+    Another covered product that still has its own verified candles keeps protection.
+    """
+    await record_gate_skip(
+        snapshot=snapshot,
+        strategy=strategy,
+        product_ids=lockstep_product_ids(strategy),
+        bar_starts_at=expected_last,
+        reason=DecisionSkipReason.DATA_GAP,
+        detail=_MISSING_DECISION_CANDLES,
+    )
+    if feed_paused:
+        await record_gate_skip(
+            snapshot=snapshot,
             strategy=strategy,
-            product_id=product.product_id,
-            candle=candles[-1],
-            allow_new_entries=False,
-            advance=partial(
-                maintain_open_inventory,
-                snapshot,
-                strategy=strategy,
-                product=product,
-                candles=candles,
-                broker=broker,
-                store=store,
-                htf_candles=htf_candles,
-                indicator_timeframe_candles=extra_candles,
-                reference_candles=reference_candles,
-            ),
+            product_ids=lockstep_product_ids(strategy),
+            bar_starts_at=expected_last,
+            reason=DecisionSkipReason.USER_FEED_GATE,
+            detail=USER_FEED_PAUSE_DETAIL,
         )
+    await _pause_running_for_missing_candles(snapshot, store=store, live_broker=live_broker)
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.mode is DeploymentMode.LIVE and live_broker is not None:
+        current = await reconcile_open_orders(
+            current,
+            broker=live_broker,
+            store=store,
+            product_id=product.product_id,
+            cooldown_bars=strategy.entry.cooldown_bars,
+        )
+    await _maintain_verified_books(
+        current,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+    )
+
+
+async def _pause_running_for_missing_candles(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    live_broker: Broker | None,
+) -> None:
+    """Pause a running book for missing candles without clearing another pause."""
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.status is not DeploymentStatus.RUNNING:
+        return
+    detail = _MISSING_DECISION_CANDLES
+    if current.deployment.mode is DeploymentMode.LIVE and live_broker is None:
+        detail = "Live broker is unavailable."
+    await store.save_deployment(
+        with_runtime(
+            current.deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.PAUSED,
+            mismatch_detail=detail,
+        )
+    )
+
+
+async def _maintain_verified_books(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition | None,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+) -> None:
+    """Maintain stored protection from a fresh venue context, not incomplete signal history.
+
+    A preview can maintain persisted stop/target geometry without ATR, signal evaluation,
+    advancing the decision cursor, or an invented candle. No live broker means no submit.
+    """
+    if snapshot.deployment.mode is DeploymentMode.LIVE and live_broker is None:
+        return
+    broker = _cycle_broker(snapshot.deployment, paper_broker=paper_broker, live_broker=live_broker)
+    timeframe = (
+        strategy.timeframe if strategy is not None else snapshot.deployment.timeframe or "1h"
+    )
+    for product_id in stopped_product_ids(snapshot, strategy):
+        scoped = InstrumentScopedStore(store, product_id)
+        focused = await scoped.get_deployment(snapshot.deployment.id)
+        if focused.position is None:
+            continue
+        context = await load_verified_exit_context(
+            market_data,
+            product_id=product_id,
+            timeframe=timeframe,
+            warmup_bars=3,
+            deploy_anchor=snapshot.deployment.created_at,
+            load_closed_window=_closed_window_for,
+        )
+        if context is None:
+            continue
+        await maintain_discretionary_protection(
+            focused,
+            product=context.product,
+            candles=context.candles,
+            broker=broker,
+            store=scoped,
+        )
+
+
+async def _supervise_warming_window(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition | None,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+) -> None:
+    """Keep observation/protection alive during prefetch without a durable data pause."""
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.mode is DeploymentMode.LIVE:
+        if live_broker is None:
+            await _pause_running_for_missing_candles(current, store=store, live_broker=None)
+        else:
+            current = await reconcile_open_orders(current, broker=live_broker, store=store)
+    await _maintain_verified_books(
+        current,
+        strategy=strategy,
+        store=store,
+        market_data=market_data,
+        paper_broker=paper_broker,
+        live_broker=live_broker,
+    )
+
+
+async def _hold_discretionary_without_candles(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    live_broker: Broker | None,
+    feed_paused: bool,
+) -> None:
+    """Reconcile a discretionary live book when its clock has no candles, without exiting."""
+    if not feed_paused:
+        await _pause_running_for_missing_candles(snapshot, store=store, live_broker=live_broker)
+    current = await store.get_deployment(snapshot.deployment.id)
+    if current.deployment.mode is not DeploymentMode.LIVE or live_broker is None:
+        return
+    await reconcile_open_orders(
+        current,
+        broker=live_broker,
+        store=store,
+        product_id=current.deployment.product_id,
+        cooldown_bars=0,
+    )
 
 
 async def _signal_exit_windows(
@@ -385,20 +530,28 @@ async def _signal_exit_windows(
     strategy: StrategyDefinition,
     *,
     deploy_anchor: datetime,
+    product_id: str | None = None,
 ) -> tuple[tuple[Candle, ...], dict[str, tuple[Candle, ...]]]:
     """Best-effort HTF and extra-TF windows a stopped book's exit rule reads (ADR 0093).
 
     Only a declared ``exits.signal_exit`` on a strategy with per-indicator extra
     timeframes needs them. A gapped window yields nothing: the exit rule then fails
     closed (no exit is invented) while the protective stop and time exit keep running.
+    ``product_id`` selects a covered book; omitted, the primary instrument is used.
     """
     if signal_exit_condition(strategy.exits) is None or not extra_indicator_timeframes(strategy):
         return (), {}
-    htf_candles = await _closed_htf_window(market_data, strategy, deploy_anchor=deploy_anchor)
+    htf_candles = await _closed_htf_window(
+        market_data, strategy, product_id=product_id, deploy_anchor=deploy_anchor
+    )
     if htf_candles is None:
         return (), {}
     extra_candles = await _closed_indicator_timeframe_windows(
-        market_data, strategy, htf_candles, deploy_anchor=deploy_anchor
+        market_data,
+        strategy,
+        htf_candles,
+        product_id=product_id,
+        deploy_anchor=deploy_anchor,
     )
     return htf_candles, extra_candles or {}
 
@@ -424,11 +577,11 @@ async def _process_one(
     snapshot = await store.get_deployment(deployment_id)
     store = RevisionFencedStore(store, snapshot.deployment.id, snapshot.deployment.revision)
     strategy = None
-    if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
-        strategy = await _strategy_definition(
+    if snapshot.deployment.status is DeploymentStatus.STOPPED:
+        strategy = await _stopped_strategy_definition(
             snapshot, store=store, publication_store=publication_store
         )
-    if snapshot.deployment.status is DeploymentStatus.STOPPED:
+        snapshot = await store.get_deployment(deployment_id)
         await _process_stopped(
             snapshot,
             strategy=strategy,
@@ -438,6 +591,10 @@ async def _process_one(
             live_broker=live_broker,
         )
         return
+    if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
+        strategy = await _strategy_definition(
+            snapshot, store=store, publication_store=publication_store
+        )
     if snapshot.deployment.kind is DeploymentKind.DISCRETIONARY:
         await _process_discretionary(
             snapshot,
@@ -468,6 +625,36 @@ async def _process_one(
     )
 
 
+async def _stopped_strategy_definition(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    publication_store: StrategySnapshotStore,
+) -> StrategyDefinition | None:
+    """Keep shutdown supervision alive when immutable strategy rules cannot be loaded."""
+    if snapshot.deployment.kind is DeploymentKind.DISCRETIONARY:
+        return None
+    fingerprint = snapshot.deployment.strategy_fingerprint
+    if fingerprint is not None:
+        try:
+            return (await publication_store.load(fingerprint)).definition
+        except RuntimeError, OSError, ValueError, TypeError:
+            pass
+    if snapshot.deployment.mismatch_detail is None:
+        await store.save_deployment(
+            with_runtime(
+                snapshot.deployment,
+                updated_at=utc_now(),
+                status=DeploymentStatus.STOPPED,
+                mismatch_detail=(
+                    "Stopped strategy snapshot is unavailable; "
+                    "only stored protection is maintained."
+                ),
+            )
+        )
+    return None
+
+
 async def _advance_strategy(
     snapshot: DeploymentSnapshot,
     *,
@@ -482,7 +669,47 @@ async def _advance_strategy(
     user_feed_store: UserOrderFeedStateStore | None,
     memory_store: ExperientialMemoryStore | None,
 ) -> None:
-    """Advance one published-strategy deployment through newly closed bars."""
+    """Advance decision bars, treating bounded cold-cache prefetch as transient."""
+    try:
+        await _advance_strategy_ready(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            risk_policy=risk_policy,
+            portfolio=portfolio,
+            user_feed_store=user_feed_store,
+            memory_store=memory_store,
+        )
+    except WindowCacheWarmingError:
+        await _supervise_warming_window(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+        )
+
+
+async def _advance_strategy_ready(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    store: ExecutionStore,
+    market_data: MarketDataService,
+    paper_broker: Broker,
+    live_broker: Broker | None,
+    quote_reader: QuoteBalanceReader | None,
+    risk_policy: RiskPolicyDefinition,
+    portfolio: tuple[DeploymentSnapshot, ...],
+    user_feed_store: UserOrderFeedStateStore | None,
+    memory_store: ExperientialMemoryStore | None,
+) -> None:
+    """Advance only fully loaded windows; warming propagates to no-entry supervision."""
     deployment = snapshot.deployment
     product, candles, expected_last = await _closed_window(
         market_data, strategy, deploy_anchor=deployment.created_at
@@ -490,6 +717,19 @@ async def _advance_strategy(
     feed_paused = await _pause_five_minute_live_if_feed_down(
         snapshot, timeframe=strategy.timeframe, store=store, user_feed_store=user_feed_store
     )
+    if not candles:
+        await _supervise_without_decision_candles(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            product=product,
+            expected_last=expected_last,
+            feed_paused=feed_paused,
+        )
+        return
     if feed_paused:
         await record_gate_skip(
             snapshot=snapshot,
@@ -499,20 +739,17 @@ async def _advance_strategy(
             reason=DecisionSkipReason.USER_FEED_GATE,
             detail=USER_FEED_PAUSE_DETAIL,
         )
-        if candles:
-            await _maintain_between_bars(
-                snapshot,
-                strategy=strategy,
-                store=store,
-                market_data=market_data,
-                paper_broker=paper_broker,
-                live_broker=live_broker,
-                quote_reader=quote_reader,
-                product=product,
-                candles=candles,
-            )
-        return
-    if not candles:
+        await _maintain_between_bars(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+            quote_reader=quote_reader,
+            product=product,
+            candles=candles,
+        )
         return
     interval = parse_candle_interval(strategy.timeframe)
     due = new_closed_bars(
@@ -1338,28 +1575,49 @@ async def _process_discretionary(
     """Reconcile and protect a discretionary book without strategy signal evaluation."""
     deployment = snapshot.deployment
     timeframe = deployment.timeframe or "1h"
-    product, candles, expected_last = await _closed_window_for(
-        market_data,
-        product_id=deployment.product_id,
-        timeframe=timeframe,
-        warmup_bars=3,
-        deploy_anchor=deployment.created_at,
-    )
+    try:
+        product, candles, expected_last = await _closed_window_for(
+            market_data,
+            product_id=deployment.product_id,
+            timeframe=timeframe,
+            warmup_bars=3,
+            deploy_anchor=deployment.created_at,
+        )
+    except WindowCacheWarmingError:
+        await _supervise_warming_window(
+            snapshot,
+            strategy=None,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+        )
+        return
     feed_paused = await _pause_five_minute_live_if_feed_down(
         snapshot, timeframe=timeframe, store=store, user_feed_store=user_feed_store
     )
     broker = _cycle_broker(deployment, paper_broker=paper_broker, live_broker=live_broker)
-    if feed_paused:
-        if candles:
-            await _maintain_discretionary(
-                snapshot,
-                product=product,
-                candles=candles,
-                broker=broker,
-                store=store,
-            )
-        return
     if not candles:
+        await _hold_discretionary_without_candles(
+            snapshot, store=store, live_broker=live_broker, feed_paused=feed_paused
+        )
+        await _maintain_verified_books(
+            await store.get_deployment(snapshot.deployment.id),
+            strategy=None,
+            store=store,
+            market_data=market_data,
+            paper_broker=paper_broker,
+            live_broker=live_broker,
+        )
+        return
+    if feed_paused:
+        await _maintain_discretionary(
+            snapshot,
+            product=product,
+            candles=candles,
+            broker=broker,
+            store=store,
+        )
         return
     interval = parse_candle_interval(timeframe)
     due = new_closed_bars(

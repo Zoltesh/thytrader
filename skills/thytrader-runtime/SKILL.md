@@ -622,3 +622,22 @@ Use the research skill to author and validate a new snapshot, then the existing 
 confirmation and live-acknowledgment gates to deploy only when requested. New decision
 rows display protective replacement identities and confirmed working coverage without
 rewriting historical evidence. Simulation `execution_stress` is research-only.
+
+## Stopped books, pauses, and missing candles (ADR 0110)
+
+An operator pause does not stop reconciliation. Every watched order and attached child is
+still reconciled; a genuine new fault is kept and the book is not unpaused. A missing
+decision-candle window journals `data_gap`, blocks new entries, and still reconciles live
+orders and fills. Cold-cache history rebuilding is a transient wait, **not** evidence of a
+venue data gap: it neither pauses nor resumes the bot or advances its decision cursor.
+Reconciliation and native protection from persisted stop/target levels continue when a fresh
+venue context exists, without evaluating incomplete signal/ATR history. No candle or price
+is fabricated. Managed stop and explicit flatten stay distinct. Flatten without a verified
+closed price keeps protective orders and reports pending (`Flatten is pending: no verified
+closed price...`), not success; a genuine reconciliation fault takes precedence in the detail.
+Only an enabled product's **most-recent closed, traded** provider candle (including a preview)
+may price that exit; stale, in-progress, and synthesized no-trade bars cannot. Stopped
+discretionary books and every covered book, including a sole secondary position, stay
+supervised. Cancel/fill races, late fills, and unknown cancels remain supervised across
+worker restarts. Diagnose with `show` and `thytrader-operator reconciliation`; do not
+treat a pending flatten as flat.
