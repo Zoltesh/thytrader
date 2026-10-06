@@ -2,21 +2,23 @@
 
 This module folds one deployment's recorded fills into closed round trips and reports,
 per trip and in total: fill-price PnL before fees, exact recorded entry and exit fees,
-net PnL, and execution slippage against the journaled decision close of the bar that
-contains each fill. It never mutates historical fills, never invents missing fees,
-liquidity, marks, or closes, and never treats absent evidence as zero. Anything it
-cannot prove is disclosed as an evidence reason instead.
+net PnL, and execution slippage against the persisted intent's completed decision
+bar. A fill bar's future close is never a causal reference. It never mutates historical
+fills, never invents missing fees, liquidity, marks, or closes, and never treats absent
+evidence as zero. Anything it cannot prove is disclosed as an evidence reason instead.
 
 The fold mirrors the fill ledger's lot semantics (buys open or add to a long and cover
 a short; sells mirror), while sums stay direct: each round trip's numbers are exact
-sums of its recorded fills, so they can differ from the ledger's incrementally realized
-net by fee-allocation rounding. That difference is disclosed as
+sums of its recorded fills. The ledger also realizes partial exits before their cycle
+closes; fee-allocation rounding and over-cover clamping can add differences too. The
+residual versus closed-cycle totals is disclosed as
 ``ledger_realized_delta`` exactly like the backtest cost attribution's
 ``summary_net_pnl_delta``; it is never silently attributed to fees.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Context, Decimal, Inexact, InvalidOperation, Overflow, localcontext
@@ -49,14 +51,16 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.execution.twins import TwinValidationError, comparable_twins
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
 
-    from thytrader.execution.models import Deployment, Fill, Order, Position
+    from thytrader.execution.models import Deployment, Fill, Order, OrderIntent, Position
     from thytrader.execution.twins import DeploymentTwinLink
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 EXECUTION_QUALITY_SCHEMA_VERSION: Literal["thytrader-execution-quality-v1"] = (
     "thytrader-execution-quality-v1"
@@ -121,6 +125,8 @@ class ExecutionQualityEvidenceReason(StrEnum):
     UNAPPLIED_FILL_ECONOMICS = "unapplied_fill_economics"
     FILL_WITHOUT_ORDER = "fill_without_order"
     FILL_WITHOUT_JOURNALED_CLOSE = "fill_without_journaled_close"
+    FILL_WITHOUT_INTENT = "fill_without_intent"
+    NON_CAUSAL_DECISION_REFERENCE = "non_causal_decision_reference"
     LIQUIDITY_NOT_RECORDED = "liquidity_not_recorded"
     DECISION_JOURNAL_UNAVAILABLE = "decision_journal_unavailable"
     DECISION_COVERAGE_LIMITED = "decision_coverage_limited"
@@ -140,6 +146,14 @@ class TwinComparisonReason(StrEnum):
     INCOMPLETE_PAPER_EVIDENCE = "incomplete_paper_evidence"
     INCOMPLETE_LIVE_EVIDENCE = "incomplete_live_evidence"
     SNAPSHOT_FINGERPRINTS_DIFFER = "snapshot_fingerprints_differ"
+    TRADING_RULES_UNVERIFIED = "trading_rules_unverified"
+    TRADING_RULES_INCOMPATIBLE = "trading_rules_incompatible"
+    LIFETIME_WINDOWS_DIFFER = "lifetime_windows_differ"
+    FILL_POPULATIONS_DIFFER = "fill_populations_differ"
+    ORDER_POPULATIONS_DIFFER = "order_populations_differ"
+    ORDER_POPULATION_UNVERIFIED = "order_population_unverified"
+    FILL_POPULATION_UNVERIFIED = "fill_population_unverified"
+    LIVE_FILL_COVERAGE_INCOMPLETE = "live_fill_coverage_incomplete"
     ENTRY_FILL_COUNT_DIVERGENCE = "entry_fill_count_divergence"
     ENTRY_SIGNAL_COUNT_DIVERGENCE = "entry_signal_count_divergence"
     UNFILLED_ENTRY_ORDER_DIVERGENCE = "unfilled_entry_order_divergence"
@@ -159,8 +173,10 @@ class ExecutionQualityFill(_FrozenQualityModel):
     ``liquidity`` is ``maker`` only for recorded post-only fills and ``taker`` only for
     recorded marketable fills; venue-decided bracket and stop-limit fills report null
     because the venue did not record which side they took. ``slippage_bps`` is signed
-    against the journaled decision close of the bar containing the fill (positive is
-    worse than that close) and is null when no journaled close exists.
+    against the persisted intent's completed decision-bar close (positive is worse).
+    The bar must have closed by intent creation, order creation, and fill time. This
+    is an original-intent benchmark, not a contemporaneous quote at a later reprice.
+    Missing or noncausal references are null, never replaced with a fill-bar close.
     """
 
     fill_id: UUID
@@ -172,6 +188,15 @@ class ExecutionQualityFill(_FrozenQualityModel):
     filled_at: datetime
     liquidity: MakerTakerEvidence | None = None
     slippage_bps: QualityDecimalText | None = None
+    reference_price: QualityDecimalText | None = None
+    reference_intent_id: UUID | None = None
+    reference_bar_starts_at: datetime | None = None
+    reference_bar_closes_at: datetime | None = None
+
+    @field_serializer("reference_bar_starts_at", "reference_bar_closes_at", when_used="json")
+    def serialize_reference_time(self, value: datetime | None) -> str | None:
+        """Render causal benchmark provenance without synthesizing missing instants."""
+        return None if value is None else _utc_text(value)
 
     @field_serializer("filled_at", when_used="json")
     def serialize_filled_at(self, value: datetime) -> str:
@@ -210,7 +235,7 @@ class ExecutionQualityRoundTrip(_FrozenQualityModel):
 
 
 class ExecutionQualityOpenCycle(_FrozenQualityModel):
-    """A still-open position cycle: recorded entry evidence only, no invented PnL."""
+    """A still-open cycle including partial exits, without invented closed-trade PnL."""
 
     direction: CycleDirection
     opened_at: datetime
@@ -219,6 +244,7 @@ class ExecutionQualityOpenCycle(_FrozenQualityModel):
     entry_fees: QualityDecimalText
     entries: tuple[ExecutionQualityFill, ...] = Field(min_length=1)
     position_matches_ledger: bool
+    exits: tuple[ExecutionQualityFill, ...] = ()
 
     @field_serializer("opened_at", when_used="json")
     def serialize_opened_at(self, value: datetime) -> str:
@@ -232,6 +258,7 @@ class ExecutionQualityBook(_FrozenQualityModel):
     product_id: str
     closed_trade_count: int = Field(ge=0)
     round_trips: tuple[ExecutionQualityRoundTrip, ...] = ()
+    recorded_fills: tuple[ExecutionQualityFill, ...] = ()
     open_cycle: ExecutionQualityOpenCycle | None = None
     fill_price_pnl_before_fees: QualityDecimalText
     entry_fees: QualityDecimalText
@@ -293,6 +320,7 @@ class ExecutionQualityReport(_FrozenQualityModel):
     schema_version: Literal["thytrader-execution-quality-v1"] = EXECUTION_QUALITY_SCHEMA_VERSION
     report_fingerprint: FingerprintText = _PLACEHOLDER_FINGERPRINT
     deployment_id: UUID
+    product_id: str
     mode: DeploymentMode
     status: str
     strategy_fingerprint: str | None
@@ -320,6 +348,24 @@ class ExecutionQualityReport(_FrozenQualityModel):
 
 
 @dataclass(frozen=True, slots=True)
+class JournaledDecisionClose:
+    """A journaled bar close with its recorded completion instant."""
+
+    price: Decimal
+    bar_closes_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _DecisionReference:
+    """The persisted intent and completed bar that causally anchor a fill benchmark."""
+
+    price: Decimal
+    intent_id: UUID
+    bar_starts_at: datetime
+    bar_closes_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class _RecordedFill:
     """One applied fill plus the liquidity, side, and slippage evidence proven for it."""
 
@@ -327,6 +373,7 @@ class _RecordedFill:
     order_side: OrderSide
     liquidity: MakerTakerEvidence | None
     slippage_bps: Decimal | None
+    reference: _DecisionReference | None = None
 
 
 @dataclass(slots=True)
@@ -349,6 +396,7 @@ class _BookFold:
     """Per-product accumulation of closed trips and the current open cycle."""
 
     product_id: str
+    recorded_fills: list[_RecordedFill] = field(default_factory=list)
     cycle: _CycleFold = field(default_factory=_CycleFold)
     trips: list[tuple[_CycleFold, datetime]] = field(default_factory=list)
 
@@ -391,7 +439,7 @@ def _weighted_slippage(weighted: Sequence[tuple[Decimal | None, Decimal]]) -> De
 def build_execution_quality_report(
     snapshot: DeploymentSnapshot,
     *,
-    journaled_closes: Mapping[tuple[str, datetime], Decimal] | None = None,
+    journaled_closes: Mapping[tuple[str, datetime], JournaledDecisionClose] | None = None,
     decision_coverage: tuple[datetime, datetime] | None = None,
     decision_rows_fetched: int | None = None,
     journaled_entry_signals: int | None = None,
@@ -402,9 +450,9 @@ def build_execution_quality_report(
 
     Args:
         snapshot: The full deployment snapshot (deployment, orders, fills, positions).
-        journaled_closes: Optional ``(product_id, bar_starts_at)`` → close-price map
-            built from the per-bar decision journal; missing entries are disclosed,
-            never defaulted.
+        journaled_closes: Optional ``(product_id, bar_starts_at)`` → close and completion
+            instant. Only the intent's completed decision bar can be a causal reference;
+            missing and future references are disclosed, never defaulted.
         decision_coverage: The ``(oldest_bar, newest_bar)`` window the fetched decision
             rows cover, when a journal was readable.
         decision_rows_fetched: How many decision rows were read, for bounded paging.
@@ -434,6 +482,7 @@ def build_execution_quality_report(
         deployment=deployment,
         closes=closes,
         duration=duration,
+        intents={intent.id: intent for intent in snapshot.intents},
         reasons=reasons,
     )
     books = _append_position_only_books(
@@ -463,6 +512,7 @@ def build_execution_quality_report(
     )
     return ExecutionQualityReport(
         deployment_id=deployment.id,
+        product_id=deployment.product_id,
         mode=deployment.mode,
         status=deployment.status.value,
         strategy_fingerprint=deployment.strategy_fingerprint,
@@ -474,7 +524,7 @@ def build_execution_quality_report(
 
 
 def _coverage_response(
-    closes: Mapping[tuple[str, datetime], Decimal],
+    closes: Mapping[tuple[str, datetime], JournaledDecisionClose],
     decision_coverage: tuple[datetime, datetime] | None,
     rows_fetched: int | None,
 ) -> JournaledCloseCoverage | None:
@@ -530,8 +580,9 @@ def _fold_books(
     applied: Sequence[tuple[Fill, Order]],
     *,
     deployment: Deployment,
-    closes: Mapping[tuple[str, datetime], Decimal],
+    closes: Mapping[tuple[str, datetime], JournaledDecisionClose],
     duration: timedelta | None,
+    intents: Mapping[UUID, OrderIntent],
     reasons: list[ExecutionQualityEvidenceReason],
 ) -> list[_BookFold]:
     """Apply every applied fill to its product book in recorded order."""
@@ -542,25 +593,59 @@ def _fold_books(
         liquidity = _liquidity_evidence(order)
         if liquidity is None:
             reasons.append(ExecutionQualityEvidenceReason.LIQUIDITY_NOT_RECORDED)
-        slippage: Decimal | None = None
-        if duration is not None:
-            bar = _bar_start(fill.filled_at, duration)
-            close = closes.get((product_id, bar))
-            if close is None:
-                reasons.append(ExecutionQualityEvidenceReason.FILL_WITHOUT_JOURNALED_CLOSE)
-            else:
-                slippage = _signed_slippage_bps(fill, order.side, close)
-        _apply_fill(
-            book,
-            _RecordedFill(
-                fill=fill,
-                order_side=order.side,
-                liquidity=liquidity,
-                slippage_bps=slippage,
-            ),
-            reasons,
+        reference = _causal_reference(
+            fill, order, intents.get(order.intent_id), deployment, closes, duration, reasons
         )
+        recorded = _RecordedFill(
+            fill=fill,
+            order_side=order.side,
+            liquidity=liquidity,
+            slippage_bps=None
+            if reference is None
+            else _signed_slippage_bps(fill, order.side, reference.price),
+            reference=reference,
+        )
+        book.recorded_fills.append(recorded)
+        _apply_fill(book, recorded, reasons)
     return [books[key] for key in sorted(books)]
+
+
+def _causal_reference(
+    fill: Fill,
+    order: Order,
+    intent: OrderIntent | None,
+    deployment: Deployment,
+    closes: Mapping[tuple[str, datetime], JournaledDecisionClose],
+    duration: timedelta | None,
+    reasons: list[ExecutionQualityEvidenceReason],
+) -> _DecisionReference | None:
+    """Use only the intent's own completed bar; never substitute a fill-time close."""
+    if intent is None:
+        reasons.append(ExecutionQualityEvidenceReason.FILL_WITHOUT_INTENT)
+        return None
+    close = closes.get((resolved_product_id(order.product_id, deployment), intent.candle_starts_at))
+    if close is None or duration is None:
+        reasons.append(ExecutionQualityEvidenceReason.FILL_WITHOUT_JOURNALED_CLOSE)
+        return None
+    if (
+        order.parent_order_id is not None
+        or intent.side is not order.side
+        or intent.deployment_id != deployment.id
+        or resolved_product_id(intent.product_id, deployment)
+        != resolved_product_id(order.product_id, deployment)
+        or not intent.created_at <= order.created_at <= fill.filled_at
+        or close.price <= 0
+        or close.bar_closes_at != intent.candle_starts_at + duration
+        or close.bar_closes_at > min(intent.created_at, order.created_at, fill.filled_at)
+    ):
+        reasons.append(ExecutionQualityEvidenceReason.NON_CAUSAL_DECISION_REFERENCE)
+        return None
+    return _DecisionReference(
+        price=close.price,
+        intent_id=intent.id,
+        bar_starts_at=intent.candle_starts_at,
+        bar_closes_at=close.bar_closes_at,
+    )
 
 
 def _apply_fill(
@@ -592,6 +677,7 @@ def _apply_fill(
                 order_side=recorded.order_side,
                 liquidity=recorded.liquidity,
                 slippage_bps=recorded.slippage_bps,
+                reference=recorded.reference,
             )
         )
     cycle.quantity -= covered
@@ -635,6 +721,16 @@ def _fill_response(recorded: _RecordedFill) -> ExecutionQualityFill:
         slippage_bps=None
         if recorded.slippage_bps is None
         else canonical_decimal(recorded.slippage_bps),
+        reference_price=None
+        if recorded.reference is None
+        else canonical_decimal(recorded.reference.price),
+        reference_intent_id=None if recorded.reference is None else recorded.reference.intent_id,
+        reference_bar_starts_at=None
+        if recorded.reference is None
+        else recorded.reference.bar_starts_at,
+        reference_bar_closes_at=None
+        if recorded.reference is None
+        else recorded.reference.bar_closes_at,
     )
 
 
@@ -688,6 +784,7 @@ def _open_cycle_response(cycle: _CycleFold, position: Position | None) -> Execut
         entry_fees=canonical_decimal(cycle.entry_fees),
         entries=tuple(_fill_response(item) for item in cycle.entries),
         position_matches_ledger=matches,
+        exits=tuple(_fill_response(item) for item in cycle.exits),
     )
 
 
@@ -698,6 +795,7 @@ def _book_response(fold: _BookFold, position: Position | None) -> ExecutionQuali
         product_id=fold.product_id,
         closed_trade_count=len(trips),
         round_trips=trips,
+        recorded_fills=tuple(_fill_response(item) for item in fold.recorded_fills),
         open_cycle=None
         if fold.cycle.direction is None
         else _open_cycle_response(fold.cycle, position),
@@ -767,16 +865,16 @@ def _totals_response(
     delta = ledger.realized_net_pnl - net_total
     if delta != 0:
         reasons.append(ExecutionQualityEvidenceReason.LEDGER_REALIZATION_DELTA)
-    journaled = sum(trip.slippage_fills_journaled for trip in trips)
-    total_fills = sum(trip.slippage_fills_total for trip in trips)
+    recorded = [fill for book in books for fill in book.recorded_fills]
+    journaled = sum(fill.slippage_bps is not None for fill in recorded)
+    total_fills = len(recorded)
     weighted = _weighted_slippage(
         [
             (
                 None if fill.slippage_bps is None else Decimal(fill.slippage_bps),
                 Decimal(fill.quantity),
             )
-            for trip in trips
-            for fill in (*trip.entries, *trip.exits)
+            for fill in recorded
         ]
     )
     instants = [fill.filled_at for fill, _order in applied]
@@ -820,7 +918,7 @@ def _unfilled_entry_orders(
 class JournaledCloseEvidence:
     """Journaled closes plus the bounded window the fetched rows covered."""
 
-    closes: dict[tuple[str, datetime], Decimal]
+    closes: dict[tuple[str, datetime], JournaledDecisionClose]
     coverage: tuple[datetime, datetime] | None
     rows_fetched: int
     coverage_limited: bool
@@ -837,19 +935,16 @@ async def load_journaled_close_evidence(
     """Page the decision journal for the closes needed by one snapshot's fills.
 
     Paging is bounded: at most ``max_pages`` newest-first pages per product are read,
-    stopping early once rows at least as old as the earliest applied fill's bar exist.
+    stopping early once rows reach the earliest applied fill's original intent bar.
     A missing journal yields no closes and no coverage, never a default.
     """
     if decision_storage_label(store) == "unavailable":
         return JournaledCloseEvidence({}, None, 0, False)
     deployment = snapshot.deployment
-    duration = (
-        parse_candle_interval(deployment.timeframe).duration if deployment.timeframe else None
-    )
     orders = {order.id: order for order in snapshot.orders}
-    earliest = _earliest_fill_bars(snapshot, deployment, orders, duration)
+    earliest = _earliest_fill_bars(snapshot, deployment, orders)
     products = sorted(earliest)
-    closes: dict[tuple[str, datetime], Decimal] = {}
+    closes: dict[tuple[str, datetime], JournaledDecisionClose] = {}
     rows = 0
     limited = False
     for product_id in products:
@@ -862,13 +957,16 @@ async def load_journaled_close_evidence(
             for decision in page.decisions:
                 rows += 1
                 if decision.close_price is not None:
-                    closes[(product_id, decision.bar_starts_at)] = Decimal(decision.close_price)
+                    closes[(product_id, decision.bar_starts_at)] = JournaledDecisionClose(
+                        price=Decimal(decision.close_price), bar_closes_at=decision.bar_closes_at
+                    )
             cursor = page.next_cursor
             if cursor is None:
                 exhausted = True
                 break
             oldest_seen = page.decisions[-1].bar_starts_at if page.decisions else None
             if oldest_seen is not None and oldest_seen <= earliest[product_id]:
+                exhausted = True  # All required intent bars were reached, not cap-limited.
                 break
         if not exhausted:
             limited = True
@@ -883,23 +981,19 @@ def _earliest_fill_bars(
     snapshot: DeploymentSnapshot,
     deployment: Deployment,
     orders: Mapping[UUID, Order],
-    duration: timedelta | None,
 ) -> dict[str, datetime]:
-    """Map each product with fills to the bar of its earliest applied fill."""
+    """Find the earliest decision bar needed by applied fills, not their later fill bars."""
     earliest: dict[str, datetime] = {}
-    if duration is None:
-        return {
-            resolved_product_id(order.product_id, deployment): datetime.max.replace(tzinfo=UTC)
-            for fill in snapshot.fills
-            if fill.economics_applied_at is not None
-            and (order := orders.get(fill.order_id)) is not None
-        }
+    intents = {intent.id: intent for intent in snapshot.intents}
     for fill in snapshot.fills:
         order = orders.get(fill.order_id)
         if order is None or fill.economics_applied_at is None:
             continue
         product_id = resolved_product_id(order.product_id, deployment)
-        bar = _bar_start(fill.filled_at, duration)
+        intent = intents.get(order.intent_id)
+        if intent is None:
+            continue
+        bar = intent.candle_starts_at
         current = earliest.get(product_id)
         if current is None or bar < current:
             earliest[product_id] = bar
@@ -915,6 +1009,9 @@ class ExecutionTwinSide(_FrozenQualityModel):
     evidence_complete: bool
     closed_trade_count: int = Field(ge=0)
     entry_fill_count: int = Field(ge=0)
+    applied_fill_count: int = Field(ge=0)
+    unfilled_entry_orders: int = Field(ge=0)
+    journaled_entry_signals: int | None = None
     fill_price_pnl_before_fees: QualityDecimalText
     entry_fees: QualityDecimalText
     exit_fees: QualityDecimalText
@@ -932,18 +1029,21 @@ class ExecutionTwinSide(_FrozenQualityModel):
 class ExecutionFeeNormalization(_FrozenQualityModel):
     """Counterfactual fee normalization; realized amounts are never rewritten.
 
-    ``counterfactual_live_fees_at_paper_rates`` re-prices only the live fills whose
-    recorded liquidity proves which paper rate applies; fills without that evidence
-    are counted, not guessed.
+    Both amounts describe ALL applied lifetime live fills exactly once, independently
+    of twin overlap. Unknown liquidity or excluded unapplied/orphan fills make the
+    counterfactual and delta null, never a partial-subset number or an implied zero.
     """
 
     maker_fee_rate: QualityDecimalText
     taker_fee_rate: QualityDecimalText
     rate_source: Literal["stored_paper_assumptions", "documented_defaults"]
     observed_live_fees: QualityDecimalText
-    counterfactual_live_fees_at_paper_rates: QualityDecimalText
-    fee_delta: QualityDecimalText
+    counterfactual_live_fees_at_paper_rates: QualityDecimalText | None
+    fee_delta: QualityDecimalText | None
     fills_without_liquidity_evidence: int = Field(ge=0)
+    population: Literal["live_applied_fill_lifetime"] = "live_applied_fill_lifetime"
+    fill_count: int = Field(ge=0)
+    complete: bool
 
 
 class TwinOverlapWindow(_FrozenQualityModel):
@@ -972,6 +1072,8 @@ class ExecutionTwinComparison(_FrozenQualityModel):
     product_id: str
     timeframe: str | None
     overlap: TwinOverlapWindow | None = None
+    population: Literal["recorded_fill_lifetime"] = "recorded_fill_lifetime"
+    summaries_context_only: bool
     comparable: bool
     reasons: tuple[TwinComparisonReason, ...] = ()
     fee_normalization: ExecutionFeeNormalization | None = None
@@ -1001,26 +1103,26 @@ def build_execution_twin_comparison(
     paper_report: ExecutionQualityReport,
     live_snapshot: DeploymentSnapshot,
     live_report: ExecutionQualityReport,
+    strategy_snapshots: tuple[StrategySnapshot, StrategySnapshot] | None = None,
 ) -> ExecutionTwinComparison:
     """Compare two explicitly linked books on recorded execution evidence only.
 
-    Comparability requires an overlapping fill window and complete evidence on both
-    sides; anything else is disclosed as a reason, never silently smoothed over. The
-    fee normalization is counterfactual and separate: no realized field is rewritten.
+    Lifetime summaries are context only unless the complete books share identical
+    fill bounds and proven decision/product/side/quantity populations. Rules must be
+    identical or proven equivalent by ADR 0105 snapshots. Fee normalization always
+    describes all applied lifetime live fills, never a silently cropped overlap.
 
     Raises:
         ValueError: When the link's members do not match the supplied reports.
     """
     reasons: list[TwinComparisonReason] = []
-    if (
-        link.paper_deployment_id != paper_report.deployment_id
-        or link.live_deployment_id != live_report.deployment_id
-    ):
-        raise ValueError("Twin link members do not match the supplied reports.")
+    _require_twin_member(
+        link.paper_deployment_id, DeploymentMode.PAPER, paper_snapshot, paper_report
+    )
+    _require_twin_member(link.live_deployment_id, DeploymentMode.LIVE, live_snapshot, live_report)
     paper_deployment = paper_snapshot.deployment
     live_deployment = live_snapshot.deployment
-    if paper_deployment.strategy_fingerprint != live_deployment.strategy_fingerprint:
-        reasons.append(TwinComparisonReason.SNAPSHOT_FINGERPRINTS_DIFFER)
+    _twin_rule_reasons(paper_deployment, live_deployment, strategy_snapshots, reasons)
     overlap = _twin_overlap(paper_report, live_report)
     if overlap is None:
         reasons.append(TwinComparisonReason.NO_OVERLAPPING_FILLS)
@@ -1030,14 +1132,13 @@ def build_execution_twin_comparison(
         reasons.append(TwinComparisonReason.INCOMPLETE_LIVE_EVIDENCE)
     paper_side = _twin_side(paper_report)
     live_side = _twin_side(live_report)
-    if overlap is not None and paper_side.entry_fill_count != live_side.entry_fill_count:
-        reasons.append(TwinComparisonReason.ENTRY_FILL_COUNT_DIVERGENCE)
-    normalization = _fee_normalization(paper_snapshot, live_report, overlap, reasons)
-    blocking = {
-        TwinComparisonReason.NO_OVERLAPPING_FILLS,
-        TwinComparisonReason.INCOMPLETE_PAPER_EVIDENCE,
-        TwinComparisonReason.INCOMPLETE_LIVE_EVIDENCE,
+    _twin_population_reasons(paper_snapshot, paper_report, live_snapshot, live_report, reasons)
+    normalization = _fee_normalization(paper_snapshot, live_report, reasons)
+    informational = {
+        TwinComparisonReason.SNAPSHOT_FINGERPRINTS_DIFFER,
+        TwinComparisonReason.PAPER_FEE_RATES_DEFAULTED,
     }
+    comparable = not any(reason not in informational for reason in reasons)
     return ExecutionTwinComparison(
         paper=paper_side,
         live=live_side,
@@ -1046,10 +1147,158 @@ def build_execution_twin_comparison(
         product_id=live_deployment.product_id,
         timeframe=live_deployment.timeframe,
         overlap=overlap,
-        comparable=not any(reason in blocking for reason in reasons),
+        comparable=comparable,
+        summaries_context_only=not comparable,
         reasons=tuple(dict.fromkeys(reasons)),
         fee_normalization=normalization,
     )
+
+
+def _require_twin_member(
+    member_id: UUID,
+    mode: DeploymentMode,
+    snapshot: DeploymentSnapshot,
+    report: ExecutionQualityReport,
+) -> None:
+    """Reject reports or snapshots that do not represent the exact linked member."""
+    deployment = snapshot.deployment
+    if (
+        member_id != deployment.id
+        or member_id != report.deployment_id
+        or deployment.mode is not mode
+        or report.mode is not mode
+        or report.product_id != deployment.product_id
+        or report.timeframe != deployment.timeframe
+        or report.strategy_fingerprint != deployment.strategy_fingerprint
+    ):
+        raise ValueError("Twin link members do not match the supplied snapshots and reports.")
+    applied, _unapplied, _orphan = _partition_fills(snapshot, {o.id: o for o in snapshot.orders})
+    actual = {fill.fill_id: fill for book in report.books for fill in book.recorded_fills}
+    if len(actual) != len(applied) or any(
+        fill.id not in actual or not _record_matches_fill(actual[fill.id], fill, order)
+        for fill, order in applied
+    ):
+        raise ValueError("Twin report fill population does not match its source snapshot.")
+
+
+def _record_matches_fill(record: ExecutionQualityFill, fill: Fill, order: Order) -> bool:
+    """Validate raw fill facts, not cycle projections whose exits may be clamped."""
+    return (
+        record.order_id == fill.order_id
+        and record.side is order.side
+        and record.price == canonical_decimal(fill.price)
+        and record.quantity == canonical_decimal(fill.quantity)
+        and record.fee == canonical_decimal(fill.fee)
+        and record.filled_at == fill.filled_at
+        and record.liquidity == _liquidity_evidence(order)
+    )
+
+
+def _twin_rule_reasons(
+    paper: Deployment,
+    live: Deployment,
+    snapshots: tuple[StrategySnapshot, StrategySnapshot] | None,
+    reasons: list[TwinComparisonReason],
+) -> None:
+    """Apply ADR 0105's pinned-content proof, not snapshot-name or link trust."""
+    differing = paper.strategy_fingerprint != live.strategy_fingerprint
+    if differing:
+        reasons.append(TwinComparisonReason.SNAPSHOT_FINGERPRINTS_DIFFER)
+    try:
+        comparable_twins(paper, live, snapshots=snapshots)
+    except TwinValidationError:
+        reasons.append(
+            TwinComparisonReason.TRADING_RULES_UNVERIFIED
+            if differing and snapshots is None
+            else TwinComparisonReason.TRADING_RULES_INCOMPATIBLE
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class _FillPopulationKey:
+    """Comparable fill exposure, excluding price/fee outcomes and deployment identity."""
+
+    product_id: str
+    decision_bar: datetime
+    purpose: IntentPurpose
+    side: OrderSide
+    quantity: Decimal
+
+
+def _fill_population(snapshot: DeploymentSnapshot) -> Counter[_FillPopulationKey] | None:
+    """Describe every applied fill's proven intent; never align missing intents by time."""
+    intents = {intent.id: intent for intent in snapshot.intents}
+    applied, _unapplied, _orphan = _partition_fills(snapshot, {o.id: o for o in snapshot.orders})
+    population: Counter[_FillPopulationKey] = Counter()
+    for fill, order in applied:
+        intent = intents.get(order.intent_id)
+        if intent is None:
+            return None
+        population[
+            _FillPopulationKey(
+                product_id=resolved_product_id(order.product_id, snapshot.deployment),
+                decision_bar=intent.candle_starts_at,
+                purpose=intent.purpose,
+                side=order.side,
+                quantity=fill.quantity,
+            )
+        ] += 1
+    return population
+
+
+def _order_population(snapshot: DeploymentSnapshot) -> Counter[_FillPopulationKey] | None:
+    """Include unfilled orders' decision exposure, not just their equal aggregate counts."""
+    intents = {intent.id: intent for intent in snapshot.intents}
+    population: Counter[_FillPopulationKey] = Counter()
+    for order in snapshot.orders:
+        intent = intents.get(order.intent_id)
+        if intent is None:
+            return None
+        population[
+            _FillPopulationKey(
+                product_id=resolved_product_id(order.product_id, snapshot.deployment),
+                decision_bar=intent.candle_starts_at,
+                purpose=intent.purpose,
+                side=order.side,
+                quantity=order.quantity,
+            )
+        ] += 1
+    return population
+
+
+def _twin_population_reasons(
+    paper_snapshot: DeploymentSnapshot,
+    paper: ExecutionQualityReport,
+    live_snapshot: DeploymentSnapshot,
+    live: ExecutionQualityReport,
+    reasons: list[TwinComparisonReason],
+) -> None:
+    """Block unequal lifetime histories even if some of their fill dates overlap."""
+    if (paper.totals.first_fill_at, paper.totals.last_fill_at) != (
+        live.totals.first_fill_at,
+        live.totals.last_fill_at,
+    ):
+        reasons.append(TwinComparisonReason.LIFETIME_WINDOWS_DIFFER)
+    first = _fill_population(paper_snapshot)
+    second = _fill_population(live_snapshot)
+    if first is None or second is None:
+        reasons.append(TwinComparisonReason.FILL_POPULATION_UNVERIFIED)
+    elif first != second:
+        reasons.append(TwinComparisonReason.FILL_POPULATIONS_DIFFER)
+    paper_orders = _order_population(paper_snapshot)
+    live_orders = _order_population(live_snapshot)
+    if paper_orders is None or live_orders is None:
+        reasons.append(TwinComparisonReason.ORDER_POPULATION_UNVERIFIED)
+    elif paper_orders != live_orders:
+        reasons.append(TwinComparisonReason.ORDER_POPULATIONS_DIFFER)
+    if sum(_entry_fill_count(book) for book in paper.books) != sum(
+        _entry_fill_count(book) for book in live.books
+    ):
+        reasons.append(TwinComparisonReason.ENTRY_FILL_COUNT_DIVERGENCE)
+    if paper.totals.unfilled_entry_orders != live.totals.unfilled_entry_orders:
+        reasons.append(TwinComparisonReason.UNFILLED_ENTRY_ORDER_DIVERGENCE)
+    if paper.totals.journaled_entry_signals != live.totals.journaled_entry_signals:
+        reasons.append(TwinComparisonReason.ENTRY_SIGNAL_COUNT_DIVERGENCE)
 
 
 def _twin_side(report: ExecutionQualityReport) -> ExecutionTwinSide:
@@ -1062,6 +1311,9 @@ def _twin_side(report: ExecutionQualityReport) -> ExecutionTwinSide:
         evidence_complete=report.evidence.complete,
         closed_trade_count=totals.closed_trade_count,
         entry_fill_count=sum(_entry_fill_count(book) for book in report.books),
+        applied_fill_count=totals.applied_fill_count,
+        unfilled_entry_orders=totals.unfilled_entry_orders,
+        journaled_entry_signals=totals.journaled_entry_signals,
         fill_price_pnl_before_fees=totals.fill_price_pnl_before_fees,
         entry_fees=totals.entry_fees,
         exit_fees=totals.exit_fees,
@@ -1100,19 +1352,18 @@ def _twin_overlap(
 def _fee_normalization(
     paper_snapshot: DeploymentSnapshot,
     live_report: ExecutionQualityReport,
-    overlap: TwinOverlapWindow | None,
     reasons: list[TwinComparisonReason],
 ) -> ExecutionFeeNormalization | None:
     """Re-price recorded live fills at the paper book's fee assumptions.
 
     Realized live fees stay untouched; this is a disclosed counterfactual over the
-    fills whose liquidity the records prove, using each fill's own quote notional.
+    entire applied-fill lifetime. Unknown liquidity makes the total unavailable.
     """
     deployment = paper_snapshot.deployment
     maker, taker = effective_paper_fee_rates(
         deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
     )
-    defaulted = deployment.paper_maker_fee_rate is None
+    defaulted = deployment.paper_maker_fee_rate is None or deployment.paper_taker_fee_rate is None
     if defaulted:
         reasons.append(TwinComparisonReason.PAPER_FEE_RATES_DEFAULTED)
     observed: list[Decimal] = []
@@ -1120,10 +1371,6 @@ def _fee_normalization(
     without_evidence = 0
     for book in live_report.books:
         for fill in _iter_report_fills(book):
-            if overlap is not None and not (
-                overlap.first_fill_at <= fill.filled_at <= overlap.last_fill_at
-            ):
-                continue
             observed.append(Decimal(fill.fee))
             if fill.liquidity is None:
                 without_evidence += 1
@@ -1132,26 +1379,36 @@ def _fee_normalization(
             counterfactual.append(Decimal(fill.price) * Decimal(fill.quantity) * rate)
     if without_evidence:
         reasons.append(TwinComparisonReason.LIVE_FILLS_WITHOUT_LIQUIDITY_EVIDENCE)
+    coverage_incomplete = bool(
+        live_report.evidence.unapplied_fill_count or live_report.evidence.orphan_fill_count
+    )
+    if coverage_incomplete:
+        reasons.append(TwinComparisonReason.LIVE_FILL_COVERAGE_INCOMPLETE)
+    if not observed:
+        return None
+    complete = not without_evidence and not coverage_incomplete
     observed_total = _sum_exact(observed)
-    counterfactual_total = _sum_exact(counterfactual)
+    counterfactual_total = _sum_exact(counterfactual) if complete else None
     return ExecutionFeeNormalization(
         maker_fee_rate=canonical_decimal(maker),
         taker_fee_rate=canonical_decimal(taker),
         rate_source="documented_defaults" if defaulted else "stored_paper_assumptions",
         observed_live_fees=canonical_decimal(observed_total),
-        counterfactual_live_fees_at_paper_rates=canonical_decimal(counterfactual_total),
-        fee_delta=canonical_decimal(counterfactual_total - observed_total),
+        counterfactual_live_fees_at_paper_rates=None
+        if counterfactual_total is None
+        else canonical_decimal(counterfactual_total),
+        fee_delta=None
+        if counterfactual_total is None
+        else canonical_decimal(counterfactual_total - observed_total),
         fills_without_liquidity_evidence=without_evidence,
+        fill_count=len(observed),
+        complete=complete,
     )
 
 
 def _iter_report_fills(book: ExecutionQualityBook) -> Iterable[ExecutionQualityFill]:
-    """Yield every fill a book's evidence carries, entries and exits alike."""
-    for trip in book.round_trips:
-        yield from trip.entries
-        yield from trip.exits
-    if book.open_cycle is not None:
-        yield from book.open_cycle.entries
+    """Yield raw applied fills exactly once, including partial and over-covering exits."""
+    yield from book.recorded_fills
 
 
 def render_execution_quality_text(report: ExecutionQualityReport) -> str:
@@ -1206,6 +1463,7 @@ __all__ = [
     "ExecutionTwinSide",
     "JournaledCloseCoverage",
     "JournaledCloseEvidence",
+    "JournaledDecisionClose",
     "TwinComparisonReason",
     "TwinOverlapWindow",
     "build_execution_quality_report",

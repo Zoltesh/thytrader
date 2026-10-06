@@ -2,7 +2,7 @@
 
 ``GET /api/v1/deployments/{id}/execution-quality`` folds one book's recorded fills
 into closed round trips with exact fee, net-PnL, and journaled-close slippage
-evidence. ``GET /api/v1/deployments/{id}/execution-quality/twin`` compares the two
+evidence against completed intent-bar closes. The twin route compares the two
 books of one explicit twin link on that evidence. Both are read-only: they never
 place, cancel, or mutate orders, fills, positions, or deployment state.
 """
@@ -17,7 +17,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from thytrader.api.dependencies import get_decision_journal_store, get_execution_store
+from thytrader.api.dependencies import (
+    get_decision_journal_store,
+    get_execution_store,
+    get_strategy_snapshot_store,
+)
 from thytrader.execution.decision_store import (
     DecisionJournalStore,
     DecisionStoreError,
@@ -28,18 +32,21 @@ from thytrader.execution.execution_quality import (
     ExecutionQualityReport,
     ExecutionTwinComparison,
     JournaledCloseEvidence,
+    JournaledDecisionClose,
     build_execution_quality_report,
     build_execution_twin_comparison,
     load_journaled_close_evidence,
 )
 from thytrader.execution.models import DeploymentSnapshot, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore
+from thytrader.execution.twins import TwinValidationError, load_twin_snapshots
+from thytrader.strategies.snapshots import StrategySnapshotError, StrategySnapshotStore
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from decimal import Decimal
 
     from thytrader.execution.twins import DeploymentTwinLink
+    from thytrader.strategies.snapshots import StrategySnapshot
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +57,7 @@ router = APIRouter(prefix="/api/v1", tags=["execution-quality"])
 class _ResolvedJournal:
     """Journaled-close evidence resolved for one snapshot, with route-level reasons."""
 
-    closes: dict[tuple[str, datetime], Decimal]
+    closes: dict[tuple[str, datetime], JournaledDecisionClose]
     coverage: tuple[datetime, datetime] | None
     rows_fetched: int
     extra_reasons: tuple[ExecutionQualityEvidenceReason, ...]
@@ -94,21 +101,41 @@ async def get_execution_twin_comparison(
     deployment_id: UUID,
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     decisions: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
+    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
 ) -> ExecutionTwinComparison:
     """Compare one explicitly linked paper/live pair on recorded execution evidence."""
     link = await _load_twin_link(store, deployment_id)
     paper_snapshot = await _load_snapshot(store, link.paper_deployment_id)
     live_snapshot = await _load_snapshot(store, link.live_deployment_id)
+    proof = await _rule_proof(paper_snapshot, live_snapshot, publications)
     paper_report = await _quality_report(decisions, paper_snapshot)
     live_report = await _quality_report(decisions, live_snapshot)
-    return await asyncio.to_thread(
-        build_execution_twin_comparison,
-        link=link,
-        paper_snapshot=paper_snapshot,
-        paper_report=paper_report,
-        live_snapshot=live_snapshot,
-        live_report=live_report,
-    )
+    try:
+        return await asyncio.to_thread(
+            build_execution_twin_comparison,
+            link=link,
+            paper_snapshot=paper_snapshot,
+            paper_report=paper_report,
+            live_snapshot=live_snapshot,
+            live_report=live_report,
+            strategy_snapshots=proof,
+        )
+    except ValueError as error:
+        logger.warning("Execution-quality twin inputs disagree: %s", type(error).__name__)
+        raise _unavailable() from None
+
+
+async def _rule_proof(
+    paper: DeploymentSnapshot,
+    live: DeploymentSnapshot,
+    publications: StrategySnapshotStore,
+) -> tuple[StrategySnapshot, StrategySnapshot] | None:
+    """Load ADR 0105 pinned rules; missing proof produces cannot-compare, not trust."""
+    try:
+        return await load_twin_snapshots(paper.deployment, live.deployment, publications)
+    except (StrategySnapshotError, TwinValidationError) as error:
+        logger.warning("Execution-quality twin rule proof unavailable: %s", type(error).__name__)
+        return None
 
 
 async def _quality_report(
@@ -129,7 +156,7 @@ async def _quality_report(
 async def _load_snapshot(store: ExecutionStore, deployment_id: UUID) -> DeploymentSnapshot:
     """Load one full snapshot, mapping missing books and outages to 404/503."""
     try:
-        return await store.get_deployment(deployment_id)
+        snapshot = await store.get_deployment(deployment_id)
     except ExecutionStoreError as error:
         if "not found" in str(error).lower():
             raise HTTPException(
@@ -141,6 +168,9 @@ async def _load_snapshot(store: ExecutionStore, deployment_id: UUID) -> Deployme
     except Exception as error:  # noqa: BLE001 - redacted boundary for store faults.
         logger.warning("Execution-quality snapshot failed: %s", type(error).__name__)
         raise _unavailable() from None
+    if snapshot.deployment.id != deployment_id:
+        raise _unavailable()
+    return snapshot
 
 
 async def _load_twin_link(store: ExecutionStore, deployment_id: UUID) -> DeploymentTwinLink:
@@ -158,6 +188,8 @@ async def _load_twin_link(store: ExecutionStore, deployment_id: UUID) -> Deploym
                 "message": "No twin link is saved for this deployment.",
             },
         )
+    if deployment_id not in (link.paper_deployment_id, link.live_deployment_id):
+        raise _unavailable()
     return link
 
 

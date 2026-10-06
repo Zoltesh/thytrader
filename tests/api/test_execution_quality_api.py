@@ -18,7 +18,9 @@ from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,
     Fill,
+    IntentPurpose,
     Order,
+    OrderIntent,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -117,6 +119,22 @@ async def _seed(
     """Persist one closed round trip."""
     await store.create_deployment(deployment)
     buy, sell, buy_fill, sell_fill = _round_trip(deployment, at=START, exit_price=exit_price)
+    for order in (buy, sell):
+        await store.save_intent(
+            OrderIntent(
+                id=order.intent_id,
+                deployment_id=deployment.id,
+                client_order_id=order.client_order_id,
+                purpose=IntentPurpose.ENTRY
+                if order.side is OrderSide.BUY
+                else IntentPurpose.TIME_EXIT,
+                side=order.side,
+                kind=order.kind,
+                quantity=order.quantity,
+                created_at=order.created_at,
+                candle_starts_at=order.created_at - HOUR,
+            )
+        )
     await store.save_order(buy)
     await store.save_order(sell)
     await store.save_fill(buy_fill)
@@ -124,7 +142,7 @@ async def _seed(
 
 
 def _decision(deployment: Deployment, bar: datetime, close: str) -> BarDecision:
-    """One journaled close for the bar containing a fill."""
+    """One journaled, already-completed intent-bar close."""
     return BarDecision(
         deployment_id=deployment.id,
         product_id=deployment.product_id,
@@ -174,8 +192,8 @@ def test_execution_quality_uses_journaled_closes_when_present() -> None:
 
     async def prepare() -> None:
         await _seed(store, deployment)
-        await journal.upsert(_decision(deployment, START, "101"))
-        await journal.upsert(_decision(deployment, START + HOUR, "109"))
+        await journal.upsert(_decision(deployment, START - HOUR, "101"))
+        await journal.upsert(_decision(deployment, START, "109"))
 
     asyncio.run(prepare())
     app = create_app(

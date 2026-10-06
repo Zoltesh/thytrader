@@ -5,6 +5,13 @@ ADR: [0116](../decisions/0116-live-execution-evidence-and-backtest-bar-explanati
 Branch: `feat/review-evidence`. No ops-contract bump and no operator report-schema rewrite.
 Those remain for the integrating lead.
 
+**Historical initial handoff, not the final correctness assessment.** Lead review found
+material defects despite the passing checks listed here: unknown-liquidity normalization,
+partial exits, lifetime populations, incompatible rules, and future-close causality.
+The fixes, corrected interfaces, and new verification are recorded in
+[the follow-up note](2026-10-06-execution-evidence-review-corrections.md). That note supersedes
+this document's initial interface/limitation descriptions.
+
 ## Resume-session review (2026-10-06)
 
 The prior session ended on a provider credit error after writing the implementation but

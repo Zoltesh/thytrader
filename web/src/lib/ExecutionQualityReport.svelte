@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		counterfactualFeeLabel,
 		evidenceReasonLabel,
 		liquidityLabel,
 		slippageLabel,
@@ -23,7 +24,8 @@
 <section class="quality" data-testid="execution-quality-report" aria-label="Execution quality">
 	<p class="note">
 		Recorded fills only. Missing fees, liquidity, and journaled closes are omitted, never shown as
-		zero. This page cannot place or change orders.
+		zero. Slippage uses the persisted intent's completed decision-bar close, not a future fill-bar
+		close or a quote at a later reprice. This page cannot place or change orders.
 	</p>
 	<div class="totals" data-testid="execution-quality-totals">
 		<div>
@@ -52,7 +54,8 @@
 			<p data-testid="open-cycle">
 				Open {book.open_cycle.direction}
 				{book.open_cycle.quantity}. Entry fees
-				{formatUsd(book.open_cycle.entry_fees)}. No exit PnL is invented.
+				{formatUsd(book.open_cycle.entry_fees)}. {book.open_cycle.exits.length} recorded partial exit
+				fills are included below. No remaining-position exit PnL is invented.
 			</p>
 		{/if}
 		{#if book.round_trips.length === 0}
@@ -90,10 +93,42 @@
 				</tbody>
 			</table>
 		{/if}
+		<details data-testid="recorded-fill-evidence">
+			<summary>All {book.recorded_fills.length} applied fills (including partial exits)</summary>
+			<table>
+				<thead
+					><tr
+						><th>Fill time</th><th>Side / quantity</th><th>Recorded fee</th><th
+							>Decision reference</th
+						></tr
+					></thead
+				>
+				<tbody>
+					{#each book.recorded_fills as fill (fill.fill_id)}
+						<tr
+							><td>{formatUtcTimestamp(fill.filled_at)}</td><td>{fill.side} {fill.quantity}</td><td
+								>{fill.fee}</td
+							><td>
+								{#if fill.reference_price !== null && fill.reference_bar_closes_at !== null}
+									{fill.reference_price} · bar completed {formatUtcTimestamp(
+										fill.reference_bar_closes_at
+									)}
+								{:else}No causal decision close{/if}
+							</td></tr
+						>
+					{/each}
+				</tbody>
+			</table>
+		</details>
 	{/each}
 	{#if comparison}
 		<aside data-testid="execution-twin" class:cannot-compare={!comparison.comparable}>
 			<h3>{comparison.comparable ? 'Twin comparison' : 'Cannot compare twins'}</h3>
+			<p>
+				Recorded-fill lifetime summaries{comparison.summaries_context_only
+					? ' — context only; unequal or unverified histories must not be compared.'
+					: ' — aligned evidence populations.'}
+			</p>
 			<p>
 				Paper net {formatUsd(comparison.paper.net_pnl)} · live net {formatUsd(
 					comparison.live.net_pnl
@@ -101,9 +136,14 @@
 			</p>
 			{#if comparison.fee_normalization}
 				<p>
-					Observed live fees {formatUsd(comparison.fee_normalization.observed_live_fees)}.
+					All {comparison.fee_normalization.fill_count} applied lifetime live fills, independently of
+					twin overlap: observed fees {formatUsd(comparison.fee_normalization.observed_live_fees)}.
 					Counterfactual at paper rates
-					{formatUsd(comparison.fee_normalization.counterfactual_live_fees_at_paper_rates)}
+					{#if comparison.fee_normalization.counterfactual_live_fees_at_paper_rates !== null}
+						{formatUsd(comparison.fee_normalization.counterfactual_live_fees_at_paper_rates)}
+					{:else}
+						{counterfactualFeeLabel(null)}
+					{/if}
 					({comparison.fee_normalization.rate_source.replaceAll('_', ' ')}). Realized PnL is
 					unchanged.
 				</p>

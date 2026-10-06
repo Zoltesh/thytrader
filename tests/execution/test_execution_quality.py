@@ -1,5 +1,6 @@
 """Round-trip cost attribution and execution-quality evidence tests (ADR 0116)."""
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -10,6 +11,7 @@ from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.execution_quality import (
     ExecutionQualityEvidenceReason,
+    JournaledDecisionClose,
     TwinComparisonReason,
     build_execution_quality_report,
     build_execution_twin_comparison,
@@ -21,7 +23,9 @@ from thytrader.execution.models import (
     DeploymentSnapshot,
     DeploymentStatus,
     Fill,
+    IntentPurpose,
     Order,
+    OrderIntent,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -123,10 +127,40 @@ def _snapshot(
     fills: tuple[Fill, ...] = (),
     positions: tuple[Position, ...] = (),
 ) -> DeploymentSnapshot:
-    """One full deployment snapshot."""
+    """Fixture with orders submitted after the preceding completed decision bar.
+
+    Older tests omitted intents and incorrectly benchmarked a future fill-bar close.
+    Model real causal intent/order timestamps here; regression tests separately cover
+    missing, late, and future references without this fixture convenience.
+    """
+    timed_orders = []
+    intents = []
+    for order in orders:
+        instant = min(
+            (fill.filled_at for fill in fills if fill.order_id == order.id), default=START
+        )
+        decision_bar = instant.replace(minute=0, second=0, microsecond=0) - HOUR
+        timed_orders.append(replace(order, created_at=instant))
+        intents.append(
+            OrderIntent(
+                id=order.intent_id,
+                deployment_id=deployment.id,
+                client_order_id=order.client_order_id,
+                purpose=IntentPurpose.ENTRY
+                if order.side is OrderSide.BUY
+                else IntentPurpose.TIME_EXIT,
+                side=order.side,
+                kind=order.kind,
+                quantity=order.quantity,
+                created_at=instant,
+                candle_starts_at=decision_bar,
+                product_id=order.product_id,
+            )
+        )
     return DeploymentSnapshot(
         deployment=deployment,
-        orders=orders,
+        orders=tuple(timed_orders),
+        intents=tuple(intents),
         fills=fills,
         positions=positions,
         position=positions[0] if positions else None,
@@ -155,9 +189,14 @@ def _position(
     )
 
 
-def _closes(*bars: datetime, close: str = "101") -> dict[tuple[str, datetime], Decimal]:
-    """Journaled closes for the primary product."""
-    return {("BTC-USD", bar): Decimal(close) for bar in bars}
+def _closes(
+    *completions: datetime, close: str = "101"
+) -> dict[tuple[str, datetime], JournaledDecisionClose]:
+    """Journaled prior-bar closes completed at each supplied boundary, not future closes."""
+    return {
+        ("BTC-USD", completed - HOUR): JournaledDecisionClose(Decimal(close), completed)
+        for completed in completions
+    }
 
 
 def test_long_round_trip_reports_exact_fees_net_and_slippage() -> None:
@@ -190,7 +229,7 @@ def test_long_round_trip_reports_exact_fees_net_and_slippage() -> None:
 
 
 def test_buy_slippage_is_positive_when_worse_than_the_journaled_close() -> None:
-    """A buy above the bar's journaled close reads as positive (worse) slippage."""
+    """A buy above the completed intent-bar close reads as positive (worse) slippage."""
     deployment = _deployment(uuid4())
     buy = _order(deployment.id, OrderSide.BUY, OrderKind.POST_ONLY_LIMIT, price="102")
     fill = _fill(buy, at=_at(0), price="102", fee="0.1")
@@ -426,10 +465,10 @@ def test_multiple_products_fold_into_separate_books() -> None:
         _fill(eth_sell, at=_at(1, 30), price="11", fee="0.011"),
     )
     closes = {
-        ("BTC-USD", _at(0)): Decimal("101"),
-        ("BTC-USD", _at(1)): Decimal("109"),
-        ("ETH-USD", _at(0)): Decimal("10"),
-        ("ETH-USD", _at(1)): Decimal("11"),
+        ("BTC-USD", _at(-1)): JournaledDecisionClose(Decimal("101"), _at(0)),
+        ("BTC-USD", _at(0)): JournaledDecisionClose(Decimal("109"), _at(1)),
+        ("ETH-USD", _at(-1)): JournaledDecisionClose(Decimal("10"), _at(0)),
+        ("ETH-USD", _at(0)): JournaledDecisionClose(Decimal("11"), _at(1)),
     }
     report = build_execution_quality_report(
         _snapshot(deployment, (btc_buy, eth_buy, btc_sell, eth_sell), fills),
@@ -510,7 +549,8 @@ async def test_journaled_close_evidence_pages_the_journal_for_needed_bars() -> N
     )
     assert evidence.coverage is not None
     assert evidence.coverage == (_at(0), _at(5))
-    assert evidence.closes[("BTC-USD", _at(3))] == Decimal("103")
+    assert evidence.closes[("BTC-USD", _at(2))].price == Decimal("102")
+    assert evidence.closes[("BTC-USD", _at(2))].bar_closes_at == _at(3)
     assert evidence.coverage_limited is False
 
 
@@ -520,6 +560,7 @@ async def test_twin_comparison_compares_complete_overlapping_evidence() -> None:
     paper = _deployment(uuid4(), maker_rate="0.001", taker_rate="0.002")
     live = _deployment(uuid4(), mode=DeploymentMode.LIVE, maker_rate=None, taker_rate=None)
     reports = []
+    snapshots = []
     for deployment in (paper, live):
         buy = _order(deployment.id, OrderSide.BUY, OrderKind.POST_ONLY_LIMIT, price="100")
         sell = _order(deployment.id, OrderSide.SELL, OrderKind.MARKETABLE, price="110")
@@ -527,20 +568,19 @@ async def test_twin_comparison_compares_complete_overlapping_evidence() -> None:
             _fill(buy, at=_at(0), price="100", fee="0.1"),
             _fill(sell, at=_at(1), price="110", fee="0.11"),
         )
+        snapshot = _snapshot(deployment, (buy, sell), fills)
+        snapshots.append(snapshot)
         reports.append(
-            build_execution_quality_report(
-                _snapshot(deployment, (buy, sell), fills),
-                journaled_closes=_closes(_at(0), _at(1)),
-            )
+            build_execution_quality_report(snapshot, journaled_closes=_closes(_at(0), _at(1)))
         )
     link = DeploymentTwinLink(
         paper_deployment_id=paper.id, live_deployment_id=live.id, linked_at=START
     )
     comparison = build_execution_twin_comparison(
         link=link,
-        paper_snapshot=_snapshot(paper),
+        paper_snapshot=snapshots[0],
         paper_report=reports[0],
-        live_snapshot=_snapshot(live),
+        live_snapshot=snapshots[1],
         live_report=reports[1],
     )
     assert comparison.comparable
@@ -584,9 +624,9 @@ async def test_twin_comparison_cannot_compare_without_overlap_or_complete_eviden
     )
     comparison = build_execution_twin_comparison(
         link=link,
-        paper_snapshot=_snapshot(paper),
+        paper_snapshot=_snapshot(paper, (paper_buy, paper_sell), paper_fills),
         paper_report=paper_report,
-        live_snapshot=_snapshot(live),
+        live_snapshot=_snapshot(live, (live_buy, live_sell), live_fills),
         live_report=live_report,
     )
     assert comparison.comparable is False
@@ -628,9 +668,9 @@ async def test_twin_comparison_flags_entry_divergence_and_flipped_fills() -> Non
     )
     comparison = build_execution_twin_comparison(
         link=link,
-        paper_snapshot=_snapshot(paper),
+        paper_snapshot=_snapshot(paper, (paper_buy, paper_sell), paper_fills),
         paper_report=paper_report,
-        live_snapshot=_snapshot(live),
+        live_snapshot=_snapshot(live, (live_buy, live_add, live_sell), live_fills),
         live_report=live_report,
     )
     assert TwinComparisonReason.ENTRY_FILL_COUNT_DIVERGENCE in comparison.reasons
@@ -670,9 +710,9 @@ async def test_twin_comparison_rejects_mismatched_link_members() -> None:
     try:
         build_execution_twin_comparison(
             link=link,
-            paper_snapshot=_snapshot(paper),
+            paper_snapshot=_snapshot(paper, (buy, sell), fills),
             paper_report=paper_report,
-            live_snapshot=_snapshot(live),
+            live_snapshot=_snapshot(live, (live_buy, live_sell), live_fills),
             live_report=live_report,
         )
     except ValueError as error:

@@ -12,8 +12,9 @@
 Operators can see ledger net PnL and backtest cost attribution, but not a closed-trade
 split of recorded fill-price PnL, exact entry and exit fees, and slippage against the
 journaled decision close. Missing venue fees or liquidity must not be shown as zero.
-Paper/live twins need the same honesty: an incomplete journal, a disjoint fill window, or
-unrecorded liquidity is a cannot-compare, not a smoothed comparison. Fee-normalized
+Paper/live twins need the same honesty: incompatible rules, an incomplete journal,
+unequal lifetime populations, or unrecorded liquidity is a cannot-compare, not a smoothed
+comparison. A date intersection alone does not define equal evaluation populations. Fee-normalized
 comparisons must stay counterfactual.
 
 Backtest signal traces already explain entry and exit-rule outcomes, but they do not show
@@ -25,18 +26,30 @@ trace of every execution event would duplicate the result and invite lookahead.
 1. **Recorded execution quality.** `thytrader-execution-quality-v1` folds one deployment's
    applied fills into closed round trips. Each trip reports fill-price PnL before fees,
    exact recorded entry and exit fees, and net PnL as their difference. Slippage is the
-   signed distance from the journaled decision close of the bar that contains the fill,
-   and only when that close exists. Maker/taker is reported only for post-only and
+   signed distance from the persisted intent's own journaled decision-bar close. That
+   bar must have completed before the intent, order submission, and fill; fill-bar future
+   closes are never a fallback. The fill exposes the reference price, intent id, bar start,
+   and completion instant. This benchmarks the original intent, not a quote at later
+   repricing. Missing/noncausal references remain null. Maker/taker is reported only for post-only and
    marketable orders. Unapplied fills, orphan fills, unknown liquidity, missing closes,
    open cycles, position mismatches, and ledger fee-allocation deltas are evidence
-   reasons. They are never defaulted to zero and never written back onto fills.
+   reasons. They are never defaulted to zero and never written back onto fills. Each book's
+   `recorded_fills` enumerates raw applied fills exactly once, including partial open-cycle
+   exits and the unclamped quantity of an over-covering fill. Cycle projections are not the
+   fee-normalization population.
 
 2. **Explicit twin comparison.** `thytrader-execution-twin-comparison-v1` compares only a
-   saved paper/live link. The pair is comparable only when both reports are complete and
-   their recorded fill windows overlap. Otherwise the response says cannot-compare and
-   lists the reasons. Fee normalization re-prices live fills that have recorded liquidity
-   at the paper book's stored or documented fee assumptions. It is a separate
-   counterfactual. Observed live fees and realized net PnL are not rewritten.
+   saved paper/live link and validates ids, modes, market, timeframe, source fill facts,
+   and snapshotted trading rules. Different fingerprints require the existing ADR 0105
+   canonical pinned-rule proof; fee assumptions can legitimately differ. A link alone is
+   not proof. Summaries explicitly describe the recorded-fill lifetime population, not a
+   cropped overlap. They are context-only/cannot-compare unless complete evidence has
+   identical fill bounds and decision/product/side/quantity populations (plus equal recorded
+   unmatched-entry counts). This is deliberately conservative about different fill timing
+   and splitting. Fee normalization always describes ALL applied lifetime live fills,
+   independently of overlap. Unknown liquidity or excluded fill coverage makes the complete
+   counterfactual total and fee delta null, not zero or a known-subset comparison. Observed
+   fees and realized PnL are never rewritten.
 
 3. **Bounded bar explanations.** `thytrader-backtest-bar-explanation-v1` reuses the
    fingerprint-checked signal-trace re-evaluation and joins the immutable result's trades
@@ -60,12 +73,22 @@ trace of every execution event would duplicate the result and invite lookahead.
 
 - Operators can separate price PnL, recorded fees, and unknown slippage without scraping
   fills or inventing venue liquidity.
-- A twin comparison that lacks journaled closes or an overlapping window is explicitly
-  not comparable.
+- A twin comparison with missing causal references, unverified rules, unequal lifetime
+  windows/populations, or missing fill costs is explicitly not comparable.
+- Partial exits appear in open-cycle evidence and in the canonical fill population exactly
+  once; normalization never uses duplicated/clamped cycle projections.
 - Bar explanations stay reproducible from the published result and its verified trace.
 - Decision-journal paging is bounded. A long book can report `decision_coverage_limited`
   instead of reading the journal without a cap.
 - Historical fills are not migrated or corrected by this slice.
+
+## Review correction (2026-10-06)
+
+The initial implementation/tests did not enforce the intended honesty: they silently used
+future fill-bar closes, omitted partial open-cycle exits, compared incompatible/unmatched
+lifetimes, and subtracted known-subset counterfactual fees from full observed totals.
+The decision above corrects those defects before release. Original financial records, the
+backtest engine, and global release contracts remain unchanged.
 
 ## Alternatives considered
 

@@ -78,6 +78,16 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
 | Execution quality | `uv run thytrader-operator execution-quality --deployment-id UUID [--twin]` | `GET /api/v1/deployments/{id}/execution-quality` and `.../execution-quality/twin` (HTTP-only; recorded closed-trade fees and journaled-close slippage; missing fees/liquidity are not zero; `--local` is rejected; ADR 0116) |
 
+`execution-quality` slippage is relative to the persisted intent's **completed** decision
+bar; `reference_*` identifies that price, intent and bar. It is not a future fill-bar close
+or a quote at later repricing. Each book's `recorded_fills` includes partial exits exactly
+once. Twin `population=recorded_fill_lifetime` summaries are **context only** when
+`summaries_context_only=true`; intersecting dates do not prove equal histories or rules.
+Different strategy fingerprints need the server's pinned-rule proof (ADR 0105). Fee
+normalization always covers all applied lifetime live fills, independent of overlap;
+unknown liquidity or missing fill coverage makes counterfactual fees and delta **null**,
+never zero. Keep the observed fees and PnL separate from those assumptions.
+
 `--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
