@@ -29,5 +29,8 @@ async def publish_risk_policy(store: RiskPolicyStore, write: RiskPolicyWrite) ->
         max_daily_loss_quote=write.max_daily_loss_quote,
         max_portfolio_exposure_quote=write.max_portfolio_exposure_quote,
         max_venue_order_actions_per_minute=write.max_venue_order_actions_per_minute,
+        max_order_quantity=write.max_order_quantity,
+        max_order_notional_quote=write.max_order_notional_quote,
+        min_available_quote_reserve=write.min_available_quote_reserve,
     )
     return await store.publish(definition)

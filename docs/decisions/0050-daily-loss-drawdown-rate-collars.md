@@ -4,7 +4,7 @@ The drawdown calculation is amended by [ADR 0107](0107-capital-normalized-live-p
 the breaker uses current loss from the durable ledger peak on a pinned performance-capital
 basis, and reports preserve the maximum observed fraction across restart and recovery.
 
-- Status: Accepted
+- Status: Accepted — amended by [ADR 0111](0111-durable-risk-accounting-scopes.md)
 - Date: 2026-09-16
 - Relates to: [0004](0004-safe-execution-and-access.md),
   [0019](0019-ops-contract-identity.md),

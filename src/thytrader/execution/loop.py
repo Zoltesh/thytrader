@@ -1639,6 +1639,7 @@ async def _reprice_entry(
         snapshot,
         product_id=product.product_id,
         notional=entry_price * remaining_qty,
+        quantity=remaining_qty,
         risk_policy=policy,
         portfolio=portfolio,
         observation=_bar_observation(
@@ -2354,6 +2355,7 @@ async def _submit_sized_entry(
         snapshot,
         product_id=product.product_id,
         notional=sized.notional,
+        quantity=sized.quantity,
         risk_policy=risk_policy,
         portfolio=portfolio,
         observation=_bar_observation(
@@ -2420,6 +2422,7 @@ def _entry_admitted(
     portfolio: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None = None,
     is_pyramid_add: bool = False,
+    quantity: Decimal | None = None,
 ) -> bool:
     """Return whether the active risk policy allows this sized entry."""
     return (
@@ -2427,6 +2430,7 @@ def _entry_admitted(
             snapshot,
             product_id=product_id,
             notional=notional,
+            quantity=quantity,
             risk_policy=risk_policy,
             portfolio=portfolio,
             observation=observation,
@@ -2445,6 +2449,7 @@ def _entry_verdict(
     portfolio: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None = None,
     is_pyramid_add: bool = False,
+    quantity: Decimal | None = None,
 ) -> RiskVerdict:
     """Return the entry gate verdict for this sized order."""
     live_cash = live_capital_base(snapshot.deployment)
@@ -2462,6 +2467,7 @@ def _entry_verdict(
             strategy_id=snapshot.deployment.strategy_id,
             notional=notional,
             is_pyramid_add=is_pyramid_add,
+            quantity=quantity,
         ),
         snapshots=_portfolio_with_current(portfolio, snapshot),
         live_quote_cash=live_cash,

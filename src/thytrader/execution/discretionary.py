@@ -60,6 +60,7 @@ from thytrader.execution.trade_reason_scope import (
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.exposure import counts_for_daily_loss
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
 from thytrader.risk.store import load_effective_policy
@@ -203,6 +204,7 @@ async def place_discretionary_order(
         request=request,
         risk_store=risk_store,
         notional=sized.notional,
+        quantity=sized.quantity,
         live_quote_cash=live_quote_cash,
         entry_price=sized.entry_price,
         reference_price=mark_candle.close,
@@ -418,6 +420,7 @@ async def _book_for_entry(
     request: DiscretionaryOrderRequest,
     risk_store: RiskPolicyStore | None,
     notional: Decimal,
+    quantity: Decimal,
     live_quote_cash: Decimal | None,
     entry_price: Decimal,
     reference_price: Decimal,
@@ -434,6 +437,7 @@ async def _book_for_entry(
             request=request,
             snapshot=snapshot,
             notional=notional,
+            quantity=quantity,
             live_quote_cash=live_quote_cash,
             deployments=existing,
             entry_price=entry_price,
@@ -453,6 +457,7 @@ async def _book_for_entry(
         request=request,
         snapshot=DeploymentSnapshot(deployment=candidate),
         notional=notional,
+        quantity=quantity,
         live_quote_cash=live_quote_cash,
         deployments=existing,
         entry_price=entry_price,
@@ -590,6 +595,7 @@ async def _require_entry_admission(
     request: DiscretionaryOrderRequest,
     snapshot: DeploymentSnapshot,
     notional: Decimal,
+    quantity: Decimal,
     live_quote_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
     entry_price: Decimal,
@@ -597,7 +603,7 @@ async def _require_entry_admission(
 ) -> None:
     """Fail closed when the registry rejects this sized entry."""
     active = await load_effective_policy(risk_store)
-    peers = await _occupied_snapshots(
+    peers = await _accounting_snapshots(
         store, deployments=deployments, exclude_id=snapshot.deployment.id
     )
     live_cash = live_quote_cash if request.mode is DeploymentMode.LIVE else None
@@ -608,6 +614,7 @@ async def _require_entry_admission(
             product_id=request.product_id,
             strategy_id=None,
             notional=notional,
+            quantity=quantity,
         ),
         snapshots=(*peers, snapshot),
         live_quote_cash=live_cash,
@@ -656,16 +663,16 @@ async def _pause_on_breaker(
         await _pause(snapshot, store=store, detail=detail)
 
 
-async def _occupied_snapshots(
+async def _accounting_snapshots(
     store: ExecutionStore,
     *,
     deployments: tuple[Deployment, ...],
     exclude_id: UUID,
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Load occupied peer books so breakers see fills, orders, and inventory."""
+    """Load peer books that can still evidence UTC-day loss, including stopped flat rows."""
     peers: list[DeploymentSnapshot] = []
     for item in deployments:
-        if item.id == exclude_id or item.status not in _OCCUPIED:
+        if item.id == exclude_id or not counts_for_daily_loss(item.status):
             continue
         peers.append(await store.get_deployment(item.id))
     return tuple(peers)

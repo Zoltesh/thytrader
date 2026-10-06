@@ -75,6 +75,25 @@ proposed notional, account capital, and cap; `ALLOCATION_EXCEEDED` names the str
 and identify the affected deployment. Preserve the gate; diagnose through `decisions`, `show`,
 `thytrader-operator reconciliation`, and `show-risk-policy` before changing policy.
 
+Daily loss is not the exposure set ([ADR 0111](../../docs/decisions/0111-durable-risk-accounting-scopes.md)).
+Exposure and order-rate occupancy still count running, paused, and stopped books that hold
+inventory or working entries. UTC-day loss also includes stopped flat books of the same mode and
+the same spot quote, including a fill dated today after stop. Stopping a book does not reset that
+loss or either latch. A drawdown latch blocks only the matching strategy, or a discretionary book
+on that product; it does not block unrelated strategies. USD, USDC, and USDT losses are never
+added together. An open book without a same-UTC-day baseline denies new risk and does not invent
+equity. `reset-breaker-latches` clears latch flags only; a loss still over the limit can trip
+again, and the bot stays stopped or paused until a separate resume. Paper strategy deletion
+removes that strategy's paper ledgers, so those rows can no longer evidence the day's loss.
+
+Optional `set-risk-policy` flags `--max-order-quantity`, `--max-order-notional-quote`, and
+`--min-available-quote-reserve` are omitted by default and do not change compiled or previously
+published limits. When set, they deny only the entry that exceeds them (`MAX_ORDER_QUANTITY`,
+`MAX_ORDER_NOTIONAL`, `BALANCE_RESERVE`). Live reserve uses observed venue available quote minus
+the proposed notional. Paper reserve uses `paper_capital_quote` minus occupied marked exposure
+minus the proposed notional. A quantity cap with no proposed quantity, or a live reserve with an
+unknown venue quote, fails closed.
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).

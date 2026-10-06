@@ -336,6 +336,28 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     set_policy.add_argument(
+        "--max-order-quantity",
+        default=None,
+        help=(
+            "Optional maximum base quantity for one new entry. Unset by default; "
+            "omitting it does not change compiled or previously published limits."
+        ),
+    )
+    set_policy.add_argument(
+        "--max-order-notional-quote",
+        default=None,
+        help=("Optional maximum quote notional for one new entry. Unset by default."),
+    )
+    set_policy.add_argument(
+        "--min-available-quote-reserve",
+        default=None,
+        help=(
+            "Optional quote that must remain available after a new entry. Live uses "
+            "observed venue available quote. Paper uses paper capital minus occupied "
+            "exposure. Unset by default."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],
@@ -853,6 +875,9 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_daily_loss_quote": arguments.max_daily_loss_quote,
         "max_portfolio_exposure_quote": arguments.max_portfolio_exposure_quote,
         "max_venue_order_actions_per_minute": arguments.max_venue_order_actions_per_minute,
+        "max_order_quantity": arguments.max_order_quantity,
+        "max_order_notional_quote": arguments.max_order_notional_quote,
+        "min_available_quote_reserve": arguments.min_available_quote_reserve,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
     }
 

@@ -7,10 +7,10 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.capital import daily_pnl_from_day_open
-from thytrader.execution.ledger import ledger_from_snapshot
+from thytrader.execution.ledger import ledger_from_snapshot, realized_pnl_since
 from thytrader.execution.models import (
     DeploymentMode,
+    DeploymentSnapshot,
     DeploymentStatus,
     IntentPurpose,
     OrderStatus,
@@ -18,14 +18,15 @@ from thytrader.execution.models import (
     snapshot_positions,
 )
 from thytrader.execution.performance import current_drawdown
-from thytrader.risk.exposure import snapshot_has_residual_exposure
+from thytrader.market_data.products import is_spot_product_id, quote_currency
+from thytrader.risk.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from uuid import UUID
 
-    from thytrader.execution.models import DeploymentSnapshot, OrderIntent
+    from thytrader.execution.models import OrderIntent
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _RATE_WINDOW = timedelta(seconds=60)
@@ -51,19 +52,44 @@ def evaluate_circuit_breakers(
     observation: EntryObservation,
     capital: Decimal,
 ) -> RiskVerdict | None:
-    """Return a deny when daily-loss or per-strategy drawdown is at the limit."""
-    occupied = _occupied_mode(snapshots, mode)
-    latched = _latched_verdict(occupied)
+    """Return a deny when same-quote daily-loss or matching-strategy drawdown trips.
+
+    Daily loss and its latch include stopped flat books. Drawdown never spills across
+    an unrelated strategy. Exposure and order-rate occupancy stay on ``_occupied_mode``.
+    """
+    quote = _product_quote(proposed_product_id)
+    if quote is None:
+        return _deny(
+            RiskReasonCode.BREAKER_MARK_MISSING,
+            "Daily-loss unavailable: proposed product quote is not a supported spot quote.",
+        )
+    daily_books, incomplete = _same_quote_books(
+        daily_loss_snapshots(snapshots, mode), quote, purpose="Daily-loss"
+    )
+    if incomplete is not None:
+        return incomplete
+    latched = _daily_latch_verdict(daily_books)
     if latched is not None:
         return latched
+    drawdown_latch = _drawdown_latch_verdict(
+        snapshots,
+        mode=mode,
+        quote=quote,
+        strategy_id=proposed_strategy_id,
+        product_id=proposed_product_id,
+    )
+    if drawdown_latch is not None:
+        return drawdown_latch
     daily = _daily_loss_verdict(
-        policy, mode=mode, occupied=occupied, observation=observation, capital=capital
+        policy, mode=mode, occupied=daily_books, observation=observation, capital=capital
     )
     if daily is not None:
         return daily
     return _drawdown_verdict(
         policy,
-        occupied=occupied,
+        snapshots=snapshots,
+        mode=mode,
+        quote=quote,
         proposed_strategy_id=proposed_strategy_id,
         proposed_product_id=proposed_product_id,
         observation=observation,
@@ -90,17 +116,37 @@ def breaker_pause_detail(reason_code: RiskReasonCode, detail: str) -> str:
     return f"{reason_code.value}: {detail}"
 
 
-def _latched_verdict(occupied: Sequence[DeploymentSnapshot]) -> RiskVerdict | None:
-    """Replay a previously latched daily-loss or drawdown breach until explicit reset."""
-    if any(item.deployment.daily_loss_latched for item in occupied):
+def _daily_latch_verdict(books: Sequence[DeploymentSnapshot]) -> RiskVerdict | None:
+    """Replay a same-quote daily-loss latch, including one left on a stopped flat book.
+
+    Stop does not clear the flag. Only an explicit operator reset does.
+    """
+    if any(item.deployment.daily_loss_latched for item in books):
         return _deny(
             RiskReasonCode.DAILY_LOSS_LIMIT,
             "Daily-loss breaker is latched until an explicit operator reset.",
         )
-    if any(item.deployment.drawdown_latched for item in occupied):
+    return None
+
+
+def _drawdown_latch_verdict(
+    snapshots: Sequence[DeploymentSnapshot],
+    *,
+    mode: DeploymentMode,
+    quote: str,
+    strategy_id: UUID | None,
+    product_id: str,
+) -> RiskVerdict | None:
+    """Deny only when a matching strategy or discretionary product book is latched."""
+    books, incomplete = _drawdown_books(
+        snapshots, mode=mode, quote=quote, strategy_id=strategy_id, product_id=product_id
+    )
+    if incomplete is not None:
+        return incomplete
+    if any(item.deployment.drawdown_latched for item in books):
         return _deny(
             RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT,
-            "Drawdown breaker is latched until an explicit operator reset.",
+            "Drawdown breaker is latched for this strategy until an explicit operator reset.",
         )
     return None
 
@@ -137,19 +183,35 @@ def _daily_loss_verdict(
 def _drawdown_verdict(
     policy: RiskPolicyDefinition,
     *,
-    occupied: Sequence[DeploymentSnapshot],
+    snapshots: Sequence[DeploymentSnapshot],
+    mode: DeploymentMode,
+    quote: str,
     proposed_strategy_id: UUID | None,
     proposed_product_id: str,
     observation: EntryObservation,
 ) -> RiskVerdict | None:
-    """Trip when this strategy's fill-ledger drawdown reaches the policy fraction."""
-    target = _drawdown_target(
-        occupied,
+    """Trip when a matching strategy book's pinned-capital drawdown reaches the cap."""
+    books, incomplete = _drawdown_books(
+        snapshots,
+        mode=mode,
+        quote=quote,
         strategy_id=proposed_strategy_id,
         product_id=proposed_product_id,
     )
-    if target is None:
-        return None
+    if incomplete is not None:
+        return incomplete
+    limit = Decimal(policy.max_strategy_drawdown_fraction)
+    for target in books:
+        verdict = _one_drawdown_verdict(target, observation=observation, limit=limit)
+        if verdict is not None:
+            return verdict
+    return None
+
+
+def _one_drawdown_verdict(
+    target: DeploymentSnapshot, *, observation: EntryObservation, limit: Decimal
+) -> RiskVerdict | None:
+    """Evaluate one book's current drawdown without applying it to unrelated books."""
     if _open_inventory_missing_mark(target, observation.marks):
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
@@ -168,7 +230,7 @@ def _drawdown_verdict(
             f"Drawdown unavailable for deployment {target.deployment.id}: "
             "missing positive performance-capital basis.",
         )
-    if fraction < Decimal(policy.max_strategy_drawdown_fraction):
+    if fraction < limit:
         return None
     return _deny(
         RiskReasonCode.STRATEGY_DRAWDOWN_LIMIT,
@@ -281,7 +343,7 @@ def _mode_daily_loss(
     for snapshot in occupied:
         if _open_inventory_missing_mark(snapshot, observation.marks):
             return None
-        pnl = _daily_pnl(snapshot, marks=observation.marks)
+        pnl = _daily_pnl(snapshot, marks=observation.marks, as_of=observation.as_of)
         if pnl is None:
             return None
         total += pnl
@@ -290,19 +352,42 @@ def _mode_daily_loss(
     return -total
 
 
-def _daily_pnl(snapshot: DeploymentSnapshot, *, marks: Mapping[str, Decimal]) -> Decimal | None:
-    """Return UTC-day equity change from day-open, not realized-today plus lifetime unrealized."""
+def _daily_pnl(
+    snapshot: DeploymentSnapshot, *, marks: Mapping[str, Decimal], as_of: datetime
+) -> Decimal | None:
+    """Return this UTC day's equity change, never a previous day's stale baseline.
+
+    A same-day ``utc_day_open_equity`` is authoritative and already includes late fills
+    once they are in operational cash. A book that started today uses its opening
+    equity. A flat book whose baseline is older contributes only realized PnL from
+    fills at or after UTC midnight, so a stop cannot carry yesterday's loss forward
+    and a late fill still counts. An open book without a same-day baseline is incomplete.
+    """
     ledger = ledger_from_snapshot(snapshot, marks=marks)
-    if not ledger.mark_complete:
+    if not ledger.mark_complete or ledger.equity is None:
         return None
-    pnl = daily_pnl_from_day_open(snapshot.deployment, equity=ledger.equity)
-    if pnl is not None:
-        return pnl
+    day_start = _utc_day_start(as_of)
+    day_open_at = snapshot.deployment.utc_day_open_at
+    day_open = snapshot.deployment.utc_day_open_equity
+    if (
+        day_open_at is not None
+        and day_open is not None
+        and _utc_day_start(day_open_at) == day_start
+    ):
+        return ledger.equity - day_open
+    if _utc_day_start(snapshot.deployment.created_at) == day_start:
+        return _pnl_from_opening_equity(snapshot, equity=ledger.equity)
+    if snapshot_positions(snapshot):
+        return None
+    return realized_pnl_since(snapshot, since=day_start)
+
+
+def _pnl_from_opening_equity(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal | None:
+    """Use the recorded opening balance for a book that started on this UTC day."""
     starting = snapshot.deployment.initial_equity
     if starting is None:
         starting = snapshot.deployment.paper_starting_cash
-    equity = ledger.equity
-    if starting is None or equity is None:
+    if starting is None:
         return None
     return equity - starting
 
@@ -315,25 +400,98 @@ def _daily_loss_missing_detail(
         identity = f"deployment {snapshot.deployment.id}"
         if _open_inventory_missing_mark(snapshot, observation.marks):
             return f"Daily-loss unavailable for {identity}: missing last-close inventory marks."
-        if _daily_pnl(snapshot, marks=observation.marks) is None:
+        if _daily_pnl(snapshot, marks=observation.marks, as_of=observation.as_of) is None:
+            if snapshot_positions(snapshot):
+                return (
+                    f"Daily-loss unavailable for {identity}: missing same-UTC-day equity baseline."
+                )
             return f"Daily-loss unavailable for {identity}: missing equity or day-open baseline."
     return "Daily-loss unavailable: incomplete equity evidence."
 
 
-def _drawdown_target(
-    occupied: Sequence[DeploymentSnapshot],
+def _drawdown_books(
+    snapshots: Sequence[DeploymentSnapshot],
     *,
+    mode: DeploymentMode,
+    quote: str,
     strategy_id: UUID | None,
     product_id: str,
-) -> DeploymentSnapshot | None:
-    """Pick the occupied book whose drawdown this proposed entry would inherit."""
+) -> tuple[tuple[DeploymentSnapshot, ...], RiskVerdict | None]:
+    """Return same-quote books whose drawdown this entry would inherit."""
+    candidates = [
+        item
+        for item in daily_loss_snapshots(snapshots, mode)
+        if _matches_drawdown_scope(item, strategy_id=strategy_id, product_id=product_id)
+    ]
+    return _same_quote_books(candidates, quote, purpose="Drawdown")
+
+
+def _matches_drawdown_scope(
+    snapshot: DeploymentSnapshot, *, strategy_id: UUID | None, product_id: str
+) -> bool:
+    """Match a strategy's books, or a discretionary book on the proposed product."""
+    deployment = snapshot.deployment
     if strategy_id is not None:
-        match = next(
-            (item for item in occupied if item.deployment.strategy_id == strategy_id), None
-        )
-        if match is not None:
-            return match
-    return next((item for item in occupied if item.deployment.product_id == product_id), None)
+        return deployment.strategy_id == strategy_id
+    if deployment.strategy_id is not None:
+        return False
+    if deployment.product_id == product_id:
+        return True
+    return any(
+        resolved_product_id(position.product_id, deployment) == product_id
+        for position in snapshot_positions(snapshot)
+    )
+
+
+def _same_quote_books(
+    snapshots: Sequence[DeploymentSnapshot], quote: str, *, purpose: str
+) -> tuple[tuple[DeploymentSnapshot, ...], RiskVerdict | None]:
+    """Keep one spot quote. A mixed or unreadable book fails closed instead of summing."""
+    selected: list[DeploymentSnapshot] = []
+    for item in snapshots:
+        book_quote = _snapshot_quote(item)
+        if book_quote is None:
+            return (), _deny(
+                RiskReasonCode.BREAKER_MARK_MISSING,
+                f"{purpose} unavailable for deployment {item.deployment.id}: "
+                "unsupported or mixed quote currency.",
+            )
+        if book_quote == quote:
+            selected.append(item)
+    return tuple(selected), None
+
+
+def _snapshot_quote(snapshot: DeploymentSnapshot) -> str | None:
+    """Return the single spot quote on a book, or None when quotes cannot be summed."""
+    quotes: set[str] = set()
+    for product_id in _snapshot_products(snapshot):
+        quote = _product_quote(product_id)
+        if quote is None:
+            return None
+        quotes.add(quote)
+    if len(quotes) != 1:
+        return None
+    return next(iter(quotes))
+
+
+def _snapshot_products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
+    """Products whose quote must agree before the book's PnL can enter a currency bucket."""
+    deployment = snapshot.deployment
+    products = {deployment.product_id}
+    products.update(
+        resolved_product_id(position.product_id, deployment)
+        for position in snapshot_positions(snapshot)
+    )
+    products.update(runtime.product_id for runtime in snapshot.instrument_runtimes)
+    products.update(resolved_product_id(order.product_id, deployment) for order in snapshot.orders)
+    return tuple(product for product in products if product)
+
+
+def _product_quote(product_id: str) -> str | None:
+    """Return USD, USDC, or USDT, or None for an unsupported product id."""
+    if not is_spot_product_id(product_id):
+        return None
+    return quote_currency(product_id)
 
 
 def _durable_drawdown_fraction(snapshot: DeploymentSnapshot, *, equity: Decimal) -> Decimal | None:
@@ -344,7 +502,7 @@ def _durable_drawdown_fraction(snapshot: DeploymentSnapshot, *, equity: Decimal)
 def _occupied_mode(
     snapshots: Sequence[DeploymentSnapshot], mode: DeploymentMode
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Return risk-bearing snapshots in one paper or live mode, including STOPPED residual."""
+    """Return exposure and rate-limit books, excluding stopped flat loss evidence."""
     occupied: list[DeploymentSnapshot] = []
     for item in snapshots:
         if item.deployment.mode is not mode:

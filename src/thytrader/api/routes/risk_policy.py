@@ -54,6 +54,9 @@ class RiskPolicyWriteBody(BaseModel):
     max_daily_loss_quote: str | None = None
     max_portfolio_exposure_quote: str | None = None
     max_venue_order_actions_per_minute: int | None = Field(default=None, ge=1, le=10000)
+    max_order_quantity: str | None = None
+    max_order_notional_quote: str | None = None
+    min_available_quote_reserve: str | None = None
 
 
 class RiskPolicyResponse(BaseModel):
@@ -81,6 +84,9 @@ class RiskPolicyResponse(BaseModel):
     max_daily_loss_quote: str | None
     max_portfolio_exposure_quote: str | None
     max_venue_order_actions_per_minute: int | None
+    max_order_quantity: str | None = None
+    max_order_notional_quote: str | None = None
+    min_available_quote_reserve: str | None = None
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -146,6 +152,9 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         max_daily_loss_quote=body.max_daily_loss_quote,
         max_portfolio_exposure_quote=body.max_portfolio_exposure_quote,
         max_venue_order_actions_per_minute=body.max_venue_order_actions_per_minute,
+        max_order_quantity=body.max_order_quantity,
+        max_order_notional_quote=body.max_order_notional_quote,
+        min_available_quote_reserve=body.min_available_quote_reserve,
     )
 
 
@@ -178,4 +187,7 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         max_daily_loss_quote=definition.max_daily_loss_quote,
         max_portfolio_exposure_quote=definition.max_portfolio_exposure_quote,
         max_venue_order_actions_per_minute=definition.max_venue_order_actions_per_minute,
+        max_order_quantity=definition.max_order_quantity,
+        max_order_notional_quote=definition.max_order_notional_quote,
+        min_available_quote_reserve=definition.min_available_quote_reserve,
     )

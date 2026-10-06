@@ -51,6 +51,7 @@ class ProposedEntry:
     strategy_id: UUID | None
     notional: Decimal
     is_pyramid_add: bool = False
+    quantity: Decimal | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +168,15 @@ def evaluate_new_entry(
         limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=risk_bearing)
         if limited.decision is RiskDecision.DENY:
             return limited
+    bounded = _order_bound_verdict(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=risk_bearing,
+        live_quote_cash=live_quote_cash,
+    )
+    if bounded is not None:
+        return bounded
     exposure = _exposure_verdict(
         policy,
         mode=mode,
@@ -180,7 +190,8 @@ def evaluate_new_entry(
         policy,
         mode=mode,
         proposed=proposed,
-        occupied=risk_bearing,
+        risk_bearing=risk_bearing,
+        snapshots=snapshots,
         live_quote_cash=live_quote_cash,
         observation=observation,
     )
@@ -195,7 +206,11 @@ def evaluate_runtime_breakers(
     live_quote_cash: Decimal | None,
     observation: EntryObservation,
 ) -> RiskVerdict:
-    """Pause-worthy daily-loss and drawdown checks without rate or collar gates."""
+    """Pause-worthy daily-loss and drawdown checks without rate or collar gates.
+
+    Capital stays on risk-bearing books. Loss evidence includes stopped flat rows present
+    in ``snapshots``; this function does not drop them before the breaker.
+    """
     occupied = risk_bearing_snapshots(snapshots, mode)
     capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
     tripped = evaluate_circuit_breakers(
@@ -203,7 +218,7 @@ def evaluate_runtime_breakers(
         mode=mode,
         proposed_product_id=snapshot.deployment.product_id,
         proposed_strategy_id=snapshot.deployment.strategy_id,
-        snapshots=occupied,
+        snapshots=snapshots,
         observation=observation,
         capital=capital,
     )
@@ -315,6 +330,108 @@ def _quote(amount: Decimal) -> str:
     return f"{amount.quantize(Decimal('0.01')):f}"
 
 
+def _order_bound_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    occupied: Sequence[DeploymentSnapshot],
+    live_quote_cash: Decimal | None,
+) -> RiskVerdict | None:
+    """Apply optional quantity, notional, and balance-reserve caps when published.
+
+    Unset fields are absent from compiled and legacy policy bytes and do not deny.
+    """
+    quantity = _quantity_bound(policy, proposed)
+    if quantity is not None:
+        return quantity
+    notional = _notional_bound(policy, proposed)
+    if notional is not None:
+        return notional
+    return _reserve_bound(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=occupied,
+        live_quote_cash=live_quote_cash,
+    )
+
+
+def _quantity_bound(policy: RiskPolicyDefinition, proposed: ProposedEntry) -> RiskVerdict | None:
+    """Deny when an optional base-quantity cap is set and the entry exceeds it."""
+    cap = policy.max_order_quantity
+    if cap is None:
+        return None
+    if proposed.quantity is None:
+        return _deny(
+            RiskReasonCode.MAX_ORDER_QUANTITY,
+            "Order quantity cap is set but the proposed quantity is missing.",
+        )
+    if proposed.quantity > Decimal(cap):
+        return _deny(
+            RiskReasonCode.MAX_ORDER_QUANTITY,
+            f"Proposed quantity {proposed.quantity} exceeds max_order_quantity {cap}.",
+        )
+    return None
+
+
+def _notional_bound(policy: RiskPolicyDefinition, proposed: ProposedEntry) -> RiskVerdict | None:
+    """Deny when an optional quote-notional cap is set and the entry exceeds it."""
+    cap = policy.max_order_notional_quote
+    if cap is None or proposed.notional <= Decimal(cap):
+        return None
+    return _deny(
+        RiskReasonCode.MAX_ORDER_NOTIONAL,
+        f"Proposed notional {proposed.notional} exceeds max_order_notional_quote {cap}.",
+    )
+
+
+def _reserve_bound(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    occupied: Sequence[DeploymentSnapshot],
+    live_quote_cash: Decimal | None,
+) -> RiskVerdict | None:
+    """Keep an optional quote reserve after the entry. Unset means no extra holdback."""
+    reserve = policy.min_available_quote_reserve
+    if reserve is None:
+        return None
+    required = Decimal(reserve)
+    available = _available_after_entry(
+        policy, mode=mode, proposed=proposed, occupied=occupied, live_quote_cash=live_quote_cash
+    )
+    if available is None:
+        return _deny(
+            RiskReasonCode.BALANCE_RESERVE,
+            "Available quote is unknown; the balance reserve cannot be verified.",
+        )
+    if available < required:
+        return _deny(
+            RiskReasonCode.BALANCE_RESERVE,
+            f"Entry would leave {available} quote, below the reserve of {required}.",
+        )
+    return None
+
+
+def _available_after_entry(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    occupied: Sequence[DeploymentSnapshot],
+    live_quote_cash: Decimal | None,
+) -> Decimal | None:
+    """Quote left after this entry. Live uses venue available; paper uses the book."""
+    if mode is DeploymentMode.LIVE:
+        if live_quote_cash is None:
+            return None
+        return live_quote_cash - proposed.notional
+    used = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
+    return Decimal(policy.paper_capital_quote) - used - proposed.notional
+
+
 def _entry_membership(
     policy: RiskPolicyDefinition,
     *,
@@ -352,27 +469,34 @@ def _entry_breaker_verdict(
     *,
     mode: DeploymentMode,
     proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
+    risk_bearing: Sequence[DeploymentSnapshot],
+    snapshots: Sequence[DeploymentSnapshot],
     live_quote_cash: Decimal | None,
     observation: EntryObservation | None,
 ) -> RiskVerdict:
-    """Apply daily-loss, drawdown, rate, and collar gates when observation is present."""
+    """Apply loss, drawdown, rate, and collar gates when observation is present.
+
+    Rate limits stay on risk-bearing books. Circuit breakers see the full snapshot list
+    so a stopped flat book's loss and latch are not filtered out first.
+    """
     if observation is None:
         return _allow()
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
+    capital = _capital_base(
+        policy, mode=mode, live_quote_cash=live_quote_cash, occupied=risk_bearing
+    )
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,
         proposed_product_id=proposed.product_id,
         proposed_strategy_id=proposed.strategy_id,
-        snapshots=occupied,
+        snapshots=snapshots,
         observation=observation,
         capital=capital,
     )
     if tripped is not None:
         return tripped
     protected = evaluate_rate_and_collar(
-        policy, mode=mode, snapshots=occupied, observation=observation
+        policy, mode=mode, snapshots=risk_bearing, observation=observation
     )
     if protected is not None:
         return protected

@@ -77,8 +77,15 @@ It gates paper and live **entries** (not exits) with:
   bounded by its allocation, while unlisted paper strategies and paper discretionary books are
   allowed);
 - UTC-day daily-loss fraction of the mode capital base, plus an optional absolute
-  `max_daily_loss_quote` ceiling (live only) enforced at whichever bound is tighter;
-- per-strategy fill-ledger drawdown fraction;
+  `max_daily_loss_quote` ceiling (live only) enforced at whichever bound is tighter.
+  The loss sum includes stopped flat books of that mode and the same spot quote,
+  including fills dated today after stop. Stop is not a reset. USD, USDC, and USDT
+  are never added together. An open book without a same-UTC-day baseline, or a book
+  whose quote cannot be read, denies with `BREAKER_MARK_MISSING`
+  ([ADR 0111](decisions/0111-durable-risk-accounting-scopes.md));
+- per-strategy fill-ledger drawdown fraction. A drawdown latch or breach blocks only
+  that strategy, or a discretionary book on the same product. It does not block
+  unrelated strategies in the mode;
 - rolling 60-second entry-order and cancellation caps, purpose-aware since ADR 0063: only
   `ENTRY`-purpose orders consume the entry cap, so protective (stop/take-profit/time-exit/bracket)
   submissions never exhaust it and deny an unrelated new entry;
@@ -125,9 +132,17 @@ controls above.
 
 ### Pre-trade (destination remainders)
 
-- maximum order quantity and notional beyond the shipped exposure fractions;
-- available-balance reserve;
 - minimum liquidity and maximum spread.
+
+Optional `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` are entry bounds on the same policy document. They are
+unset in the compiled default and in stored documents that omit them, so publishing
+nothing new does not tighten current limits. When an operator sets one, only the
+entry that exceeds it is denied (`MAX_ORDER_QUANTITY`, `MAX_ORDER_NOTIONAL`,
+`BALANCE_RESERVE`). Live reserve uses observed venue available quote minus the
+proposed notional. Paper reserve uses `paper_capital_quote` minus occupied marked
+exposure minus the proposed notional. A missing quantity while the quantity cap is
+set, or an unknown live quote while the reserve is set, fails closed.
 
 ### Runtime (destination remainders)
 

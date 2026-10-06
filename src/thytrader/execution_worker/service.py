@@ -66,7 +66,7 @@ from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.research.models import warmup_starts_at
 from thytrader.research.multi_timeframe import closed_bar_required_coverage, ltf_close
-from thytrader.risk.exposure import risk_bearing_snapshots
+from thytrader.risk.exposure import daily_loss_snapshots
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import (
@@ -2420,10 +2420,14 @@ async def _risk_snapshots(
     store: ExecutionStore,
     deployments: Sequence[Deployment],
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Load snapshots used by the entry gate, including stopped residual books."""
+    """Load snapshots used by the entry gate, including stopped flat loss evidence.
+
+    Exposure and rate limits re-filter to risk-bearing books. Daily loss and latches
+    need stopped flat rows, so this set must not drop them.
+    """
     loaded = [await store.get_deployment(item.id) for item in deployments]
-    paper = risk_bearing_snapshots(loaded, DeploymentMode.PAPER)
-    live = risk_bearing_snapshots(loaded, DeploymentMode.LIVE)
+    paper = daily_loss_snapshots(loaded, DeploymentMode.PAPER)
+    live = daily_loss_snapshots(loaded, DeploymentMode.LIVE)
     return paper + live
 
 

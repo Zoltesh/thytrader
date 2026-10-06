@@ -126,6 +126,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
 | [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
 | [0110](0110-stopped-lifecycle-reconciliation.md) | Reconcile paused and stopped books fully; keep protection when flatten has no verified price | Accepted — amends 0058 |
+| [0111](0111-durable-risk-accounting-scopes.md) | Separate exposure/occupancy from UTC-day loss and latches; strategy-scoped drawdown and retained paper risk evidence | Accepted |
 | [0112](0112-quantitative-protection-evidence.md) | Quantitative protection evidence; live cover requires a confirmed matching stop; paper cover stays worker-dependent | Accepted — amends 0058 and 0098 |
 | [0113](0113-deploy-anchored-window-cache.md) | Bounded incremental history loading with exact anchored indicator state and explicit cold-cache warming | Accepted |
 | [0114](0114-readiness-preflight-and-venue-reconciliation.md) | Advisory capacity and fee preflight; explicit managed-versus-venue inventory evidence | Accepted |

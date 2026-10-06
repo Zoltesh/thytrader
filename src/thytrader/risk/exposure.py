@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from thytrader.execution.models import DeploymentSnapshot
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
+_DAILY_LOSS = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED, DeploymentStatus.STOPPED}
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
 _ACTIVE_ORDER = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 
@@ -79,6 +80,15 @@ def snapshot_has_residual_exposure(snapshot: DeploymentSnapshot) -> bool:
     return working_entry_notional(snapshot, snapshot.deployment.product_id) > 0
 
 
+def counts_for_daily_loss(status: DeploymentStatus) -> bool:
+    """True when a retained book can still evidence UTC-day loss or a daily-loss latch.
+
+    Stopped flat books stay in this set. Exposure uses ``risk_bearing_snapshots`` instead,
+    so a flat stop does not occupy capital or an order-rate slot.
+    """
+    return status in _DAILY_LOSS
+
+
 def risk_bearing_snapshots(
     snapshots: Sequence[DeploymentSnapshot], mode: DeploymentMode
 ) -> tuple[DeploymentSnapshot, ...]:
@@ -94,4 +104,20 @@ def risk_bearing_snapshots(
                 and snapshot_has_residual_exposure(item)
             )
         )
+    )
+
+
+def daily_loss_snapshots(
+    snapshots: Sequence[DeploymentSnapshot], mode: DeploymentMode
+) -> tuple[DeploymentSnapshot, ...]:
+    """Return same-mode books whose fills and latches still count for UTC-day loss.
+
+    This is wider than exposure: a stopped flat live or paper row keeps its realized
+    loss, late fills, and daily-loss latch until an explicit reset or until the row
+    itself is deleted. Quote-currency partitioning happens in the breaker, not here.
+    """
+    return tuple(
+        item
+        for item in snapshots
+        if item.deployment.mode is mode and counts_for_daily_loss(item.deployment.status)
     )
