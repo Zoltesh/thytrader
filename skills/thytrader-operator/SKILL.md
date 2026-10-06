@@ -76,6 +76,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
+| Execution quality | `uv run thytrader-operator execution-quality --deployment-id UUID [--twin]` | `GET /api/v1/deployments/{id}/execution-quality` and `.../execution-quality/twin` (HTTP-only; recorded closed-trade fees and journaled-close slippage; missing fees/liquidity are not zero; `--local` is rejected; ADR 0116) |
 
 `--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 

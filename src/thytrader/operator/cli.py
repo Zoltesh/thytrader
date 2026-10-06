@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from thytrader import __version__
-from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_http import (
+    AgentHttpError,
+    request_json,
+    require_matching_ops_contract,
+    resolve_api_base_url,
+)
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
@@ -166,6 +171,7 @@ def _parser() -> argparse.ArgumentParser:
     trade_reasons.add_argument("--deployment-id", default=None)
     trade_reasons.add_argument("--intent-id", default=None)
     _add_decisions_parser(subparsers, trailing)
+    _add_execution_quality_parser(subparsers, trailing)
     subparsers.add_parser(
         "studies",
         parents=[trailing],
@@ -231,6 +237,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Whether an LLM key is held in the API process (never prints the key).",
     )
     return parser
+
+
+def _add_execution_quality_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Register the read-only recorded-fill execution-quality report."""
+    quality = subparsers.add_parser(
+        "execution-quality",
+        parents=[trailing],
+        help=(
+            "Recorded closed-trade fees, net PnL, and slippage versus journaled closes. "
+            "HTTP-only. Missing fees and liquidity are never treated as zero."
+        ),
+    )
+    quality.add_argument("--deployment-id", required=True, help="One paper or live bot.")
+    quality.add_argument(
+        "--twin",
+        action="store_true",
+        help="Compare the explicit paper/live twin instead of one book.",
+    )
 
 
 def _add_decisions_parser(
@@ -488,6 +515,51 @@ def _run_chat_status(arguments: argparse.Namespace) -> int:
     return EXIT_HEALTHY
 
 
+def _run_execution_quality(arguments: argparse.Namespace) -> int:
+    """Fetch recorded execution-quality evidence. HTTP-only; it never mutates fills."""
+    if arguments.local:
+        raise AgentHttpError(
+            "execution-quality is HTTP-only because it reads the API's execution and decision "
+            "stores together. Do not pass --local."
+        )
+    try:
+        deployment_id = UUID(arguments.deployment_id)
+    except ValueError:
+        raise AgentHttpError("--deployment-id must be a UUID.") from None
+    settings = Settings()
+    secrets = configured_secrets(settings)
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    require_matching_ops_contract(base_url)
+    suffix = "/twin" if arguments.twin else ""
+    payload = request_json(
+        method="GET",
+        url=f"{base_url}/api/v1/deployments/{deployment_id}/execution-quality{suffix}",
+    )
+    if not isinstance(payload, dict):
+        raise AgentHttpError("Execution-quality response was not a JSON object.")
+    evidence = {str(key): value for key, value in payload.items()}
+    if arguments.format == "text":
+        rendered = _execution_quality_text(evidence, twin=bool(arguments.twin))
+        sys.stdout.write(f"{redact_text(rendered, secrets)}\n")
+        return EXIT_HEALTHY
+    sys.stdout.write(f"{dumps_redacted(payload, secrets)}\n")
+    return EXIT_HEALTHY
+
+
+def _execution_quality_text(payload: dict[str, object], *, twin: bool) -> str:
+    """Summarize one execution-quality payload without inventing missing fields."""
+    if twin:
+        comparable = payload.get("comparable")
+        reasons = payload.get("reasons")
+        reason_text = ",".join(str(item) for item in reasons) if isinstance(reasons, list) else ""
+        return f"comparable={comparable}\nreasons={reason_text}"
+    totals = payload.get("totals")
+    evidence = payload.get("evidence")
+    net = totals.get("net_pnl") if isinstance(totals, dict) else None
+    complete = evidence.get("complete") if isinstance(evidence, dict) else None
+    return f"net_pnl={net}\nevidence_complete={complete}"
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Print one operator report and exit with 0/1/2 for healthy/degraded/failed."""
     parser = _parser()
@@ -502,6 +574,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             code = _run_schema_check(fmt=arguments.format)
         elif arguments.command == "chat-status":
             code = _run_chat_status(arguments)
+        elif arguments.command == "execution-quality":
+            code = _run_execution_quality(arguments)
         elif arguments.local:
             code = asyncio.run(_run_local(arguments))
         else:

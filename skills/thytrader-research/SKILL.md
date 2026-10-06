@@ -224,9 +224,10 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | List result summaries | `uv run thytrader-research list-results [--strategy-id UUID \| --strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 | Trace the entry rule bar by bar for one result | `uv run thytrader-research-evaluate sha256:… [--outcome matched] [--limit 200] [--cursor CURSOR] [--pretty]` |
+| Explain one result bar by bar, including recorded fills | `uv run thytrader-research explain-bars --result-fingerprint sha256:… [--limit 100] [--cursor CURSOR]` |
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
+`list-results`, `show-result`, `explain-bars`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
 `list-studies`, `list-strategies`, `list-research-jobs`, `show-research-job`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
@@ -517,6 +518,12 @@ concern), outcome `counts` (of `entry_condition`), `total_records`, and `next_cu
 re-evaluated trace does not reproduce the result) instead of a generic message. It does not need
 `THYTRADER_DATABASE_URL` or local Parquet files. It copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
 `4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
+
+`explain-bars` (`GET /api/v1/backtests/{result_fingerprint}/bar-explanations`, ADR 0116) is the
+bounded page that joins that verified trace to the immutable result's own fills and equity marks.
+It is read-only, needs no `--confirm`, and is HTTP-only (`--local` is rejected). `outside_trace`
+lists fills whose candle was not a signal bar, including evaluation-end liquidation. A trace that
+does not match the result is `bar_explanations_unavailable`, not a guessed explanation.
 
 ## Maker/taker rates
 

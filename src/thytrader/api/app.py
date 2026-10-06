@@ -28,6 +28,7 @@ from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.decisions import router as decisions_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
+from thytrader.api.routes.execution_quality import router as execution_quality_router
 from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.health import router as health_router
 from thytrader.api.routes.market_data import router as market_data_router
@@ -428,6 +429,7 @@ def create_app(
     app.include_router(strategies_router)
     app.include_router(deployments_router)
     app.include_router(decisions_router)
+    app.include_router(execution_quality_router)
     app.include_router(discretionary_orders_router)
     app.include_router(risk_policy_router)
     app.include_router(portfolios_router)

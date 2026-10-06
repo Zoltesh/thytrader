@@ -689,6 +689,26 @@ def export_results(
     )
 
 
+def explain_bars(
+    base_url: str,
+    result_fingerprint: str,
+    *,
+    limit: int,
+    cursor: str | None,
+) -> str:
+    """GET one bounded page of per-bar explanations for an immutable result."""
+    query = {"limit": str(limit)}
+    if cursor:
+        query["cursor"] = cursor
+    body = request_json(
+        method="GET",
+        url=(
+            f"{base_url}/api/v1/backtests/{result_fingerprint}/bar-explanations?{urlencode(query)}"
+        ),
+    )
+    return _encode(_as_object(body, "bar explanations"))
+
+
 def show_result(base_url: str, result_fingerprint: str) -> str:
     """Show one result summary without dumping the full trade ledger."""
     body = _as_object(

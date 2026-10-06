@@ -19,6 +19,7 @@
 		type BacktestPerformanceMetrics
 	} from '$lib/backtests';
 	import { formatValidityLimit } from '$lib/backtest-model';
+	import BacktestBarExplanations from '$lib/BacktestBarExplanations.svelte';
 	import BacktestModelDisclosure from '$lib/BacktestModelDisclosure.svelte';
 	import LightweightLineChart from '$lib/LightweightLineChart.svelte';
 	import { formatUsd } from '$lib/portfolio';
@@ -454,6 +455,7 @@
 					</table>
 				</div>{/if}
 		</div>
+		<BacktestBarExplanations resultFingerprint={detail.result_fingerprint} />
 	{/if}
 </section>
 

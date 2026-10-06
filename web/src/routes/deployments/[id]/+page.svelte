@@ -940,6 +940,12 @@
 						{/if}
 						<a href={resolve('/journals')}>Trade journals</a>
 						<a href={resolve('/audit')}>Audit log</a>
+						<a
+							data-testid="execution-quality-link"
+							href={resolve(`/deployments/${id}/execution-quality`)}
+						>
+							Execution quality
+						</a>
 					</p>
 					<p class="quiet small">{EVIDENCE_BOUNDED_NOTE}</p>
 				</div>

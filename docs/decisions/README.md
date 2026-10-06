@@ -1,5 +1,9 @@
 # Architecture Decision Records
 
+[ADR 0116](0116-live-execution-evidence-and-backtest-bar-explanations.md) is accepted:
+read-only live round-trip fee and slippage evidence, explicit twin cannot-compare rules, and
+bounded backtest bar explanations. It does not rewrite historical fills or the backtest engine.
+
 [ADR 0107](0107-capital-normalized-live-performance.md) is accepted: pinned performance capital
 and durable observed drawdown correct zero-based live percentages without rewriting ledger cash
 or historical baselines. It amends ADRs 0050/0058 and preserves ADR 0106's account risk scope.
