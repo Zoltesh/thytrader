@@ -145,18 +145,52 @@ def test_stale_flat_overlay_cannot_hide_working_entry_exposure() -> None:
     assert "capital=160.0" in verdict.detail
 
 
-def test_paper_admission_cannot_sum_two_quote_currencies() -> None:
-    """Paper funding has no FX evidence; mixed starting cash fails closed without conversion."""
+@pytest.mark.parametrize("foreign_product", ["BTC-USDC", "BTC-USDT"])
+@pytest.mark.parametrize("status", [DeploymentStatus.RUNNING, DeploymentStatus.PAUSED])
+def test_paper_admission_cannot_sum_two_quote_currencies(
+    foreign_product: str, status: DeploymentStatus
+) -> None:
+    """One published paper envelope cannot be reused independently in every currency."""
+    policy = _policy().model_copy(update={"product_allowlist": ("ETH-USD",)})
     verdict = evaluate_new_deployment(
-        _policy(),
+        policy,
         mode=DeploymentMode.PAPER,
-        product_id="ETH-USDC",
+        product_id="ETH-USD",
         strategy_id=_STRATEGY_B,
-        paper_starting_cash=Decimal("100"),
-        deployments=(_deployment(product_id="BTC-USD", cash=Decimal("100")),),
+        paper_starting_cash=Decimal("10000"),
+        deployments=(_deployment(product_id=foreign_product, status=status),),
     )
     assert verdict.reason_code is RiskReasonCode.PAPER_CAPITAL_EXCEEDED
     assert "quote currencies" in verdict.detail
+
+
+def test_stopped_flat_foreign_paper_evidence_does_not_consume_funding() -> None:
+    """Retained flat loss evidence is not an occupied foreign funding commitment."""
+    policy = _policy().model_copy(update={"product_allowlist": ("ETH-USD",)})
+    verdict = evaluate_new_deployment(
+        policy,
+        mode=DeploymentMode.PAPER,
+        product_id="ETH-USD",
+        strategy_id=_STRATEGY_B,
+        paper_starting_cash=Decimal("10000"),
+        deployments=(_deployment(product_id="BTC-USDC", status=DeploymentStatus.STOPPED),),
+    )
+    assert verdict.decision is RiskDecision.ALLOW
+
+
+def test_same_quote_paper_funding_still_consumes_the_single_envelope() -> None:
+    """Independent strategy identities do not each acquire the whole paper budget."""
+    policy = _policy().model_copy(update={"product_allowlist": ("BTC-USD",)})
+    verdict = evaluate_new_deployment(
+        policy,
+        mode=DeploymentMode.PAPER,
+        product_id="BTC-USD",
+        strategy_id=_STRATEGY_B,
+        paper_starting_cash=Decimal("1"),
+        deployments=(_deployment(product_id="BTC-USD"),),
+    )
+    assert verdict.reason_code is RiskReasonCode.PAPER_CAPITAL_EXCEEDED
+    assert "paper_capital_quote" in verdict.detail
 
 
 def _old_flat(*, mode: DeploymentMode = DeploymentMode.PAPER) -> DeploymentSnapshot:

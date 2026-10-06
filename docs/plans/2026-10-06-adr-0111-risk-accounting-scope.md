@@ -158,3 +158,76 @@ shared runtime/research skill snippets. Interface notice is
 `/tmp/tt-implementation/agents/risk-interface-note.md`. Lead must rechain risk0065, advertise the
 integrated schema head, and pass the one currently failing release-contract check before release.
 No UI was assigned or changed. No push, merge, deployment, policy publication, or reset was done.
+
+## Integrated-test fixture follow-up after 7c64361
+
+Lead integrated the slice at `53a3a0f` with a chain through `0068`. This follow-up changes only
+tests and risk-scope clarification, not runtime risk, migrations, persistence schema, or global
+contracts. No full suite or full graph rebuild was run; lead serializes integrated verification.
+
+1. The retention test previously seeded schema `0064` through a current execution store and
+   upgraded only to `risk0065`. That is not forward-safe when current stores require later
+   `venue_observed_at` columns and fleet guards. It now reflects real `0064` tables, inserts
+   explicit legacy columns directly, and captures lossless old-column row images (cash,
+   quantities/prices/fees, baselines, latches, pinned capital, identities, timestamps, and
+   canonical snapshot bytes). After migrating to **HEAD**, it asserts those exact old-column
+   images are unchanged before invoking current deletion/restart/late-fill/reset services.
+   No missing column, guard row, or current metadata is fabricated.
+2. The isolated constraint tests remain on `0064 → risk0065 → 0064`, independent of future HEAD
+   stores or unrelated downgrades. Seeded attached paper evidence round-trips losslessly and
+   restores the actual old identity check. A separate raw-SQL detach proves widened paper
+   identity and refuses rollback without changing any retained row.
+3. Policy-scope decision: keep the existing conservative mixed-quote paper-funding refusal.
+   `paper_capital_quote` is a single published envelope, not per-quote funding. Omitting occupied
+   foreign-quote books would reuse that envelope independently for every quote; summing them
+   would require absent FX evidence. Neither is an authorized interpretation. Stopped flat
+   foreign evidence remains non-occupying. Regression cases cover USDC/USDT running/paused
+   commitments against proposed USD funding, same-quote budget exhaustion, and stopped-flat
+   non-occupancy.
+4. The PostgreSQL portfolio scenario now receives its own freshly HEAD-migrated scratch DB.
+   All start/sleeve funding/CAS/breaker/proposal/delete/orphan assertions stay intact. It neither
+   clears shared financial evidence nor ignores a risk rejection nor skips the scenario.
+   ADR 0111 and the runtime skill clarify the already-implemented scalar policy scope.
+
+Exact focused verification against an owned disposable PostgreSQL 17 server on loopback 55465:
+
+```text
+env -u THYTRADER_TEST_DATABASE_URL -u THYTRADER_INTEGRATION_DATABASE_URL uv run pytest \
+  tests/risk/test_accounting_regressions.py::test_paper_admission_cannot_sum_two_quote_currencies \
+  tests/risk/test_accounting_regressions.py::test_stopped_flat_foreign_paper_evidence_does_not_consume_funding \
+  tests/risk/test_accounting_regressions.py::test_same_quote_paper_funding_still_consumes_the_single_envelope \
+  -q --tb=short
+6 passed
+
+env -u THYTRADER_INTEGRATION_DATABASE_URL THYTRADER_TEST_DATABASE_URL=<owned-test-server> \
+  uv run pytest \
+  tests/persistence/test_risk_retention.py::test_stop_delete_restart_reset_and_late_fill_keep_daily_evidence \
+  tests/persistence/test_risk_retention.py::test_risk0065_downgrade_without_detached_paper_is_lossless \
+  tests/persistence/test_risk_retention.py::test_risk0065_downgrade_refuses_detached_paper_evidence \
+  tests/persistence/test_postgres_portfolio_runtime.py::test_deploy_supervise_propose_and_delete_against_postgres \
+  -q --tb=short
+5 passed
+
+uv run ruff check <the three changed Python files>
+uv run ruff format --check <the three changed Python files>
+uv run ty check <the three changed Python files>
+git diff --check
+all pass
+```
+
+Local HEAD is still `risk0065`; **0068 integrated execution is lead's verification**, not claimed
+here. Target graph impacts used the existing owned index: paper funding is HIGH (seven upstream
+symbols, including deployment/portfolio starts), deliberately unchanged; test/fixture UNKNOWN
+callers were confirmed by source/pytest references. Only a bounded, single-worker incremental
+index refresh and change detection are used for this follow-up; existing graph/vector limitations
+above are not waived. The owned test container is removed after checks. No production operations
+or push; no shared root environment, database, or graph changes.
+
+Follow-up graph limitation: the bounded incremental refresh returned success, but subsequent
+`context` calls could not resolve `_seed_legacy` or the changed portfolio test. `detect_changes`
+reported six files but only six symbols, and attributed hundreds of flows to the ADR section
+(CRITICAL; latest raw response 769 flows, `partial=false`, `truncated=false`). That disagrees with
+source and is **not a clean impact result**. Logs are `/tmp/tt-risk-seed-owned-context.json` and
+`/tmp/tt-risk-integration-detect-complete.json`. No forced/full repair was launched under the
+lead's concurrency instructions. Test collection/execution, typed checks, and the reviewed diff
+are authoritative here; lead should repair/verify the integrated graph serially.

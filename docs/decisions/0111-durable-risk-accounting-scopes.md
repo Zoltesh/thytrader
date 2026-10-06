@@ -35,6 +35,11 @@ proposed spot quote. USD, USDC, and USDT are never added or converted. Unsupport
 shared-cash books deny with `BREAKER_MARK_MISSING`. A shared portfolio cannot compare exposure
 across quotes without FX evidence (`PORTFOLIO_LIMITS_UNAVAILABLE`). Paper deployment admission
 refuses mixed-quote starting-cash comparisons instead of summing different currencies.
+The published `paper_capital_quote` is one funding envelope, not a map of independently funded
+quote accounts. Occupied foreign-quote books cannot simply be omitted to grant each quote the
+whole envelope again. Concurrent multi-quote paper funding needs explicit per-quote budgets or
+an approved valuation policy; neither is implied by this slice. Retained stopped **flat** evidence
+is not a funding commitment and does not trigger that refusal.
 
 ### UTC-day correctness
 

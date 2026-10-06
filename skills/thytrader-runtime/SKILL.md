@@ -92,6 +92,10 @@ persisted same-quote peer even though no new candidate book was created. Reset t
 carrying the latch, not unrelated books. No current-day fills on a flat old book contribute zero;
 an overnight closure without recorded opening marks denies rather than inventing day equity.
 Unapplied live fills also deny new risk until economics reconcile.
+Paper starts share one policy funding envelope, not a separate envelope per quote: occupied
+foreign-quote paper books deny new funding rather than reuse or convert that budget. Retained
+stopped flat loss evidence does not occupy funding. Concurrent multi-quote paper funding is not
+supported by the current scalar paper-capital policy.
 
 Optional `set-risk-policy` flags `--max-order-quantity`, `--max-order-notional-quote`, and
 `--min-available-quote-reserve` are unset by default; compiled defaults and old stored policy
