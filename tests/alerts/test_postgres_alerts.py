@@ -15,16 +15,15 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from alembic.config import Config
 from pydantic import SecretStr
 import pytest
 from sqlalchemy import delete
 from sqlalchemy.exc import SQLAlchemyError
 
-from alembic import command
+from tests.alerts.test_alert_service import assert_disabled_preserves_active_claim
 from tests.alerts.test_supervision import _no_candles
 from tests.execution_worker.test_safety_supervision import _deployment
-from tests.persistence.test_migration_0048_strategy_root import scratch_database
+from tests.persistence.test_migration_0048_strategy_root import _alembic, scratch_database
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -85,7 +84,8 @@ async def store(
     """Migrate an owned database; no shared tables are cleared or downgraded."""
     # Suite autouse guards disable dotenv/credentials. Set only this private URL.
     monkeypatch.setenv("THYTRADER_DATABASE_URL", scratch_database)
-    await asyncio.to_thread(command.upgrade, Config("alembic.ini"), "head")
+    migrated = await asyncio.to_thread(_alembic, scratch_database, "head")
+    assert migrated.returncode == 0, migrated.stderr
     engine = create_engine(SecretStr(scratch_database))
     try:
         yield PostgresAlertStore(engine)
@@ -102,6 +102,20 @@ def _finding() -> SupervisionFinding:
         severity=AlertSeverity.WARNING,
         detail="private test error",
     )
+
+
+@pytest.mark.parametrize("finish_status", ["delivered", "failed"])
+async def test_postgres_disabled_observer_preserves_other_engine_claim(
+    store: PostgresAlertStore, scratch_database: str, finish_status: str
+) -> None:
+    """Distinct engines with different provider views do not overlap active send claims."""
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        await assert_disabled_preserves_active_claim(
+            store, PostgresAlertStore(engine), finish_status=finish_status
+        )
+    finally:
+        await dispose(engine)
 
 
 async def test_postgres_dedup_restart_watermark_and_out_of_order_recovery(
@@ -366,10 +380,15 @@ async def test_postgres_failure_threshold_and_fenced_pause_survive_engine_restar
 
 async def test_reserved_migration_0066_roundtrip_on_private_database(
     store: PostgresAlertStore,
+    scratch_database: str,
 ) -> None:
     """The extended reserved migration upgrades/downgrades with its actual DDL, not create_all."""
-    await asyncio.to_thread(command.downgrade, Config("alembic.ini"), "risk0065")
-    await asyncio.to_thread(command.upgrade, Config("alembic.ini"), "head")
+    downgraded = await asyncio.to_thread(
+        _alembic, scratch_database, "risk0065", operation="downgrade"
+    )
+    assert downgraded.returncode == 0, downgraded.stderr
+    upgraded = await asyncio.to_thread(_alembic, scratch_database, "head")
+    assert upgraded.returncode == 0, upgraded.stderr
     change = await store.record(_finding(), now=_NOW)
     assert change.created
     assert (

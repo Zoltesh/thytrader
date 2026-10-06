@@ -35,6 +35,8 @@
 	let inhibition = $state<FleetInhibition | null>(null);
 	let inhibitionError = $state<string | null>(null);
 	let preview = $state<FleetPreview | null>(null);
+	let confirmationPreview = $state<FleetPreview | null>(null);
+	let previewGeneration = 0;
 	let previewError = $state<string | null>(null);
 	let pendingAction = $state<FleetAction | null>(null);
 	let liveAcknowledged = $state(false);
@@ -43,14 +45,18 @@
 	let actionError = $state<string | null>(null);
 	let result = $state<FleetOperation | null>(null);
 
-	const needsAck = $derived(pendingAction !== null && fleetNeedsLiveAck(pendingAction, mode));
+	const needsAck = $derived(
+		pendingAction !== null &&
+			confirmationPreview !== null &&
+			fleetNeedsLiveAck(pendingAction, confirmationPreview.mode)
+	);
 	const confirmedTargets = $derived(
-		preview === null ||
+		confirmationPreview === null ||
 			pendingAction === null ||
 			pendingAction === 'disarm' ||
 			pendingAction === 'rearm'
 			? []
-			: preview.targets.map((target) => ({
+			: confirmationPreview.targets.map((target) => ({
 					deployment_id: target.deployment_id,
 					revision: target.revision
 				}))
@@ -68,18 +74,29 @@
 
 	async function loadPreview(action: FleetAction): Promise<void> {
 		if (!hydrated || acting || pendingAction !== null) return;
+		const generation = ++previewGeneration;
+		const requestedMode = mode;
 		previewError = null;
 		result = null;
 		try {
-			preview = await previewFleet(action, mode);
+			const received = await previewFleet(action, requestedMode);
+			if (generation !== previewGeneration || pendingAction !== null || mode !== requestedMode)
+				return;
+			preview = received;
 		} catch (caught) {
+			if (generation !== previewGeneration || pendingAction !== null || mode !== requestedMode)
+				return;
 			preview = null;
 			previewError = caught instanceof Error ? caught.message : 'Fleet preview failed.';
 		}
 	}
 
 	function openConfirm(action: FleetAction): void {
+		if (acting || pendingAction !== null) return;
 		if (preview === null || preview.action !== action || preview.mode !== mode) return;
+		// The person's consent is this immutable observation, never a later read.
+		confirmationPreview = $state.snapshot(preview);
+		previewGeneration += 1;
 		pendingAction = action;
 		liveAcknowledged = false;
 		idempotencyKey = crypto.randomUUID();
@@ -87,29 +104,32 @@
 	}
 
 	async function confirm(): Promise<void> {
-		if (pendingAction === null || preview === null || idempotencyKey === null) return;
-		if (preview.mode !== mode || preview.action !== pendingAction) return;
+		const reviewed = confirmationPreview;
+		if (acting || pendingAction === null || reviewed === null || idempotencyKey === null) return;
+		if (reviewed.mode !== mode || reviewed.action !== pendingAction) return;
 		if (needsAck && !liveAcknowledged) return;
 		acting = true;
 		actionError = null;
 		try {
 			result = await executeFleet(pendingAction, {
-				mode,
+				mode: reviewed.mode,
 				idempotencyKey,
 				expectedTargets:
 					pendingAction === 'managed_stop' || pendingAction === 'flatten' ? confirmedTargets : [],
 				liveAcknowledged: needsAck && liveAcknowledged,
 				allowEmptyScope: confirmedTargets.length === 0,
 				expectedInhibition: {
-					...(mode === 'paper' || mode === 'all'
-						? { paper_revision: preview.inhibition.paper_revision }
+					...(reviewed.mode === 'paper' || reviewed.mode === 'all'
+						? { paper_revision: reviewed.inhibition.paper_revision }
 						: {}),
-					...(mode === 'live' || mode === 'all'
-						? { live_revision: preview.inhibition.live_revision }
+					...(reviewed.mode === 'live' || reviewed.mode === 'all'
+						? { live_revision: reviewed.inhibition.live_revision }
 						: {})
 				}
 			});
 			pendingAction = null;
+			confirmationPreview = null;
+			idempotencyKey = null;
 			await refreshInhibition();
 		} catch (caught) {
 			actionError = caught instanceof Error ? caught.message : 'Fleet action failed.';
@@ -197,6 +217,7 @@
 				type="button"
 				class="btn"
 				data-testid="fleet-open-confirm"
+				disabled={!hydrated || acting || pendingAction !== null}
 				onclick={() => openConfirm(previewAction)}
 			>
 				Confirm {previewAction.replaceAll('_', ' ')}
@@ -233,7 +254,11 @@
 	error={actionError}
 	testId="fleet-dialog"
 	liveChip={needsAck}
-	oncancel={() => (pendingAction = null)}
+	oncancel={() => {
+		pendingAction = null;
+		confirmationPreview = null;
+		idempotencyKey = null;
+	}}
 	onconfirm={() => void confirm()}
 >
 	<p>{pendingAction === null ? '' : fleetEffect(pendingAction)}</p>

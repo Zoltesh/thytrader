@@ -199,6 +199,9 @@ class InMemoryAlertStore:
                 continue
             if row.delivery_status in {"logged", "delivered"}:
                 return None
+            if row.delivery_expires_at is not None and row.delivery_expires_at > now:
+                # A disabled observer cannot revoke another dispatcher's active send.
+                return None
             if provider == "none":
                 rows[-1] = replace(
                     row,
@@ -209,9 +212,7 @@ class InMemoryAlertStore:
                     delivery_expires_at=None,
                 )
                 return None
-            if row.delivery_attempts >= max_attempts or (
-                row.delivery_expires_at is not None and row.delivery_expires_at > now
-            ):
+            if row.delivery_attempts >= max_attempts:
                 return None
             token = uuid4()
             claimed = replace(

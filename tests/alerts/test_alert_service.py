@@ -28,6 +28,7 @@ from thytrader.memory.notify import (
 
 if TYPE_CHECKING:
     from thytrader.alerts.service import AlertDeliverySender
+    from thytrader.alerts.store import AlertStore
     from thytrader.memory.models import NotificationRecord
 
 _NOW = datetime(2026, 3, 2, 12, tzinfo=UTC)
@@ -48,6 +49,53 @@ def _finding() -> SupervisionFinding:
 def _service(store: InMemoryAlertStore, sender: AlertDeliverySender | None = None) -> AlertService:
     """Rebuild a service without resetting persisted observation/delivery state."""
     return AlertService(store, sender or DisabledNotificationSender(), thresholds=AlertThresholds())
+
+
+async def assert_disabled_preserves_active_claim(
+    store: AlertStore, observer: AlertStore, *, finish_status: str
+) -> None:
+    """A disabled configuration view cannot revoke an in-flight sender's CAS token."""
+    change = await store.record(_finding(), now=_NOW)
+    first = await store.claim_delivery(
+        change.alert.id, provider="webhook", now=_NOW, max_attempts=2, ttl=timedelta(seconds=60)
+    )
+    assert first is not None
+    assert (
+        await observer.claim_delivery(
+            change.alert.id,
+            provider="none",
+            now=_NOW + timedelta(seconds=1),
+            max_attempts=2,
+            ttl=timedelta(seconds=60),
+        )
+        is None
+    )
+    retained = next(row for row in await observer.list_open_alerts() if row.id == change.alert.id)
+    assert retained.delivery_token == first.token
+    assert retained.delivery_attempts == 1
+    assert (
+        await observer.claim_delivery(
+            change.alert.id,
+            provider="webhook",
+            now=_NOW + timedelta(seconds=2),
+            max_attempts=2,
+            ttl=timedelta(seconds=60),
+        )
+        is None
+    )
+    await store.finish_delivery(
+        change.alert.id, first.token, status=finish_status, detail="known outcome"
+    )
+    finished = next(row for row in await observer.list_open_alerts() if row.id == change.alert.id)
+    assert finished.delivery_status == finish_status
+    assert finished.delivery_token is None
+
+
+@pytest.mark.parametrize("finish_status", ["delivered", "failed"])
+async def test_disabled_observer_cannot_revoke_an_active_delivery(finish_status: str) -> None:
+    """Memory claims obey the same active-owner rule as PostgreSQL."""
+    store = InMemoryAlertStore()
+    await assert_disabled_preserves_active_claim(store, store, finish_status=finish_status)
 
 
 async def test_unknown_pass_after_restart_is_not_recovery() -> None:

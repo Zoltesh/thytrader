@@ -135,7 +135,9 @@ def _legacy_loss(mode: DeploymentMode) -> tuple[StrategyDefinition, DeploymentSn
                 created_at=_YESTERDAY,
                 initial_equity=Decimal("0") if mode is DeploymentMode.LIVE else Decimal("10000"),
                 paper_starting_cash=None if mode is DeploymentMode.LIVE else Decimal("10000"),
-                cash=Decimal("0") if mode is DeploymentMode.LIVE else Decimal("10000"),
+                # Cash already includes both applied executions; the second fill
+                # row is delayed, not permission to fabricate a different cash flow.
+                cash=Decimal("-50") if mode is DeploymentMode.LIVE else Decimal("9950"),
                 daily_loss_latched=True,
                 performance_capital_quote=Decimal("10000"),
             ),
@@ -303,7 +305,16 @@ def test_stop_delete_restart_reset_and_late_fill_keep_daily_evidence(
             assert detached.strategy_fingerprint == loss.deployment.strategy_fingerprint
             assert detached.daily_loss_latched
             assert detached.performance_capital_quote == Decimal("10000")
-            # A late applied fill remains writable against retained parent evidence.
+            incomplete = await PostgresExecutionStore(engine).get_deployment(created.id)
+            unknown = _verdict(
+                (incomplete,),
+                _entry(strategy_id=_STRATEGY_B),
+                mode=mode,
+                live_quote_cash=Decimal("10000") if mode is DeploymentMode.LIVE else None,
+            )
+            assert unknown.reason_code is RiskReasonCode.BREAKER_MARK_MISSING
+            # Cash alone is not opening proof. The late applied row restores the
+            # complete closed tape without reapplying its already-recorded cash flow.
             await PostgresExecutionStore(engine).save_fill(loss.fills[1])
             reloaded = await PostgresExecutionStore(engine).get_deployment(created.id)
             assert set(reloaded.fills) == set(loss.fills)

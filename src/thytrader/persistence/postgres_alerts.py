@@ -139,6 +139,8 @@ class PostgresAlertStore:
             operator_alerts.c.id == alert_id,
             operator_alerts.c.resolved_at.is_(None),
             operator_alerts.c.delivery_status.in_(("pending", "skipped", "failed")),
+            operator_alerts.c.delivery_expires_at.is_(None)
+            | (operator_alerts.c.delivery_expires_at <= now),
         )
         token = uuid4()
         if provider == "none":
@@ -159,8 +161,6 @@ class PostgresAlertStore:
                 .where(
                     *conditions,
                     operator_alerts.c.delivery_attempts < max_attempts,
-                    operator_alerts.c.delivery_expires_at.is_(None)
-                    | (operator_alerts.c.delivery_expires_at <= now),
                 )
                 .values(
                     delivery_provider=provider,
