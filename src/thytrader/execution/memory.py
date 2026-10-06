@@ -21,6 +21,7 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
     DeploymentSnapshot,
+    DeploymentStatus,
     DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
@@ -336,17 +337,52 @@ class InMemoryExecutionStore:
         }
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment."""
+        """Check the revision before mutating parent/runtime, without yielding between writes."""
+        if instrument_runtime is not None and expected_revision is None:
+            raise ExecutionStoreError("Atomic runtime saves require an expected revision.")
         current = self.deployments.get(deployment.id)
         if current is None:
             raise ExecutionStoreError("Deployment was not found.")
         if expected_revision is not None and current.revision != expected_revision:
             raise ExecutionConflictError("Deployment revision conflict.")
-        next_revision = deployment.revision + 1
-        saved = replace(deployment, revision=next_revision)
+        saved = replace(deployment, revision=current.revision + 1)
         self.deployments[deployment.id] = saved
+        if instrument_runtime is not None:
+            self.instrument_runtimes[
+                _position_key(deployment.id, instrument_runtime.product_id)
+            ] = instrument_runtime
+        return saved
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Atomically change only breaker status/detail/latch, preserving independent state."""
+        current = self.deployments.get(deployment_id)
+        if current is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        if current.revision != expected_revision:
+            raise ExecutionConflictError("Deployment revision conflict.")
+        running = current.status is DeploymentStatus.RUNNING
+        saved = replace(
+            current,
+            status=DeploymentStatus.PAUSED if running else current.status,
+            mismatch_detail=detail if running else current.mismatch_detail,
+            daily_loss_latched=current.daily_loss_latched or daily_loss_latched,
+            updated_at=utc_now(),
+            revision=current.revision + 1,
+        )
+        self.deployments[deployment_id] = saved
         return saved
 
     async def acquire_worker_lease(

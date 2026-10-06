@@ -99,13 +99,32 @@ class ExecutionStore(Protocol):
         ...
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment.
+        """Replace parent fields and optional focused runtime in one conditional operation.
 
-        When ``expected_revision`` is set, reject the write if the stored
-        revision does not match so a stale RUNNING snapshot cannot overwrite
-        a pause or stop.
+        A supplied runtime requires an expected revision. A rejected revision or
+        failed runtime write leaves both rows unchanged. Revision advances from
+        stored state, never from the caller's possibly obsolete revision.
+        """
+        ...
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Conditionally pause RUNNING only and optionally set the durable daily latch.
+
+        Preserve economics, product runtimes, lifecycle intent and all other metadata.
+        Deliberate PAUSED/STOPPED rows retain their status and detail.
         """
         ...
 
@@ -246,10 +265,26 @@ class DisabledExecutionStore:
         return {}
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
         """Refuse runtime writes without durable storage."""
-        del deployment, expected_revision
+        del deployment, expected_revision, instrument_runtime
+        raise ExecutionStoreError("Execution storage is unavailable.")
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Refuse breaker mutations without durable storage."""
+        del deployment_id, expected_revision, detail, daily_loss_latched
         raise ExecutionStoreError("Execution storage is unavailable.")
 
     async def acquire_worker_lease(

@@ -1,5 +1,13 @@
 # Architecture Overview
 
+Execution write boundaries follow [ADR 0121](../decisions/0121-execution-write-boundaries.md):
+conditional parent/runtime changes commit together, same-book fill projections lock the parent
+before reading economics, and quote-peer breaker pauses mutate only their owned metadata.
+An authoritative accounting read is not a fence for a later write. Cancel-time execution must
+be reconciled before sizing replacement protection; product identity remains explicit at
+mark/protection effect boundaries. These contracts do not universally serialize every raw store
+writer or promise exactly-once venue execution.
+
 Mode-wide live exposure and daily-loss capital is observed account quote plus managed long
 inventory cost and working buy-entry reservations; bot allocations are separate sizing limits.
 Do not substitute one sleeve's allocation or add its ledger cash to an account balance.

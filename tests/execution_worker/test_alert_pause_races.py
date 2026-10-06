@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.alerts.models import OperatorAlert
-    from thytrader.execution.models import Deployment
+    from thytrader.execution.models import Deployment, InstrumentRuntime
     from thytrader.market_data.models import Candle, MarketProduct
 
 pytestmark = pytest.mark.anyio
@@ -110,11 +110,20 @@ async def test_pause_races_never_overwrite_concurrent_book_state(
             _race(execution, book, mutation)
         return await original_acquire(deployment_id, holder=holder, now=now, ttl=ttl)
 
-    async def save(deployment: Deployment, *, expected_revision: int | None = None) -> Deployment:
+    async def save(
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
+    ) -> Deployment:
         """Inject a race after re-read, requiring the write's revision fence to stop it."""
         if stage == "before_save":
             _race(execution, book, mutation)
-        return await original_save(deployment, expected_revision=expected_revision)
+        return await original_save(
+            deployment,
+            expected_revision=expected_revision,
+            instrument_runtime=instrument_runtime,
+        )
 
     monkeypatch.setattr(execution, "acquire_worker_lease", acquire)
     monkeypatch.setattr(execution, "save_deployment", save)

@@ -373,6 +373,7 @@ async def _maintain_one_product(
             candles=context.candles,
             broker=broker,
             store=scoped,
+            strategy=strategy,
         )
         return
     await _maintain_strategy_book(

@@ -24,6 +24,7 @@ from thytrader.execution.models import (
     DeploymentStatus,
     ExecutionConflictError,
     ExecutionStoreError,
+    InstrumentRuntime,
     IntentPurpose,
     LifecycleCommand,
     OrderIntent,
@@ -243,16 +244,28 @@ def test_stop_is_partial_when_one_book_fails_and_exit_intent_still_saves() -> No
     """One storage failure does not hide the other command or block an exit intent."""
 
     class Flaky(InMemoryExecutionStore):
+        """Fail one parent's conditional write without bypassing the atomic runtime contract."""
+
         def __init__(self, failing: object) -> None:
+            """Select the book whose write fails."""
             super().__init__()
             self.failing = failing
 
         async def save_deployment(
-            self, deployment: Deployment, *, expected_revision: int | None = None
+            self,
+            deployment: Deployment,
+            *,
+            expected_revision: int | None = None,
+            instrument_runtime: InstrumentRuntime | None = None,
         ) -> Deployment:
+            """Preserve the production signature while injecting one storage failure."""
             if deployment.id == self.failing:
                 raise ExecutionStoreError("storage unavailable")
-            return await super().save_deployment(deployment, expected_revision=expected_revision)
+            return await super().save_deployment(
+                deployment,
+                expected_revision=expected_revision,
+                instrument_runtime=instrument_runtime,
+            )
 
     async def scenario() -> None:
         gate = InMemoryFleetControlStore()

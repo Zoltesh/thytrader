@@ -17,6 +17,8 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 - [Product vision](product/vision.md) — the destination, in product language
 - [Setup](user/setup.md) — `make run`, `make down`, loopback ports, Compose, native processes
 - [Safety](user/safety.md) — secrets, loopback, confirmation, live arming
+- [Conflicts and replacement protection](user/operate.md#conflicts-and-replacement-protection) —
+  fresh admission after a concurrent change; no guessed sell quantity from unpublished fills
 - [Operate](user/operate.md) — browser workspace (rail, ⌘K palette, Agent panel, themes), each
   bot's per-bar Decisions timeline, indicator operand offsets, open-book prices and PnL after paid entry fees,
   operator chat, and agent how-to

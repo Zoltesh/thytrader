@@ -1,5 +1,12 @@
 # Agent and Operator Integration
 
+[ADR 0121](decisions/0121-execution-write-boundaries.md) fences reused discretionary pending
+state, commits scoped runtime/parent updates together, serializes same-book fill projection and
+restricts peer breaker pauses to metadata. A conflicting entry requires fresh observation and
+admission, not retrying stale financial state under a new revision. Protection replacement waits
+for applied post-cancel execution evidence; uncertainty cannot supply a sell quantity. No new CLI
+flags, confirmation bypass, public payload or migration is introduced by this correction.
+
 Runtime risk scope and diagnostic semantics follow [ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md).
 Live account fractions use one observed venue quote balance plus managed long inventory cost and
 buy-entry reservations; per-bot allocations and portfolio caps remain separate. Existing decision

@@ -58,7 +58,15 @@ every worker poll, including empty `due` and feed-down. Default stop is managed 
 (protective brackets and residual occupancy stay in account risk). `--flatten` /
 `POST /api/v1/deployments/{id}/stop?flatten=true` marketably exits then cancels remainders.
 Live sizing uses allocated capital or venue available quote, never ledger `cash`. Workers hold
-a 45s fenced lease; writes are revision-checked. UTC day-open and high-water baselines persist
+a 45s fenced lease; writes are revision-checked. Scoped parent/runtime writes commit together;
+a rejected revision has no partial runtime effect. Distinct same-book fills serialize local
+financial projection, not external venue execution. Reused discretionary entry conflicts before
+submission if concurrent state changes; read fresh state and re-admit, never force stale financial
+fields under a new revision. Replacement protection reconciles cancel-time executions and waits
+for complete applied economics before sizing; missing publication is not permission to infer a
+sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and other latches
+([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
+UTC day-open and high-water baselines persist
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
 on `thytrader-runtime show`.
 

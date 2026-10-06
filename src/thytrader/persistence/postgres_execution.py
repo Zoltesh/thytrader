@@ -7,7 +7,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, or_, select
+from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -599,25 +599,62 @@ class PostgresExecutionStore:
         deployment: Deployment,
         *,
         expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment."""
-        next_revision = deployment.revision + 1
+        """Gate parent and optional product runtime in one transaction with zero partial effects."""
+        if instrument_runtime is not None and expected_revision is None:
+            raise ExecutionStoreError("Atomic runtime saves require an expected revision.")
         values = _mutable_deployment_values(deployment)
-        values["revision"] = next_revision
+        values["revision"] = deployments.c.revision + 1
         statement = deployments.update().where(deployments.c.id == deployment.id)
         if expected_revision is not None:
             statement = statement.where(deployments.c.revision == expected_revision)
-        statement = statement.values(values)
+        statement = statement.values(values).returning(deployments)
         try:
             async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
+                row = (await connection.execute(statement)).mappings().one_or_none()
+                if row is None:
+                    if expected_revision is not None:
+                        raise ExecutionConflictError("Deployment revision conflict.")
+                    raise ExecutionStoreError("Deployment was not found.")
+                if instrument_runtime is not None:
+                    await connection.execute(
+                        _instrument_runtime_upsert(instrument_runtime, deployment.id)
+                    )
+                return _deployment_from_row(row)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
-        if result.rowcount != 1:
-            if expected_revision is not None:
-                raise ExecutionConflictError("Deployment revision conflict.")
-            raise ExecutionStoreError("Deployment was not found.")
-        return replace(deployment, revision=next_revision)
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """CAS only breaker-owned metadata; preserve economics, lifecycle and runtime rows."""
+        running = deployments.c.status == DeploymentStatus.RUNNING.value
+        statement = (
+            deployments.update()
+            .where(deployments.c.id == deployment_id, deployments.c.revision == expected_revision)
+            .values(
+                status=case((running, DeploymentStatus.PAUSED.value), else_=deployments.c.status),
+                mismatch_detail=case((running, detail), else_=deployments.c.mismatch_detail),
+                daily_loss_latched=True if daily_loss_latched else deployments.c.daily_loss_latched,
+                updated_at=utc_now(),
+                revision=deployments.c.revision + 1,
+            )
+            .returning(deployments)
+        )
+        try:
+            async with self._engine.begin() as connection:
+                row = (await connection.execute(statement)).mappings().one_or_none()
+                if row is None:
+                    raise ExecutionConflictError("Deployment revision conflict.")
+                return _deployment_from_row(row)
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
 
     async def acquire_worker_lease(
         self,
@@ -756,13 +793,17 @@ class PostgresExecutionStore:
         cooldown_bars: int = 0,
         timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
-        """Insert fill evidence and apply economics in one database transaction."""
+        """Serialize same-book projection, then commit evidence and economics atomically."""
         try:
             async with self._engine.begin() as connection:
+                # Lock before child reads/projection. UPDATE-only locking is too late:
+                # independent writers would otherwise compute from the same old cash.
                 row = (
                     (
                         await connection.execute(
-                            select(deployments).where(deployments.c.id == deployment_id)
+                            select(deployments)
+                            .where(deployments.c.id == deployment_id)
+                            .with_for_update()
                         )
                     )
                     .mappings()

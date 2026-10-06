@@ -42,6 +42,7 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     IntentOrigin,
     IntentPurpose,
+    LifecycleCommand,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -221,7 +222,9 @@ async def place_discretionary_order(
         last_signal="discretionary",
         clear_mismatch=True,
     )
-    await store.save_deployment(pending)
+    # No intent or venue submission follows a lost candidate revision. Re-admission
+    # must start from fresh evidence, not restore stale cash/status/lifecycle fields.
+    await store.save_deployment(pending, expected_revision=snapshot.deployment.revision)
     active = await load_effective_policy(risk_store)
     scope = discretionary_trade_reason_scope(
         memory_store,
@@ -430,8 +433,22 @@ async def _book_for_entry(
     existing = await store.list_deployments()
     reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
     if reusable is not None:
-        _require_matching_paper_fees(reusable, request)
-        snapshot = await store.get_deployment(reusable.id)
+        snapshot = await accounting_snapshot(store, reusable.id, as_of=utc_now())
+        fresh = snapshot.deployment
+        if (
+            _reusable_book((fresh,), product_id=request.product_id, mode=request.mode) is None
+            or snapshot.positions
+            or snapshot.position is not None
+            or fresh.lifecycle_command is not LifecycleCommand.NONE
+            or any(
+                order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+                for order in snapshot.orders
+            )
+        ):
+            raise ExecutionConflictError(
+                "Discretionary candidate changed; read fresh state before retrying."
+            )
+        _require_matching_paper_fees(fresh, request)
         await _require_entry_admission(
             risk_store,
             store=store,

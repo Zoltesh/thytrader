@@ -15,22 +15,25 @@ policy changes are part of this completion round.
 
 | Boundary | Required acceptance evidence | State |
 | --- | --- | --- |
-| Cancel and replacement protection | Execution learned during cancel cannot reuse the old quantity; empty/partial published fills stay unresolved, complete applied economics permits correct remaining cover; include stop-only and secondary products | Pending correction/verification |
-| Discretionary reuse | Actual entry caller reads authoritative self accounting, rechecks eligibility, and cannot overwrite a concurrent financial/lifecycle update while persisting pending state | Pending correction/verification |
-| Quote-wide breaker pause | Independent peer fill, command and latch changes survive the conditional, product-neutral pause; deliberate pauses/stops and other quote/mode scopes are preserved | Pending correction/verification |
-| Scoped revision check | Failed parent CAS has zero runtime effects through both wrappers; restart/reload still supervises the filled product | Pending correction/verification |
-| Concurrent fill projection | Two independent PostgreSQL engines, distinct same-book fills and deterministic interleaving; both economics retained exactly once locally, sibling products preserved, duplicate replay harmless | Source concern; database proof required |
-| Product mark attribution | Real scoped closed-bar callers retain the correct sibling marks despite very different prices; no false/concealed loss or erroneous durable latch | Pending correction/verification |
-| Stopped time exit | Valid preview-only maintenance preserves the strategy's reached time exit without synthetic bars, guessed prices or cursor advancement | Pending correction/verification |
+| Cancel and replacement protection | Execution learned during cancel cannot reuse the old quantity; empty/partial published fills stay unresolved, complete applied economics permits correct remaining cover; include stop-only and secondary products | Implemented; actual warming-caller cases passed |
+| Discretionary reuse | Actual entry caller reads authoritative self accounting, rechecks eligibility, and cannot overwrite a concurrent financial/lifecycle update while persisting pending state | Implemented; actual FLAT-candidate late-fill PostgreSQL race passed |
+| Quote-wide breaker pause | Independent peer fill, command and latch changes survive the conditional, product-neutral pause; deliberate pauses/stops and other quote/mode scopes are preserved | Implemented; memory and separate-engine PostgreSQL races passed |
+| Scoped revision check | Failed parent CAS has zero runtime effects through both wrappers; restart/reload still supervises the filled product | Implemented; both wrapper orders and runtime-write rollback passed |
+| Concurrent fill projection | Two independent PostgreSQL engines, distinct same-book fills and deterministic interleaving; both economics retained exactly once locally, sibling products preserved, duplicate replay harmless | Reproduced on PostgreSQL, corrected with parent row lock; lead rerun passed |
+| Product mark attribution | Real scoped closed-bar callers retain the correct sibling marks despite very different prices; no false/concealed loss or erroneous durable latch | Implemented; actual scoped closed-bar positive/negative cases passed |
+| Stopped time exit | Valid preview-only maintenance preserves the strategy's reached time exit without synthetic bars, guessed prices or cursor advancement | Implemented; actual managed-shutdown fallback passed |
 | Reporting completeness | Missing occupied product with surviving sibling is unknown; prior incidents do not recover; portfolio equity/exposure/briefing totals stay null when dependent economics are unresolved | Integrated; 442 combined checks and 12 independent PostgreSQL restart/recovery cases passed |
 | Browser consent | Deferred preview cannot replace reviewed target/latch revisions; failed requests retry identical consent and idempotency key | Nine focused browser tests passed; final combined checks pending |
 | Delivery ownership | Disabled provider cannot revoke another dispatcher's unexpired claim; owner success/failure still acknowledges correctly across independent engines | Focused memory/PostgreSQL checks passed; final combined checks pending |
 
-The six earlier core counterexamples were executed with fake brokers/in-memory stores;
-PostgreSQL consequences require real isolated database evidence. In particular, the exact
-reused-book interleaving must respect earlier FLAT eligibility, not depend on an impossible
-fake-store time sequence. A migration-fixture setup error is not a concurrency reproduction.
-An atomic transaction alone does not prove serialization of two projections from the same base.
+The six earlier core counterexamples were initially executed with fake brokers/in-memory stores.
+The correction now adds isolated PostgreSQL evidence: distinct fills lost one cash delta before
+locking, rejected parent writes leaked runtime changes, and the old discretionary caller admitted
+a genuinely FLAT-listed candidate despite a late fill between parent/child reads. Migration-fixture
+setup errors are not counted as reproductions. The lead's integrated rerun passed 242 core/risk/
+worker/control/reporting checks, including separate-engine races. These focused results do not
+replace final full suites and independent review; an atomic transaction alone never proves
+serialization of two projections from the same base.
 
 ## Integration and release gates
 

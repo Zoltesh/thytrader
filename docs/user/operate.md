@@ -6,6 +6,16 @@ agent can do the same loop **100%** through the shipped skills. Nothing requires
 When an agent is operating a **running** instance, open [`ops/`](../../ops/README.md) rather than
 the git root. Skills of record: [`skills/README.md`](../../skills/README.md).
 
+## Conflicts and replacement protection
+
+A reused discretionary book is rechecked against authoritative accounting. If another fill or
+lifecycle action changes it before pending state is saved, the request conflicts before submitting
+an order; read fresh state and obtain fresh consent/admission rather than forcing the old state.
+When canceling protection reveals execution, replacement waits for complete applied fill evidence
+and uses the current projected quantity. Missing or partially published fills do not authorize a
+guessed remaining sell. A breaker pause preserves newer cash, lifecycle intent and deliberate
+stopped/paused state. See [ADR 0121](../decisions/0121-execution-write-boundaries.md).
+
 ## Live performance accounting
 
 Bot detail and `uv run thytrader-operator performance --deployment-id UUID` report return and

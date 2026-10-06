@@ -202,12 +202,22 @@ class InstrumentScopedStore:
         return grouped
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Persist this product's runtime overlay and shared cash/status/capital."""
-        current = await self._inner.get_deployment(deployment.id)
+        """Atomically fence this product's runtime and shared parent, including nested scopes."""
+        if instrument_runtime is not None:
+            # An outer scope already constructed the shared parent. Do not rebind its product.
+            return await self._inner.save_deployment(
+                deployment,
+                expected_revision=expected_revision,
+                instrument_runtime=instrument_runtime,
+            )
+        current = await self._inner.get_accounting_snapshot(deployment.id)
         runtime = runtime_from_deployment(deployment, self._product_id)
-        await self._inner.save_instrument_runtime(runtime, deployment_id=deployment.id)
         runtimes = [
             runtime if item.product_id == self._product_id else item
             for item in current.instrument_runtimes
@@ -244,8 +254,30 @@ class InstrumentScopedStore:
             revision=deployment.revision,
             updated_at=deployment.updated_at,
         )
-        saved = await self._inner.save_deployment(parent, expected_revision=expected_revision)
+        saved = await self._inner.save_deployment(
+            parent,
+            expected_revision=deployment.revision
+            if expected_revision is None
+            else expected_revision,
+            instrument_runtime=runtime,
+        )
         return replace(deployment, revision=saved.revision)
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Forward a product-neutral peer metadata mutation without touching runtime rows."""
+        return await self._inner.save_breaker_pause(
+            deployment_id,
+            expected_revision=expected_revision,
+            detail=detail,
+            daily_loss_latched=daily_loss_latched,
+        )
 
     async def acquire_worker_lease(
         self,

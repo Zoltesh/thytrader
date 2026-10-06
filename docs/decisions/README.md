@@ -136,6 +136,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0118](0118-watched-market-tail-health.md) | All-enabled-watch published-tail health aligned to each clock; history and worker success stay independent | Accepted |
 | [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
 | [0120](0120-verified-risk-opening-evidence.md) | Authoritative accounting and verified UTC opening reconstruction; legacy stamps remain untrusted | Accepted |
+| [0121](0121-execution-write-boundaries.md) | Atomic conditional parent/runtime writes, narrow breaker metadata and serialized same-book fill projection | Accepted |
 
 ## Status values
 

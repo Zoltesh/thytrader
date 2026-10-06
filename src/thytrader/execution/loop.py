@@ -572,6 +572,7 @@ async def process_closed_bar(
         snapshot = await _apply_circuit_breakers(
             snapshot,
             candle=candle,
+            product_id=product.product_id,
             store=store,
             risk_policy=policy,
             portfolio=portfolio,
@@ -1376,9 +1377,33 @@ async def _ensure_live_bracket(
             if cancel_pending(remaining):
                 return snapshot
             return await _pause(snapshot, store=store, detail=BRACKET_REPLACE_CANCEL_DETAIL)
+        return await _replace_live_protection(
+            snapshot, candle=candle, product=product, broker=broker, store=store
+        )
+    return await _submit_live_bracket(
+        snapshot, position=position, candle=candle, product=product, broker=broker, store=store
+    )
+
+
+async def _replace_live_protection(
+    snapshot: DeploymentSnapshot,
+    *,
+    candle: Candle,
+    product: MarketProduct,
+    broker: Broker,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Reconcile post-cancel executions before constructing replacement quantity/geometry."""
+    # Cancel's confirmed GET may reveal execution absent from the initial view.
+    # Only applied REST economics authorize a remaining protective quantity.
+    snapshot = await _reconcile_stopped_live(snapshot, broker=broker, store=store)
+    if detail := _exit_economics_fault(snapshot):
+        return await _pause(snapshot, store=store, detail=detail)
+    if snapshot.position is None:
+        return snapshot
     return await _submit_live_bracket(
         snapshot,
-        position=position,
+        position=snapshot.position,
         candle=candle,
         product=product,
         broker=broker,
@@ -2641,6 +2666,7 @@ async def _apply_circuit_breakers(
     snapshot: DeploymentSnapshot,
     *,
     candle: Candle,
+    product_id: str,
     store: ExecutionStore,
     risk_policy: RiskPolicyDefinition,
     portfolio: Sequence[DeploymentSnapshot],
@@ -2663,7 +2689,7 @@ async def _apply_circuit_breakers(
         snapshots=current_portfolio,
         live_quote_cash=live_cash,
         observation=_bar_observation(
-            product_id=snapshot.deployment.product_id,
+            product_id=product_id,
             candle=candle,
             proposed_price=None,
             marks=marks,
@@ -2736,18 +2762,47 @@ async def _pause_mode_running(
     if books and not any(item.deployment.daily_loss_latched for item in books):
         anchor = books[0].deployment.id
     for item in books:
-        deployment = item.deployment
-        running = deployment.status is DeploymentStatus.RUNNING
-        if not running and deployment.id != anchor:
-            continue
-        paused = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED if running else deployment.status,
-            mismatch_detail=detail if running else deployment.mismatch_detail,
-            daily_loss_latched=True if deployment.id == anchor else None,
+        await _pause_daily_peer(
+            store=store,
+            deployment_id=item.deployment.id,
+            mode=mode,
+            product_id=product_id,
+            detail=detail,
+            latch=item.deployment.id == anchor,
         )
-        await store.save_deployment(paused)
+
+
+async def _pause_daily_peer(
+    *,
+    store: ExecutionStore,
+    deployment_id: UUID,
+    mode: DeploymentMode,
+    product_id: str,
+    detail: str,
+    latch: bool,
+) -> None:
+    """Revalidate each peer and CAS only breaker metadata, retrying a bounded revision race."""
+    for attempt in range(3):
+        current = await store.get_accounting_snapshot(deployment_id)
+        books, incomplete = quote_scoped_snapshots((current,), product_id)
+        if current.deployment.mode is not mode or incomplete is not None or not books:
+            return
+        if current.deployment.status is not DeploymentStatus.RUNNING and (
+            not latch or current.deployment.daily_loss_latched
+        ):
+            return
+        try:
+            await store.save_breaker_pause(
+                deployment_id,
+                expected_revision=current.deployment.revision,
+                detail=detail,
+                daily_loss_latched=latch,
+            )
+        except ExecutionConflictError:
+            if attempt == 2:
+                raise
+        else:
+            return
 
 
 async def _pause(

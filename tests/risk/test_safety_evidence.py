@@ -191,6 +191,7 @@ async def test_cached_portfolio_cannot_overwrite_successive_sibling_fills(
     paused = await _apply_circuit_breakers(
         await scoped.get_deployment(full.deployment.id),
         candle=_candle(),
+        product_id="BTC-USD",
         store=scoped,
         risk_policy=_policy(),
         portfolio=(cached,),
@@ -460,6 +461,7 @@ async def test_stale_performance_and_pause_views_never_rewrite_sibling_cash(
     paused = await _apply_circuit_breakers(
         stale,
         candle=_candle(),
+        product_id="BTC-USD",
         store=scoped,
         risk_policy=_policy(),
         portfolio=(stale,),
