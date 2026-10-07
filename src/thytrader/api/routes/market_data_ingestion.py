@@ -24,6 +24,7 @@ from thytrader.market_data.freshness import (
 )
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.market_data.watch_coverage import island_covers_watch
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
@@ -34,7 +35,6 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerUnavailableError,
     validate_market_data_worker_state,
 )
-from thytrader.market_data_worker.service import island_covers_watch
 from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/market-data", tags=["market-data"])

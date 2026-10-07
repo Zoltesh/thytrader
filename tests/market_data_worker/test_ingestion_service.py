@@ -14,6 +14,11 @@ from thytrader.data_control.service import worker_state_payload
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
+from thytrader.market_data.watch_coverage import (
+    bounded_lookback_start,
+    island_covers_watch,
+    watch_expected_candle_count,
+)
 from thytrader.market_data.worker_state import (
     InMemoryMarketDataWorkerStateStore,
     MarketDataWorkerAttempt,
@@ -26,11 +31,8 @@ from thytrader.market_data.worker_state import (
 from thytrader.market_data_worker.service import (
     IngestStop,
     _next_retry_at,
-    bounded_lookback_start,
     ingest_once,
-    island_covers_watch,
     run_market_data_worker,
-    watch_expected_candle_count,
 )
 from thytrader.persistence.worker_heartbeats import (
     InMemoryWorkerHeartbeatStore,

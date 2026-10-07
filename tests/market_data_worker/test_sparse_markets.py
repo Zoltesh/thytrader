@@ -23,15 +23,10 @@ from thytrader.market_data.models import (
     CandleRangeReport,
 )
 from thytrader.market_data.quality import analyze_range
+from thytrader.market_data.watch_coverage import bounded_lookback_start, island_covers_watch
 from thytrader.market_data.watchlist import MarketDataWatchTarget
 from thytrader.market_data.worker_state import InMemoryMarketDataWorkerStateStore
-from thytrader.market_data_worker.service import (
-    IngestStop,
-    _ingest_due_targets,
-    bounded_lookback_start,
-    ingest_once,
-    island_covers_watch,
-)
+from thytrader.market_data_worker.service import IngestStop, _ingest_due_targets, ingest_once
 
 if TYPE_CHECKING:
     from collections.abc import Callable

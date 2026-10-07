@@ -26,6 +26,7 @@ from thytrader.market_data.models import (
     MarketDataRateLimitedError,
 )
 from thytrader.market_data.quality import analyze_range
+from thytrader.market_data.watch_coverage import island_covers_watch
 from thytrader.market_data.watchlist import MarketDataWatchTarget
 from thytrader.market_data.worker_state import (
     InMemoryMarketDataWorkerStateStore,
@@ -40,7 +41,6 @@ from thytrader.market_data_worker.service import (
     _plan_targets,
     _TargetPriority,
     ingest_once,
-    island_covers_watch,
 )
 
 if TYPE_CHECKING:

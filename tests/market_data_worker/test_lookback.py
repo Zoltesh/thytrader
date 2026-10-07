@@ -12,7 +12,7 @@ from thytrader.market_data.lookback import (
     validate_watch_lookback_hours,
 )
 from thytrader.market_data.models import MAX_HISTORICAL_INTERVAL_COUNT, CandleInterval
-from thytrader.market_data_worker.service import bounded_lookback_start
+from thytrader.market_data.watch_coverage import bounded_lookback_start
 
 _NINETY_DAY_HOURS = 2_160
 _FIVE_MINUTE_BARS_PER_HOUR = 12

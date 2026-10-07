@@ -17,6 +17,12 @@ from thytrader.data_control.models import (
     require_interval,
 )
 from thytrader.market_data.lookback import max_watch_lookback_hours
+from thytrader.market_data.watch_coverage import (
+    bounded_lookback_start,
+    island_covers_watch,
+    watch_covered_candle_count,
+    watch_expected_candle_count,
+)
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistError,
     MarketDataWatchlistStore,
@@ -28,13 +34,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
 )
-from thytrader.market_data_worker.service import (
-    bounded_lookback_start,
-    fetch_historical_range,
-    island_covers_watch,
-    watch_covered_candle_count,
-    watch_expected_candle_count,
-)
+from thytrader.market_data_worker.service import fetch_historical_range
 from thytrader.persistence.audit_events import (
     AuditEvent,
     AuditEventCategory,
