@@ -27,7 +27,7 @@ def _run(argv: list[str], *, mode: str = "live") -> list[dict[str, Any]]:
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch("thytrader.runtime_control.client.request_mutation_json", fake_mutation),
         patch(
-            "thytrader.runtime_control.cli.show_deployment",
+            "thytrader.runtime_control.deployment_handlers.show_deployment",
             return_value={"id": _DEPLOYMENT, "mode": mode},
         ),
         pytest.raises(SystemExit) as raised,
@@ -105,10 +105,10 @@ def test_live_resume_requires_flag_before_any_mutation() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.show_deployment",
+            "thytrader.runtime_control.deployment_handlers.show_deployment",
             return_value={"id": _DEPLOYMENT, "mode": "live"},
         ),
-        patch("thytrader.runtime_control.cli.set_deployment_status") as request,
+        patch("thytrader.runtime_control.deployment_handlers.set_deployment_status") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["resume", _DEPLOYMENT, "--confirm"])
