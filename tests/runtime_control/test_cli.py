@@ -43,7 +43,7 @@ def test_start_without_confirm_does_not_call_api() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -66,7 +66,7 @@ def test_live_start_without_ack_does_not_probe_yolo() -> None:
     """`--i-understand-live` is checked before YOLO and is never skipped."""
     with (
         patch("thytrader.agent_http.urlopen") as urlopen,
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -139,7 +139,7 @@ def test_paper_start_yolo_skips_confirm() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.start_deployment",
+            "thytrader.runtime_control.deployment_handlers.start_deployment",
             return_value={"id": "dep", "mode": "paper"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -167,7 +167,7 @@ def test_live_start_without_confirm_fails_closed_when_yolo_off() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -206,7 +206,7 @@ def test_live_start_yolo_skips_confirm() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.start_deployment",
+            "thytrader.runtime_control.deployment_handlers.start_deployment",
             return_value={"id": "dep", "mode": "live"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -236,7 +236,7 @@ def test_paper_yolo_does_not_skip_live_start() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -308,10 +308,10 @@ def test_paper_yolo_does_not_skip_live_pause() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.show_deployment",
+            "thytrader.runtime_control.deployment_handlers.show_deployment",
             return_value={"id": "dep", "mode": "live"},
         ),
-        patch("thytrader.runtime_control.cli.set_deployment_status") as request,
+        patch("thytrader.runtime_control.deployment_handlers.set_deployment_status") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["pause", "11111111-1111-1111-1111-111111111111"])
@@ -341,11 +341,11 @@ def test_live_yolo_skips_live_pause() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.show_deployment",
+            "thytrader.runtime_control.deployment_handlers.show_deployment",
             return_value={"id": "dep", "mode": "live"},
         ),
         patch(
-            "thytrader.runtime_control.cli.set_deployment_status",
+            "thytrader.runtime_control.deployment_handlers.set_deployment_status",
             return_value={"id": "dep", "mode": "live", "status": "paused"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -367,10 +367,10 @@ def test_live_yolo_does_not_skip_paper_pause() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.show_deployment",
+            "thytrader.runtime_control.deployment_handlers.show_deployment",
             return_value={"id": "dep", "mode": "paper"},
         ),
-        patch("thytrader.runtime_control.cli.set_deployment_status") as request,
+        patch("thytrader.runtime_control.deployment_handlers.set_deployment_status") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["pause", "11111111-1111-1111-1111-111111111111"])
@@ -483,7 +483,7 @@ def test_place_order_without_confirm_does_not_call_api() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.place_discretionary_order") as request,
+        patch("thytrader.runtime_control.deployment_handlers.place_discretionary_order") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -556,7 +556,7 @@ def test_paper_place_order_yolo_skips_confirm() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.place_discretionary_order",
+            "thytrader.runtime_control.deployment_handlers.place_discretionary_order",
             return_value={"id": "dep", "mode": "paper", "kind": "discretionary"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -588,7 +588,7 @@ def test_live_yolo_does_not_skip_live_place_order() -> None:
     """Live place-order stays confirmation-hard-gated even when YOLO live is on."""
     with (
         patch("thytrader.agent_http.urlopen") as urlopen,
-        patch("thytrader.runtime_control.cli.place_discretionary_order") as request,
+        patch("thytrader.runtime_control.deployment_handlers.place_discretionary_order") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -624,7 +624,7 @@ def test_place_order_forwards_short_side() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.place_discretionary_order",
+            "thytrader.runtime_control.deployment_handlers.place_discretionary_order",
             return_value={"id": "dep", "mode": "paper", "kind": "discretionary"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -677,7 +677,7 @@ def test_paper_start_forwards_fee_rates() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.start_deployment",
+            "thytrader.runtime_control.deployment_handlers.start_deployment",
             return_value={"id": "dep", "mode": "paper"},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -711,7 +711,7 @@ def test_paper_start_rejects_one_sided_fee_flags() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -741,7 +741,7 @@ def test_live_start_rejects_paper_fee_flags() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.start_deployment") as request,
+        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -811,7 +811,7 @@ def test_set_settings_without_confirm_does_not_write() -> None:
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.set_yaml_settings") as request,
+        patch("thytrader.runtime_control.configuration_handlers.set_yaml_settings") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["set-settings", "--yolo-enabled", "true", "--yolo-tiers", "paper"])
@@ -878,7 +878,9 @@ def test_set_coinbase_credentials_without_confirm_does_not_call_api(
     key_file = tmp_path / "key.pem"
     key_file.write_text("SYNTHETIC-COINBASE-PRIVATE-KEY-DO-NOT-ECHO\n", encoding="utf-8")
     with (
-        patch("thytrader.runtime_control.cli.set_coinbase_credentials") as request,
+        patch(
+            "thytrader.runtime_control.configuration_handlers.set_coinbase_credentials"
+        ) as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -911,7 +913,9 @@ def test_set_coinbase_credentials_yolo_still_requires_confirm(
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.cli.set_coinbase_credentials") as request,
+        patch(
+            "thytrader.runtime_control.configuration_handlers.set_coinbase_credentials"
+        ) as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -947,7 +951,7 @@ def test_set_coinbase_credentials_reads_file_and_calls_http(
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.set_coinbase_credentials",
+            "thytrader.runtime_control.configuration_handlers.set_coinbase_credentials",
             return_value=status,
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -973,7 +977,7 @@ def test_set_coinbase_credentials_reads_file_and_calls_http(
 def test_reset_breaker_latches_requires_confirm() -> None:
     """Breaker latch reset never inherits YOLO skip-confirm."""
     with (
-        patch("thytrader.runtime_control.cli.reset_breaker_latches") as request,
+        patch("thytrader.runtime_control.deployment_handlers.reset_breaker_latches") as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["reset-breaker-latches", "00000000-0000-0000-0000-000000000001"])
@@ -987,7 +991,7 @@ def test_reset_breaker_latches_calls_http_with_confirm() -> None:
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
         patch(
-            "thytrader.runtime_control.cli.reset_breaker_latches",
+            "thytrader.runtime_control.deployment_handlers.reset_breaker_latches",
             return_value={"daily_loss_latched": False},
         ) as request,
         pytest.raises(SystemExit) as raised,
@@ -1006,7 +1010,9 @@ def test_reset_breaker_latches_calls_http_with_confirm() -> None:
 def test_clear_coinbase_credentials_requires_confirm() -> None:
     """Clearing Coinbase secrets is confirmation-hard-gated."""
     with (
-        patch("thytrader.runtime_control.cli.clear_coinbase_credentials") as request,
+        patch(
+            "thytrader.runtime_control.configuration_handlers.clear_coinbase_credentials"
+        ) as request,
         pytest.raises(SystemExit) as raised,
     ):
         main(["clear-coinbase-credentials"])
