@@ -345,6 +345,29 @@ def book_protection_evidence(
     return _live_evidence(snapshot, product_id, position, evaluated)
 
 
+def live_stop_absent(
+    snapshot: DeploymentSnapshot,
+    *,
+    product_id: str,
+    position: Position | None,
+    now: datetime | None = None,
+) -> bool:
+    """Whether a live open book has no confirmed, pending, or unknown stop at all.
+
+    Unresolved inventory leaves :func:`book_protection_evidence` unknown because the required
+    quantity is unknown, but no working stop is uncovered at any positive quantity.
+    """
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return False
+    if position is None or position.quantity <= 0:
+        return False
+    evaluated = _aware(now or utc_now())
+    if evaluated is None:
+        raise ValueError("Protection reporting requires an aware UTC clock.")
+    evidence = _live_evidence(snapshot, product_id, position, evaluated)
+    return "no_resting_stop" in evidence.reasons
+
+
 def book_protection_status(
     snapshot: DeploymentSnapshot,
     *,

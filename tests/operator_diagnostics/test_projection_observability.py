@@ -15,7 +15,7 @@ from tests.execution.test_lifecycle_safety import _restart
 from tests.operator_diagnostics.test_deployment_performance import _diagnostics
 from tests.operator_diagnostics.test_readiness_completeness import _aggregate, _Directory
 from tests.operator_diagnostics.test_readiness_preflight import ScriptedExchange, _balance, _policy
-from thytrader.alerts.models import AlertCheck, AlertCode
+from thytrader.alerts.models import AlertCheck, AlertCode, AlertSeverity
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
@@ -516,6 +516,60 @@ async def test_unresolved_product_does_not_block_other_products_positive_fault()
         (AlertCode.STOP_UNCOVERED, "ETH-USD"),
         (AlertCode.STOP_COVERAGE_UNKNOWN, "BTC-USD"),
     }
+
+
+@pytest.mark.parametrize(
+    ("stop_status", "expected"),
+    [
+        (OrderStatus.CANCELED, (AlertCode.STOP_UNCOVERED, AlertSeverity.CRITICAL)),
+        (OrderStatus.PENDING, (AlertCode.STOP_COVERAGE_UNKNOWN, AlertSeverity.WARNING)),
+        (OrderStatus.UNKNOWN, (AlertCode.STOP_COVERAGE_UNKNOWN, AlertSeverity.WARNING)),
+    ],
+)
+async def test_unresolved_live_book_without_any_working_stop_stays_critical(
+    stop_status: OrderStatus, expected: tuple[AlertCode, AlertSeverity]
+) -> None:
+    """Unknown quantity softens a working stop to unknown cover, never a missing stop."""
+    store, snapshot = await _fault_book("unapplied")
+    book = replace(snapshot.deployment, worker_lease_expires_at=_NOW + timedelta(seconds=30))
+    await store.save_deployment(book)
+    position = Position(
+        deployment_id=book.id,
+        product_id="BTC-USD",
+        quantity=Decimal("1"),
+        entry_price=Decimal("100"),
+        stop_price=Decimal("90"),
+        target_price=Decimal("120"),
+        entered_bar=_NOW,
+        updated_at=_NOW,
+    )
+    await store.save_position(position, deployment_id=book.id, product_id="BTC-USD")
+    stop = await _order(
+        store,
+        book,
+        product="BTC-USD",
+        purpose=IntentPurpose.STOP,
+        side=OrderSide.SELL,
+        status=stop_status,
+        filled="0",
+        price="89",
+    )
+    await store.save_order(
+        replace(stop, kind=OrderKind.STOP_LIMIT, stop_trigger_price=Decimal("90"))
+    )
+    evidence = await gather_safety_findings(
+        deployments=(book,),
+        snapshots=store,
+        closed_candles=_no_candles,
+        now=_NOW,
+        thresholds=AlertThresholds(),
+        worker_interval_seconds=30,
+    )
+    btc = {(row.code, row.severity) for row in evidence.findings if row.product_id == "BTC-USD"}
+    assert expected in btc
+    assert ((AlertCode.STOP_UNCOVERED, AlertSeverity.CRITICAL) in btc) is (
+        expected[0] is AlertCode.STOP_UNCOVERED
+    )
 
 
 async def test_valid_focused_product_evidence_is_not_complete_shared_accounting() -> None:

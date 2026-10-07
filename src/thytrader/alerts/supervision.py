@@ -41,6 +41,7 @@ from thytrader.execution.protection import (
     book_inventory_reasons,
     book_position_state,
     book_protection_evidence,
+    live_stop_absent,
 )
 from thytrader.market_data.models import parse_candle_interval
 
@@ -545,7 +546,8 @@ def _protection_findings(
     A live book whose only resting closing-side stops have all triggered without
     filling no longer has verified cover, even though the venue still lists the
     orders as working, so ``STOP_UNCOVERED`` fires alongside the per-order
-    ``STOP_TRIGGERED_UNFILLED`` finding.
+    ``STOP_TRIGGERED_UNFILLED`` finding. Unresolved inventory makes cover unknown, but a
+    live book with no working stop at all stays ``STOP_UNCOVERED``.
     """
     findings: list[SupervisionFinding] = []
     for position in snapshot_positions(snapshot):
@@ -560,8 +562,12 @@ def _protection_findings(
             phase=deployment.phase,
             evidence=evidence,
         )
-        status = evidence.status
-        if status.value not in {"unprotected", "unknown"}:
+        status = evidence.status.value
+        if status == "unknown" and live_stop_absent(
+            snapshot, product_id=product_id, position=position, now=now
+        ):
+            status = "unprotected"
+        if status not in {"unprotected", "unknown"}:
             if not _cover_voided_by_triggered_stops(
                 deployment, snapshot, product_id=product_id, position=position, triggered=triggered
             ):
@@ -579,9 +585,7 @@ def _protection_findings(
             )
             continue
         code = (
-            AlertCode.STOP_UNCOVERED
-            if status.value == "unprotected"
-            else AlertCode.STOP_COVERAGE_UNKNOWN
+            AlertCode.STOP_UNCOVERED if status == "unprotected" else AlertCode.STOP_COVERAGE_UNKNOWN
         )
         severity = (
             AlertSeverity.CRITICAL

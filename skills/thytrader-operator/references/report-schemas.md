@@ -354,7 +354,9 @@ This report never places, cancels, or escalates orders.
 A `STOP_TRIGGERED_UNFILLED` row means a protective stop traded through and remained
 unfilled; supervision does not submit a market order. When every resting closing-side stop
 of an occupied live book is triggered-unfilled, the book also reports `STOP_UNCOVERED`:
-the resting orders no longer evidence cover. Unknown evidence never resolves an alert;
+the resting orders no longer evidence cover. Unresolved fill economics make a live book's cover
+`STOP_COVERAGE_UNKNOWN`, but a live position with no working stop at all (confirmed, pending,
+or unknown) still reports critical `STOP_UNCOVERED`. Unknown evidence never resolves an alert;
 only that check's verified absence (or authoritative deployment removal) does. Partial
 snapshots/inventories and cold/warming caches are not recovery. Applied-but-unprojected owned
 fills and unsettled canceled/filled executions likewise cannot clear protection/trigger incidents
