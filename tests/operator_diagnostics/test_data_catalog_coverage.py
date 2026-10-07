@@ -11,7 +11,7 @@ from thytrader.market_data.datasets import DatasetManifest
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.watchlist import MarketDataWatchTarget
 from thytrader.market_data.worker_state import MarketDataWorkerState, MarketDataWorkerStatus
-from thytrader.operator.service import _merge_coverage_rows
+from thytrader.operator.diagnostics.market_coverage import _merge_coverage_rows
 
 _NOW = datetime(2026, 10, 2, 11, 13, 30, tzinfo=UTC)
 _MINUTE = CandleInterval.ONE_MINUTE

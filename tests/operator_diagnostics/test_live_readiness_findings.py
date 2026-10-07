@@ -19,6 +19,7 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
+from thytrader.operator.diagnostics.runtime import _execution_market_data_components
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
@@ -82,7 +83,7 @@ def test_demo_market_data_is_disclosed_for_active_paper_without_credentials() ->
     execution = InMemoryExecutionStore()
     asyncio.run(execution.create_deployment(_deployment(mode=DeploymentMode.PAPER)))
     diagnostics = _diagnostics(execution, Settings(_env_file=None))
-    components = asyncio.run(diagnostics._execution_market_data_components())
+    components = asyncio.run(_execution_market_data_components(diagnostics))
     assert [component.reason_code for component in components] == ["DEMO_MARKET_DATA"]
     assert "synthetic demo candles" in components[0].detail
 
@@ -98,5 +99,5 @@ def test_no_demo_disclosure_when_credentials_are_configured() -> None:
             "-----BEGIN EC PRIVATE KEY-----\nabc\n-----END EC PRIVATE KEY-----"
         ),
     )
-    components = asyncio.run(_diagnostics(execution, settings)._execution_market_data_components())
+    components = asyncio.run(_execution_market_data_components(_diagnostics(execution, settings)))
     assert components == ()
