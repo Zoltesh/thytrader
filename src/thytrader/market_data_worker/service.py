@@ -25,17 +25,22 @@ import logging
 import random
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
-from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
-    MAX_HISTORICAL_INTERVAL_COUNT,
     CandleInterval,
     CandleRangeReport,
     MarketDataRateLimitedError,
 )
 from thytrader.market_data.no_trade import count_no_trade_bars, fill_no_trade_gaps, no_trade_bar
 from thytrader.market_data.quality import analyze_range
+from thytrader.market_data.watch_coverage import (
+    bounded_lookback_start,
+    island_covers_watch,
+    listing_horizon_start,
+    safe_shift,
+    utc_day_floor,
+    watch_lookback_start,
+)
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
     MarketDataWatchlistStore,
@@ -73,8 +78,6 @@ INGEST_REQUESTS_PER_REQUESTED_TARGET_CYCLE = 24
 # boundary, then confirmed daily-granularity probes back to the listing horizon (at most
 # eleven 350-day pages for a ten-year ceiling).
 LISTING_SEARCH_REQUEST_ALLOWANCE = 48
-# How far past the lookback ceiling a listing search looks: one page of daily candles.
-_LISTING_SEARCH_MARGIN = timedelta(days=HISTORICAL_REQUEST_MAX_CANDLES)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -260,7 +263,7 @@ async def ingest_once(
         requested_ends_at=ends_at,
         maintenance_kind=maintenance_kind,
         expected_ends_at=ends_at,
-        next_attempt_at=_safe_shift(
+        next_attempt_at=safe_shift(
             now.astimezone(UTC),
             timedelta(seconds=retry_base_seconds),
             "Market-data worker cannot represent its next attempt time.",
@@ -423,131 +426,6 @@ async def fetch_historical_range(
     return await get_hourly_range(product_id, starts_at, ends_at, now)
 
 
-def bounded_lookback_start(
-    ends_at: datetime,
-    lookback_hours: int,
-    interval: CandleInterval,
-    *,
-    max_intervals: int = MAX_HISTORICAL_INTERVAL_COUNT,
-) -> datetime:
-    """Align a lookback window to the interval without exceeding the range cap."""
-    requested = timedelta(hours=lookback_hours)
-    max_span = interval.duration * max_intervals
-    span = requested if requested <= max_span else max_span
-    starts_at = _safe_shift(
-        ends_at,
-        -span,
-        "Market-data worker cannot represent its initial range start.",
-    )
-    remainder = (ends_at - starts_at) % interval.duration
-    if remainder != timedelta(0):
-        starts_at = _safe_shift(
-            starts_at,
-            remainder,
-            "Market-data worker cannot represent its aligned range start.",
-        )
-    if starts_at >= ends_at:
-        raise MarketDataWorkerError("Market-data worker lookback collapsed to an empty range.")
-    return starts_at
-
-
-def watch_lookback_start(
-    closed_end: datetime,
-    lookback_hours: int,
-    interval: CandleInterval,
-    covered_starts_at: datetime | None,
-    history_floor_at: datetime | None,
-) -> datetime:
-    """Return the oldest bar the watch still needs, clamped to a confirmed provider floor."""
-    lookback_start = bounded_lookback_start(closed_end, lookback_hours, interval)
-    if (
-        history_floor_at is not None
-        and covered_starts_at is not None
-        and history_floor_at == covered_starts_at
-        and lookback_start < history_floor_at
-    ):
-        return history_floor_at
-    return lookback_start
-
-
-def watch_expected_candle_count(
-    lookback_hours: int, interval: CandleInterval, ends_at: datetime
-) -> int:
-    """Count bars in the watch lookback window ending at ``ends_at``."""
-    start = bounded_lookback_start(ends_at, lookback_hours, interval)
-    return int((ends_at - start) / interval.duration)
-
-
-def watch_covered_candle_count(
-    covered_starts_at: datetime | None,
-    covered_ends_at: datetime | None,
-    lookback_hours: int,
-    interval: CandleInterval,
-    ends_at: datetime,
-) -> int:
-    """Count the watch lookback window's bars that verified coverage spans (the X of X of Y).
-
-    No-trade bars count as covered; bars before a listing floor do not, so a young
-    market reports its real share of the lookback.
-    """
-    if covered_starts_at is None or covered_ends_at is None:
-        return 0
-    start = max(covered_starts_at, bounded_lookback_start(ends_at, lookback_hours, interval))
-    end = min(covered_ends_at, ends_at)
-    if end <= start:
-        return 0
-    return int((end - start) / interval.duration)
-
-
-def island_covers_watch(
-    *,
-    covered_starts_at: datetime | None,
-    covered_ends_at: datetime | None,
-    island_complete: bool,
-    lookback_hours: int,
-    interval: CandleInterval,
-    closed_end: datetime,
-    product_id: str = "",
-    now: datetime | None = None,
-    history_floor_at: datetime | None = None,
-) -> bool:
-    """True when the latest complete island spans the full watch lookback.
-
-    When candle freshness is still ``fresh`` and coverage is only one closed bar
-    behind ``closed_end``, treat the watch as complete so large grids do not flip
-    on every boundary while the single worker is elsewhere. Coverage that reaches
-    the settle cutoff also spans the watch: a missing bar inside the settle window
-    may still be published, so a sparse market's quiet head waits there without
-    being history the watch lacks (ADR 0095).
-
-    A ``history_floor_at`` equal to the island start means the listing search found
-    no provider candle before the island (the market had not traded yet), so the
-    island satisfies the lookback from that floor.
-    """
-    if not island_complete or covered_starts_at is None or covered_ends_at is None:
-        return False
-    lookback_start = watch_lookback_start(
-        closed_end, lookback_hours, interval, covered_starts_at, history_floor_at
-    )
-    if covered_starts_at > lookback_start:
-        return False
-    if covered_ends_at >= closed_end or covered_ends_at >= settle_cutoff(closed_end, interval):
-        return True
-    if now is not None and product_id:
-        freshness = evaluate_freshness(
-            product_id=product_id,
-            newest_candle_at=covered_ends_at,
-            now=now,
-            interval=interval,
-        )
-        if (
-            freshness.status is FreshnessStatus.FRESH
-            and covered_ends_at + interval.duration >= closed_end
-        ):
-            return True
-    return False
-
-
 async def _touch_market_data_heartbeat(
     heartbeat_store: WorkerHeartbeatStore | None,
     now_factory: Callable[[], datetime] | None,
@@ -596,7 +474,7 @@ async def _reconcile_current_coverage(
         requested_ends_at=prior.covered_ends_at,
         maintenance_kind=MarketDataMaintenanceKind.INCREMENTAL,
         expected_ends_at=ends_at,
-        next_attempt_at=_safe_shift(
+        next_attempt_at=safe_shift(
             now.astimezone(UTC),
             timedelta(seconds=retry_base_seconds),
             "Market-data worker cannot represent its next attempt time.",
@@ -643,7 +521,7 @@ async def _reconcile_current_coverage(
         MarketDataWorkerSuccess(
             attempt=reconciliation_attempt,
             covered_starts_at=verified_candles[0].starts_at,
-            covered_ends_at=_safe_shift(
+            covered_ends_at=safe_shift(
                 verified_candles[-1].starts_at,
                 timeframe.duration,
                 "Market-data worker cannot represent verified candle coverage.",
@@ -693,7 +571,7 @@ def _plan_range(
         covered_start = prior.covered_starts_at
         if covered_start is not None and lookback_start < covered_start:
             return lookback_start, MarketDataMaintenanceKind.PREFIX_BACKFILL
-        starts_at = _safe_shift(
+        starts_at = safe_shift(
             prior.covered_ends_at,
             -timeframe.duration,
             "Market-data worker cannot represent its incremental range start.",
@@ -790,23 +668,6 @@ class _WalkContext:
     def outcome(self, stop: IngestStop) -> IngestOutcome:
         """Return the call outcome with the requests this walk spent."""
         return IngestOutcome(stop, self.budget.spent)
-
-
-def listing_horizon_start(closed_end: datetime, interval: CandleInterval) -> datetime:
-    """Return the oldest instant a listing search covers: one daily page past the ceiling.
-
-    The ceiling is the longest lookback a watch on the timeframe may request (ADR 0085), so
-    a floor proven back to here holds for every lookback and raising one never needs it
-    proven again. The extra 350 days let a search below a quiet lookback start find the
-    trade that prices it, so a quiet first bar is never mistaken for a listing.
-    """
-    ceiling = bounded_lookback_start(closed_end, max_watch_lookback_hours(interval), interval)
-    return _utc_day_floor(ceiling) - _LISTING_SEARCH_MARGIN
-
-
-def _utc_day_floor(value: datetime) -> datetime:
-    """Return the UTC midnight at or before one aware UTC instant."""
-    return value.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 async def _walk(
@@ -979,7 +840,7 @@ class _BackwardWalk:
         self._cursor = (
             context.closed_end
             if island is None
-            else _safe_shift(
+            else safe_shift(
                 island.starts_at,
                 context.bar,
                 "Market-data worker cannot represent a prefix overlap end.",
@@ -1056,7 +917,7 @@ class _BackwardWalk:
         return (
             self._searching
             and self._context.can_probe_days
-            and self._cursor == _utc_day_floor(self._cursor)
+            and self._cursor == utc_day_floor(self._cursor)
             and self._probed_at != self._cursor
         )
 
@@ -1067,14 +928,14 @@ class _BackwardWalk:
         can probe the whole days below it with daily candles.
         """
         bound = self._target if self._cursor > self._target else self._horizon
-        earliest = _safe_shift(
+        earliest = safe_shift(
             self._cursor,
             -self._context.page_span,
             "Market-data worker cannot represent a page start.",
         )
         start = max(bound, earliest)
         if self._searching and self._context.can_probe_days:
-            start = max(start, _utc_day_floor(self._cursor - self._context.bar))
+            start = max(start, utc_day_floor(self._cursor - self._context.bar))
         return start
 
     async def _fetch_and_absorb(self) -> IngestStop | None:
@@ -1121,7 +982,7 @@ class _BackwardWalk:
         end of the newest day that traded, or at the horizon when no day before it did.
         """
         self._probed_at = self._cursor
-        lower = _utc_day_floor(self._horizon)
+        lower = utc_day_floor(self._horizon)
         span = CandleInterval.ONE_DAY.duration * self._context.page_candles
         day_end = self._cursor
         while day_end > lower:
@@ -1163,7 +1024,7 @@ class _ForwardWalk:
         """Start at the island's last bar so the first page overlaps it."""
         self._context = context
         self._island = island
-        self._overlap = _safe_shift(
+        self._overlap = safe_shift(
             island.ends_at,
             -context.timeframe.duration,
             "Market-data worker cannot represent its incremental range start.",
@@ -1177,7 +1038,7 @@ class _ForwardWalk:
         while self._cursor < self._context.closed_end:
             if self._context.budget.exhausted():
                 return IngestStop.BUDGET
-            latest = _safe_shift(
+            latest = safe_shift(
                 self._cursor,
                 self._context.page_span,
                 "Market-data worker cannot represent a page end.",
@@ -1378,7 +1239,7 @@ def _failure_for(stop: IngestStop, island: _Island | None) -> _FailureSpec | Non
 def _rate_limit_retry_at(context: _WalkContext) -> datetime:
     """Return the retry instant after a throttle: the pacer's cooldown, at least one second."""
     seconds = max(1.0, context.pacer.cooldown_seconds)
-    return _safe_shift(
+    return safe_shift(
         context.attempt.attempted_at,
         timedelta(seconds=seconds),
         "Market-data worker cannot represent its rate-limit retry time.",
@@ -1805,16 +1666,8 @@ def _next_retry_at(
     bounded_jitter = min(max(jitter_value, 0.0), 1.0)
     base_delay = min(base_seconds * (2**prior_failures), 3_600)
     delay = base_delay + int(base_delay * 0.2 * bounded_jitter)
-    return _safe_shift(
+    return safe_shift(
         attempted_at,
         timedelta(seconds=delay),
         "Market-data worker cannot represent its retry schedule.",
     )
-
-
-def _safe_shift(value: datetime, delta: timedelta, message: str) -> datetime:
-    """Shift one worker instant without leaking an unrepresentable datetime boundary."""
-    try:
-        return value + delta
-    except OverflowError as error:
-        raise MarketDataWorkerError(message) from error

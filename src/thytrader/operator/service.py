@@ -60,6 +60,11 @@ from thytrader.market_data.freshness import (
 )
 from thytrader.market_data.models import CandleInterval, as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.products import SpotQuoteCurrency, quote_currency
+from thytrader.market_data.watch_coverage import (
+    island_covers_watch,
+    watch_covered_candle_count,
+    watch_expected_candle_count,
+)
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
     MarketDataWatchlistUnavailableError,
@@ -69,11 +74,6 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerStateStore,
     MarketDataWorkerUnavailableError,
-)
-from thytrader.market_data_worker.service import (
-    island_covers_watch,
-    watch_covered_candle_count,
-    watch_expected_candle_count,
 )
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import build_monitor, storage_label
