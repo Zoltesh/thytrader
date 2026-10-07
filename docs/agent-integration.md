@@ -594,6 +594,20 @@ A send/ack crash can still duplicate an external webhook, so receivers must
 idempotently deduplicate. Bounded retries can exhaust without external receipt.
 Do not infer exactly-once delivery or invent a destination.
 
+### Fleet controls
+
+Mode-wide controls live in the confirmation-gated runtime lane, not the read-only operator lane
+([ADR 0117](decisions/0117-truthful-inventory-and-fleet-controls.md)): `uv run thytrader-runtime
+fleet-preview|fleet-status|fleet-disarm|fleet-stop|fleet-flatten|fleet-rearm`, or
+`GET /api/v1/fleet-control`, `GET /api/v1/fleet-control/preview?action=&mode=` and
+`POST /api/v1/fleet-control/{disarm|stop|flatten|rearm}`. Disarm only inhibits new starts and
+entries; stop is a managed shutdown that keeps protection; flatten is explicit; rearm clears the
+latch without resuming books. Every mutation requires `confirm`, the previewed deployment
+revisions (and latch revisions for disarm/rearm), and an idempotency key; live flatten and live
+rearm also require the live acknowledgement. YOLO never covers them. An agent must not refresh
+revisions to replace the person's consent, and a partial result does not mean positions are flat.
+The [runtime skill](../skills/thytrader-runtime/SKILL.md) has the exact flags.
+
 ## Stable diagnostics schema
 
 Every machine-readable report should include:

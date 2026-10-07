@@ -91,6 +91,29 @@ guaranteed. See
 [ADR 0115](../decisions/0115-durable-safety-alerts-and-supervision.md) and the
 [operator skill](../../skills/thytrader-operator/SKILL.md).
 
+## Fleet controls
+
+**Fleet controls** on **Portfolio** (`/deployments`), `uv run thytrader-runtime fleet-*`, and
+`/api/v1/fleet-control` act on every paper, live, or paper-and-live bot at once
+([ADR 0117](../decisions/0117-truthful-inventory-and-fleet-controls.md)). Each action starts
+with a read-only preview listing the affected bot ids, their revisions, and residual positions.
+An unknown position read stays unknown; it is not flat. The four actions are different:
+
+- **Disarm** blocks new starts and entries for the mode until **Rearm**. It does not pause,
+  cancel, or flatten anything, and exits and protection keep running.
+- **Stop** records a managed stop for each previewed bot. Protection stays; this is not a flatten.
+- **Flatten** is explicit and needs the live acknowledgement for live bots. Acceptance means the
+  command was recorded; bots exit asynchronously, so check each one before calling it flat.
+- **Rearm** clears the entry latch. It does not resume paused or stopped bots; a live resume
+  still needs its own acknowledgement.
+
+Confirmation applies only to the preview you reviewed: a bot whose revision changed is reported
+as a conflict and is not commanded, and a newer latch revision is never substituted for your
+consent. After a timeout, repeat the identical request; it carries the same idempotency key and
+is applied once. The disarm latch survives restarts, and a worker that cannot read it blocks new
+entries without stopping reconciliation or protection. See the
+[runtime skill](../../skills/thytrader-runtime/SKILL.md) for the CLI flags.
+
 ## In the browser
 
 After [setup](setup.md), open http://127.0.0.1:5175.
