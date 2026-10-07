@@ -21,6 +21,7 @@ from tests.execution.test_adr_0110_stopped_lifecycle import (
     _product,
 )
 from tests.execution.test_lifecycle_safety import _multi_strategy, _QuantityVenue
+from tests.loop_patching import patch_loop_global
 from tests.persistence.test_postgres_fill_transaction import (
     _NOW,
     _pending_entry_book,
@@ -609,7 +610,7 @@ async def test_actual_pg_scoped_quote_breaker_preserves_peer_fill_and_intent(
     scoped = InstrumentScopedStore(
         RevisionFencedStore(store, source.deployment.id, source.deployment.revision), "BTC-USD"
     )
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     await _apply_circuit_breakers(
         await scoped.get_deployment(source.deployment.id),
         candle=_candle(),

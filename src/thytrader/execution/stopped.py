@@ -13,15 +13,8 @@ from typing import TYPE_CHECKING, Protocol
 from thytrader.execution.exit_guards import active_orders, flat_and_idle
 from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.ids import utc_now
-from thytrader.execution.loop import (
-    cancel_resting_orders,
-    cancel_risk_increasing_orders,
-    defer_flatten_without_executable_context,
-    flatten_residual_book,
-    maintain_discretionary_protection,
-    maintain_open_inventory,
-    settle_stopped_book,
-)
+from thytrader.execution.live_protection import maintain_discretionary_protection
+from thytrader.execution.loop import cancel_risk_increasing_orders, maintain_open_inventory
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,
@@ -33,6 +26,12 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.residual import (
+    defer_flatten_without_executable_context,
+    flatten_residual_book,
+    settle_stopped_book,
+)
+from thytrader.execution.runtime_ops import cancel_resting_orders
 from thytrader.market_data.models import MarketProduct, parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.strategies.models import lockstep_product_ids

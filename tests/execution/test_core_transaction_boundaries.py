@@ -24,6 +24,7 @@ from tests.execution.test_lifecycle_safety import (
     _QuantityVenue,
     _warming_error,
 )
+from tests.loop_patching import patch_loop_global
 from tests.risk.test_loss_scope import _TODAY, _deployment, _policy, _round_trip
 from tests.risk.test_safety_evidence import _MIDNIGHT, overnight_long, seed_accounting, sibling_loss
 from tests.worker_patching import patch_worker_global
@@ -392,7 +393,7 @@ async def test_quote_pause_preserves_peer_fill_lifecycle_latches_and_runtimes(
     scoped = InstrumentScopedStore(
         RevisionFencedStore(store, source.deployment.id, source.deployment.revision), "BTC-USD"
     )
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     await _apply_circuit_breakers(
         await scoped.get_deployment(source.deployment.id),
         candle=_candle(),
@@ -595,7 +596,7 @@ async def test_scoped_closed_bar_binds_actual_product_mark(
     scoped = InstrumentScopedStore(
         RevisionFencedStore(store, full.deployment.id, full.deployment.revision), "ETH-USD"
     )
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     after = await process_closed_bar(
         await scoped.get_deployment(full.deployment.id),
         strategy=_multi_strategy(),
