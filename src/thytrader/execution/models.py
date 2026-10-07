@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003 - dataclass fields resolve at type-check and runtime.
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from thytrader.execution.day_open import DailyOpeningEvidence
 
 
@@ -533,6 +535,16 @@ def runtime_from_deployment(deployment: Deployment, product_id: str) -> Instrume
         pending_stop_price=deployment.pending_stop_price,
         pending_target_price=deployment.pending_target_price,
     )
+
+
+def mirrors_primary_runtime(deployment: Deployment, runtimes: Iterable[InstrumentRuntime]) -> bool:
+    """Whether the deployment row owns runtime state because every overlay is its own product.
+
+    A single-product book keeps its runtime on the deployment row, which the closed-bar
+    loop reads and writes. An overlay row for that product is a mirror of the row, never a
+    second source of truth; multi-product books keep authoritative per-product overlays.
+    """
+    return all(item.product_id == deployment.product_id for item in runtimes)
 
 
 def aggregate_phase(runtimes: tuple[InstrumentRuntime, ...]) -> RuntimePhase:

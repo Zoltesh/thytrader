@@ -34,7 +34,9 @@ from thytrader.execution.models import (
     PaginatedFills,
     PaginatedOrders,
     Position,
+    mirrors_primary_runtime,
     resolved_product_id,
+    runtime_from_deployment,
 )
 from thytrader.execution.pagination import (
     decode_cursor,
@@ -357,6 +359,13 @@ class InMemoryExecutionStore:
             self.instrument_runtimes[
                 _position_key(deployment.id, instrument_runtime.product_id)
             ] = instrument_runtime
+            return saved
+        own = _position_key(deployment.id, deployment.product_id)
+        rows = [
+            runtime for key, runtime in self.instrument_runtimes.items() if key[0] == deployment.id
+        ]
+        if own in self.instrument_runtimes and mirrors_primary_runtime(saved, rows):
+            self.instrument_runtimes[own] = runtime_from_deployment(saved, deployment.product_id)
         return saved
 
     async def save_breaker_pause(

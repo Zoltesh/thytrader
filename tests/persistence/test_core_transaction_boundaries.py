@@ -699,3 +699,40 @@ async def test_pg_runtime_write_failure_rolls_back_the_parent(
             instrument_runtime=InstrumentRuntime("X" * 256, RuntimePhase.FLAT),
         )
     assert await PostgresExecutionStore(second).get_accounting_snapshot(parent.id) == before
+
+
+@pytest.mark.parametrize("secondary", [False, True])
+async def test_pg_plain_save_mirrors_only_a_single_product_overlay(
+    engines: tuple[AsyncEngine, AsyncEngine], secondary: bool
+) -> None:
+    """The deployment row owns a single-product book's runtime; multi-product rows stay."""
+    first, second = engines
+    store = PostgresExecutionStore(first)
+    parent, _orders = await _seed(store, secondary=secondary)
+    current = (await store.get_deployment(parent.id)).deployment
+    bar = current.created_at.replace(microsecond=0)
+    await store.save_deployment(
+        replace(current, phase=RuntimePhase.OPEN, last_evaluated_bar=bar, bars_held=3),
+        expected_revision=current.revision,
+    )
+    rows = {
+        row.product_id: row
+        for row in (
+            await PostgresExecutionStore(second).get_accounting_snapshot(parent.id)
+        ).instrument_runtimes
+    }
+    primary = rows["BTC-USD"]
+    if secondary:
+        assert (primary.phase, primary.last_evaluated_bar, primary.bars_held) == (
+            RuntimePhase.PENDING_ENTRY,
+            None,
+            0,
+        )
+        assert rows["ETH-USD"].phase is RuntimePhase.PENDING_ENTRY
+    else:
+        assert (primary.phase, primary.last_evaluated_bar, primary.bars_held) == (
+            RuntimePhase.OPEN,
+            bar,
+            3,
+        )
+        assert set(rows) == {"BTC-USD"}
