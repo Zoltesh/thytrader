@@ -13,6 +13,7 @@ import pytest
 from tests.alerts.test_alert_service import _BlockingSender
 from tests.alerts.test_supervision import _candle, _position
 from tests.execution_worker.test_safety_supervision import _NOW, _cycle, _deployment
+from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import AlertStoreError, InMemoryAlertStore
@@ -336,7 +337,7 @@ async def test_real_restarted_paper_book_remains_paused_and_executes_risk_reduci
         del data, product_id, timeframe, warmup_bars, deploy_anchor, as_of_closed_start
         return preview.product, candles, candles[-1].starts_at
 
-    monkeypatch.setattr(worker_service, "_closed_window_for", window)
+    patch_worker_global(monkeypatch, "_closed_window_for", window)
     alerts = InMemoryAlertStore()
     await _cycle(execution, _service(alerts))
     snapshot = await execution.get_deployment(book.id)

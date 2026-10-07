@@ -34,7 +34,7 @@ from thytrader.market_data.service import MarketDataService
 if TYPE_CHECKING:
     from thytrader.config import Settings
     from thytrader.execution.broker import Broker
-    from thytrader.execution_worker.service import QuoteBalanceReader
+    from thytrader.execution_worker.ports import QuoteBalanceReader
 
 _logger = logging.getLogger(__name__)
 

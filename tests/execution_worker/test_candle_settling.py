@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.execution.decision_support import Catalog, candles, paper_book, product, strategy
+from tests.worker_patching import patch_worker_global
 from thytrader.execution import candle_wait
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
@@ -97,9 +98,9 @@ async def test_worker_waits_without_entries_then_pauses_at_deadline(
         return current
 
     monkeypatch.setattr(candle_wait, "datetime", _Clock)
-    monkeypatch.setattr(service, "utc_now", lambda: _Clock.instant)
-    monkeypatch.setattr(service, "_closed_window_for", window)
-    monkeypatch.setattr(service, "maintain_open_inventory", maintenance)
+    patch_worker_global(monkeypatch, "utc_now", lambda: _Clock.instant)
+    patch_worker_global(monkeypatch, "_closed_window_for", window)
+    patch_worker_global(monkeypatch, "maintain_open_inventory", maintenance)
     journal = InMemoryDecisionJournalStore()
     for elapsed in (60, 119, 120):
         _Clock.instant = _CLOSE + timedelta(seconds=elapsed)

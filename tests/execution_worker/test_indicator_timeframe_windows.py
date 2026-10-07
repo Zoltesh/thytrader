@@ -13,7 +13,7 @@ from tests.execution.test_htf_filter import (
     _htf_hours,
 )
 from tests.execution.test_indicator_timeframes import _five_minute_extra_tf_strategy, _product
-from thytrader.execution_worker import service as execution_worker
+from tests.worker_patching import patch_worker_global
 from thytrader.execution_worker.service import _closed_indicator_timeframe_windows
 from thytrader.strategies.models import StrategyDefinition
 
@@ -45,7 +45,7 @@ async def test_extra_windows_reuse_htf_when_clocks_match(
     async def _forbidden_fetch(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("shared extra-TF clock must reuse the HTF window")
 
-    monkeypatch.setattr(execution_worker, "_closed_window_for", _forbidden_fetch)
+    patch_worker_global(monkeypatch, "_closed_window_for", _forbidden_fetch)
     windows = await _closed_indicator_timeframe_windows(
         cast("MarketDataService", object()),
         strategy,
@@ -80,7 +80,7 @@ async def test_extra_windows_pause_when_latest_completed_bar_is_missing(
         )
         return _product(), candles, expected_last
 
-    monkeypatch.setattr(execution_worker, "_closed_window_for", _gapped_window)
+    patch_worker_global(monkeypatch, "_closed_window_for", _gapped_window)
     windows = await _closed_indicator_timeframe_windows(
         cast("MarketDataService", object()),
         strategy,
@@ -112,7 +112,7 @@ async def test_extra_windows_return_complete_unbound_clock(
         assert warmup_bars == 3
         return _product(), extra, extra[-1].starts_at
 
-    monkeypatch.setattr(execution_worker, "_closed_window_for", _complete_window)
+    patch_worker_global(monkeypatch, "_closed_window_for", _complete_window)
     windows = await _closed_indicator_timeframe_windows(
         cast("MarketDataService", object()),
         strategy,

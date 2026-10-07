@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode, SafetyEvidence
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
@@ -95,8 +96,8 @@ async def test_supervision_freshness_uses_evaluation_time_not_cycle_start(
         observed.append(now)
         return SafetyEvidence()
 
-    monkeypatch.setattr(worker_service, "utc_now", lambda: evaluated_at)
-    monkeypatch.setattr(worker_service, "gather_safety_findings", gather)
+    patch_worker_global(monkeypatch, "utc_now", lambda: evaluated_at)
+    patch_worker_global(monkeypatch, "gather_safety_findings", gather)
     _feed, alerts = _alerts()
     await worker_service._supervise_safety(
         alert_service=alerts,
