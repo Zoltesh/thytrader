@@ -50,14 +50,12 @@ from thytrader.execution.exit_guards import (
 )
 from thytrader.execution.fill_ledger import (
     ingest_fill,
-    prior_fills_for_order,
     unprojected_inventory_products,
     unsettled_fill_evidence,
 )
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
 from thytrader.execution.geometry import (
     EntrySkipReason,
-    entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_fill_price,
@@ -224,25 +222,6 @@ async def flatten_stopped_residual(
         broker=broker,
         store=store,
         cooldown_bars=strategy.entry.cooldown_bars,
-    )
-
-
-async def flatten_discretionary_residual(
-    snapshot: DeploymentSnapshot,
-    *,
-    product: MarketProduct,
-    candles: Sequence[Candle],
-    broker: Broker,
-    store: ExecutionStore,
-) -> DeploymentSnapshot:
-    """Flatten one stopped discretionary book without a strategy snapshot."""
-    return await flatten_residual_book(
-        snapshot,
-        product=product,
-        candles=candles,
-        broker=broker,
-        store=store,
-        cooldown_bars=0,
     )
 
 
@@ -703,158 +682,6 @@ async def apply_fill(
         timeframe=timeframe or snapshot.deployment.timeframe,
     )
     return result.snapshot
-
-
-async def _apply_entry_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    timeframe: str | None = None,
-) -> DeploymentSnapshot:
-    """Open a long from a buy fill or a short from a sell fill."""
-    deployment = snapshot.deployment
-    now = utc_now()
-    side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    stop = deployment.pending_stop_price
-    # A None target is legal: the strategy declares no take-profit (ADR 0090), and the
-    # book is protected by its stop alone. The stop is always required.
-    target = deployment.pending_target_price
-    if stop is None:
-        paused = with_runtime(
-            deployment,
-            updated_at=now,
-            cash=cash,
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Entry fill is missing its stored stop price.",
-            phase=RuntimePhase.FLAT,
-            clear_pending_levels=True,
-        )
-        await store.save_deployment(paused)
-        await store.save_position(None, deployment_id=deployment.id)
-        return await store.get_deployment(deployment.id)
-    bar_timeframe = timeframe or deployment.timeframe
-    if bar_timeframe is None:
-        paused = with_runtime(
-            deployment,
-            updated_at=now,
-            cash=cash,
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
-            phase=RuntimePhase.FLAT,
-            clear_pending_levels=True,
-        )
-        await store.save_deployment(paused)
-        await store.save_position(None, deployment_id=deployment.id)
-        return await store.get_deployment(deployment.id)
-    entered_bar = entry_bar_bucket(fill.filled_at, bar_timeframe)
-    position = Position(
-        deployment_id=deployment.id,
-        quantity=fill.quantity,
-        entry_price=fill.price,
-        stop_price=stop,
-        target_price=target,
-        entered_bar=entered_bar,
-        updated_at=now,
-        side=side,
-        product_id=order.product_id or deployment.product_id,
-        add_count=1,
-    )
-    updated = with_runtime(
-        deployment,
-        updated_at=now,
-        cash=cash,
-        phase=RuntimePhase.OPEN,
-        bars_held=0,
-        pending_entry_bars=0,
-        clear_pending_levels=True,
-    )
-    await store.save_position(position, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-async def _apply_scale_in_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    position: Position,
-) -> DeploymentSnapshot:
-    """Add to an existing position on the same side."""
-    deployment = snapshot.deployment
-    now = utc_now()
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    quantity = position.quantity + fill.quantity
-    entry_price = (
-        (position.entry_price * position.quantity) + (fill.price * fill.quantity)
-    ) / quantity
-    prior = prior_fills_for_order(snapshot, order.id)
-    add_count = position.add_count + 1 if prior == 0 and order.pyramid_add else position.add_count
-    updated_position = replace(
-        position,
-        quantity=quantity,
-        entry_price=entry_price,
-        updated_at=now,
-        add_count=add_count,
-    )
-    updated = with_runtime(
-        deployment,
-        updated_at=now,
-        cash=cash,
-        phase=RuntimePhase.OPEN if deployment.phase is RuntimePhase.FLAT else deployment.phase,
-    )
-    await store.save_position(updated_position, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-async def _apply_exit_fill(
-    snapshot: DeploymentSnapshot,
-    *,
-    fill: Fill,
-    order: Order,
-    store: ExecutionStore,
-    cooldown_bars: int,
-) -> DeploymentSnapshot:
-    """Reduce or flatten the open position after a covering fill."""
-    deployment = snapshot.deployment
-    cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
-    position = snapshot.position
-    if position is not None and fill.quantity < position.quantity:
-        remaining = replace(
-            position,
-            quantity=position.quantity - fill.quantity,
-            updated_at=utc_now(),
-        )
-        updated = with_runtime(deployment, updated_at=utc_now(), cash=cash)
-        await store.save_position(remaining, deployment_id=deployment.id)
-        await store.save_deployment(updated)
-        return await store.get_deployment(deployment.id)
-    updated = with_runtime(
-        deployment,
-        updated_at=utc_now(),
-        cash=cash,
-        phase=RuntimePhase.FLAT,
-        bars_held=0,
-        pending_entry_bars=0,
-        cooldown_bars_remaining=max(cooldown_bars, 0),
-        clear_pending_levels=True,
-    )
-    await store.save_position(None, deployment_id=deployment.id)
-    await store.save_deployment(updated)
-    return await store.get_deployment(deployment.id)
-
-
-def _cash_after_fill(cash: Decimal, *, fill: Fill, order_side: OrderSide) -> Decimal:
-    """Apply quote cash for a spot buy (debit) or sell (credit)."""
-    notional = fill.price * fill.quantity
-    if order_side is OrderSide.BUY:
-        return cash - notional - fill.fee
-    return cash + notional - fill.fee
 
 
 async def _manage_position(

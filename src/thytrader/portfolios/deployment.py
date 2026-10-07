@@ -75,11 +75,6 @@ class BreakerTrip:
     reason: BreakerReason
     detail: str
 
-    @property
-    def pause_detail(self) -> str:
-        """The ``mismatch_detail`` every paused sleeve carries (stable reason prefix)."""
-        return f"{self.reason}: {self.detail}"
-
 
 def deployment_mode(aggregate: PortfolioAggregate) -> DeploymentMode:
     """The deployment mode every sleeve of this portfolio runs in."""

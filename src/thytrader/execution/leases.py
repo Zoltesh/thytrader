@@ -281,10 +281,3 @@ def require_revision(deployment: Deployment, expected: int) -> None:
     """Raise when a stale writer would overwrite a newer snapshot."""
     if deployment.revision != expected:
         raise ExecutionConflictError("Deployment revision conflict.")
-
-
-def lease_write_error(error: Exception) -> bool:
-    """True when a write failed because of a lease or revision fence."""
-    return isinstance(error, ExecutionConflictError | ExecutionStoreError) and (
-        "revision" in str(error).lower() or "lease" in str(error).lower()
-    )

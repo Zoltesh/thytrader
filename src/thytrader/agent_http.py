@@ -6,6 +6,7 @@ fall back to PostgreSQL when the API is unreachable.
 
 from __future__ import annotations
 
+import argparse
 from http.client import HTTPException
 import json
 import os
@@ -78,6 +79,17 @@ def default_api_base_url(settings: Settings) -> str:
     """Build the loopback API origin from process settings."""
     host = "127.0.0.1" if not settings.api_host.is_loopback else str(settings.api_host)
     return f"http://{host}:{settings.api_port}"
+
+
+def base_url_options() -> argparse.ArgumentParser:
+    """Parent parser for the ``--base-url`` flag agent CLIs accept around a subcommand."""
+    shared = argparse.ArgumentParser(add_help=False)
+    shared.add_argument(
+        "--base-url",
+        default=None,
+        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
+    )
+    return shared
 
 
 def resolve_api_base_url(*, explicit: str | None, settings: Settings) -> str:

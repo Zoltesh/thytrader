@@ -12,8 +12,6 @@ from thytrader.execution.models import (
     OrderKind,
     OrderStatus,
     Position,
-    is_venue_protection,
-    resolved_product_id,
 )
 
 _ACTIVE = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
@@ -74,18 +72,6 @@ def child_order_for(snapshot: DeploymentSnapshot, entry: Order) -> Order | None:
     return None
 
 
-def working_entry_orders(snapshot: DeploymentSnapshot) -> tuple[Order, ...]:
-    """Return active non-bracket orders that still have unfilled remainder."""
-    return tuple(
-        order
-        for order in snapshot.orders
-        if order.status in _ACTIVE
-        and not is_venue_protection(order.kind)
-        and (order.quantity - order.filled_quantity) > 0
-        and _is_entry_order(snapshot, order)
-    )
-
-
 def remaining_quantity(order: Order) -> Decimal:
     """Return original quantity minus filled quantity, floored at zero."""
     remaining = order.quantity - order.filled_quantity
@@ -105,8 +91,3 @@ def _fill_opened_position(fill: Fill, position: Position) -> bool:
     tzinfo = position.entered_bar.tzinfo
     entered = fill.filled_at.astimezone(tzinfo).replace(second=0, microsecond=0)
     return entered == position.entered_bar and fill.price == position.entry_price
-
-
-def product_matches(order: Order, snapshot: DeploymentSnapshot, product_id: str) -> bool:
-    """True when the order belongs to the given Coinbase product."""
-    return resolved_product_id(order.product_id, snapshot.deployment) == product_id

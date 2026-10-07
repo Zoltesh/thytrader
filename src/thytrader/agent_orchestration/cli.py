@@ -11,7 +11,12 @@ import sys
 import tempfile
 from typing import TYPE_CHECKING
 
-from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_http import (
+    AgentHttpError,
+    base_url_options,
+    require_matching_ops_contract,
+    resolve_api_base_url,
+)
 from thytrader.agent_orchestration.client import fetch_orchestration_status
 from thytrader.agent_orchestration.models import (
     PlaybookIdentities,
@@ -37,20 +42,9 @@ class PlaybookError(RuntimeError):
     """Report a redacted playbook failure without live authority."""
 
 
-def _shared_options() -> argparse.ArgumentParser:
-    """Global flags that may appear before or after the subcommand."""
-    shared = argparse.ArgumentParser(add_help=False)
-    shared.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
-    )
-    return shared
-
-
 def _parser() -> argparse.ArgumentParser:
     """Build the playbook argument parser."""
-    shared = _shared_options()
+    shared = base_url_options()
     trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-playbook",

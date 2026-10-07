@@ -327,6 +327,21 @@ class DeploymentSummarySnapshot:
     open_orders: tuple[Order, ...] = field(default_factory=tuple)
 
 
+def summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapshot:
+    """Project a bounded summary row into a snapshot for ledger and protection helpers.
+
+    Summaries omit historical orders and fills, so the snapshot never certifies accounting.
+    """
+    return DeploymentSnapshot(
+        deployment=summary.deployment,
+        position=summary.position,
+        positions=summary.positions,
+        instrument_runtimes=summary.instrument_runtimes,
+        orders=summary.open_orders,
+        accounting_complete=False,
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class PaginatedFills:
     """One page of fills plus an optional next cursor."""
@@ -357,13 +372,6 @@ class DeploymentSnapshot:
     instrument_runtimes: tuple[InstrumentRuntime, ...] = field(default_factory=tuple)
     accounting_complete: bool = True
     """False for product overlays: omitted sibling economics cannot prove account risk."""
-
-
-def with_status(
-    deployment: Deployment, status: DeploymentStatus, updated_at: datetime
-) -> Deployment:
-    """Return a copy with an updated operator status."""
-    return replace(deployment, status=status, updated_at=updated_at)
 
 
 def with_runtime(

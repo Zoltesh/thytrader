@@ -48,8 +48,3 @@ def quote_currency(product_id: str) -> SpotQuoteCurrency:
 def is_spot_product_id(product_id: str) -> bool:
     """Return whether ``product_id`` matches the supported spot pattern."""
     return _SPOT_PRODUCT_ID.fullmatch(product_id.strip().upper()) is not None
-
-
-def default_spot_product_id(*, quote: SpotQuoteCurrency = DEFAULT_SPOT_QUOTE_CURRENCY) -> str:
-    """Return the conservative default BTC product for one quote currency."""
-    return f"BTC-{quote}"

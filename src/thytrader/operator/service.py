@@ -12,6 +12,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.agent_http import default_api_base_url
 from thytrader.alerts.report import AlertsReport, build_alerts_report
 from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
@@ -21,6 +22,8 @@ from thytrader.backtest.models import (
     backtest_evaluation_window,
 )
 from thytrader.config import Settings
+from thytrader.credentials.service import credentials_are_configured
+from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
 from thytrader.exchanges.read_errors import ExchangeReadError
 from thytrader.execution.book_marks import last_bar_marks
@@ -37,6 +40,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
+    summary_as_snapshot,
     visible_instrument_runtimes,
 )
 from thytrader.execution.protection import (
@@ -177,16 +181,6 @@ def _yaml_settings_file(runtime: RuntimeState | None) -> str:
     return str(default_settings_path())
 
 
-def _effective_api_base_url(settings: Settings) -> str:
-    """Report the loopback origin agent CLIs resolve for this checkout.
-
-    Skills and docs name a default port; the running instance may override it.
-    Surfacing the resolved origin prevents operators from probing guessed ports.
-    """
-    host = "127.0.0.1" if not settings.api_host.is_loopback else str(settings.api_host)
-    return f"http://{host}:{settings.api_port}"
-
-
 def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
     """True when this process attached a YAML file that currently exists."""
     if runtime is None or runtime.settings_store is None:
@@ -281,7 +275,7 @@ class OperatorDiagnostics:
             payload=HealthPayload(
                 api_probed=probe_api or self.runtime is not None,
                 database_configured=self.settings.database_url is not None,
-                coinbase_credentials_configured=_credentials_configured(self.settings),
+                coinbase_credentials_configured=credentials_are_configured(self.settings),
                 ops_contract=current_ops_contract(),
                 applied_schema_revision=await self._applied_schema_revision(),
                 research_workers=research_payload,
@@ -355,14 +349,14 @@ class OperatorDiagnostics:
                 market_data_dataset_root=str(self.settings.market_data_dataset_root),
                 execution_worker_interval_seconds=self.settings.execution_worker_interval_seconds,
                 database_configured=self.settings.database_url is not None,
-                coinbase_credentials_configured=_credentials_configured(self.settings),
+                coinbase_credentials_configured=credentials_are_configured(self.settings),
                 yolo_enabled=self.settings.yolo_enabled,
                 yolo_tiers=tuple(tier.value for tier in self.settings.yolo_tiers),
                 notify_provider=self.settings.notify_provider.value,
                 notify_webhook_configured=self.settings.notify_webhook_url is not None,
                 settings_file=_yaml_settings_file(self.runtime),
                 yaml_loaded=_yaml_settings_loaded(self.runtime),
-                effective_api_base_url=_effective_api_base_url(self.settings),
+                effective_api_base_url=default_api_base_url(self.settings),
             ),
         )
 
@@ -402,7 +396,7 @@ class OperatorDiagnostics:
                 recommended_next_action=recommend_next_action((component,)),
                 payload=PortfolioPayload(
                     as_of=now,
-                    demo=not _credentials_configured(self.settings),
+                    demo=not credentials_are_configured(self.settings),
                     connection_status="unavailable",
                     permissions=(),
                     total_value=OperatorMoneyPayload(amount="0", currency="USDC"),
@@ -607,7 +601,7 @@ class OperatorDiagnostics:
                 components=(component,),
                 redaction=STANDARD_REDACTION,
                 recommended_next_action=recommend_next_action((component,)),
-                payload=ProductsPayload(provider=_catalog_provider(self.settings), products=()),
+                payload=ProductsPayload(provider=ingestion_provider(self.settings), products=()),
             )
         component = ComponentReport(
             name="products",
@@ -623,7 +617,7 @@ class OperatorDiagnostics:
             redaction=STANDARD_REDACTION,
             recommended_next_action=recommend_next_action((component,)),
             payload=ProductsPayload(
-                provider=_catalog_provider(self.settings),
+                provider=ingestion_provider(self.settings),
                 catalog_fingerprint=catalog.fingerprint,
                 catalog_observed_at=catalog.observed_at,
                 products=tuple(
@@ -877,7 +871,7 @@ class OperatorDiagnostics:
         The execution worker follows the same shared credentials as this process, so
         absent credentials here mean it runs ``DemoMarketData`` and has no live broker.
         """
-        if _credentials_configured(self.settings):
+        if credentials_are_configured(self.settings):
             return ()
         try:
             deployments = await self.execution.list_deployments()
@@ -1323,7 +1317,7 @@ class OperatorDiagnostics:
 
     async def _exchange_snapshot(self) -> tuple[ComponentReport, ExchangePayload]:
         """Fetch permissions and connection status from the portfolio service."""
-        configured = _credentials_configured(self.settings)
+        configured = credentials_are_configured(self.settings)
         try:
             portfolio = await self.portfolio.get_portfolio()
         except Exception as error:  # noqa: BLE001 - provider failures are redacted at this boundary.
@@ -1545,7 +1539,7 @@ class OperatorDiagnostics:
         summaries: list[DeploymentSummary] = []
         for item in deployments:
             summary_row = await self._summary_or_none(item.id)
-            snapshot = _summary_as_snapshot(summary_row) if summary_row else None
+            snapshot = summary_as_snapshot(summary_row) if summary_row else None
             marks = (
                 await last_bar_marks(self.decision_store, snapshot)
                 if self.decision_store is not None and snapshot is not None
@@ -2045,13 +2039,6 @@ def _mode_slot_counts(deployments: tuple[Deployment, ...], mode: DeploymentMode)
     return len(occupied), open_count
 
 
-def _credentials_configured(settings: Settings) -> bool:
-    """True when both Coinbase secrets are present."""
-    return (
-        settings.coinbase_api_key_name is not None and settings.coinbase_api_private_key is not None
-    )
-
-
 def _readiness_component(name: str, path: Path | None) -> ComponentReport:
     """Interpret a worker readiness file without treating absence as health."""
     if path is None:
@@ -2233,18 +2220,6 @@ def _deployment_summary(
         ),
         ledger_mark_complete=None if ledger is None else ledger.mark_complete,
         open_book_count=(None if summary_row is None else summary_row.book_totals.open_books),
-    )
-
-
-def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapshot:
-    """Project one bounded summary row into a snapshot for book helpers."""
-    return DeploymentSnapshot(
-        deployment=summary.deployment,
-        position=summary.position,
-        positions=summary.positions,
-        instrument_runtimes=summary.instrument_runtimes,
-        orders=summary.open_orders,
-        accounting_complete=False,
     )
 
 
@@ -2478,13 +2453,6 @@ def _supported_clock(value: str | None) -> SupportedTimeframe | None:
     if not interval.execution_supported:
         return None
     return as_dataset_timeframe(interval)
-
-
-def _catalog_provider(settings: Settings) -> str:
-    """Label the current catalog as demo or coinbase without exposing secrets."""
-    if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
-        return "demo"
-    return "coinbase"
 
 
 def _merge_coverage_rows(

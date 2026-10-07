@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
 from thytrader.market_data.lookback import validate_watch_lookback_hours
-from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.market_data.models import CandleInterval
 
 
 class MarketDataWatchlistUnavailableError(RuntimeError):
@@ -240,14 +240,6 @@ class InMemoryMarketDataWatchlistStore:
             created_at=prior.created_at,
             ingest_requested_at=None,
         )
-
-
-def parse_watch_timeframe(value: str) -> CandleInterval:
-    """Parse 1h, 5m, 15m, 30m, 6h, 1d, 1m, 2h, or 4h watchlist timeframes."""
-    try:
-        return parse_candle_interval(value)
-    except ValueError as error:
-        raise MarketDataWatchlistError(str(error)) from error
 
 
 async def ensure_default_watch_target(

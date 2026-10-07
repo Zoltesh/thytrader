@@ -11,7 +11,6 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
-    Position,
     snapshot_positions,
 )
 from thytrader.execution.performance import performance_capital
@@ -181,12 +180,3 @@ def _roll_utc_day_open(
     """
     recovered = reconstruct_day_open(snapshot, as_of=now)
     return recovered if recovered is not None else snapshot.deployment.risk_day_open_evidence
-
-
-def marked_inventory_value(position: Position | None, mark: Decimal | None) -> Decimal | None:
-    """Return marked inventory value, or None when a required mark is missing."""
-    if position is None:
-        return _ZERO
-    if mark is None:
-        return None
-    return position.quantity * mark

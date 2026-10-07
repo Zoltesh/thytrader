@@ -8,12 +8,11 @@ from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import json
 import re
-import secrets
 import sys
 from typing import TYPE_CHECKING, Literal
-from uuid import UUID
 
 from thytrader.config import Settings
+from thytrader.execution.ids import uuid7
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.database import create_engine, dispose
@@ -108,19 +107,6 @@ def _parser() -> argparse.ArgumentParser:
     )
     publish.add_argument("--random-seed", type=int, default=0)
     return parser
-
-
-def _uuid7(created_at: datetime) -> UUID:
-    """Create one UUIDv7 whose encoded timestamp exactly matches the run creation millisecond."""
-    milliseconds = int(created_at.timestamp() * 1000)
-    value = (
-        (milliseconds << 80)
-        | (0x7 << 76)
-        | (secrets.randbits(12) << 64)
-        | (0b10 << 62)
-        | secrets.randbits(62)
-    )
-    return UUID(int=value)
 
 
 def backtest_execution_fingerprint(
@@ -297,7 +283,7 @@ async def _publish(arguments: argparse.Namespace) -> str:
         created_at = now.replace(microsecond=(now.microsecond // 1000) * 1000)
         specification = ResearchRunSpecification(
             schema_version="1.0",
-            run_id=_uuid7(created_at),
+            run_id=uuid7(created_at),
             created_at=created_at,
             strategy_fingerprint=arguments.strategy_fingerprint,
             dataset_fingerprint=arguments.dataset_fingerprint,
