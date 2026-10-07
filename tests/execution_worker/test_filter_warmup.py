@@ -7,6 +7,7 @@ import pytest
 
 from tests.execution.decision_support import paper_book
 from tests.execution.test_htf_filter import _five_minute_htf_strategy
+from tests.worker_patching import patch_worker_global
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
@@ -99,7 +100,7 @@ async def test_htf_loader_covers_first_bar_and_later_clock_rollovers(
 ) -> None:
     """A complete provider window evaluates at startup, within a bucket, and after restart."""
     monkeypatch.setattr(_Clock, "instant", _ANCHOR + timedelta(hours=hour))
-    monkeypatch.setattr(service, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
     definition = _strategy()
     market_data = MarketDataService(DemoMarketData())
     decision = await _decision_window(market_data, definition)
@@ -116,7 +117,7 @@ async def test_extra_indicator_loader_covers_previous_mapped_warmup(
 ) -> None:
     """An unbound 4h indicator needs the same preceding warmup as an HTF filter."""
     monkeypatch.setattr(_Clock, "instant", _ANCHOR)
-    monkeypatch.setattr(service, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
     definition = _strategy(extra_clock=True)
     market_data = MarketDataService(DemoMarketData())
     decision = await _decision_window(market_data, definition)
@@ -134,7 +135,7 @@ async def test_deploy_within_htf_bucket_keeps_existing_warmup_start(
     """A first decision wholly inside an HTF bucket needs no extra warmup padding."""
     anchor = _ANCHOR + timedelta(hours=1)
     monkeypatch.setattr(_Clock, "instant", anchor)
-    monkeypatch.setattr(service, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
     definition = _strategy()
     market_data = MarketDataService(DemoMarketData())
     _product, decision, _expected = await service._closed_window(
@@ -153,8 +154,8 @@ async def test_worker_evaluates_first_decision_without_false_coverage_pause(
 ) -> None:
     """The real worker journals a no-signal decision and keeps a complete-data bot running."""
     monkeypatch.setattr(_Clock, "instant", _ANCHOR)
-    monkeypatch.setattr(service, "datetime", _Clock)
-    monkeypatch.setattr(service, "utc_now", _Clock.now)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "utc_now", _Clock.now)
     payload = _strategy().model_dump(mode="python")
     payload["entry"]["when"] = {
         "all": [{"left": {"literal": "1"}, "operator": "greater_than", "right": {"literal": "2"}}]
@@ -197,7 +198,7 @@ async def test_real_missing_required_edges_still_fail_closed(
 ) -> None:
     """Loading more warmup must neither fabricate an edge nor waive evaluator validation."""
     monkeypatch.setattr(_Clock, "instant", _ANCHOR)
-    monkeypatch.setattr(service, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
     definition = _strategy()
     market_data = MarketDataService(_MissingEdge(oldest=oldest))
     decision = await _decision_window(market_data, definition)

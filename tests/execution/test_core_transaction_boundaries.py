@@ -26,6 +26,7 @@ from tests.execution.test_lifecycle_safety import (
 )
 from tests.risk.test_loss_scope import _TODAY, _deployment, _policy, _round_trip
 from tests.risk.test_safety_evidence import _MIDNIGHT, overnight_long, seed_accounting, sibling_loss
+from tests.worker_patching import patch_worker_global
 from thytrader.execution.day_open import MidnightMark
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.fill_ledger import ingest_fill, unsettled_fill_evidence
@@ -109,7 +110,7 @@ async def test_replacement_revalidates_execution_learned_during_cancel(
         del args, kwargs
         raise _warming_error()
 
-    monkeypatch.setattr(service, "_closed_window_for", warming)
+    patch_worker_global(monkeypatch, "_closed_window_for", warming)
     await service._supervise_warming_window(
         await store.get_deployment(identity),
         strategy=_multi_strategy(),

@@ -23,6 +23,7 @@ from tests.execution.test_adr_0110_stopped_lifecycle import (
     _supervise as _supervise_persisted,
     _Venue,
 )
+from tests.worker_patching import patch_worker_global
 from thytrader.execution.fill_ledger import (
     ingest_fill,
     replay_unapplied_fills,
@@ -290,7 +291,7 @@ async def test_worker_fallback_supervises_each_owned_product_after_restart(
         """Force verified-preview maintenance instead of full signal history."""
         raise _warming_error()
 
-    monkeypatch.setattr(service, "_closed_window_for", _warming)
+    patch_worker_global(monkeypatch, "_closed_window_for", _warming)
     snapshot = await store.get_deployment(deployment_id)
     market_data = _as_market_data(_ProductPreview(candle))
     if path == "warming":
@@ -314,8 +315,8 @@ async def test_worker_fallback_supervises_each_owned_product_after_restart(
             """Exercise the existing no-entry feed fallback without mutating a pause."""
             return path == "feed_down"
 
-        monkeypatch.setattr(service, "_closed_window", _closed)
-        monkeypatch.setattr(service, "_pause_five_minute_live_if_feed_down", _feed)
+        patch_worker_global(monkeypatch, "_closed_window", _closed)
+        patch_worker_global(monkeypatch, "_pause_five_minute_live_if_feed_down", _feed)
         await service._advance_strategy_ready(
             snapshot,
             strategy=strategy,
@@ -533,7 +534,7 @@ async def test_warming_continues_durable_exit_instead_of_resting_new_protection(
         """Evict history while keeping a verified executable preview available."""
         raise _warming_error()
 
-    monkeypatch.setattr(service, "_closed_window_for", _warming)
+    patch_worker_global(monkeypatch, "_closed_window_for", _warming)
     await service._supervise_warming_window(
         await store.get_deployment(deployment_id),
         strategy=_multi_strategy(),
@@ -630,7 +631,7 @@ async def test_warming_without_verified_price_keeps_durable_exit_and_protection(
         """Keep history unavailable for this worker cycle."""
         raise _warming_error()
 
-    monkeypatch.setattr(service, "_closed_window_for", _warming)
+    patch_worker_global(monkeypatch, "_closed_window_for", _warming)
     stale = replace(_candle(close="201"), starts_at=marker - timedelta(hours=1))
     await service._supervise_warming_window(
         await store.get_deployment(deployment_id),

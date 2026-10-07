@@ -9,6 +9,7 @@ from uuid import UUID
 
 import pytest
 
+from tests.worker_patching import patch_worker_global
 from thytrader.execution.broker import SubmitResult
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -246,7 +247,7 @@ async def test_empty_decision_window_reconciles_live_orders_without_an_exit(
         del market_data, definition, deploy_anchor
         return _btc(), (), _WHEN
 
-    monkeypatch.setattr(service, "_closed_window", _empty_window)
+    patch_worker_global(monkeypatch, "_closed_window", _empty_window)
     snapshot = await store.get_deployment(deployment.id)
     await service._advance_strategy(
         snapshot,
@@ -381,7 +382,7 @@ async def test_cold_cache_warming_reconciles_without_pausing_or_advancing(
         "extra": "_closed_indicator_timeframe_windows",
         "discretionary": "_closed_window_for",
     }[clock]
-    monkeypatch.setattr(service, loader, _warming)
+    patch_worker_global(monkeypatch, loader, _warming)
     # HTF/extra rebuilding has a verified decision candle, but no complete indicator history.
     provider = _DataProvider(_fresh_candle() if clock in {"htf", "extra"} else None)
     broker = _ProtectionBroker()
@@ -474,7 +475,7 @@ async def test_empty_decision_window_can_maintain_protection_from_a_verified_pre
         del market_data, definition, deploy_anchor
         return _btc(), (), _WHEN
 
-    monkeypatch.setattr(service, "_closed_window", _empty)
+    patch_worker_global(monkeypatch, "_closed_window", _empty)
     broker = _ProtectionBroker()
     snapshot = await store.get_deployment(deployment.id)
     await service._advance_strategy(

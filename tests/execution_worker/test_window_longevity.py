@@ -10,6 +10,7 @@ import pytest
 
 from tests.execution.test_htf_filter import _five_minute_htf_strategy
 from tests.strategies.reference_support import reference_payload
+from tests.worker_patching import patch_worker_global
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
 from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.references import reference_gate
@@ -63,7 +64,7 @@ class _Clock(datetime):
 def _pin(monkeypatch: pytest.MonkeyPatch, instant: datetime) -> None:
     """Observe every loader call at one fixed instant."""
     monkeypatch.setattr(_Clock, "instant", instant)
-    monkeypatch.setattr(service, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "datetime", _Clock)
 
 
 def _union_strategy() -> StrategyDefinition:
@@ -378,7 +379,7 @@ async def test_failed_reference_fetch_keeps_exits_running(
     async def _broken(*_args: object, **_kwargs: object) -> None:
         raise ConnectionError("reference feed down")
 
-    monkeypatch.setattr(service, "_closed_window_for", _broken)
+    patch_worker_global(monkeypatch, "_closed_window_for", _broken)
     windows = await service._closed_reference_windows(
         MarketDataService(DemoMarketData()), definition, deploy_anchor=anchor
     )
