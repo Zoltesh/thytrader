@@ -218,6 +218,9 @@ the portfolio's bots (blocked entries show `PORTFOLIO_TOTAL_EXPOSURE_LIMIT` /
 `PORTFOLIO_ASSET_EXPOSURE_LIMIT` in the decision timeline), and the optional `daily_loss_quote` and
 `max_drawdown_fraction` stops pause every sleeve and latch (`PORTFOLIO_DAILY_LOSS_STOP` /
 `PORTFOLIO_DRAWDOWN_STOP`) until an operator runs `thytrader-runtime portfolio-reset-breaker`.
+While a run sleeve's accounting is unresolved, the worker holds the run's equity, day-open, and
+high-water baselines and evaluates no new trip (unknown is not zero PnL); an existing latch still
+pauses sleeves, and the sleeve's own risk gate denies entries until its evidence resolves.
 Weights decide each sleeve's capital: a weight change on a deployed portfolio moves each sleeve
 bot's allocated capital on the worker's next cycle (live and paper; a paper sleeve never sizes
 beyond its own paper cash).

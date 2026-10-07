@@ -620,6 +620,9 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   portfolio every sleeve's new entries must fit the caps (a refused entry shows the portfolio
   reason on the bot's decision timeline). A tripped stop pauses every sleeve and stays latched:
   **Reset breaker…** clears it and re-baselines; sleeves stay paused until you resume them.
+  While a sleeve's accounting is unresolved, run equity shows as unknown and the worker holds the
+  breaker baselines instead of counting that sleeve as zero profit or loss; an already latched
+  breaker still pauses sleeves.
 
 Every change is revision-guarded: if someone else changed the portfolio first, the page reloads it
 and says so. Deleting a strategy removes its sleeves (journaled). Agents use
