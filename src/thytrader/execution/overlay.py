@@ -20,6 +20,7 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
     aggregate_phase,
+    mirrors_primary_runtime,
     resolved_product_id,
     runtime_from_deployment,
     snapshot_positions,
@@ -63,12 +64,19 @@ def overlay_snapshot(snapshot: DeploymentSnapshot, product_id: str) -> Deploymen
 
 
 def _runtime_for(snapshot: DeploymentSnapshot, product_id: str) -> InstrumentRuntime:
-    """Return the stored overlay, or synthesize FLAT/primary fields."""
+    """Return the owning runtime: the deployment row for a single-product book, else the overlay.
+
+    A single-product book's overlay row only mirrors the deployment row, which the
+    closed-bar loop advances; reading a lagging mirror would replay an evaluated bar.
+    """
+    deployment = snapshot.deployment
+    if product_id == deployment.product_id and mirrors_primary_runtime(
+        deployment, snapshot.instrument_runtimes
+    ):
+        return runtime_from_deployment(deployment, product_id)
     for item in snapshot.instrument_runtimes:
         if item.product_id == product_id:
             return item
-    if product_id == snapshot.deployment.product_id and not snapshot.instrument_runtimes:
-        return runtime_from_deployment(snapshot.deployment, product_id)
     return InstrumentRuntime(product_id=product_id, phase=RuntimePhase.FLAT)
 
 
@@ -218,6 +226,9 @@ class InstrumentScopedStore:
             )
         current = await self._inner.get_accounting_snapshot(deployment.id)
         runtime = runtime_from_deployment(deployment, self._product_id)
+        owns_runtime = self._product_id == current.deployment.product_id and (
+            mirrors_primary_runtime(current.deployment, current.instrument_runtimes)
+        )
         runtimes = [
             runtime if item.product_id == self._product_id else item
             for item in current.instrument_runtimes
@@ -254,6 +265,17 @@ class InstrumentScopedStore:
             revision=deployment.revision,
             updated_at=deployment.updated_at,
         )
+        if owns_runtime:
+            # A single-product book's deployment row is its runtime; keep it and the mirror equal.
+            parent = replace(
+                parent,
+                last_evaluated_bar=runtime.last_evaluated_bar,
+                pending_entry_bars=runtime.pending_entry_bars,
+                bars_held=runtime.bars_held,
+                cooldown_bars_remaining=runtime.cooldown_bars_remaining,
+                pending_stop_price=runtime.pending_stop_price,
+                pending_target_price=runtime.pending_target_price,
+            )
         saved = await self._inner.save_deployment(
             parent,
             expected_revision=deployment.revision

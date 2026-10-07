@@ -66,3 +66,14 @@ The [boundary implementation/evidence note](../plans/2026-10-06-core-transaction
 and [release acceptance matrix](../plans/2026-10-06-release-acceptance.md) separate focused
 counterexamples from final integrated and independent acceptance. An implementation commit is
 not deployment evidence.
+
+## Amendment (2026-10-07): single-product runtime ownership
+
+Product-scoped wrappers created overlay rows for single-product books, while the closed-bar
+loop kept advancing the deployment row. The lagging overlay made between-bar maintenance replay
+every evaluated bar without entries and relabel its journal entry `CATCH_UP`; with an open
+position it re-processed the bar. For a book whose overlay rows are all its own product, the
+deployment row now owns runtime state: overlay reads come from it, a scoped save of that product
+also writes the deployment row's runtime fields, and a plain save refreshes the existing mirror
+row in the same transaction. Multi-product overlays keep their own authority and no row is
+created by a plain save.

@@ -7,9 +7,10 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import and_, case, delete, func, or_, select
+from sqlalchemy import and_, case, delete, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy.orm import aliased
 
 from thytrader.execution.day_open import DailyOpeningEvidence
 from thytrader.execution.fill_ledger import (
@@ -48,6 +49,7 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
+    runtime_from_deployment,
 )
 from thytrader.execution.pagination import (
     decode_cursor,
@@ -76,6 +78,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+    from sqlalchemy.sql.dml import Update
 
     from thytrader.fleet_control.models import (
         ExpectedTarget,
@@ -84,6 +87,39 @@ if TYPE_CHECKING:
         TargetResult,
     )
     from thytrader.strategies.snapshots import StrategySnapshot
+
+
+def _primary_runtime_mirror(deployment: Deployment) -> Update:
+    """Refresh a single-product book's existing overlay row from its deployment row.
+
+    The deployment row owns a single-product book's runtime; a lagging mirror would make
+    product-scoped readers replay an evaluated bar. Multi-product overlays are untouched,
+    and no row is created.
+    """
+    runtime = runtime_from_deployment(deployment, deployment.product_id)
+    state = execution_instrument_state
+    other = aliased(execution_instrument_state)
+    return (
+        state.update()
+        .where(
+            state.c.deployment_id == deployment.id,
+            state.c.product_id == deployment.product_id,
+            ~exists().where(
+                other.c.deployment_id == deployment.id,
+                other.c.product_id != deployment.product_id,
+            ),
+        )
+        .values(
+            phase=runtime.phase.value,
+            last_evaluated_bar=runtime.last_evaluated_bar,
+            last_signal=runtime.last_signal,
+            pending_entry_bars=runtime.pending_entry_bars,
+            bars_held=runtime.bars_held,
+            cooldown_bars_remaining=runtime.cooldown_bars_remaining,
+            pending_stop_price=_text(runtime.pending_stop_price),
+            pending_target_price=_text(runtime.pending_target_price),
+        )
+    )
 
 
 def _instrument_runtime_upsert(runtime: InstrumentRuntime, deployment_id: UUID) -> Insert:
@@ -621,6 +657,8 @@ class PostgresExecutionStore:
                     await connection.execute(
                         _instrument_runtime_upsert(instrument_runtime, deployment.id)
                     )
+                else:
+                    await connection.execute(_primary_runtime_mirror(deployment))
                 return _deployment_from_row(row)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error

@@ -18,6 +18,7 @@ from thytrader.execution.decision_store import (
     InMemoryDecisionJournalStore,
 )
 from thytrader.execution.decisions import DecisionOutcome, DecisionSkipReason
+from thytrader.execution.models import runtime_from_deployment
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import (
     _journaled_bar,
@@ -215,6 +216,41 @@ async def test_already_evaluated_bar_is_not_journaled_again() -> None:
         )
     assert calls == ["advanced"]
     assert journal.rows() == ()
+
+
+@pytest.mark.anyio
+async def test_a_stale_product_overlay_does_not_reprocess_or_relabel_an_evaluated_bar() -> None:
+    """Between-bar maintenance on a single-product book reads the parent's runtime state.
+
+    A product overlay row left one bar behind (as product-scoped reconciliation writes
+    one) must not make the evaluated bar look new: no CATCH_UP overwrite, no second pass.
+    """
+    definition = strategy()
+    store, snapshot = await paper_book(definition)
+    journal = InMemoryDecisionJournalStore()
+    audit = InMemoryAuditEventStore()
+    await _cycle(definition, store, journal=journal, audit=audit)
+    evaluated = await store.get_deployment(snapshot.deployment.id)
+    (first,) = journal.rows()
+    assert first.rule is not None
+    bar = evaluated.deployment.last_evaluated_bar
+    assert bar is not None
+    stale = replace(
+        runtime_from_deployment(evaluated.deployment, evaluated.deployment.product_id),
+        last_evaluated_bar=bar - timedelta(hours=1),
+    )
+    await store.save_deployment(
+        evaluated.deployment,
+        expected_revision=evaluated.deployment.revision,
+        instrument_runtime=stale,
+    )
+    before = await store.get_deployment(snapshot.deployment.id)
+    await _cycle(definition, store, journal=journal, audit=audit)
+    after = await store.get_deployment(snapshot.deployment.id)
+    (row,) = journal.rows()
+    assert row.reason_code == first.reason_code
+    assert row.rule is not None
+    assert _trading_state(after) == _trading_state(before)
 
 
 @pytest.mark.anyio
