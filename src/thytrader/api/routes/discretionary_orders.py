@@ -20,7 +20,8 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
-from thytrader.api.routes.deployments import DeploymentResponse, _snapshot_response
+from thytrader.api.routes.deployment_models import DeploymentResponse
+from thytrader.api.routes.deployment_serializers import snapshot_response
 from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker
@@ -152,7 +153,7 @@ async def post_discretionary_order(
             product_id=request.product_id,
         )
     )
-    return await _snapshot_response(snapshot)
+    return await snapshot_response(snapshot)
 
 
 async def _place(

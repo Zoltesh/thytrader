@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from thytrader.api.dependencies import (
     get_audit_event_store,
@@ -22,6 +21,30 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
+from thytrader.api.routes.deployment_models import (
+    CreateDeploymentRequest,
+    DeploymentBookTotalsResponse,
+    DeploymentCapitalResponse,
+    DeploymentLedgerSummaryResponse,
+    DeploymentListResponse,
+    DeploymentResponse,
+    DeploymentTwinResponse,
+    FillListResponse,
+    FillResponse,
+    InstrumentRuntimeResponse,
+    LinkTwinRequest,
+    OrderListResponse,
+    OrderResponse,
+    PositionResponse,
+    ResumeDeploymentRequest,
+)
+from thytrader.api.routes.deployment_serializers import (
+    fill_response,
+    ledger_summary_response,
+    order_response,
+    snapshot_response,
+    summary_response,
+)
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.book_marks import (
@@ -29,58 +52,31 @@ from thytrader.execution.book_marks import (
     last_bar_marks,
     signed_unrealized_pnl,
 )
-from thytrader.execution.day_open import DailyOpeningEvidence
 from thytrader.execution.decision_store import (
     DecisionJournalStore,
 )
-from thytrader.execution.ledger import DeploymentLedger, ledger_from_snapshot
+from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
-    DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
-    Fill,
-    InstrumentRuntime,
-    Order,
-    Position,
     PositionSide,
-    RuntimePhase,
     resolved_product_id,
-    snapshot_positions,
     summary_as_snapshot,
-    visible_instrument_runtimes,
 )
 from thytrader.execution.paper_fees import PaperFeeSource
-from thytrader.execution.protection import (
-    PositionState,
-    ProtectionEvidenceResponse,
-    book_exit_in_flight,
-    book_position_state,
-    book_protection_evidence,
-    deployment_position_state,
-    protection_evidence_response,
-    working_order_count,
-)
 from thytrader.execution.service import (
     ReferenceWatchlist,
     create_deployment,
     parse_decimal,
     reset_breaker_latches,
-    resolved_deployment_timeframe,
     set_deployment_status,
 )
 from thytrader.execution.store import ExecutionStore
-from thytrader.execution.twins import (
-    DeploymentTwinLink,
-    TwinConflictError,
-    TwinValidationError,
-    load_twin_snapshots,
-)
 from thytrader.fleet_control.inventory import read_stable_inventory
-from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
@@ -102,323 +98,27 @@ from thytrader.strategies.snapshots import (
 if TYPE_CHECKING:
     from thytrader.execution.book_marks import BookMark
 
+__all__ = [
+    "CreateDeploymentRequest",
+    "DeploymentBookTotalsResponse",
+    "DeploymentCapitalResponse",
+    "DeploymentLedgerSummaryResponse",
+    "DeploymentListResponse",
+    "DeploymentResponse",
+    "DeploymentTwinResponse",
+    "FillListResponse",
+    "FillResponse",
+    "InstrumentRuntimeResponse",
+    "LinkTwinRequest",
+    "OrderListResponse",
+    "OrderResponse",
+    "PositionResponse",
+    "ResumeDeploymentRequest",
+    "require_deployment_row",
+    "router",
+]
+
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
-
-
-class CreateDeploymentRequest(BaseModel):
-    """Start one paper or live runtime from a strategy's current (valid) rules.
-
-    The server snapshots the definition; the response's ``strategy_fingerprint``
-    names the exact rules the bot runs, even after later edits.
-    """
-
-    strategy_id: UUID
-    mode: DeploymentMode
-    paper_starting_cash: str | None = None
-    maker_fee_rate: str | None = None
-    taker_fee_rate: str | None = None
-    i_understand_live: StrictBool = Field(
-        default=False,
-        description=(
-            "Required true for mode=live (HTTP 428 live_acknowledgement_required otherwise). "
-            "Send only after the operator explicitly acknowledged live trading."
-        ),
-    )
-
-
-class ResumeDeploymentRequest(BaseModel):
-    """Optional resume body; live books require the explicit live acknowledgement."""
-
-    i_understand_live: StrictBool = Field(
-        default=False,
-        description="Required true to resume a live deployment (re-arms live order submission).",
-    )
-
-
-class PositionResponse(BaseModel):
-    """One long or short product book, including protection status."""
-
-    product_id: str
-    quantity: str
-    entry_price: str
-    stop_price: str
-    target_price: str | None = Field(
-        default=None, description="Take-profit price; null when the strategy declares none."
-    )
-    entered_bar: str
-    side: str = "long"
-    trail_extreme: str | None = None
-    add_count: int = 1
-    signal_exit_bar: str | None = Field(
-        default=None,
-        description=(
-            "UTC start of the closed bar whose exits.signal_exit rule matched; the book is "
-            "exiting (ADR 0093). Null when no signal exit is pending."
-        ),
-    )
-    protection_status: str = Field(
-        description=(
-            "flat, covered, unprotected, or unknown. Live covered requires a confirmed "
-            "open stop of sufficient remaining quantity and valid geometry. A take-profit "
-            "alone is not covered. Pending and unknown are not covered (ADR 0112)."
-        ),
-    )
-    protection: ProtectionEvidenceResponse = Field(
-        description=(
-            "Quantitative stop cover: required, covered, and uncovered quantity, stop "
-            "side and geometry, synthetic versus venue, and observed or verified time. "
-            "Null times mean unknown. Paper cover is worker-dependent, not venue-resting."
-        ),
-    )
-    position_state: str = Field(
-        default="open_protected",
-        description=(
-            "Operator reading of this book (ADR 0097): open_protected (matching venue "
-            "stop, or the paper synthetic stop), open_unprotected, open_unverified, or "
-            "exiting. Prefer it over the raw phase, which reads pending_exit while "
-            "protection merely rests. A take-profit alone is not open_protected."
-        ),
-    )
-    exit_in_flight: bool = Field(
-        default=False,
-        description=(
-            "True only when this book's exit is being sent: a working marketable exit, a "
-            "matched signal exit, or a flatten. A resting TP/SL bracket is not an exit."
-        ),
-    )
-    mark_price: str | None = Field(
-        default=None,
-        description=(
-            "Close of the newest bar the bot evaluated for this product (ADR 0098); null "
-            "when no journaled close exists or on reads that do not mark books."
-        ),
-    )
-    marked_at: str | None = Field(
-        default=None, description="UTC close time of the bar behind mark_price."
-    )
-    unrealized_pnl: str | None = Field(
-        default=None,
-        description=(
-            "Gross unrealized PnL at mark_price in quote currency (signed quantity times "
-            "the move from entry_price), before exit fees; null without a mark."
-        ),
-    )
-    compatibility_focus: bool = False
-    entry_fees: str | None = Field(
-        default=None,
-        description="Paid entry fees allocated to held quantity; null without verified evidence.",
-    )
-    unrealized_pnl_net: str | None = Field(
-        default=None,
-        description=(
-            "Gross unrealized_pnl minus entry_fees; future exit fees excluded. Null without "
-            "a mark and verified current-position fill evidence."
-        ),
-    )
-
-
-class InstrumentRuntimeResponse(BaseModel):
-    """Per-product overlay of the single-book runtime machine."""
-
-    product_id: str
-    phase: str
-    last_evaluated_bar: str | None
-    last_signal: str | None
-    pending_entry_bars: int
-    bars_held: int
-    cooldown_bars_remaining: int
-    pending_stop_price: str | None = None
-    pending_target_price: str | None = None
-
-
-class DeploymentBookTotalsResponse(BaseModel):
-    """Collection counts that must match `positions`, working orders, and fills."""
-
-    open_books: int = 0
-    working_orders: int = 0
-    fill_count: int = 0
-
-
-class DeploymentCapitalResponse(BaseModel):
-    """Capital accounting separate from ledger ``cash``.
-
-    Ledger balances stay in fill-accounting units. Performance capital is a pinned
-    percentage-metric budget; current sizing allocations and account risk are separate.
-    Unknown venue quote is ``null`` so callers disable entries.
-    """
-
-    allocated_capital: str | None = None
-    venue_available_quote: str | None = None
-    reserved_buying_power: str | None = None
-    inventory_cost: str | None = None
-    performance_equity: str | None = None
-    performance_capital_quote: str | None = None
-    performance_maximum_drawdown_fraction: str | None = None
-    initial_equity: str | None = None
-    baseline_equity: str | None = None
-    high_water_mark_equity: str | None = None
-    utc_day_open_equity: str | None = Field(
-        default=None, description="Preserved legacy observation, not verified midnight evidence."
-    )
-    risk_day_open_evidence: DailyOpeningEvidence | None = None
-
-
-class OrderResponse(BaseModel):
-    """One persisted venue-visible order, tagged with its Coinbase product."""
-
-    id: UUID
-    client_order_id: str
-    venue_order_id: str | None
-    product_id: str
-    side: str
-    kind: str
-    quantity: str
-    price: str | None
-    stop_trigger_price: str | None = None
-    take_profit_price: str | None = None
-    filled_quantity: str
-    status: str
-    reject_reason: str | None
-    created_at: str
-    updated_at: str
-    attached_child_venue_order_id: str | None = None
-    parent_order_id: UUID | None = None
-    pyramid_add: bool = False
-
-
-class FillResponse(BaseModel):
-    """One persisted fill, tagged with the parent order's product."""
-
-    id: UUID
-    order_id: UUID
-    product_id: str
-    venue_fill_id: str
-    price: str
-    quantity: str
-    fee: str
-    filled_at: str
-
-
-class DeploymentLedgerSummaryResponse(BaseModel):
-    """Aggregate fill-ledger statistics without loading every historical fill."""
-
-    trade_count: int
-    total_net_pnl: str | None = None
-    total_return_fraction: str | None = None
-    mark_complete: bool
-    marked_exposure: str | None = None
-
-
-class DeploymentResponse(BaseModel):
-    """One deployment plus every product book, runtime overlay, and related evidence."""
-
-    id: UUID
-    strategy_fingerprint: str | None
-    strategy_id: UUID | None
-    strategy_name: str | None = Field(
-        default=None, description="Strategy name captured at start; kept after deletion."
-    )
-    strategy_deleted: bool = Field(
-        default=False,
-        description="True for a kept (stopped live) book whose strategy was deleted.",
-    )
-    portfolio_id: UUID | None = Field(
-        default=None,
-        description="The portfolio this bot is a sleeve of (ADR 0091); null for a standalone bot.",
-    )
-    kind: str
-    timeframe: str | None
-    product_id: str
-    mode: str
-    status: str
-    phase: str = Field(
-        description=(
-            "Raw worker state machine (flat, pending_entry, open, pending_exit). pending_exit "
-            "includes an open book whose TP/SL protection merely rests; read position_state."
-        )
-    )
-    position_state: str = Field(
-        default="flat",
-        description=(
-            "Operator reading across books (ADR 0097): flat, entering, open_protected, "
-            "open_unprotected, open_unverified, or exiting (the worst book wins)."
-        ),
-    )
-    exit_in_flight: bool = Field(
-        default=False, description="True when any book's exit is being sent (ADR 0097)."
-    )
-    cash: str
-    paper_starting_cash: str | None
-    maker_fee_rate: str | None = None
-    taker_fee_rate: str | None = None
-    last_evaluated_bar: str | None
-    last_signal: str | None
-    mismatch_detail: str | None
-    pending_entry_bars: int
-    bars_held: int
-    lifecycle_command: str
-    daily_loss_latched: bool
-    drawdown_latched: bool
-    revision: int
-    worker_lease_held: bool
-    created_at: str
-    updated_at: str
-    position: PositionResponse | None = Field(
-        default=None,
-        description=(
-            "Compatibility-only focused book: the primary product when that book is "
-            "open, otherwise the sole open book. Always includes product_id. Read "
-            "`positions` for the full inventory."
-        ),
-    )
-    positions: tuple[PositionResponse, ...] = ()
-    instrument_runtimes: tuple[InstrumentRuntimeResponse, ...] = ()
-    book_totals: DeploymentBookTotalsResponse = Field(default_factory=DeploymentBookTotalsResponse)
-    capital: DeploymentCapitalResponse = Field(default_factory=DeploymentCapitalResponse)
-    ledger: DeploymentLedgerSummaryResponse | None = None
-    orders: tuple[OrderResponse, ...] = ()
-    fills: tuple[FillResponse, ...] = ()
-    detail: Literal["summary", "full"] = "summary"
-    historical_orders_included: bool = False
-    historical_fills_included: bool = False
-    ledger_omission: str | None = SUMMARY_LEDGER_OMISSION
-
-
-class DeploymentListResponse(BaseModel):
-    """Stable created-at inventory page without historical orders or fills.
-
-    ``has_more`` is exact for this snapshot. Pass the returned ``as_of`` on the
-    next offset page so a deployment created during the walk cannot shift rows.
-    """
-
-    deployments: tuple[DeploymentResponse, ...]
-    limit: int
-    offset: int
-    returned: int
-    has_more: bool
-    total: int
-    order: str
-    as_of: str
-    fingerprint: str
-    next_cursor: str | None
-
-
-class FillListResponse(BaseModel):
-    """One cursor page of fills for one deployment."""
-
-    fills: tuple[FillResponse, ...]
-    limit: int
-    returned: int
-    next_cursor: str | None = None
-
-
-class OrderListResponse(BaseModel):
-    """One cursor page of orders for one deployment."""
-
-    orders: tuple[OrderResponse, ...]
-    limit: int
-    returned: int
-    next_cursor: str | None = None
 
 
 @router.post("", response_model=DeploymentResponse, status_code=status.HTTP_201_CREATED)
@@ -476,7 +176,7 @@ async def post_deployment(
     )
     snapshot = await store.get_deployment(deployment.id)
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return await _snapshot_response(
+    return await snapshot_response(
         snapshot,
         publication_store,
         extra_product_ids=extra,
@@ -540,7 +240,7 @@ async def list_deployments(
             )
         extra = await _covered_products(publication_store, item)
         bodies.append(
-            await _summary_response(
+            await summary_response(
                 summary,
                 publication_store,
                 extra_product_ids=extra,
@@ -575,7 +275,7 @@ async def get_deployment(
     if detail == "full":
         snapshot = await _require_snapshot(store, deployment_id)
         extra = await _covered_products(publication_store, snapshot.deployment)
-        response = await _snapshot_response(
+        response = await snapshot_response(
             snapshot,
             publication_store,
             extra_product_ids=extra,
@@ -591,7 +291,7 @@ async def get_deployment(
         )
         raise HTTPException(status_code=code, detail=str(error)) from None
     extra = await _covered_products(publication_store, summary.deployment)
-    response = await _summary_response(
+    response = await summary_response(
         summary,
         publication_store,
         extra_product_ids=extra,
@@ -621,7 +321,7 @@ async def _with_book_marks(
         update={
             "positions": positions,
             "position": position,
-            "ledger": _ledger_summary_response(ledger),
+            "ledger": ledger_summary_response(ledger),
         }
     )
 
@@ -659,7 +359,7 @@ async def list_deployment_fills(
     cursor: Annotated[str | None, Query()] = None,
 ) -> FillListResponse:
     """Return one cursor page of fills for one deployment."""
-    await _require_deployment_row(store, deployment_id)
+    await require_deployment_row(store, deployment_id)
     try:
         page = await store.list_fills(deployment_id, limit=limit, cursor=cursor)
     except ExecutionStoreError as error:
@@ -675,7 +375,7 @@ async def list_deployment_fills(
         ) from None
     return FillListResponse(
         fills=tuple(
-            _fill_response(
+            fill_response(
                 fill,
                 product_id=resolved_product_id(
                     product_map.get(fill.order_id, ""),
@@ -698,7 +398,7 @@ async def list_deployment_orders(
     cursor: Annotated[str | None, Query()] = None,
 ) -> OrderListResponse:
     """Return one cursor page of orders for one deployment."""
-    await _require_deployment_row(store, deployment_id)
+    await require_deployment_row(store, deployment_id)
     try:
         page = await store.list_orders(deployment_id, limit=limit, cursor=cursor)
         summary = await store.get_deployment_summary(deployment_id)
@@ -708,7 +408,7 @@ async def list_deployment_orders(
         ) from None
     return OrderListResponse(
         orders=tuple(
-            _order_response(
+            order_response(
                 order,
                 product_id=resolved_product_id(order.product_id, summary.deployment),
             )
@@ -806,7 +506,7 @@ async def post_reset_breaker_latches(
         deployment=snapshot.deployment,
     )
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return await _snapshot_response(
+    return await snapshot_response(
         snapshot,
         publication_store,
         extra_product_ids=extra,
@@ -845,7 +545,7 @@ async def _set_status(
         deployment=snapshot.deployment,
     )
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return await _snapshot_response(
+    return await snapshot_response(
         snapshot,
         publication_store,
         extra_product_ids=extra,
@@ -896,7 +596,7 @@ async def _require_snapshot(store: ExecutionStore, deployment_id: UUID) -> Deplo
         raise HTTPException(status_code=code, detail=str(error)) from None
 
 
-async def _require_deployment_row(store: ExecutionStore, deployment_id: UUID) -> Deployment:
+async def require_deployment_row(store: ExecutionStore, deployment_id: UUID) -> Deployment:
     """Load one deployment row or map storage errors into HTTP failures."""
     try:
         summary = await store.get_deployment_summary(deployment_id)
@@ -927,348 +627,6 @@ async def _covered_products(
     return covered_product_ids(published.definition)
 
 
-def _optional_decimal_string(value: Decimal | None) -> str | None:
-    """Format one optional Decimal for JSON without inventing zero placeholders."""
-    if value is None:
-        return None
-    return format(value, "f")
-
-
-def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
-    """Serialize live/paper capital accounting separate from ledger cash."""
-    return DeploymentCapitalResponse(
-        allocated_capital=_optional_decimal_string(deployment.allocated_capital),
-        venue_available_quote=_optional_decimal_string(deployment.venue_available_quote),
-        reserved_buying_power=_optional_decimal_string(deployment.reserved_buying_power),
-        inventory_cost=_optional_decimal_string(deployment.inventory_cost),
-        performance_equity=_optional_decimal_string(deployment.performance_equity),
-        performance_capital_quote=_optional_decimal_string(deployment.performance_capital_quote),
-        performance_maximum_drawdown_fraction=_optional_decimal_string(
-            deployment.performance_maximum_drawdown_fraction
-        ),
-        initial_equity=_optional_decimal_string(deployment.initial_equity),
-        baseline_equity=_optional_decimal_string(deployment.baseline_equity),
-        high_water_mark_equity=_optional_decimal_string(deployment.high_water_mark_equity),
-        utc_day_open_equity=_optional_decimal_string(deployment.utc_day_open_equity),
-        risk_day_open_evidence=deployment.risk_day_open_evidence,
-    )
-
-
-def _deployment_response(
-    deployment: Deployment,
-    *,
-    timeframe: str | None,
-) -> DeploymentResponse:
-    """Serialize one deployment without related collections."""
-    return DeploymentResponse(
-        id=deployment.id,
-        strategy_fingerprint=deployment.strategy_fingerprint,
-        strategy_id=deployment.strategy_id,
-        strategy_name=deployment.strategy_name,
-        strategy_deleted=deployment.strategy_deleted,
-        portfolio_id=deployment.portfolio_id,
-        kind=deployment.kind.value,
-        timeframe=timeframe,
-        product_id=deployment.product_id,
-        mode=deployment.mode.value,
-        status=deployment.status.value,
-        phase=deployment.phase.value,
-        cash=format(deployment.cash, "f"),
-        paper_starting_cash=(
-            None
-            if deployment.paper_starting_cash is None
-            else format(deployment.paper_starting_cash, "f")
-        ),
-        maker_fee_rate=(
-            None
-            if deployment.paper_maker_fee_rate is None
-            else format(deployment.paper_maker_fee_rate, "f")
-        ),
-        taker_fee_rate=(
-            None
-            if deployment.paper_taker_fee_rate is None
-            else format(deployment.paper_taker_fee_rate, "f")
-        ),
-        last_evaluated_bar=(
-            None
-            if deployment.last_evaluated_bar is None
-            else deployment.last_evaluated_bar.isoformat()
-        ),
-        last_signal=deployment.last_signal,
-        mismatch_detail=deployment.mismatch_detail,
-        pending_entry_bars=deployment.pending_entry_bars,
-        bars_held=deployment.bars_held,
-        lifecycle_command=deployment.lifecycle_command.value,
-        daily_loss_latched=deployment.daily_loss_latched,
-        drawdown_latched=deployment.drawdown_latched,
-        revision=deployment.revision,
-        worker_lease_held=_worker_lease_held(deployment),
-        created_at=deployment.created_at.isoformat(),
-        updated_at=deployment.updated_at.isoformat(),
-        capital=_capital_response(deployment),
-    )
-
-
-def _worker_lease_held(deployment: Deployment) -> bool:
-    """True when a worker lease is active without exposing holder identity."""
-    return bool(deployment.worker_lease_holder and deployment.worker_lease_expires_at)
-
-
-async def _snapshot_response(
-    snapshot: DeploymentSnapshot,
-    publication_store: StrategySnapshotStore | None = None,
-    *,
-    extra_product_ids: tuple[str, ...] = (),
-) -> DeploymentResponse:
-    """Serialize one deployment together with every product book, orders, and fills."""
-    if publication_store is None:
-        timeframe = snapshot.deployment.timeframe
-    else:
-        timeframe = await resolved_deployment_timeframe(snapshot.deployment, publication_store)
-    response = _deployment_response(snapshot.deployment, timeframe=timeframe)
-    positions = _position_collection(snapshot)
-    order_products = _order_product_ids(snapshot)
-    ledger = ledger_from_snapshot(snapshot)
-    state = deployment_position_state(snapshot)
-    return response.model_copy(
-        update={
-            "position_state": state.value,
-            "exit_in_flight": state is PositionState.EXITING,
-            "position": _compatibility_position(snapshot, positions),
-            "positions": positions,
-            "instrument_runtimes": _runtime_collection(
-                snapshot, extra_product_ids=extra_product_ids
-            ),
-            "book_totals": DeploymentBookTotalsResponse(
-                open_books=len(positions),
-                working_orders=working_order_count(snapshot.orders),
-                fill_count=len(snapshot.fills),
-            ),
-            "detail": "full",
-            "historical_orders_included": True,
-            "historical_fills_included": True,
-            "ledger_omission": None,
-            "capital": _accounting_capital_response(response.capital, ledger),
-            "ledger": _ledger_summary_response(ledger),
-            "orders": tuple(
-                _order_response(order, product_id=order_products[order.id])
-                for order in snapshot.orders
-            ),
-            "fills": tuple(
-                _fill_response(
-                    fill,
-                    product_id=order_products.get(fill.order_id, snapshot.deployment.product_id),
-                )
-                for fill in snapshot.fills
-            ),
-        }
-    )
-
-
-async def _summary_response(
-    summary: DeploymentSummarySnapshot,
-    publication_store: StrategySnapshotStore | None = None,
-    *,
-    extra_product_ids: tuple[str, ...] = (),
-) -> DeploymentResponse:
-    """Serialize one deployment summary without historical orders or fills."""
-    snapshot = summary_as_snapshot(summary)
-    if publication_store is None:
-        timeframe = summary.deployment.timeframe
-    else:
-        timeframe = await resolved_deployment_timeframe(summary.deployment, publication_store)
-    response = _deployment_response(summary.deployment, timeframe=timeframe)
-    positions = _position_collection(snapshot)
-    ledger = ledger_from_snapshot(snapshot)
-    state = deployment_position_state(snapshot)
-    return response.model_copy(
-        update={
-            "position_state": state.value,
-            "exit_in_flight": state is PositionState.EXITING,
-            "position": _compatibility_position(snapshot, positions),
-            "positions": positions,
-            "instrument_runtimes": _runtime_collection(
-                snapshot, extra_product_ids=extra_product_ids
-            ),
-            "book_totals": DeploymentBookTotalsResponse(
-                open_books=summary.book_totals.open_books,
-                working_orders=summary.book_totals.working_orders,
-                fill_count=summary.book_totals.fill_count,
-            ),
-            "detail": "summary",
-            "historical_orders_included": False,
-            "historical_fills_included": False,
-            "ledger_omission": SUMMARY_LEDGER_OMISSION,
-            "capital": _accounting_capital_response(response.capital, ledger),
-            "ledger": _ledger_summary_response(ledger),
-            "orders": (),
-            "fills": (),
-        }
-    )
-
-
-def _accounting_capital_response(
-    capital: DeploymentCapitalResponse, ledger: DeploymentLedger
-) -> DeploymentCapitalResponse:
-    """Retain independent funding/budget history, not stale current totals as complete facts."""
-    if ledger.accounting_complete:
-        return capital
-    return capital.model_copy(
-        update={"inventory_cost": None, "reserved_buying_power": None, "performance_equity": None}
-    )
-
-
-def _ledger_summary_response(ledger: DeploymentLedger) -> DeploymentLedgerSummaryResponse:
-    """Render aggregate ledger statistics for bounded deployment reads."""
-    return DeploymentLedgerSummaryResponse(
-        trade_count=ledger.trade_count,
-        total_net_pnl=ledger.total_net_pnl_text(),
-        total_return_fraction=ledger.total_return_fraction_text(),
-        mark_complete=ledger.mark_complete,
-        marked_exposure=(
-            None if ledger.marked_exposure is None else format(ledger.marked_exposure, "f")
-        ),
-    )
-
-
-def _position_collection(snapshot: DeploymentSnapshot) -> tuple[PositionResponse, ...]:
-    """Serialize every open product book with protection status, sorted by product id."""
-    responses = [
-        _position_response(item, snapshot, compatibility_focus=False)
-        for item in snapshot_positions(snapshot)
-    ]
-    return tuple(sorted(responses, key=lambda item: item.product_id))
-
-
-def _runtime_collection(
-    snapshot: DeploymentSnapshot, *, extra_product_ids: tuple[str, ...]
-) -> tuple[InstrumentRuntimeResponse, ...]:
-    """Serialize overlay rows for every known and published product id."""
-    return tuple(
-        _runtime_response(item)
-        for item in visible_instrument_runtimes(snapshot, extra_product_ids=extra_product_ids)
-    )
-
-
-def _compatibility_position(
-    snapshot: DeploymentSnapshot, positions: tuple[PositionResponse, ...]
-) -> PositionResponse | None:
-    """Label the store's focused book as compatibility-only inventory."""
-    focused = snapshot.position
-    if focused is None:
-        return None
-    product_id = resolved_product_id(focused.product_id, snapshot.deployment)
-    for item in positions:
-        if item.product_id == product_id:
-            return item.model_copy(update={"compatibility_focus": True})
-    return _position_response(focused, snapshot, compatibility_focus=True)
-
-
-def _position_response(
-    position: Position,
-    snapshot: DeploymentSnapshot,
-    *,
-    compatibility_focus: bool,
-) -> PositionResponse:
-    """Serialize one open long or short product book."""
-    product_id = resolved_product_id(position.product_id, snapshot.deployment)
-    evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
-    return PositionResponse(
-        product_id=product_id,
-        quantity=format(position.quantity, "f"),
-        entry_price=format(position.entry_price, "f"),
-        stop_price=format(position.stop_price, "f"),
-        target_price=_optional_decimal(position.target_price),
-        entered_bar=position.entered_bar.isoformat(),
-        side=position.side.value,
-        trail_extreme=(
-            None if position.trail_extreme is None else format(position.trail_extreme, "f")
-        ),
-        add_count=position.add_count,
-        signal_exit_bar=(
-            None if position.signal_exit_bar is None else position.signal_exit_bar.isoformat()
-        ),
-        protection_status=evidence.status.value,
-        protection=protection_evidence_response(evidence),
-        position_state=book_position_state(
-            snapshot,
-            product_id=product_id,
-            position=position,
-            phase=RuntimePhase.OPEN,
-            evidence=evidence,
-        ).value,
-        exit_in_flight=book_exit_in_flight(snapshot, product_id=product_id, position=position),
-        compatibility_focus=compatibility_focus,
-    )
-
-
-def _runtime_response(runtime: InstrumentRuntime) -> InstrumentRuntimeResponse:
-    """Serialize one per-product overlay."""
-    return InstrumentRuntimeResponse(
-        product_id=runtime.product_id,
-        phase=runtime.phase.value,
-        last_evaluated_bar=(
-            None if runtime.last_evaluated_bar is None else runtime.last_evaluated_bar.isoformat()
-        ),
-        last_signal=runtime.last_signal,
-        pending_entry_bars=runtime.pending_entry_bars,
-        bars_held=runtime.bars_held,
-        cooldown_bars_remaining=runtime.cooldown_bars_remaining,
-        pending_stop_price=_optional_decimal(runtime.pending_stop_price),
-        pending_target_price=_optional_decimal(runtime.pending_target_price),
-    )
-
-
-def _order_product_ids(snapshot: DeploymentSnapshot) -> dict[UUID, str]:
-    """Map each order onto its Coinbase product, treating blank ids as primary."""
-    return {
-        order.id: resolved_product_id(order.product_id, snapshot.deployment)
-        for order in snapshot.orders
-    }
-
-
-def _order_response(order: Order, *, product_id: str) -> OrderResponse:
-    """Serialize one order snapshot with its product identity."""
-    return OrderResponse(
-        id=order.id,
-        client_order_id=order.client_order_id,
-        venue_order_id=order.venue_order_id,
-        product_id=product_id,
-        side=order.side.value,
-        kind=order.kind.value,
-        quantity=format(order.quantity, "f"),
-        price=None if order.price is None else format(order.price, "f"),
-        stop_trigger_price=(
-            None if order.stop_trigger_price is None else format(order.stop_trigger_price, "f")
-        ),
-        take_profit_price=(
-            None if order.take_profit_price is None else format(order.take_profit_price, "f")
-        ),
-        filled_quantity=format(order.filled_quantity, "f"),
-        status=order.status.value,
-        reject_reason=order.reject_reason,
-        created_at=order.created_at.isoformat(),
-        updated_at=order.updated_at.isoformat(),
-        attached_child_venue_order_id=order.attached_child_venue_order_id,
-        parent_order_id=order.parent_order_id,
-        pyramid_add=order.pyramid_add,
-    )
-
-
-def _fill_response(fill: Fill, *, product_id: str) -> FillResponse:
-    """Serialize one fill with the parent order's product identity."""
-    return FillResponse(
-        id=fill.id,
-        order_id=fill.order_id,
-        product_id=product_id,
-        venue_fill_id=fill.venue_fill_id,
-        price=format(fill.price, "f"),
-        quantity=format(fill.quantity, "f"),
-        fee=format(fill.fee, "f"),
-        filled_at=fill.filled_at.isoformat(),
-    )
-
-
 def _parse_as_of(value: str | None) -> datetime | None:
     """Parse a pinned inventory snapshot. Naive timestamps are refused."""
     if value is None or value == "":
@@ -1286,116 +644,3 @@ def _parse_as_of(value: str | None) -> datetime | None:
             detail="as_of must be a timezone-aware ISO-8601 timestamp.",
         )
     return parsed.astimezone(UTC)
-
-
-def _optional_decimal(value: Decimal | None) -> str | None:
-    """Format an optional Decimal the same way as other deployment JSON fields."""
-    if value is None:
-        return None
-    return format(value, "f")
-
-
-class LinkTwinRequest(BaseModel):
-    """Name the intended counterpart; trading instructions are rejected."""
-
-    model_config = ConfigDict(extra="forbid")
-    counterpart_deployment_id: UUID
-
-
-class DeploymentTwinResponse(BaseModel):
-    """Expose the current saved pair or an explicit unlinked state."""
-
-    deployment_id: UUID
-    twin: DeploymentTwinLink | None
-
-
-@router.get("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
-async def get_deployment_twin(
-    deployment_id: UUID,
-    store: Annotated[ExecutionStore, Depends(get_execution_store)],
-) -> DeploymentTwinResponse:
-    """Read the deliberate comparison pairing, with no exchange requests."""
-    await _require_deployment_row(store, deployment_id)
-    try:
-        link = await store.get_twin_link(deployment_id)
-    except ExecutionStoreError as error:
-        raise _twin_http_error(error) from None
-    return DeploymentTwinResponse(deployment_id=deployment_id, twin=link)
-
-
-@router.put("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
-async def link_deployment_twin(
-    deployment_id: UUID,
-    request: LinkTwinRequest,
-    store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
-    publications: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
-) -> DeploymentTwinResponse:
-    """Save a comparable one-to-one pairing without deployment or order authority."""
-    first = await _require_deployment_row(store, deployment_id)
-    second = await _require_deployment_row(store, request.counterpart_deployment_id)
-    try:
-        snapshots = await load_twin_snapshots(first, second, publications)
-        link = await store.link_twins(
-            deployment_id, request.counterpart_deployment_id, snapshots=snapshots
-        )
-    except (ExecutionStoreError, TwinConflictError, TwinValidationError) as error:
-        raise _twin_http_error(error) from None
-    except StrategySnapshotError:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Twin strategy snapshots could not be verified.",
-        ) from None
-    await _append_twin_audit(
-        audit, "link_deployment_twins", deployment_id, request.counterpart_deployment_id
-    )
-    return DeploymentTwinResponse(deployment_id=deployment_id, twin=link)
-
-
-@router.delete("/{deployment_id}/twin", response_model=DeploymentTwinResponse)
-async def unlink_deployment_twin(
-    deployment_id: UUID,
-    counterpart_deployment_id: UUID,
-    store: Annotated[ExecutionStore, Depends(get_execution_store)],
-    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
-) -> DeploymentTwinResponse:
-    """Remove only the expected partner, preserving a replacement on stale requests."""
-    await _require_deployment_row(store, deployment_id)
-    try:
-        await store.unlink_twins(deployment_id, counterpart_deployment_id)
-    except (ExecutionStoreError, TwinConflictError) as error:
-        raise _twin_http_error(error) from None
-    await _append_twin_audit(
-        audit, "unlink_deployment_twins", deployment_id, counterpart_deployment_id
-    )
-    return DeploymentTwinResponse(deployment_id=deployment_id, twin=None)
-
-
-def _twin_http_error(
-    error: ExecutionStoreError | TwinConflictError | TwinValidationError,
-) -> HTTPException:
-    """Map typed validation/conflict failures and redacted storage errors."""
-    if isinstance(error, TwinValidationError):
-        code = status.HTTP_422_UNPROCESSABLE_CONTENT
-    elif isinstance(error, TwinConflictError):
-        code = status.HTTP_409_CONFLICT
-    elif "not found" in str(error).lower():
-        code = status.HTTP_404_NOT_FOUND
-    else:
-        code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return HTTPException(status_code=code, detail=str(error))
-
-
-async def _append_twin_audit(
-    audit: AuditEventStore, action: str, deployment_id: UUID, counterpart_id: UUID
-) -> None:
-    """Record metadata control with identifiers only, following runtime audit policy."""
-    await audit.append(
-        AuditEvent(
-            occurred_at=datetime.now(UTC),
-            category=AuditEventCategory.RUNTIME,
-            action=action,
-            outcome=AuditEventOutcome.SUCCESS,
-            detail=f"deployment_id={deployment_id} counterpart_deployment_id={counterpart_id}",
-        )
-    )

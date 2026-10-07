@@ -26,6 +26,7 @@ from thytrader.api.routes.credentials import (
 )
 from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.decisions import router as decisions_router
+from thytrader.api.routes.deployment_twins import router as deployment_twins_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
 from thytrader.api.routes.execution_quality import router as execution_quality_router
@@ -436,6 +437,7 @@ def create_app(
     app.include_router(portfolio_history_router)
     app.include_router(strategies_router)
     app.include_router(deployments_router)
+    app.include_router(deployment_twins_router)
     app.include_router(fleet_control_router)
     app.include_router(decisions_router)
     app.include_router(execution_quality_router)

@@ -19,7 +19,7 @@ from thytrader.alerts.models import AlertCheck, AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
-from thytrader.api.routes.deployments import _snapshot_response
+from thytrader.api.routes.deployment_serializers import snapshot_response
 from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -130,7 +130,7 @@ async def test_runtime_without_its_position_is_unknown_across_readers(
     assert not ledger.accounting_complete and not ledger.mark_complete
     assert ledger.equity is ledger.total_net_pnl is ledger.marked_exposure is None
     assert ledger.books[0].mark_complete  # Independent projected BTC evidence remains available.
-    response = await _snapshot_response(snapshot)
+    response = await snapshot_response(snapshot)
     assert response.ledger is not None and not response.ledger.mark_complete
     runtime = next(row for row in response.instrument_runtimes if row.product_id == "ETH-USD")
     assert runtime.phase == phase.value  # The reporting fix never mutates runtime state.
