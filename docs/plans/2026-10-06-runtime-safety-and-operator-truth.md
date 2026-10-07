@@ -1,6 +1,7 @@
 # Runtime safety and operator truth — 2026-10-06
 
-Status: implementation and verification in progress; not a shipped claim. The final
+Status: implementation and verification complete at `ab8527b`; release pending operator
+authorization; not a shipped claim. The final
 [release acceptance checklist](2026-10-06-release-acceptance.md) freezes the remaining scope
 and requires evidence at the actual concurrency, protection and reporting boundaries.
 

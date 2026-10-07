@@ -1,7 +1,7 @@
 # Runtime-safety release acceptance
 
-Status: implementation and verification in progress. This is a finite completion checklist,
-not a shipped claim. It supplements the [implementation plan](2026-10-06-runtime-safety-and-operator-truth.md).
+Status: verification complete at `ab8527b`; release pending operator authorization. This is a
+finite completion checklist, not a shipped claim. It supplements the [implementation plan](2026-10-06-runtime-safety-and-operator-truth.md).
 
 ## Scope and ownership
 
@@ -67,31 +67,45 @@ negative control still denies. The focused combined risk/reporting/execution sel
 
 ## Current evidence checkpoint
 
-The complete backend run at `f0b8724` finished with **3,528 passed, one failed, no skips**
-(412.07s). The sole failure was an older position-state fixture presenting a FILLED exit with
-no applied fill evidence while expecting protected status. The corrected test first asserts
-unverified/not-exiting for that incomplete evidence, then supplies the fixture's already-applied
-execution before expecting protected status. Its nine-test module passes; production guards
-were not relaxed. A full rerun is required after this fixture correction. Frontend lint/type
-checks, 468 unit tests and production build passed; the combined 237-test browser run is pending.
+Final candidate `ab8527b` (2026-10-07). GitHub CI against its PostgreSQL service, with both
+isolated database settings: **3,535 backend tests passed, none failed or skipped**; Ruff, format
+and type checks pass; frontend lint, Svelte check, 468 unit tests, all 237 Playwright E2E tests
+and the production build pass. Alembic has the single head `0069`. GitNexus was reindexed with
+PDG at the candidate; full-branch change analysis reports CRITICAL risk (287 files, 1,932 symbols,
+586 flows, changed-symbol listing capped), which the full suites and the review below address.
 
-Root `6d82812` corrected immutable browser consent, active alert-delivery ownership and the five
-failures from the last full Python run at `6576811` (3,378 passes / five failures). The affected
-83-test run and four retained-evidence checks passed; the full run must still be repeated.
-Initial projection observability was integrated as `e2c9fdd`; 249 combined reporting/risk/alert/
-API/schema tests passed afterward. Product-runtime/portfolio reporting followed as `f48c81a`;
-442 combined reporting/risk/alerts/portfolio/API/schema checks passed with both private database
-settings. The lead's separate PostgreSQL regression passed all 12 paper/live, running/paused/
-stopped, OPEN/PENDING_EXIT combinations after engine restart: missing ETH remains unknown beside
-surviving BTC and prior incidents stay open until explicit FLAT runtime evidence appears. It uses
-real migrations in an exclusively owned test schema, does not infer exit quantity, and verifies
-that reporting preserves status and BTC inventory. Its first paper fixture was rejected for
-missing required fee configuration; the corrected fixture supplies explicit test fees without
-weakening that database constraint. Final combined suites and the core transaction-boundary
-corrections are not certified by these focused counts.
+An independent safety review of the integrated candidate found no blockers. It confirmed two
+should-fix defects, both now corrected with failure-before/success-after tests:
 
-The root graph was refreshed at `6d82812`: 93,752 nodes, 210,733 edges, 763 discovered flows.
-It reports 2,800 dropped entry-point candidates, 33 budget-cut walks, four depth caps and 621
-skipped callees. Existing embeddings are not a complete new embedding pass. Current ledger
-upstream impact is **CRITICAL** (35 mapped symbols across risk, execution, API and operator
-surfaces); graph caps and empty caller sets cannot waive the source/caller tests above.
+- Portfolio supervision read an unresolved sleeve's null equity as zero PnL, so a hidden gain
+  could trip a false drawdown stop, a hidden loss raised the high-water mark, and a day open
+  recorded during the gap could mask real losses. Supervision now holds the run baselines and
+  evaluates no new trip while a run book's ledger is unresolved; an existing latch still pauses.
+- Unresolved inventory softened a live position with no working stop at all to a
+  `STOP_COVERAGE_UNKNOWN` warning. It now stays critical `STOP_UNCOVERED`; reported protection
+  evidence is unchanged.
+
+Accepted notes, not changed in this round: the protective-replacement reconcile applies no
+strategy cooldown when a stop fills during the replacement cancel, so live can re-enter sooner
+than paper/backtest; summary views report every book `open_unverified`/`unknown` because they
+omit full inventory evidence (documented, fail closed).
+
+### Production rehearsal
+
+A fresh read-only `pg_dump` of the operational database (revision `0064`, 47 deployments) was
+restored into a disposable container. `alembic upgrade head` ran `0064 → risk0065 → 0066 → 0067 →
+0068 → 0069` in 1.4 seconds and preserved every deployment status. The candidate's entry predicate
+over the migrated copy found one unresolved book: live ADA-USDC `01a0fc0c-3981-72e4-a76d-b11ec2018370`,
+paused in `pending_exit` after Coinbase rejected five protective brackets for insufficient funds.
+Its bracket `01a113aa-3876-7731-b01d-d0c1d74d45c7` is recorded FILLED for the full 63.08999903 ADA
+with no fill row, while the position still shows that quantity. Until that execution is
+reconciled, the candidate denies every new live USDC entry (paper USDC is unaffected; exits and
+protection are not gated). The candidate's paused-book reconciliation re-reads FILLED orders whose
+applied fills are short and ingests REST fills; if Coinbase returns none, the book records
+`Filled order has no REST fills.` and stays unresolved. The rehearsal container was removed.
+
+### Remaining release steps (operator-authorized)
+
+Fresh backup immediately before cut-over, prebuilt images, migration, service replacement, then
+verification of the same intended running fleet, preserved pauses, protection, reconciliation of
+the ADA book and the deployed SHA. No automatic resume, fill invention or policy change.
