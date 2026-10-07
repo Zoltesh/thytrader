@@ -675,7 +675,7 @@ test.describe('deployment detail', () => {
 		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
 	});
 
-	test('matching persisted venue geometry stays covered but is not fresh venue verification', async ({
+	test('a legacy persisted cover claim is not fresh venue-state or geometry verification', async ({
 		page
 	}) => {
 		await mockDetailRoutes(page, {
@@ -722,7 +722,10 @@ test.describe('deployment detail', () => {
 		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
 		await expect(page.getByTestId('protection-evidence')).toContainText('20 of 20');
 		await expect(page.getByTestId('protection-evidence')).toContainText(
-			'venue verification unknown'
+			'venue order-state freshness unverified'
+		);
+		await expect(page.getByTestId('protection-evidence')).toContainText(
+			'venue geometry not independently verified'
 		);
 	});
 
