@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
-from thytrader.execution.loop import split_pending_entry
+from thytrader.execution.entry import split_pending_entry
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,

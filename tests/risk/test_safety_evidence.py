@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.loop_patching import patch_loop_global
 from tests.risk.test_loss_scope import (
     _STRATEGY_A,
     _TODAY,
@@ -114,7 +115,7 @@ async def test_actual_scoped_gate_reads_sibling_economics(
     monkeypatch: pytest.MonkeyPatch, live: bool, applied: bool
 ) -> None:
     """Cached full peers plus a focused current view cannot hide losses or unapplied fills."""
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     full = sibling_loss(live=live, applied=applied)
     store = InMemoryExecutionStore()
     await seed_accounting(store, full)
@@ -154,7 +155,7 @@ async def test_cached_portfolio_cannot_overwrite_successive_sibling_fills(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Fresh reads see this cycle's later ETH loss despite an earlier cached BTC portfolio."""
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     full = sibling_loss()
     store = InMemoryExecutionStore()
     cached = replace(
@@ -313,7 +314,7 @@ async def test_late_restart_same_bar_maintenance_and_consecutive_cycles(
     monkeypatch: pytest.MonkeyPatch, complete: bool
 ) -> None:
     """Maintenance preserves raw evidence and cannot turn unknown midnight into zero."""
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     full = overnight_long()
     candle = _candle()
     full = replace(full, deployment=replace(full.deployment, last_evaluated_bar=candle.starts_at))
@@ -441,7 +442,7 @@ async def test_stale_performance_and_pause_views_never_rewrite_sibling_cash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Performance metadata and breaker flags cannot reapply an earlier runtime cash copy."""
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     full = sibling_loss()
     full = replace(full, deployment=replace(full.deployment, drawdown_latched=True))
     store = InMemoryExecutionStore()
@@ -509,7 +510,7 @@ async def test_multiple_retained_books_are_fresh_not_only_the_candidate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A newer peer's fills bind an otherwise clean candidate despite a stale peer cache."""
-    monkeypatch.setattr("thytrader.execution.loop.utc_now", lambda: _TODAY)
+    patch_loop_global(monkeypatch, "utc_now", lambda: _TODAY)
     full = sibling_loss()
     peer_cached = replace(
         full, deployment=replace(full.deployment, cash=Decimal("10000")), orders=(), fills=()

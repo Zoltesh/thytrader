@@ -19,7 +19,7 @@ from thytrader.execution.decision_journal import record_gate_skip
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.ids import utc_now
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
-from thytrader.execution.loop import maintain_discretionary_protection
+from thytrader.execution.live_protection import maintain_discretionary_protection
 from thytrader.execution.models import (
     DeploymentMode,
     DeploymentStatus,

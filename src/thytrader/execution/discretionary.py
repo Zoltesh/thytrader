@@ -7,6 +7,7 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 import re
 from typing import TYPE_CHECKING
 
+from thytrader.execution.breaker_pause import _pause_mode_running
 from thytrader.execution.freshness import entry_prerequisites, marketable_quote_mark
 from thytrader.execution.geometry import (
     bracket_error_detail,
@@ -19,19 +20,10 @@ from thytrader.execution.geometry import (
 )
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.ledger import resolve_paper_fee_schedule
-from thytrader.execution.loop import (
-    _active_entry,
-    _active_side,
-    _cancel_open_orders,
+from thytrader.execution.live_protection import (
     _ensure_exit_protection,
     _ensure_live_bracket,
     _ensure_take_profit,
-    _flatten_pending,
-    _match_resting_orders,
-    _pause,
-    _pause_mode_running,
-    _persist_runtime,
-    apply_fill,
 )
 from thytrader.execution.models import (
     Deployment,
@@ -53,6 +45,16 @@ from thytrader.execution.models import (
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.runtime_ops import (
+    _active_entry,
+    _active_side,
+    _cancel_open_orders,
+    _flatten_pending,
+    _match_resting_orders,
+    _pause,
+    _persist_runtime,
+    apply_fill,
+)
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trade_reason_scope import (
