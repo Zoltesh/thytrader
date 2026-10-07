@@ -137,6 +137,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
 | [0120](0120-verified-risk-opening-evidence.md) | Authoritative accounting and verified UTC opening reconstruction; legacy stamps remain untrusted | Accepted |
 | [0121](0121-execution-write-boundaries.md) | Atomic conditional parent/runtime writes, narrow breaker metadata and serialized same-book fill projection | Accepted |
+| [0122](0122-paper-fees-default-to-account-rates.md) | New paper books default to the account's Coinbase fee rates; unreadable rates refuse the start | Accepted |
 
 ## Status values
 

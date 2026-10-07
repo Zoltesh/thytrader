@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
 import re
 from typing import TYPE_CHECKING
@@ -51,6 +51,7 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
+from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
@@ -71,6 +72,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.broker import Broker
+    from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
@@ -182,8 +184,13 @@ async def place_discretionary_order(
     live_quote_cash: Decimal | None = None,
     live_base_available: Decimal | None = None,
     memory_store: ExperientialMemoryStore | None = None,
+    paper_fee_source: PaperFeeSource | None = None,
 ) -> DeploymentSnapshot:
-    """Persist a discretionary intent, submit once, and reconcile timeouts without retry."""
+    """Persist a discretionary intent, submit once, and reconcile timeouts without retry.
+
+    A new paper book that omits fee rates takes the account's rates from
+    ``paper_fee_source``; a reused book keeps its stored rates.
+    """
     _require_mode_prerequisites(request, live_allowed=live_allowed)
     existing = await store.get_intent_by_idempotency_key(request.idempotency_key)
     if existing is not None:
@@ -210,6 +217,7 @@ async def place_discretionary_order(
         live_quote_cash=live_quote_cash,
         entry_price=sized.entry_price,
         reference_price=mark_candle.close,
+        paper_fee_source=paper_fee_source,
     )
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
     pending = with_runtime(
@@ -428,6 +436,7 @@ async def _book_for_entry(
     live_quote_cash: Decimal | None,
     entry_price: Decimal,
     reference_price: Decimal,
+    paper_fee_source: PaperFeeSource | None = None,
 ) -> DeploymentSnapshot:
     """Reuse a flat running book or create one after the risk gate admits it."""
     existing = await store.list_deployments()
@@ -468,6 +477,13 @@ async def _book_for_entry(
         request=request,
         deployments=existing,
     )
+    if request.mode is DeploymentMode.PAPER:
+        maker, taker = await paper_fee_rates(
+            maker_fee_rate=request.paper_maker_fee_rate,
+            taker_fee_rate=request.paper_taker_fee_rate,
+            source=paper_fee_source,
+        )
+        request = replace(request, paper_maker_fee_rate=maker, paper_taker_fee_rate=taker)
     candidate = _new_discretionary_book(request, live_quote_cash=live_quote_cash)
     await _require_entry_admission(
         risk_store,

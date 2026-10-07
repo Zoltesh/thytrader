@@ -77,9 +77,8 @@
 					: {
 							strategy_id: deployment.strategy_id,
 							mode: 'paper',
-							paper_starting_cash: deployment.paper_starting_cash ?? undefined,
-							maker_fee_rate: deployment.maker_fee_rate ?? undefined,
-							taker_fee_rate: deployment.taker_fee_rate ?? undefined
+							// Fee rates are omitted so the new bot takes the account's current rates.
+							paper_starting_cash: deployment.paper_starting_cash ?? undefined
 						}
 			);
 			open = false;
@@ -162,7 +161,7 @@
 			<strong>Start a new {isLive ? 'live' : 'paper'} bot</strong> with the strategy's current rules
 			{#if current}({marketLabel(current.product_id)} · {current.timeframe}){/if}.
 			{#if !isLive}It uses the same paper starting cash ({deployment.paper_starting_cash ??
-					'default'}) and fee assumptions.{/if}
+					'default'}) and your Coinbase account's current fee rates.{/if}
 		</li>
 	</ol>
 	<div class="row">

@@ -77,7 +77,11 @@ def add_portfolio_parsers(
         "--revision", type=int, required=True, help="The portfolio revision you reviewed (show)."
     )
     start.add_argument("--sleeve-id", default=None, help=_SLEEVE_HELP)
-    start.add_argument("--maker-fee-rate", default=None, help="Paper only, with taker.")
+    start.add_argument(
+        "--maker-fee-rate",
+        default=None,
+        help="Paper only, with taker. Omitted: the account's own rates, or refused if unreadable.",
+    )
     start.add_argument("--taker-fee-rate", default=None, help="Paper only, with maker.")
     start.add_argument("--confirm", action="store_true", help=confirm_help)
     start.add_argument("--i-understand-live", action="store_true", help=live_help)

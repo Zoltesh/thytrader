@@ -268,8 +268,8 @@ def test_playbook_skill_sequences_lanes_without_live_authority() -> None:
     assert "never" in skill.lower() and "live" in skill.lower()
     assert "--i-understand-live" in skill
     assert "not an extension" in skill.lower() or "does not grant live" in skill.lower()
-    assert "0.001" in skill
-    assert "0.002" in skill
+    assert "account's own Coinbase rates" in skill
+    assert "0122-paper-fees-default-to-account-rates" in skill
     assert "thytrader.yaml" in skill
     assert "THYTRADER_YOLO_TIERS=paper" in skill
     assert "--create-strategy" in skill

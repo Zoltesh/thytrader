@@ -390,10 +390,12 @@ clears automatically once it is healthy. A definitively rejected live order is r
 `rejected` and the book continues; an ambiguous submit stays `unknown`, is looked up at Coinbase
 by client order id, and is never re-submitted ([ADR 0078](../decisions/0078-live-readiness-http-ack-venue-reload-definite-rejects.md)). Live start, live resume, and
 live Trade-page orders each ask for an explicit live confirmation first. Paper deploy and
-new paper tickets accept optional maker/taker **assumptions** (UI Deploy/Trade, or
-`thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Omitted paper rates stay `0.001` /
-`0.002`. They are documented fill costs, not observed Coinbase fees. Live rejects those fields and
-keeps venue-recorded fees.
+new paper tickets accept optional maker/taker rates (UI Deploy/Trade, or
+`thytrader-runtime --maker-fee-rate` / `--taker-fee-rate`). Left blank, a new paper bot uses your
+Coinbase account's own fee rates; if those cannot be read (no credentials, or Coinbase is
+unreachable) the start is refused rather than guessing, and you can enter rates explicitly.
+**Update bot…** gives the replacement your account's current rates. Paper fills are still modeled,
+not observed Coinbase fills. Live rejects those fields and keeps venue-recorded fees.
 
 Higher-timeframe filters and separate indicator clocks load enough warmup for both the first
 decision's current and previous completed bars. Starting a 1h bot just after a 4h boundary can

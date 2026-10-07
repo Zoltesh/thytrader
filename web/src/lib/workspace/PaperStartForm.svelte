@@ -1,9 +1,9 @@
 <script lang="ts">
 	/**
 	 * Start-paper form for the Run stage (the start half of the former
-	 * DeployWorkstation). Paper starting cash plus maker/taker fee
-	 * assumptions, prefilled from your Coinbase account fee rates (ADR 0090) unless the
-	 * operator edited them. Starting is a mutation behind a confirmation, and
+	 * DeployWorkstation). Paper starting cash plus maker/taker fee rates, prefilled
+	 * from your Coinbase account fee rates (ADR 0090) unless the operator edited them.
+	 * Blank rates are omitted so the server applies the account's rates or refuses. Starting is a mutation behind a confirmation, and
 	 * it starts a new deployment of the strategy's current rules (the server
 	 * snapshots them): it is not a promotion of any backtest.
 	 */
@@ -11,10 +11,9 @@
 	import { marketLabel, productIdQuote } from '$lib/deployment-detail';
 	import { createDeployment, type Deployment } from '$lib/deployments';
 	import {
-		PAPER_DEFAULT_MAKER_FEE_RATE,
-		PAPER_DEFAULT_TAKER_FEE_RATE,
 		PAPER_FEE_ENGINE_NOTE,
 		fetchFeeProfile,
+		optionalFeeRate,
 		readResearchFeeSuggestion,
 		shouldPrefillPaperFeeRates
 	} from '$lib/fees';
@@ -39,8 +38,8 @@
 	} = $props();
 
 	let cash = $state('10000');
-	let makerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
-	let takerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
+	let makerFee = $state('');
+	let takerFee = $state('');
 	let feesTouched = $state(false);
 	let confirmOpen = $state(false);
 	let starting = $state(false);
@@ -74,7 +73,7 @@
 				takerFee = suggestion.takerFeeRate;
 			}
 		} catch {
-			/* documented 0.001 / 0.002 defaults remain */
+			/* blank rates remain; the server reads the account's rates at start or refuses */
 		}
 	}
 
@@ -87,8 +86,8 @@
 				strategy_id: strategyId,
 				mode: 'paper',
 				paper_starting_cash: cash,
-				maker_fee_rate: makerFee,
-				taker_fee_rate: takerFee
+				maker_fee_rate: optionalFeeRate(makerFee),
+				taker_fee_rate: optionalFeeRate(takerFee)
 			});
 			confirmOpen = false;
 			onStarted(deployment);
@@ -110,6 +109,7 @@
 			>Maker fee rate
 			<input
 				inputmode="decimal"
+				placeholder="Account rate"
 				bind:value={makerFee}
 				oninput={() => (feesTouched = true)}
 			/></label
@@ -118,6 +118,7 @@
 			>Taker fee rate
 			<input
 				inputmode="decimal"
+				placeholder="Account rate"
 				bind:value={takerFee}
 				oninput={() => (feesTouched = true)}
 			/></label

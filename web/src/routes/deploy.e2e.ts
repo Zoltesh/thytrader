@@ -65,7 +65,7 @@ test('starts paper through a confirmation with the fee-tier assumptions', async 
 	await expect(paperCard.getByLabel('Maker fee rate')).toHaveValue('0.0025');
 	await expect(paperCard.getByLabel('Taker fee rate')).toHaveValue('0.0040');
 	await expect(
-		paperCard.getByText('These are documented paper fill assumptions, not observed Coinbase fees.')
+		paperCard.getByText("Blank rates use your Coinbase account's fee rates", { exact: false })
 	).toBeVisible();
 
 	await paperCard.getByRole('button', { name: 'Start paper deployment…' }).click();
@@ -87,7 +87,7 @@ test('starts paper through a confirmation with the fee-tier assumptions', async 
 	await expect(row).toContainText('Entries enabled');
 	await expect(row).toContainText('6 closed trades · net P&L 21.40 USDC · return 2.14%');
 	await expect(row).toContainText('long 0.0041 @ 63412 · stop 61902 · target 66432');
-	await expect(row).toContainText('maker 0.001 · taker 0.002 (not real Coinbase fees)');
+	await expect(row).toContainText('maker 0.001 · taker 0.002 (applied to modeled paper fills)');
 	await expect(row.getByRole('link', { name: /Open paper bot/ })).toHaveAttribute(
 		'href',
 		`/deployments/${started.id}`
@@ -362,9 +362,7 @@ test('Update bot does a managed stop, then starts the current rules', async ({ p
 	expect(created).toEqual({
 		strategy_id: strategyId,
 		mode: 'paper',
-		paper_starting_cash: '10000',
-		maker_fee_rate: '0.001',
-		taker_fee_rate: '0.002'
+		paper_starting_cash: '10000'
 	});
 	await expect(page.getByRole('status').filter({ hasText: 'Bot updated' })).toBeVisible();
 });

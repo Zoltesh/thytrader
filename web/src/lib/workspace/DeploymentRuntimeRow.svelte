@@ -104,7 +104,8 @@
 			<div>
 				<dt>Fee assumptions</dt>
 				<dd>
-					maker {deployment.maker_fee_rate} · taker {deployment.taker_fee_rate} (not real Coinbase fees)
+					maker {deployment.maker_fee_rate} · taker {deployment.taker_fee_rate} (applied to modeled paper
+					fills)
 				</dd>
 			</div>
 		{/if}
