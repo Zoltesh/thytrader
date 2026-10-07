@@ -119,9 +119,7 @@ async def test_a_paper_portfolio_start_gives_every_new_sleeve_the_accounts_rates
     )
     books = await state.tagged(current.portfolio.portfolio_id)
     assert books
-    assert {(book.paper_maker_fee_rate, book.paper_taker_fee_rate) for book in books} == {
-        _ACCOUNT
-    }
+    assert {(book.paper_maker_fee_rate, book.paper_taker_fee_rate) for book in books} == {_ACCOUNT}
     assert account.reads == 1
 
 
