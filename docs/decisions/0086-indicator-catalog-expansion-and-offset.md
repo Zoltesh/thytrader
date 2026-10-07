@@ -71,7 +71,7 @@ reachable.
 | `percent_rank` | one OHLCV field | `period` 2–500 (20) | single | `period + 1` |
 
 Exact formulas, operation order, and edge cases are in
-[signal evaluation](../architecture/signal-evaluation.md). The conventions that are choices rather
+signal evaluation. The conventions that are choices rather
 than arithmetic:
 
 - **Undefined on a zero divisor:** vortex (zero true-range sum), stochastic RSI (an RSI range at or

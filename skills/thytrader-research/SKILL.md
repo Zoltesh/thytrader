@@ -15,11 +15,8 @@ description: >-
 
 Bounded research mutations only. This skill is not an extension of `thytrader-operator` and has no paper, live, arming, cancellation, or kill-switch authority.
 
-Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then
-`THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same
-`.env` Compose reads; the default port is `8200`, but installs may override it). Do not hard-code a
-port; for raw `curl`, export `THYTRADER_API_BASE_URL` and use `"$THYTRADER_API_BASE_URL/api/v1/..."`.
-Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to
+Default transport is the loopback HTTP API (base URL from `--base-url`, `THYTRADER_API_BASE_URL`,
+or settings; see the [shared rules](../README.md#shared-rules-every-lane)). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to
 the database if the API is down.
 
 Failures name what failed. An API rejection prints `HTTP <status> <detail.code>: <detail.message>`
@@ -29,11 +26,10 @@ the base URL was resolved), or that the API closed the connection before answeri
 check state before repeating a mutation). A 5xx adds what to do next. Unreadable `--file` paths,
 invalid JSON, and schema mismatches are named too.
 
-Production installs enforce the application trust boundary
-([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
-`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
-`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
-The CLI sends that header automatically; `--local` bypasses HTTP and therefore the boundary.
+HTTP mutations carry installation Bearer auth automatically
+([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md),
+[ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)); `--local` bypasses HTTP
+and therefore the boundary.
 
 HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)):
 `GET/POST /api/v1/strategies`, `GET/PUT/DELETE /api/v1/strategies/{strategy_id}`,
@@ -138,13 +134,10 @@ boundary. The CLI uses installation Bearer auth without browser CSRF.
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Every HTTP command
-preflights the full `/health/ready` ops contract. Rebuild or restart only with `make run` when the
-user asked, or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an agent
-route while `/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0` alone is not
-current-image evidence. Open the `ops/` workspace instead of
-the git root. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not search the tree for a code patch. Report failures through this skill. Rebuild
+only with `make run` when the user asked or the [stale-image rule](../README.md#shared-rules-every-lane)
+applies. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## How backtests simulate (one model)
 
@@ -392,8 +385,8 @@ their clock, for example `BTC · SMA(2) (3 bars ago) [1d]`. Literals reject offs
 `constant` rejects positive offsets. Zero is omitted from canonical JSON. Include the largest
 operand lag in warmup, including signal exits
 and HTF-filter rules. The server derives extra-clock/reference warmup and validates supplied
-decision/filter warmup. Save/import with the existing confirmation gates; require ops contract
-v59 for operand lags. New squeeze templates expose `bands.period`, `bands.stdev_multiplier`,
+decision/filter warmup. Save/import with the existing confirmation gates; health advertises
+`indicator_operand_offset_runtimes`. New squeeze templates expose `bands.period`, `bands.stdev_multiplier`,
 `channel.period`, `channel.atr_period`, and `channel.multiplier` axes using these shared reads.
 Do not invent unlisted kinds or pass through a TA library.
 Optional per-indicator `timeframe` on LTF-list indicators must be a coarser integer-multiple venue
@@ -762,7 +755,5 @@ result fingerprints. The result UI shows all four totals and reconciliation deta
 Stored reports with missing or placeholder attribution digests fail integrity validation.
 No new CLI flags or trading authority are introduced.
 
-In the browser, narrow-screen ledgers and strategy result tables scroll inside their
-panels; ratio and reconciliation values wrap. Exact ledger quantities and agent/export
-values retain their precision. Use `show-result` or `export-results` for recorded
-attribution decimals instead of reading rounded monetary cards from a screenshot.
+Use `show-result` or `export-results` for recorded attribution decimals instead of reading rounded
+monetary cards from a screenshot.

@@ -99,7 +99,7 @@ def _parser() -> argparse.ArgumentParser:
     market.add_argument(
         "--product-id",
         default=None,
-        help="USD spot product, default from settings.",
+        help="USD, USDC, or USDT spot product, default from settings.",
     )
     market.add_argument(
         "--timeframe",
@@ -110,7 +110,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "products",
         parents=[trailing],
-        help="Enabled USD spot products from the current catalog.",
+        help="Enabled USD, USDC, and USDT spot products from the current catalog.",
     )
     subparsers.add_parser(
         "data-catalog",
@@ -133,7 +133,7 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "strategies",
         parents=[trailing],
-        help="Draft, publication, and runtime status.",
+        help="Strategy library (revision, validity, current fingerprint) and deployment status.",
     )
     performance = subparsers.add_parser(
         "performance",

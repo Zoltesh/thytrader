@@ -1,26 +1,5 @@
 # Architecture Overview
 
-Execution write boundaries follow [ADR 0121](../decisions/0121-execution-write-boundaries.md):
-conditional parent/runtime changes commit together, same-book fill projections lock the parent
-before reading economics, and quote-peer breaker pauses mutate only their owned metadata.
-An authoritative accounting read is not a fence for a later write. Cancel-time execution must
-be reconciled before sizing replacement protection; product identity remains explicit at
-mark/protection effect boundaries. These contracts do not universally serialize every raw store
-writer or promise exactly-once venue execution.
-
-Mode-wide live exposure and daily-loss capital is observed account quote plus managed long
-inventory cost and working buy-entry reservations; bot allocations are separate sizing limits.
-Do not substitute one sleeve's allocation or add its ledger cash to an account balance.
-[ADR 0106](../decisions/0106-account-risk-capital-and-live-startup-baselines.md) corrects this scope
-and initializes new live strategy fill-ledger baselines at zero before worker supervision.
-
-Performance percentages use separate pinned capital while ledger cash/equity keep their dollar
-PnL meaning ([ADR 0107](../decisions/0107-capital-normalized-live-performance.md)). The shared
-execution ledger normalizes return and drawdown for HTTP, operator, and portfolio readers.
-Workers persist the budget and maximum observed drawdown independently of the ledger peak;
-restart and rebalance retain both. Alembic `0061` adds nullable columns without historical
-backfill; ops contract v64 exposes their HTTP fields and capability.
-
 ## System shape
 
 ThyTrader is a modular monolith deployed as multiple supervised processes. Domain packages share one
@@ -31,9 +10,8 @@ The **primary product surface is agent-driven E2E** (versioned HTTP + confirmati
 professional workstation. Product destination is a Coinbase-first research and trading platform
 ([ADR 0031](../decisions/0031-coinbase-first-platform-end-state.md)); other exchanges come later.
 
-The diagram describes the **target system shape**, not a claim that every responsibility is already
-implemented. Today, the browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy
-authoring, backtests, and paper/live deployments of a venue-clock strategy snapshot.
+The browser, HTTP API, and agent CLIs provide portfolio, market-data, strategy authoring,
+backtests, studies, portfolios, and paper/live deployments of a venue-clock strategy snapshot.
 The portfolio worker takes snapshots; the market-data worker maintains verified 1h, 5m, 15m, 30m,
 6h, 1d, 1m, 2h, and 4h datasets; the execution worker evaluates closed venue candles and submits maker orders
 through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entries pass the
@@ -43,7 +21,7 @@ through a paper broker or Coinbase Advanced Trade REST v3. Paper and live entrie
 SvelteKit web UI
 Agent skills / CLIs  (primary product surface)
       |
-      | REST + ThyTrader WebSocket
+      | loopback REST (no ThyTrader WebSocket; UIs poll)
       v
 FastAPI API process ---------------- PostgreSQL
       |                                  |
@@ -131,7 +109,7 @@ contracts below:
   independently simulated sleeves, deploys a portfolio as one bot per sleeve (start, pause,
   resume, stop, breaker reset), and carries the manager loop (proposals and the briefing); the
   execution worker supervises deployed portfolios each cycle and the entry gate applies their caps
-  and latched breakers ([portfolios](portfolios.md), [ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),
+  and latched breakers ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),
   [ADR 0091](../decisions/0091-portfolio-deployment-limits-and-manager-proposals.md));
 - `POST /api/v1/deployments` starts a paper or live runtime for one `strategy_id` from a snapshot of its current definition; pause, resume,
   and stop are explicit subsequent calls. Create and closed-bar entries evaluate the risk-policy
@@ -165,8 +143,11 @@ from Advanced Trade REST v3 is the live ledger. Phase 13 shipped 5m live, traili
 brackets/OCO, and user-order WebSockets ([ADR 0036](../decisions/0036-phase-13-live-extras.md)).
 On-demand discretionary orders are shipped
 ([ADR 0039](../decisions/0039-on-demand-discretionary-trades.md)).
-The Phase 10 risk-policy registry is shipped ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md));
-the full destination control catalog in [security-and-risk.md](../security-and-risk.md) is not.
+The risk-policy registry ([ADR 0033](../decisions/0033-phase-10-risk-policy-registry.md)) carries
+daily-loss and drawdown breakers, order-rate limits, and reference-price collars
+([ADR 0050](../decisions/0050-daily-loss-drawdown-rate-collars.md)); fleet disarm, managed stop,
+flatten, and rearm are separate consent-bound controls
+([ADR 0117](../decisions/0117-truthful-inventory-and-fleet-controls.md)).
 Every ingested venue granularity is a legal strategy, paper, live, discretionary, and HTF clock
 ([ADR 0040](../decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Paper and live evaluate
 `htf_filter` on last-completed complete-only HTF bars
@@ -174,16 +155,11 @@ Every ingested venue granularity is a legal strategy, paper, live, discretionary
 timeframes overlay last-completed extra-TF bars onto the decision clock
 ([ADR 0042](../decisions/0042-per-indicator-timeframes.md)).
 
-The following remaining target responsibilities must be exposed as supported, tested contracts before
-they are described as available:
-
-- UI WebSocket events for runtime ticks.
-
 HTTP route handlers must remain thin. Exchange logic, risk evaluation, strategy evaluation, and persistence belong to domain/application services.
 
 ### Worker process
 
-The target continuously running strategy/execution worker owns:
+The continuously running workers together own:
 
 - Coinbase market and user WebSocket sessions;
 - strategy scheduling and evaluation;
@@ -242,19 +218,21 @@ Operational correctness must not depend on DuckDB or a dataframe remaining resid
 
 Expected durable boundaries include:
 
-- `exchanges`: provider-neutral account, market-data, and broker interfaces;
-- `market_data`: normalized products, candles, trades, ingestion, and quality checks;
+Packages under `src/thytrader/`:
+
+- `exchanges`: provider-neutral account, market-data, and broker interfaces (Coinbase adapter inside);
+- `market_data`, `market_data_worker`: normalized products, candles, ingestion, quality, retention;
 - `strategies`: schemas, indicators, conditions, signals, mutable strategy storage, and snapshots;
-- `backtesting`: clocks, events, fills, metrics, and reproducibility;
-- `execution`: order intents, lifecycle, idempotency, and reconciliation;
+- `backtest`, `research`, `research_worker`: the unified backtest model, studies, campaigns, jobs;
+- `execution`, `execution_worker`: order intents, lifecycle, idempotency, protection, reconciliation;
 - `risk`: composable pre-trade and runtime policies;
-- `portfolio`: balances, positions, valuation, and exposure;
-- `observability`: health, metrics, structured logs, and audit events.
+- `portfolio`, `portfolios`: account balances/history; composed portfolios, sleeves, and manager;
+- `fleet_control`, `alerts`: fleet disarm/stop/flatten/rearm; durable safety alerts;
+- `operator`, `operator_chat`, `data_control`, `runtime_control`, `agent_orchestration`, `memory`:
+  agent lanes (read-only diagnostics, chat, data, runtime, playbook, memory);
+- `api`, `persistence`, `credentials`, `security`, `observability`: HTTP, storage, secrets, health.
 
 Dependencies should point toward stable domain abstractions. Coinbase-specific response objects must not leak throughout the system.
-
-Mermaid diagrams of the shipped contracts live under
-[architecture/contracts](contracts/README.md).
 
 ## Portability and deployment
 
@@ -306,9 +284,9 @@ visible. Report qualification never changes portfolio control, admission, or bre
 inside the Coinbase account adapter, which exposes provider-neutral typed read failures.
 Operator reports disclose only operation, category and status. Reconciliation correlates
 known WebSocket failures and connected events in its bounded audit window, retaining
-all failures and leaving unknown order outcomes unresolved. Ops contract v65; no migration.
+all failures and leaving unknown order outcomes unresolved.
 
-### Shipped: research reliability and frozen validation (ADR 0109)
+## Research reliability and frozen validation (ADR 0109)
 
 Publication-integrity summary reads and bulk exports avoid full ledger/Parquet reads.
 Shared fresh catalog observations preserve explicit product authority. New decision

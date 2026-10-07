@@ -1,12 +1,12 @@
 # 0090: Optional take-profit, named entry skips, backtest diagnostics, account-rate fees, HTTP signal trace
 
-- Status: Accepted
+- Status: Accepted — amended by [0093](0093-signal-based-exits.md)
 - Date: 2026-10-02
 - Amends: [0036](0036-phase-13-live-extras.md) (live protection is an OCO **or**, without a
   take-profit, a venue stop-limit), [0045](0045-spot-shorting-and-attached-entry-brackets.md)
   (an entry without a take-profit never attaches a bracket), [0008](0008-deterministic-signal-evaluation.md)
   (`thytrader-research-evaluate` is HTTP-backed), and the fee-tier research defaults of
-  [docs/plans/2026-09-13-fee-tier-research-defaults.md](../plans/2026-09-13-fee-tier-research-defaults.md)
+  the 2026-09-13 fee-tier research-defaults plan (removed; see git history)
 - Relates to: [0005](0005-canonical-strategy-schema.md), [0019](0019-ops-contract-identity.md),
   [0030](0030-agent-e2e-primary-surface.md), [0048](0048-paper-deploy-fee-fields.md),
   [0058](0058-protection-lifecycle-accounting.md), [0083](0083-unified-backtest-model.md),
@@ -139,7 +139,7 @@ its downgrade refuses while a `stop_limit` intent or an untargeted position exis
 - Live books without a take-profit hold a venue stop-limit, never an unprotected position and
   never a fabricated far-away target. A stop-limit can rest unfilled if price gaps through its
   limit; that is the same risk the bracket stop leg already carries and is disclosed in
-  [security and risk](../security-and-risk.md).
+  the security baseline (now `docs/user/safety.md`).
 - Research costs default to what the account actually pays; older results that used schedule
   rates keep their fingerprints (their runs fingerprint the rates they used).
 - Diagnostics are explanatory evidence: they do not authenticate a result and a corrupt

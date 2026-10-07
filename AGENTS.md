@@ -13,8 +13,15 @@ versioned HTTP APIs). A modern professional UI still matters and must stay capab
 and [ADR 0031](docs/decisions/0031-coinbase-first-platform-end-state.md).
 
 Financial correctness, restart safety, secret hygiene, and auditability outrank delivery speed.
-Read [contributor documentation](docs/contributing.md) before changing architecture or product
-behavior. User-facing docs start at [docs/README.md](docs/README.md).
+
+Documentation map:
+
+- `skills/thytrader-*/SKILL.md` + `references/`: canonical operator-agent docs (lane commands,
+  gates, report fields). `ops/.cursor/skills/` symlinks into them.
+- `AGENTS.md` (this file), `CLAUDE.md`, `.claude/skills/`, `.cursor/rules/`: contributor-agent docs.
+- `docs/decisions/`: the ADR decision log ([index](docs/decisions/README.md)).
+- `docs/architecture/`: overview, backtest simulation, research studies.
+- `README.md` and `docs/user/`: the short human guide (setup, safety, browser operation, research).
 
 ## Current direction
 
@@ -30,14 +37,28 @@ behavior. User-facing docs start at [docs/README.md](docs/README.md).
   ([ADR 0082](docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)).
 - Access: loopback-only by default; remote exposure must be explicit and protected.
 
-Accepted decisions live in `docs/decisions/`. Do not silently contradict an accepted ADR. Add a superseding ADR and update related docs when direction changes.
+Accepted decisions live in `docs/decisions/`. Do not silently contradict an accepted ADR. Add a
+superseding ADR and mark the old one's status (header and index) when direction changes; never
+delete or rename an ADR.
+
+## Known gaps
+
+Open work, one line each (no roadmap file; history is in the ADRs and git log):
+
+- Portfolio backtests simulate sleeves independently; portfolio caps and cross-sleeve netting are not simulated.
+- No in-app portfolio manager loop: the manager is an external agent driving `thytrader-portfolio`.
+- The risk policy has no consecutive error/rejection breaker or pre-trade min-liquidity / max-spread check.
+- Backtests do not model latency, venue rejections, partial fills, or queue position.
+- Open-book PnL excludes estimated future exit fees (ADR 0100).
+- Alerts do not fire on per-bar decision outcomes; there is no ThyTrader WebSocket (the UI polls).
+- Only Coinbase spot is supported; other exchanges are deferred.
 
 ## Required workflow
 
 ### 1. Establish repository state
 
 - Run `git status --short --branch` before relying on branch or workspace assumptions.
-- Read the relevant product, architecture, security, and ADR documents.
+- Read the relevant ADRs, `docs/architecture/` notes, and lane skill before changing behavior.
 - Inspect manifests and neighboring code before assuming dependencies, symbols, or conventions.
 - Never read or print real `.env` files or credential values.
 
@@ -91,18 +112,29 @@ If GitNexus and source disagree, source plus executed tests are authoritative; r
 
 ### 4. Verify before reporting completion
 
-Run the most targeted tests first, then the broader available checks. Use commands defined by the current manifests; do not claim checks that the repository does not yet provide.
-
-Expected Python quality commands once their corresponding configuration/tests exist:
+Run the most targeted tests first, then the full checks. `.github/workflows/ci.yml` runs these on
+every pull request and on `main`:
 
 ```bash
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
 uv run ty check
+cd web && npm run lint && npm run check && npm run test && npm run build
 ```
 
-For frontend work, run the package-manager scripts for formatting, linting, tests, and production build from the actual frontend manifest.
+Run `npx playwright install chromium` in `web/` once on a new machine.
+
+PostgreSQL-backed suites run in CI against a `postgres:17` service with the disposable database
+`thytrader_ci_test`; locally they skip unless configured. To run them, migrate a separate loopback
+test database whose name contains `test` (port `5439`, the application database, is refused) and
+set both `THYTRADER_TEST_DATABASE_URL` and `THYTRADER_INTEGRATION_DATABASE_URL` to it. Never point
+test variables at the running application's database, and leave `THYTRADER_DATABASE_URL` unset for
+pytest so unconfigured-storage tests stay truthful.
+
+When adding a migration, update `ops_contract.EXPECTED_SCHEMA_REVISION` in the same change
+(`test_expected_schema_revision_matches_alembic_head` checks it against the Alembic head). After a
+rebuild (`make run`), verify operator health as well as the tests.
 
 A change is complete only when relevant tests/checks pass, GitNexus impact is
 reviewed, the ops-skills completion gate below is satisfied when it applies, and
@@ -136,7 +168,21 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 - Block new risk-increasing orders on stale data or unhealthy required connections.
 - Prefer maker execution for normal entries/TP, but permit marketable emergency exits.
 - Disarming and kill switches must define whether cancellations and risk-reducing exits continue.
+  Fleet disarm blocks entries only; managed stop keeps protection; flatten is separate
+  ([ADR 0117](docs/decisions/0117-truthful-inventory-and-fleet-controls.md)).
 - Synthetic trailing stops require durable state, healthy market data, and continuous worker supervision.
+- The risk policy gates entries, never protective exits. Only `ENTRY`-purpose orders consume the
+  entry-rate cap. Live cannot start until an operator publishes a policy
+  (`LIVE_REQUIRES_PUBLISHED_POLICY`); the compiled default is a wide paper-research envelope.
+- Unknown balances, marks, baselines, or accounting deny new risk; they are never reported or
+  summed as zero. USD, USDC, and USDT amounts are never added together.
+- Account risk capital (observed venue quote plus managed inventory) is separate from bot
+  allocations and from pinned performance capital
+  ([ADR 0106](docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md),
+  [ADR 0107](docs/decisions/0107-capital-normalized-live-performance.md)).
+- Venue order-observation time comes only from a successful venue read; migrations, local writes,
+  and restarts never manufacture one
+  ([ADR 0119](docs/decisions/0119-venue-order-observation-provenance.md)).
 
 ## Numerical and time correctness
 
@@ -153,8 +199,12 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
   additional permissions must be accepted.
 - Report detected permissions without treating extra permissions as implicit consent for actions.
 - Never expose secrets through browser payloads, logs, exceptions, fixtures, support bundles, agent tools, or Git.
+- The operator-chat LLM key lives in the API process only; it is not a Coinbase credential and is
+  never echoed or logged.
 - `.env.example` contains names/placeholders only; `.env` must remain ignored.
 - Bind to loopback by default. Do not weaken startup safety to make remote access convenient.
+  Public exposure would require TLS, authentication, secure sessions, CSRF protection, rate
+  limiting, and a dedicated threat-model review; it is never enabled automatically.
 - Agent observation stays read-only. Mutations use separate confirmation-gated tools
   (`--confirm`; live also `--i-understand-live`). Do not collapse skill lanes or weaken live-arming
   for agent convenience ([ADR 0030](docs/decisions/0030-agent-e2e-primary-surface.md)).
@@ -172,70 +222,43 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 This gate applies to **contributors** changing ThyTrader. It does **not** apply in
 the `ops/` workspace. Operating agents must never update documentation or source.
 
-When a change touches any of: product surfaces, CLI, HTTP agent APIs, strategy
-semantics, timeframes, runtime, research, data ingest, or operator reports, the
-**same change** must update:
+When a change touches an operator-facing surface (product behavior, CLI, HTTP agent
+APIs, strategy semantics, timeframes, runtime, research, data ingest, or operator
+reports), the **same change** must update:
 
-1. The relevant `skills/thytrader-*` SKILL.md (canonical skill text operator
-   agents read). `ops/.cursor/skills/` are symlinks into `skills/`; do not
+1. The relevant `skills/thytrader-*` SKILL.md and its `references/` (canonical text
+   operator agents read). `ops/.cursor/skills/` are symlinks into `skills/`; do not
    maintain a second skill tree.
-2. Operator report schemas if payloads changed
-   (`skills/thytrader-operator/references/` and related contract tests).
-3. `docs/` that operators and agents read (user-facing `docs/README.md` and
-   `docs/user/`, plus `docs/agent-integration.md`, and roadmap shipped vs
-   destination when slice status changes). Update CLI `--help` when flags or
-   invocation change.
+2. The operator report schema when payloads change: regenerate
+   `skills/thytrader-operator/references/operator-report-v1.schema.json` with
+   `uv run python scripts/export_operator_schema.py` (never hand-edit it) and keep
+   `uv run thytrader-operator schema-check` and the contract tests passing.
+3. CLI `--help` when flags or invocation change.
+
+Update `docs/user/` only when the browser UI changes. Record significant decisions
+as a new ADR in `docs/decisions/` (and add its index row). There is no roadmap,
+plans directory, or separate agent-integration doc; do not create them.
 
 A slice is **not done** if ops skills would leave an operator agent unable to
 discover or correctly invoke the new surface. Do not merge or report the work
 complete until that agent can drive the surface from `skills/` alone, without
 scraping logs or inventing commands.
 
-Also update architecture, product, security, or workflow docs in the same change
-when modifying accepted architecture, risk or execution policy, storage or
-deployment contracts, or GitNexus workflow. Use an ADR for durable choices with
-meaningful alternatives. Supersede old ADRs rather than deleting their history.
-
 ## Operating a running instance
 
-When the user asks to diagnose ThyTrader, inspect paper/live *status*, create, edit, or delete a strategy,
-run a backtest, or deploy/pause/resume/stop paper or live, **open the [`ops/`](ops/README.md)
-workspace** and use the shipped skills instead of scraping logs, querying PostgreSQL, or editing
-source:
-
-- [`skills/thytrader-operator/SKILL.md`](skills/thytrader-operator/SKILL.md) — read-only diagnostics
-  (`uv run thytrader-operator`, `GET /api/v1/operator/*`).
-- [`skills/thytrader-data/SKILL.md`](skills/thytrader-data/SKILL.md) — watchlist, ingest, and
-  gap-fill only, with `--confirm` on every mutation. Ingest is a worker job (HTTP 202); the API
-  dataset volume stays read-only.
-- [`skills/thytrader-research/SKILL.md`](skills/thytrader-research/SKILL.md) — strategy create/save/
-  import/clone/delete, backtests, and composed studies (OOS / walk-forward / sweep / WFO), with `--confirm` on every
-  mutation.
-- [`skills/thytrader-runtime/SKILL.md`](skills/thytrader-runtime/SKILL.md) — paper/live start, pause,
-  resume, stop, on-demand `place-order`, risk-policy publication, YAML `set-settings`, and write-only
-  Coinbase credential show/set/clear, with `--confirm` unless YOLO covers that tier (live start,
-  live resume, and live place-order also `--i-understand-live`). `set-settings` and credential set/clear always need
-  `--confirm`; YOLO never covers them. It also deploys portfolios (`portfolio-start`, `-pause`,
-  `-resume`, `-stop`, `-reset-breaker`; one bot per sleeve; ADR 0091) with the same gates.
-- [`skills/thytrader-portfolio/SKILL.md`](skills/thytrader-portfolio/SKILL.md) — portfolios (sleeves,
-  weights, cash reserve, limits, manager settings), portfolio backtests, the journal, and the manager
-  loop (read the briefing, submit proposals, record a person's approve/decline), with `--confirm` on
-  every mutation. No deployment or order authority: it never starts or stops a portfolio and never
-  places orders.
-- [`skills/thytrader-playbook/SKILL.md`](skills/thytrader-playbook/SKILL.md) — sequences existing
-  lane CLIs for data → research → optional paper. Forwards `--confirm`. Never starts live.
-- [`skills/thytrader-memory/SKILL.md`](skills/thytrader-memory/SKILL.md) — journals, sentiment and
-  pattern hooks, monitor, and notify, with `--confirm` on every mutation. YOLO never covers this
-  lane.
-
-Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests while operating a running
-instance. Report skill/CLI failures. Run `make run` only if the user asked to rebuild or restart, or
-if health/HTTP reports a stale Compose image. Run every `uv run thytrader-*` command from this
+When the user asks to diagnose ThyTrader, inspect paper/live status, change strategies, run
+backtests, or deploy/pause/resume/stop paper or live, **open the [`ops/`](ops/README.md)
+workspace** and use the shipped skills ([`skills/README.md`](skills/README.md) lists the seven
+lanes: operator, data, research, runtime, portfolio, playbook, memory) instead of scraping logs,
+querying PostgreSQL, or editing source. Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic,
+or tests while operating. Run `make run` only if the user asked to rebuild or restart, or if
+health/HTTP reports a stale Compose image. Run every `uv run thytrader-*` command from this
 repository root (the parent of `ops/`).
 
-Operator and research skills must not deploy, arm live trading, or cancel orders. Data ingest must
-not be folded into those skills. Runtime control must not be folded into operator, data, or research.
-The playbook must not inherit live authority. Memory mutations must not inherit YOLO.
+Lane boundaries are product invariants: operator and research never deploy, arm live, or cancel
+orders; data ingest stays in the data lane; runtime control is not folded into operator, data, or
+research; the playbook never inherits live authority; portfolio never deploys or places orders;
+memory mutations never inherit YOLO.
 
 Contributors update `skills/` in this checkout. Never teach the `ops/` workspace to edit
 documentation or code; `ops/` stays operator-only.

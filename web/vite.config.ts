@@ -34,7 +34,7 @@ export default defineConfig({
 			// Deliberate production target: a standalone Node server built by adapter-node.
 			// Compose runs the compiled `build/` output behind `server.js` (see web/server.js),
 			// which proxies `/api` to THYTRADER_API_PROXY_TARGET the same way the Vite dev
-			// server does. See docs/decisions/0063-ci-release-discipline-and-production-web-target.md.
+			// server does. See docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md.
 			adapter: adapter()
 		})
 	],

@@ -6,20 +6,6 @@ agent can do the same loop **100%** through the shipped skills. Nothing requires
 When an agent is operating a **running** instance, open [`ops/`](../../ops/README.md) rather than
 the git root. Skills of record: [`skills/README.md`](../../skills/README.md).
 
-## Conflicts and replacement protection
-
-A reused discretionary book is rechecked against authoritative accounting. If another fill or
-lifecycle action changes it before pending state is saved, the request conflicts before submitting
-an order; read fresh state and obtain fresh consent/admission rather than forcing the old state.
-When canceling protection reveals execution, replacement waits for complete applied fill evidence
-and uses the current projected quantity. Missing or partially published fills do not authorize a
-guessed remaining sell. A breaker pause preserves newer cash, lifecycle intent and deliberate
-stopped/paused state. See [ADR 0121](../decisions/0121-execution-write-boundaries.md).
-
-An occupied product runtime whose position is missing is unknown, not flat—even if another
-product still has a position. The same uncertainty blocks new-entry admission and verified
-opening/flat-day accounting; a prior opening proof cannot repair later missing inventory.
-
 ## Live performance accounting
 
 Bot detail and `uv run thytrader-operator performance --deployment-id UUID` report return and
@@ -40,25 +26,6 @@ it leaves the bot paused and a continuing breach can trip again.
 See [ADR 0107](../decisions/0107-capital-normalized-live-performance.md). The strategy drawdown
 breaker measures the current loss from its durable peak; account daily-loss and exposure limits
 continue to use their separate account capital.
-
-## Account and reconciliation diagnostics
-
-Run `uv run thytrader-operator health`, then `uv run thytrader-operator exchange` for
-an exchange failure. `payload.failure` names the failed read (`balances`, `permissions`,
-`price`, or `fees`), its category (`http`, `timeout`, `network`, `invalid_response`),
-and an HTTP status when available. It omits provider response text and credentials.
-A price read can fail while the order feed stays connected; inspect both reports.
-An unclassified failure remains failed, with `failure: null`.
-
-`uv run thytrader-operator reconciliation` lists individual audit failures from the
-newest 20 audit events. Each `audit_event` supplies the event identity, UTC time, action,
-provider/product, and recovery evidence. A `recovered` WebSocket failure has a matching
-later connected event, identified by `recovery_event_id` and `recovered_at`. Check the
-current feed with `uv run thytrader-operator runtime`; a past recovery is not current
-health. `unresolved` means no matching recovery was observed in this window, and `unknown`
-means there is no recovery rule for the action. A later connection never proves an
-ambiguous order succeeded. Recovered failures remain visible and degraded in this
-window; historical audit records are retained.
 
 ## Durable safety alerts
 
@@ -787,136 +754,12 @@ LLM keys stay in the Agent panel / `/chat`.
 
 ## With an agent (or the CLIs yourself)
 
-Run every `uv run thytrader-*` command from the **repository root**. JSON is the default CLI
-output. HTTP talks to the loopback API unless you pass `--local` on purpose. The CLIs resolve its
-base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the `THYTRADER_API_HOST` /
-`THYTRADER_API_PORT` settings (default `127.0.0.1:8200`; installs may override the port). Use
-`"$THYTRADER_API_BASE_URL"` for raw `curl`. When a command fails it says what failed (HTTP status and
-API error code, timeout, unreachable origin, or a dropped connection) and what to do next.
+Every browser action has a confirmation-gated CLI and HTTP equivalent. The canonical, maintained
+reference for commands, flags, gates, and report fields is [`skills/`](../../skills/README.md):
+start with its README for the lane table, then the lane's `SKILL.md`. Run every
+`uv run thytrader-*` command from the repository root. An agent operating a running instance
+should open [`ops/`](../../ops/README.md). Do not scrape logs, query PostgreSQL, or print `.env`.
 
-Backtests, studies, and portfolio backtests run in the `research-worker` service that `make run`
-starts, never in the API, so heavy research does not slow the UI or other commands
-([ADR 0092](../decisions/0092-research-worker-pool.md)). It runs
-`THYTRADER_RESEARCH_WORKER_COUNT` jobs at once (default 2, memory-safe on an 8 GB machine); more
-wait as `queued`. A synchronous run that takes longer than about 25 s comes back as its queued or
-running job (the UI keeps polling it for you; the CLI prints `next_action`). `uv run
-thytrader-operator health` shows whether the research workers are live, each worker's memory
-(`rss_bytes`), and how many jobs are queued or running and for how long the oldest has waited.
-
-```bash
-uv run thytrader-operator health
-uv run thytrader-research list-strategies
-uv run thytrader-portfolio list
-uv run thytrader-portfolio backtest --portfolio-id UUID --maker-fee-rate 0.004 --taker-fee-rate 0.006 --fixed-slippage-bps 5 --wait --confirm
-uv run thytrader-research create-strategy --confirm
-uv run thytrader-research create-strategy --template rsi-mean-reversion --confirm
-uv run thytrader-research save-strategy --strategy-id UUID --file document.json --revision 1 --confirm
-uv run thytrader-research bulk-delete-strategies --strategy-id UUID --dry-run
-uv run thytrader-research plan-study --file study.json
-uv run thytrader-research submit-study --file study.json --confirm
-uv run thytrader-research list-studies
-uv run thytrader-playbook status
-uv run thytrader-memory status
-uv run thytrader-runtime decisions DEPLOYMENT_UUID --outcome entry_blocked
-uv run thytrader-operator decisions --strategy-id STRATEGY_UUID
-uv run thytrader-runtime show-settings
-uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm
-```
-
-`uv run thytrader-operator decisions --deployment-id UUID` reads the same recorded conditions,
-indicator values, and UTC signal timestamps as the bot timeline. A schema-validation failure
-means the diagnostic could not be read; it does not mean the bot has no decisions or no signal.
-
-`thytrader-operator strategies` includes only the 100 most recently updated library rows;
-`partial_result_warnings` reports truncation. An older bot's strategy may still exist even when it
-is absent from those rows. Use `thytrader-research show-strategy --strategy-id UUID` for its current
-rules, or `list-strategies --limit 100` followed by the returned `--cursor` to read the full library.
-
-| Lane | What it may do | Gate |
-|---|---|---|
-| `thytrader-operator` | Read-only diagnostics | none (never trades) |
-| `thytrader-data` | Watchlist, ingest, gap-fill | `--confirm` on mutations; writes send installation Bearer when a token is resolvable |
-| `thytrader-research` | Strategy create/save/import/clone/delete, backtests, composed studies, study catalog | `--confirm` on mutations; cannot deploy or trade |
-| `thytrader-runtime` | Paper/live start, pause, resume, stop, on-demand place-order, risk policy, YAML settings, write-only Coinbase credentials; read-only `list`, `show`, and per-bar `decisions` | `--confirm` on mutations; live also `--i-understand-live`; `set-settings` and credential set/clear never YOLO |
-| `thytrader-playbook` | Sequence data → research → optional paper | forwards `--confirm`; **never live** |
-| `thytrader-memory` | Journals, why-trade review, sentiment/pattern hooks, monitor, notify, fail-closed train | `--confirm`; YOLO never covers this lane |
-
-Ingest is a worker job (HTTP 202). The API dataset volume stays read-only. Prices are never
-interpolated. Coinbase returns no candle for an interval without trades, so a thin market's quiet
-bars are published as flat no-trade bars at the previous close with zero volume
-([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). One ingest queue keeps walking until `watch_complete` or a
-durable failure. If the market listed after the lookback start, the worker proves the listing and
-records it as `history_floor_at`, and reports the watch as complete from that floor. Backtests can
-use the covered range. Earlier bars are never invented, and results over quiet bars disclose
-`synthetic_no_trade_bars`. To check that a series is healthy, read its `data-catalog` row:
-`watch_complete: true` and `watch_covered_candle_count` equal to `watch_expected_candle_count`
-(unless a listing floor is set). The Home data-health table shows the same coverage as "X / Y",
-adds "· N no-trade" when no-trade bars exist, and shows "Complete from listing" when a floor is
-set.
-
-Venue order observations are separate from local bookkeeping timestamps. A restart or migration
-does not assert that an order was freshly checked; legacy observation times stay unknown until
-reconciliation reads the order. This is not a guarantee that a stop-limit will fill or a full
-account audit ([ADR 0119](../decisions/0119-venue-order-observation-provenance.md)).
-
-For **freshness across all enabled watches**, run `uv run thytrader-operator data-health`, or
-open Home → Data health → Watched-market freshness. This read-only snapshot compares each
-published tail with its own latest closed candle and reports how many closed bars are missing.
-Daily and 6h markets are not judged by a 1-minute clock. A successful ingest chunk and a
-complete historical island do not prove a fresh tail; historical watch coverage remains a
-separate field. `settling` means only the newest close is inside the 120-second publication
-grace. `stale`, `missing`, or `invalid` needs inspection; an incomplete inventory is not an
-all-clear. Refresh explicitly to obtain a new snapshot. This is published-dataset health, not
-proof that an individual bot has evaluated or reconciled its latest bar.
-
-`inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
-stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
-
-Command details live in the canonical skills under [`skills/`](../../skills/README.md). Do not
-scrape logs, query PostgreSQL, or print `.env`.
-
-For a numbered **portfolio visibility → data health → research** path (account balances, deployment
-inventory, fingerprint copy, backtests), see
-[`docs/agent/portfolio-research-ops-playbook.md`](../agent/portfolio-research-ops-playbook.md).
-
-### Read-only signal evaluation
-
-The entry rule of any backtest result can be traced bar by bar through the API, which owns the
-verified datasets:
-
-```bash
-uv run thytrader-research-evaluate <result_fingerprint> --outcome matched --pretty
-```
-
-A `run_fingerprint` of a completed backtest also works. The command prints one bounded page of
-the completed-candle entry-condition trace (each bar's indicator values and `matched` /
-`not_matched` / `undefined`), outcome counts, and a `next_cursor` for `--cursor`. The API
-re-evaluates the exact run and refuses to answer unless the trace reproduces the result's
-recorded trace fingerprint. It does not publish a run, create an order intent, apply cooldown,
-simulate entries or exits, calculate PnL, persist results, or mutate trading state. Paper and live deployment is a
-separate runtime (the workspace Run stage or `thytrader-runtime`), not this CLI.
-
-The Mine / Research / All badges count all matching strategies, including rows beyond the
-visible page, and respect the selected tag. Async study acceptance pins inputs; poll the job
-for planning failures or run `plan-study` first. A bot's newest decision candle may settle for
-up to two minutes after its UTC close: the activity reads "newest candle settling", entries
-wait, and protection/reconciliation continue. An expired wait or older gap still pauses the bot.
-
-Explicit twins may be strategy clones with server-verified identical pinned trading rules
-(ADR 0105). Each comparison side names its actual snapshot fingerprint; pairing changes only
-comparison metadata, never bot lifecycle or trading rules.
-
-Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
-The repeated request is freshly signed on the same pagination cursor; exhausted failures
-return no partial balances. Authentication, 429 rate limits, malformed responses and
-pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
-Order submissions and cancellations never use this retry helper.
-
-Research reliability: [frozen campaigns, prospective validation, economic preflight,
-stress assumptions, and bounded exports](research.md) are shipped through the research
-HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
-
-After an update, `make run` applies the migration head and rebuilds every service.
-Health compares the applied database revision with the shipped expected revision
-(currently `0066`, including durable safety alerts). If a mismatch persists after rebuilding latest main, report it;
-do not bypass the readiness check.
+After an update, `make run` applies the migration head and rebuilds every service. If health still
+reports a schema-revision or ops-contract mismatch after rebuilding latest main, report it; do not
+bypass the readiness check.

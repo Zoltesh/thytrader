@@ -4,9 +4,10 @@ description: >-
   Start, pause, resume, or stop ThyTrader paper and live deployments and
   whole portfolios (portfolio-start/pause/resume/stop, one bot per sleeve, and
   portfolio-reset-breaker), read their per-bar decision timeline (read-only
-  `decisions`), publish
-  the risk-policy registry, and show/set/clear write-only Coinbase credentials,
-  through the confirmation-gated thytrader-runtime CLI. Use when the user
+  `decisions`), publish the risk-policy registry, run fleet controls
+  (fleet-preview/status/disarm/stop/flatten/rearm), link paper/live twins, set
+  YAML settings, and show/set/clear write-only Coinbase credentials, through the
+  confirmation-gated thytrader-runtime CLI. Use when the user
   explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
   the risk policy, or manage Coinbase API secrets. Requires --confirm on every
   mutation unless YOLO covers that tier. Live start, live resume, and live
@@ -23,16 +24,9 @@ Confirmation-gated paper and live **control**, including the risk-policy registr
 Coinbase Advanced Trade credentials. This skill is not an extension of `thytrader-operator` or
 `thytrader-research`.
 
-HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. There is no `--local` database mode.
-
-Production installs enforce the application trust boundary
-([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
-`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
-`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)
-documents the shared helper used by every mutation lane). Browser mutations additionally require CSRF
+HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
+rules](../README.md#shared-rules-every-lane)). There is no `--local` database mode.
+Browser mutations additionally require CSRF
 from `GET /api/v1/security/session`. Live arming still requires a published risk policy per
 [ADR 0063](../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)
 plus `--i-understand-live`; do not expect a separate live-arm token endpoint. Over HTTP the
@@ -180,13 +174,10 @@ still grow with lifetime; this is not constant-memory indicator state.
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Every command preflights
-the full `/health/ready` ops contract. Rebuild or restart only with `make run` when the user asked,
-or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an agent route while
-`/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0` alone is not current-image
-evidence. Open the `ops/` workspace instead of the git root. Run every
-`uv run thytrader-*` command from the repository root (the parent of `ops/`).
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not search the tree for a code patch. Report failures through this skill. Rebuild
+only with `make run` when the user asked or the [stale-image rule](../README.md#shared-rules-every-lane)
+applies. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Research load and runtime control
 
@@ -344,21 +335,27 @@ too). A take-profit alone is `unprotected`. Pending and unknown stops are `unkno
 `covered_quantity` + `uncovered_quantity` equals `required_quantity`. `verified_at` / `observed_at`
 are null when unknown. Paper evidence has `mechanism: synthetic` and `worker_dependent: true`.
 Partial fills, pyramid adds, and stale mismatched brackets leave `uncovered_quantity` above zero.
-The same attached child is not counted twice; latest duplicate observations, including terminal
-or unknown rows, override older OPEN evidence. Actual order kind and executable trigger/limit
+The same attached child is not counted twice; duplicates are folded by venue receipt time, never
+local recency, and conflicting or unknown histories fail closed. Actual order kind and executable trigger/limit
 geometry matter, not merely the intent purpose. A profitable trailing stop may cross entry;
 `geometry_basis` labels `working_target`, `stop_limit_trigger`, or `unknown`.
 
-`observed_at` is a local row update, **not** venue verification. `verified_at` stays null because
-existing orders do not persist a dedicated verification instant. `observation_source` is
-`persisted_order`, `synthetic_worker`, or `none`. `freshness` (`recent_local` / `stale` / `unknown`)
-is local-row recency against `evaluated_at` and `freshness_max_age_seconds: 120` (four default
-worker polls, independent of strategy candles). Stale, future-dated, undated, or unidentified
-OPEN rows contribute no covered quantity. `covered` with `local_observation_only` remains a
-persisted-state claim, **not** a fresh venue guarantee; the UI shows unverified rather than green.
-Slow custom polling may therefore report unverified without changing supervision. Missing
-legacy evidence is not green either. This reporting change does not submit/cancel orders or
-alter deliberate pauses; never infer mutation authority from a protection badge.
+`observation_source` is `venue_order_state` (live: `Order.venue_observed_at`, set only by a
+successful identified venue order read), `persisted_order` (legacy/local-only rows),
+`synthetic_worker` (paper), or `none`
+([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)). `observed_at` is the
+latest relevant venue receipt and `verified_at` the oldest receipt among contributing fresh OPEN
+stops; both are null when unknown, and local writes, migrations, and restarts never refresh them.
+`freshness` (`recent_venue` / `stale` / `unknown`) is order-state age against `evaluated_at` and
+`freshness_max_age_seconds: 120` (four default worker polls, independent of strategy candles).
+Stale, future-dated, undated, or unidentified OPEN rows contribute no covered quantity (reasons
+`venue_evidence_stale`, `observation_time_future`, `observation_time_unknown`,
+`venue_identity_missing`); local-only evidence carries `local_observation_only`. `covered` plus
+`recent_venue` proves fresh order state matching **persisted submitted geometry**, not an
+independent venue-geometry audit or a guaranteed stop-limit fill; the UI shows **Order state
+fresh** in amber. Slow custom polling may report stale without changing supervision. This
+reporting never submits/cancels orders or alters deliberate pauses; never infer mutation authority
+from a protection badge.
 
 `show` (`GET /api/v1/deployments/{id}`) also marks each `positions[]` row: `mark_price` is the
 close of the newest bar the bot evaluated for that product (from the decision journal),
@@ -532,7 +529,7 @@ policy bytes stable. Schema-enabled pyramiding without this flag is denied
 requires `--confirm` and does **not** require `--i-understand-live`. `reset-breaker-latches`
 always requires `--confirm`; YOLO never skips it.
 
-Ops contract v64 / Alembic `0061` advertises `capital_normalized_performance`
+`runtime_observability: capital_normalized_performance`
 ([ADR 0107](../../docs/decisions/0107-capital-normalized-live-performance.md)).
 `show UUID` exposes `capital.performance_capital_quote`, the pinned budget for percentage
 returns/drawdown, and `capital.performance_maximum_drawdown_fraction`, the worst verified
@@ -562,9 +559,8 @@ activity no longer exhausts it and blocks an unrelated new entry.
 `place-order` is confirmation-gated. Live place-order also requires `--i-understand-live`.
 
 Strategies may use per-operand `offset` (0–500) in entry, signal-exit, and HTF-filter rules
-([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Require ops contract
-`thytrader-ops-contract-v64` with `indicator_operand_offset_runtimes` including the deployment
-mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
+([ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)). Health advertises
+`indicator_operand_offset_runtimes` including the deployment mode. These reads lag completed bars on the indicator's own clock, add to declaration offsets,
 and require extra warmup. Missing history remains undefined. Decision journals expose lagged
 values as `id@N` / `id.series@N` and labels show the combined lag. Authoring stays in the research
 lane; start/resume and live acknowledgement gates stay the same.
@@ -704,8 +700,8 @@ and applies without restart. Secrets stay out of YAML. Live still needs `--i-und
 
 ## Explicit paper/live comparison twins
 
-Ops contract v63 advertises `runtime_observability: explicit_deployment_twins` (Alembic `0060`,
-[ADR 0102](../../docs/decisions/0102-explicit-paper-live-twin-links.md)). Run from the repository root:
+`runtime_observability: explicit_deployment_twins`
+([ADR 0102](../../docs/decisions/0102-explicit-paper-live-twin-links.md)). Run from the repository root:
 
 ```bash
 uv run thytrader-runtime show-twin BOT_ID
@@ -733,7 +729,7 @@ saved links only (newest-linked first, up to 10); unlinked books have no compari
 bots are not automatically linked by the migration. Linking survives worker saves and restarts.
 The UI offers the same confirmed controls on Bot detail under **Paper/live twin**.
 
-Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
+`runtime_observability: rule_matched_deployment_twins`
 ([ADR 0105](../../docs/decisions/0105-rule-equivalent-clone-twins.md)). Intended paper/live clones
 can link when their pinned rules match exactly; the server ignores only root id, name, description,
 creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;

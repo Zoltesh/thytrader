@@ -10,7 +10,9 @@ theme.
   `THYTRADER_API_PORT`, PostgreSQL `5439`).
 - Remote exposure is never the silent default. Do not weaken startup safety to make LAN access
   convenient.
-- A loopback-only first install does not require a login.
+- A loopback-only first install does not require a login. For a remote VM, use SSH port
+  forwarding. Public exposure would need TLS, authentication, secure sessions, CSRF protection, and
+  rate limiting; ThyTrader does not provide that profile.
 
 ## Secrets
 
@@ -44,7 +46,7 @@ theme.
 
 ## Skill lanes
 
-Operator, data, research, runtime, playbook, and memory stay separate. Observing health is not
+Operator, data, research, runtime, portfolio, playbook, and memory stay separate. Observing health is not
 permission to trade. Research is not permission to deploy. See [Operate](operate.md) and
 [`skills/README.md`](../../skills/README.md).
 
@@ -59,6 +61,24 @@ permission to trade. Research is not permission to deploy. See [Operate](operate
 - Block new risk-increasing orders on stale data or unhealthy required connections.
 - Missing candles are never interpolated. An interval without trades is published as a flat
   zero-volume bar at the previous close, counted and disclosed in research results.
+
+## Live trading controls
+
+- Live is off until you arm it. A fresh install cannot start a live bot or place a live order until
+  you publish an explicit risk policy (`LIVE_REQUIRES_PUBLISHED_POLICY`). The built-in default is a
+  wide paper-research envelope, not a safe live default. ThyTrader does not claim any loss or
+  exposure percentage is "safe"; set fractions and optional absolute caps for your own capital.
+- The risk policy gates **entries**: product allowlist, slot caps, exposure fractions, UTC-day
+  daily loss, per-strategy drawdown, entry/cancel rate limits, and a reference-price collar.
+  Protective exits never pass through entry gates. USD, USDC, and USDT are never added together.
+- Fleet controls on Portfolio (`/deployments`) are separate actions: **Disarm** blocks new starts
+  and entries but never closes positions; **managed stop** cancels entries and keeps protection;
+  **Flatten** is explicit and separate; **Rearm** is explicit (live needs acknowledgement). None of
+  them proves a venue fill.
+- Normal entries and take-profits are post-only maker orders. Stops may be taker. A stop-limit can
+  rest unfilled if price gaps through its limit; live books without a take-profit hold a Coinbase
+  stop-limit 5% through the stop, the same gap risk as a bracket's stop leg. A signal exit cancels
+  protection before its market sell, so the position is briefly unprotected.
 
 ## Daily-risk evidence and policy publication
 
@@ -75,5 +95,4 @@ as configuration, not balances. `set-risk-policy --confirm` replaces the whole a
 omitting an optional bound removes it in the successor. Read `show-risk-policy` first and
 resupply any limits you intend to retain. Historical policy versions remain immutable.
 
-The full baseline (risk-policy registry, execution policy, audit) is
-[security and trading-risk](../security-and-risk.md).
+Unknown balances, marks, or accounting deny new entries; they are never treated as zero.

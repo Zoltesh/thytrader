@@ -17,17 +17,9 @@ Confirmation-gated experiential memory. This skill is not an extension of `thytr
 `thytrader-data`, `thytrader-research`, `thytrader-runtime`, or `thytrader-playbook`. It does not
 place orders or inherit YOLO.
 
-HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. There is
-no `--local` database mode.
-
-Production installs enforce the application trust boundary
-([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
-`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
-`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
-The CLI sends that header automatically. YOLO never covers this lane.
+HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
+rules](../README.md#shared-rules-every-lane)). There is no `--local` database mode. YOLO never
+covers this lane.
 
 Schema: `thytrader-experiential-memory-v1`. Monitor snapshot:
 `thytrader-monitor-v1`. Trained models: `thytrader-experiential-model-v1` from engine
@@ -37,7 +29,7 @@ In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HT
 `GET|POST /api/v1/memory/models`. Memory mutations including `train` always need in-app
 confirmation; YOLO never covers this lane. Do not treat chat as this skill.
 
-Origin is required on every write: `human` or `agent`. Journals, sentiment, and pattern rows are
+Origin is required on every write: `human`, `agent`, or `system` (automated writers). Journals, sentiment, and pattern rows are
 append-only hooks. They are not a substitute for audit trails or immutable backtest/fill evidence.
 `train` consumes attributed local journals as stored. It does not invent journal kinds.
 Why-trade review is this lane (`thytrader-trade-reason-v1`). There is no venue sentiment scrape.
@@ -47,13 +39,10 @@ a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`. Never
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Every command preflights
-the full `/health/ready` ops contract. Rebuild or restart only with `make run` when the user asked,
-or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an agent route while
-`/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0` alone is not current-image
-evidence. Open the `ops/` workspace instead of the git root. Run every
-`uv run thytrader-*` command from the repository root (the parent of `ops/`).
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not search the tree for a code patch. Report failures through this skill. Rebuild
+only with `make run` when the user asked or the [stale-image rule](../README.md#shared-rules-every-lane)
+applies. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
 
@@ -115,7 +104,6 @@ diagnostics. Use that for diagnostics; use this skill to write notes.
 - Deploying, paper/live control, arming, cancelling orders, or publishing a risk policy
 - Skipping `--confirm` because YOLO is enabled
 - Printing webhook URLs, API keys, private keys, `.env` values, or database URLs
-- Interpolating candles or treating journals as fill-ledger origin
 - Treating a trained model as a live brain, order intent, or Coinbase call
 - Scraping external sentiment
 - Interpolating candles or rewriting fill-ledger origin from why-trade notes

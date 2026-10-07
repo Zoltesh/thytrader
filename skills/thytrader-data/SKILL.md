@@ -14,19 +14,12 @@ Watchlist and complete-only historical ingest only. This skill is not an extensi
 `thytrader-operator` and has no strategy, backtest, paper, live, arming, or cancellation
 authority.
 
-Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`.
-There is no `--local` mode. If the API is down, stop; do not query PostgreSQL.
-
-Production installs enforce the application trust boundary
-([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)): HTTP mutations need
-`Authorization: Bearer <installation-token>` from `THYTRADER_INSTALLATION_TOKEN` or
-`$THYTRADER_CREDENTIALS_DIR/.installation-token` ([ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)).
-The CLI sends that header automatically on `watch-add`, `ingest`, and `fill-gaps` whenever a
-token is resolvable; do not paste tokens into commands. Status polls (`GET /api/v1/data/ingest`)
-stay unauthenticated reads.
+Default transport is the loopback HTTP API (base URL resolution: [shared
+rules](../README.md#shared-rules-every-lane)). There is no `--local` mode. If the API is down,
+stop; do not query PostgreSQL. The CLI sends installation Bearer auth automatically on
+`watch-add`, `ingest`, and `fill-gaps` ([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md),
+[ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md)); do not paste tokens into
+commands. Status polls (`GET /api/v1/data/ingest`) stay unauthenticated reads.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke this lane's HTTP routes. It is
 not extra authority: mutations still need in-app confirmation. Do not treat chat as this skill.
@@ -70,13 +63,11 @@ identity across range segmentation, overlap, previews, and restart; they are not
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not grep the tree or patch Python to make ingest writable in the API. Report failures through this
-skill. Every command preflights the full `/health/ready` ops contract. Rebuild or restart only with
-`make run` when the user asked, or when the CLI reports a version or ops-contract mismatch, or HTTP
-404 on an agent route while `/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0`
-alone is not current-image evidence. Open the `ops/` workspace instead of the git root.
-Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not patch Python to make ingest writable in the API. Report failures through this
+skill. Rebuild only with `make run` when the user asked or the
+[stale-image rule](../README.md#shared-rules-every-lane) applies. Run every `uv run thytrader-*`
+command from the repository root (the parent of `ops/`).
 
 ## Commands
 
@@ -96,7 +87,7 @@ before `ingest` for any product/timeframe that `watchlist-list` does not show; `
 `fill-gaps` on an unwatched target exit with the HTTP 409 message and change nothing.
 
 `watch-add` checks the product against the venue's enabled spot catalog before writing. HTTP 400
-`<product> is not an enabled USD or USDC spot product` is definitive (the complete catalog lacks it;
+`<product> is not an enabled USD, USDC, or USDT spot product` is definitive (the complete catalog lacks it;
 check `uv run thytrader-operator products`). HTTP 503 `Could not verify the spot product list` means
 the catalog did not load or came back empty or partial (timeout, rate limit, venue error): nothing
 was written, and repeating the same command is safe ([ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)).
@@ -223,7 +214,7 @@ re-queue continuation after a durable hole or failure.
 
 ## Workflow
 
-1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC spot ids.
+1. `uv run thytrader-operator data-catalog` and `products` to see coverage and tradable USD/USDC/USDT spot ids.
    Judge `watch_complete` and `watch_covered_candle_count` of `watch_expected_candle_count`.
 2. `watch-add` (choose `--lookback-hours` up to the timeframe's ceiling) then `ingest` for a new
    product and any ingested venue clock (`1m`, `5m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or

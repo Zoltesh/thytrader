@@ -1,8 +1,8 @@
 # Setup
 
 The supported local stack uses Docker Compose. It starts PostgreSQL, applies the explicit Alembic
-migration, then starts the API, portfolio worker, market-data worker, execution worker, and web UI
-with health checks and **loopback-only** host ports.
+migration, then starts the API, portfolio worker, market-data worker, execution worker, research
+worker, and web UI with health checks and **loopback-only** host ports.
 
 Needs Docker Compose and [`uv`](https://docs.astral.sh/uv). From a fresh clone:
 
@@ -122,11 +122,12 @@ Restart and automatic retries are idempotent for an unchanged aligned range. A f
 visible until a later verified publication succeeds; neither the endpoint nor anything on Home
 starts ingestion.
 
-When the aligned lookback window advances, the worker publishes a new immutable dataset. Overlapping
-hourly windows therefore accumulate by design and are not automatically pruned. Size the
-`thytrader_market_data` volume accordingly; do not manually remove manifests or Parquet files while
-ThyTrader is running. Automated retention is deferred until catalog/reference tracking can prove that
-no reproducible consumer still names a fingerprint.
+When the aligned lookback window advances, the worker publishes a new immutable dataset. The
+market-data worker garbage-collects superseded revisions at startup and every 6 hours (bounded and
+audited); it never deletes the newest revision or any fingerprint a stored record references. Do not
+manually remove manifests or Parquet files. For a one-shot pass, run
+`docker compose exec market-data-worker /app/.venv/bin/thytrader-market-data-retention` (dry run)
+and add `--confirm` to delete.
 
 ## Native processes (iteration)
 
@@ -162,4 +163,4 @@ uv run thytrader-execution-worker
 uv run thytrader-research-worker
 ```
 
-Contributor quality gates live in [contributor documentation](../contributing.md).
+Contributor quality gates live in the root [`AGENTS.md`](../../AGENTS.md).

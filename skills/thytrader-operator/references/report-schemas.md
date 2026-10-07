@@ -33,7 +33,7 @@ hours have passed. Only one missing close inside the existing 120-second settlem
 complete historical coverage or execution readiness. Home → Data health displays this
 snapshot with an explicit refresh button ([ADR 0118](../../../docs/decisions/0118-watched-market-tail-health.md)).
 
-Ops contract v64 / Alembic `0061` advertises `capital_normalized_performance` and adds
+`runtime_observability: capital_normalized_performance` adds
 `performance_capital_quote` / `performance_maximum_drawdown_fraction` to
 `deployment_capital_fields`. Read those nullable decimal strings in runtime `show UUID`'s
 HTTP `capital` block. The first is the bot's pinned budget; the second retains its worst verified
@@ -168,11 +168,11 @@ The `fees` payload matches `GET /api/v1/fees`: the Coinbase maker/taker snapshot
 
 The `data_catalog` payload lists local verified Parquet datasets joined with the watchlist and worker state for `1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, and `4h`. For a watched row `complete` is watch-relative ([ADR 0095](../../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)): the verified series spans the configured lookback (equal to `watch_complete`); unwatched rows keep island completeness. `island_complete` (nullable boolean) is the dataset-level fact (contiguous published bars, `gap_count` 0). `watch_complete` is whether the series spans the configured watch lookback; a 14-day complete island with `lookback_hours: 2160` is not watch-complete, and neither is a two-minute 1m island for a 90-day watch. `watch_covered_candle_count` (nullable integer) counts the lookback window's bars the series covers, out of `watch_expected_candle_count`; `watch_coverage_ratio` (nullable number, four places) is their quotient. `synthetic_no_trade_intervals` (nullable integer) is the newest manifest's count of flat zero-volume bars published for confirmed intervals without trades. Each row also carries `watch_status` (`complete` / `backfilling` / `unknown`), a noun restatement of `watch_complete`: `worker_status=succeeded` describes the latest chunk, never the whole watch. `history_floor_at` (nullable ISO instant) is the market's listing: a backward listing search found no candle at all before it, back to 350 days past the timeframe's lookback ceiling. Coverage starts there and `watch_complete` counts the watch from that floor. Forward walks and interior no-trade gaps never set or move it. `sparsity` is island-only (`none` when the published island has zero gaps). `watch_sparsity` is `gapped` when `watch_complete` is false. Failed worker rows include redacted `failure_code` / `failure_message` matching `GET /api/v1/market-data/ingestion`. Classified missing bars over the watch window are a separate `thytrader-data inspect-gaps` report (`truncated` / `scanned_bar_count` when a server-side budget stopped the scan; [ADR 0072](../../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). Dashboard ingestion (`GET /api/v1/market-data/ingestion`) reports the same watch decision. `GET /api/v1/market-data/datasets` lists island fingerprints only. The catalog's dataset side is catalog-grade: each newest revision passes structural checks (manifest facts, content address, file presence, intact Parquet files) from a stat-identity cache, and exact fingerprints are re-verified when a run binds a dataset ([ADR 0085](../../../docs/decisions/0085-fast-research-ingest.md)). `failure_code: provider_rate_limited` means Coinbase throttled the worker and it is backing off. Strategy, paper, live, and discretionary clocks are that same venue set ([ADR 0040](../../../docs/decisions/0040-venue-strategy-paper-live-htf-clocks.md)). Extra catalog timeframes may also back an `htf_filter` dataset when they are a strictly coarser integer multiple of LTF (ADR 0025, ADR 0040, ADR 0041), or an optional per-indicator `timeframe` (ADR 0042). Paper and live evaluate those strategies on last-completed complete-only extra-TF and HTF bars.
 
-Health `components[]` may include `portfolio_history` (worker snapshot freshness). That component is not account balances and not deployment inventory; use the portfolio HTTP routes and runtime `show` respectively ([portfolio-research ops playbook](../../../docs/agent/portfolio-research-ops-playbook.md)).
+Health `components[]` may include `portfolio_history` (worker snapshot freshness). That component is not account balances and not deployment inventory; use `thytrader-operator portfolio` (balances) and runtime `show` respectively ([playbook skill](../../thytrader-playbook/SKILL.md#portfolio--research-manual-sequence)).
 
 Health `payload.research_workers` (ADR 0092; `null` without PostgreSQL) reports the research worker pool, the only place backtests, studies, and portfolio backtests run: `configured_workers` (pool size the workers report, `null` until one has), `live_workers` (heartbeated within ~30 s), `queue` (`queued`, `running`, `oldest_queued_at`, `oldest_queued_age_seconds` across both queues), the same four fields split into `research_jobs` (backtests and studies) and `portfolio_backtests`, and `workers[]` per slot: `slot`, `pid`, `state` (`starting` \| `idle` \| `running` \| `stopping`), `live`, `job_id`, `job_kind` (`backtest` \| `study` \| `portfolio_backtest`), `jobs_completed` (since the process started; workers recycle), `rss_bytes`, `started_at`, `heartbeat_at`, `heartbeat_age_seconds`. A `queued` job is waiting for a free worker. The `research_worker` component reason codes: `READY`, `RESEARCH_WORKER_PARTIAL` (some slots silent, degraded), `RESEARCH_WORKER_STALE` (no live worker, degraded), `RESEARCH_WORKER_MISSING` (no worker ever reported, degraded), `RESEARCH_QUEUE_UNAVAILABLE` (queue unreadable, degraded), and `HEARTBEAT_UNAVAILABLE` without PostgreSQL.
 
-Health `payload.ops_contract` names the CLI/API content identity (`id`, `backtest_engine`, paper/live timeframes, `htf_filter_runtimes`, `indicator_timeframe_runtimes`, `indicator_offset_runtimes`, `indicator_operand_offset_runtimes`, `signal_exit_runtimes`, `indicator_kinds`, `position_sides`, `attached_entry_brackets`, `paper_deploy_fee_fields`, `experiential_model_engines`, `risk_breakers`, `order_rate_limits`, `reference_price_collars`, `trade_reason_journals`, `decision_journals`, `multi_instrument_documents`, `intra_strategy_pyramiding`, `lifecycle_commands`, `strategy_model`, `portfolio_model`, `portfolio_modes`, `portfolio_backtest_contract`, `async_backtest_job_statuses`, `research_job_expiry_hours`, `research_worker_pool`, `spot_quote_currencies`, `catalog_health`, `take_profit_kinds`, `live_protection_kinds`, `backtest_diagnostics`, `fee_suggestion_source`, interval cap, expected Alembic revision). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
+Health `payload.ops_contract` names the CLI/API content identity (`id`, `backtest_engine`, paper/live timeframes, `htf_filter_runtimes`, `indicator_timeframe_runtimes`, `indicator_offset_runtimes`, `indicator_operand_offset_runtimes`, `signal_exit_runtimes`, `indicator_kinds`, `position_sides`, `attached_entry_brackets`, `paper_deploy_fee_fields`, `experiential_model_engines`, `risk_breakers`, `order_rate_limits`, `reference_price_collars`, `trade_reason_journals`, `decision_journals`, `multi_instrument_documents`, `intra_strategy_pyramiding`, `lifecycle_commands`, `strategy_model`, `portfolio_model`, `portfolio_modes`, `portfolio_backtest_contract`, `async_backtest_job_statuses`, `research_job_expiry_hours`, `research_worker_pool`, `spot_quote_currencies`, `catalog_health`, `take_profit_kinds`, `live_protection_kinds`, `backtest_diagnostics`, `fee_suggestion_source`, interval cap, expected Alembic revision; the authoritative field list is `$defs.OpsContractPayload` in [operator-report-v1.schema.json](operator-report-v1.schema.json)). `/health/live` and `/health/ready` also return `ops_contract_id`. A missing or unequal contract, or an application version mismatch, means a stale Compose image — rebuild with `make run`. Do not treat HTTP 200 + `0.1.0` as proof the running image matches this checkout.
 
 The `products` payload lists enabled USD, USDC, and USDT spot products from the venue
 catalog. Each row carries `product_id`, `base_currency`, `quote_currency`, `trading_enabled`,
@@ -212,12 +212,12 @@ unchanged and continues omitting balances.
 
 Indicator operands may independently add `offset` (0–500; ADR 0099), including multi-series reads. Health `ops_contract.indicator_operand_offset_runtimes` names research, paper, and live. Lagged signal values use `id@N` / `id.series@N`; original output keys stay present. Rule labels show declaration plus operand lag on the indicator's native clock; missing lagged history remains unknown.
 
-Ops contract v61 adds `portfolio_sleeve_operations: ["batch_add", "create_with_sleeves"]`:
+`portfolio_sleeve_operations: ["batch_add", "create_with_sleeves"]`:
 optional initial sleeves on portfolio creation are validated and persisted atomically at revision 1
 ([ADR 0101](../../../docs/decisions/0101-atomic-portfolio-creation-with-sleeves.md)). This is a
 definition mutation in the confirmed portfolio lane and grants no runtime authority.
 
-Ops contract v60 added `runtime_observability: fee_adjusted_book_pnl`. Deployment detail
+`runtime_observability: fee_adjusted_book_pnl`: deployment detail
 (`thytrader-runtime show`) position rows, including compatibility `position`, and portfolio
 deployment (`thytrader-portfolio deployment`) sleeve `books[]` add nullable decimal strings:
 `entry_fees` for paid fees allocated to held inventory and `unrealized_pnl_net` for gross
@@ -227,28 +227,27 @@ Partial exits allocate fees proportionally; adds accumulate them. Operator aggre
 fields keep their existing semantics. See [ADR 0100](../../../docs/decisions/0100-fee-adjusted-open-book-pnl.md).
 
 
-Ops contract v62 adds `runtime_observability: explicit_deployment_twins` and expects Alembic
-`0060`. Existing comparison fields are unchanged, but each row represents a saved pair. Multiple
+`runtime_observability: explicit_deployment_twins`: each comparison row represents a saved pair. Multiple
 rows may have the same fingerprint: identify a pair by its paper and live deployment ids.
 `GET /api/v1/deployments/{id}/twin` returns `{deployment_id, twin}`; `twin` is null or an object
 with UUID `paper_deployment_id`, UUID `live_deployment_id`, and UTC timestamp `linked_at`.
 Link/unlink are confirmed runtime metadata controls; they confer no trading authority.
 
-Ops contract v63 adds `async_study_planning: "worker"`, `newest_bar_settle_seconds: 120`, and
-`origin_counts` in `strategy_library`. Strategy-library HTTP pages add `origin_counts` with
+`async_study_planning: "worker"`, `newest_bar_settle_seconds: 120`, and `strategy_library`
+`origin_counts`: Strategy-library HTTP pages add `origin_counts` with
 nonnegative `operator`, `research`, `all` counts after the tag filter and before origin filtering
 or pagination. Async 202 echoes stay unchanged; planning failure appears on the durable job.
 
 For rule-equivalent clone twins (ADR 0105), each `paper` / `live` fill digest adds its actual
 `strategy_fingerprint` (nullable when unavailable). The compatibility top-level fingerprint is
 the paper side's identity; it does not claim the two identities match. The server verifies pinned
-rules before storing an explicit link; report selection remains persisted-link-only.
-Ops contract v63 advertises `runtime_observability: rule_matched_deployment_twins`.
+rules before storing an explicit link (`runtime_observability: rule_matched_deployment_twins`);
+report selection remains persisted-link-only.
 
-## v65 account-read and audit evidence
+## Account-read and audit evidence
 
-`runtime_observability` adds `exchange_read_failures` and `audit_failure_evidence`;
-Alembic remains `0061`. Exchange `payload.failure` is null or an object with
+`runtime_observability` advertises `exchange_read_failures` and `audit_failure_evidence`.
+Exchange `payload.failure` is null or an object with
 `operation` (`balances`, `permissions`, `price`, `fees`), `kind` (`http`, `timeout`,
 `network`, `invalid_response`), and nullable integer `http_status`. Health component
 details carry the same safe summary. Neither response text nor exception messages appear.
@@ -261,28 +260,11 @@ WebSocket pairs strictly later on the same feed match. `unresolved` means no mat
 in this window; `unknown` means no recovery rule. Recovered failures remain degraded
 findings. Audit event raw details are excluded, including balances and account IDs.
 
-Account GETs retry once after 0.5 seconds only for timeout/network or HTTP 502/503/504.
-The repeated request is freshly signed on the same pagination cursor; exhausted failures
-return no partial balances. Authentication, 429 rate limits, malformed responses and
-pagination errors do not retry. Failed-read evidence includes `attempts` (1 or 2).
-Order submissions and cancellations never use this retry helper.
+Account-GET retry rules (`attempts` 1 or 2): see `SKILL.md`.
 
-## Research reliability and protection tracing (ADR 0109)
+## Research reliability and cost attribution (ADR 0109)
 
-`products` reports `catalog_fingerprint` and UTC `catalog_observed_at` for its shared
-30-second catalog observation. Authoritative product rows precede inferred aliases;
-a disabled explicit row stays disabled. A watch mutation verifies an omitted product
-through direct provider lookup when supported. Unverifiable refreshes fail closed,
-without silently extending stale catalog authority. Read the data skill for mutations.
-
-New bar decisions include optional `protection_update`: canceled and current order
-IDs, prior/current stop, target, working coverage and position quantities, and
-`fully_covered`. Only confirmed OPEN order remainders count toward coverage; UNKNOWN
-or PENDING replacements do not prove coverage. Protective churn retains holding/exit
-classification rather than being mistaken for a canceled entry. Legacy rows are
-unchanged and may lack this trace. The runtime decision timeline displays the trace.
-Read-only campaign/economic tools and bounded exports live in the research skill;
-operator observation grants no research mutation or runtime/order authority.
+Catalog observation fields and decision `protection_update` tracing: see `SKILL.md`.
 
 Backtest `payload.cost_attribution` follows `thytrader-cost-attribution-v1` with its
 own `attribution_fingerprint`, source `result_fingerprint` / `run_fingerprint`,

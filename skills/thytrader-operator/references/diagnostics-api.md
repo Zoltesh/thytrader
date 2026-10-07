@@ -2,10 +2,9 @@
 
 All routes are `GET` under `/api/v1/operator`. They share application services with `thytrader-operator` and do not mutate orders, strategies, or deployments.
 
-Base URL: the loopback API origin of this install. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. `--local` is an explicit store-backed alternative, not an automatic fallback.
+Base URL: the loopback API origin of this install, resolved as in the
+[shared rules](../../README.md#shared-rules-every-lane). `--local` is an explicit store-backed
+alternative, not an automatic fallback.
 
 | Method | Path | Report kind |
 |---|---|---|
@@ -36,7 +35,7 @@ port is `8200`, but installs may override it, so never hard-code a port). For ra
 
 Query parameters:
 
-- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-(?:USD|USDC)$`, optional `timeframe` (`1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h`, default `1h`)
+- `market-data`: optional `product_id` matching `^[A-Z0-9]{2,20}-(?:USD|USDC|USDT)$`, optional `timeframe` (`1h`, `5m`, `15m`, `30m`, `6h`, `1d`, `1m`, `2h`, or `4h`, default `1h`)
 - `performance`: optional `result_fingerprint` (`sha256:` + 64 lowercase hex) or `deployment_id` (UUID)
 - `runtime`: optional `deployment_id` (UUID)
 - `trade-reasons`: optional `intent_id` (UUID) and/or `deployment_id` (UUID)
@@ -47,7 +46,7 @@ Query parameters:
 HTTP `200` means the diagnostics document was produced. Judge instance health from `overall_status`, not from the HTTP status code.
 
 Worker components use PostgreSQL heartbeats (`portfolio_worker`, `market_data_worker`,
-`execution_worker`). Docker `/tmp` readiness files are not operator health. Database health is an
+`execution_worker`, `research_worker`). Docker `/tmp` readiness files are not operator health. Database health is an
 engine ping when `THYTRADER_DATABASE_URL` is set (`DATABASE_UNCONFIGURED`, `DATABASE_ENGINE_MISSING`,
 or `DATABASE_UNREACHABLE`).
 
@@ -55,19 +54,4 @@ If the CLI exits because of an application version mismatch, an ops-contract mis
 
 CLI equivalents are listed in `SKILL.md`. Process entry point: `thytrader-operator`.
 
-## Research reliability and protection tracing (ADR 0109)
-
-`products` reports `catalog_fingerprint` and UTC `catalog_observed_at` for its shared
-30-second catalog observation. Authoritative product rows precede inferred aliases;
-a disabled explicit row stays disabled. A watch mutation verifies an omitted product
-through direct provider lookup when supported. Unverifiable refreshes fail closed,
-without silently extending stale catalog authority. Read the data skill for mutations.
-
-New bar decisions include optional `protection_update`: canceled and current order
-IDs, prior/current stop, target, working coverage and position quantities, and
-`fully_covered`. Only confirmed OPEN order remainders count toward coverage; UNKNOWN
-or PENDING replacements do not prove coverage. Protective churn retains holding/exit
-classification rather than being mistaken for a canceled entry. Legacy rows are
-unchanged and may lack this trace. The runtime decision timeline displays the trace.
-Read-only campaign/economic tools and bounded exports live in the research skill;
-operator observation grants no research mutation or runtime/order authority.
+ADR 0109 catalog observation and `protection_update` tracing: see `SKILL.md`.

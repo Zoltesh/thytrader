@@ -1,43 +1,21 @@
 # ThyTrader contributor instructions
 
-Read root `AGENTS.md` for the full contributor workflow (GitNexus, typing, trading
-invariants, safety). The `ops/` workspace is operator-only: never instruct an
-operating agent to update documentation or code.
+Root [`AGENTS.md`](AGENTS.md) is the contributor guide: workflow, GitNexus bootstrap (bootstrap it
+before editing if the runner or index is missing), verification commands, typing, trading
+invariants, security, known gaps, and the docs map. Read it first. The `ops/` workspace is
+operator-only: never instruct an operating agent to update documentation or code, bootstrap
+GitNexus, or edit source.
 
-## GitNexus
-
-Follow root `AGENTS.md` § Use GitNexus first. If GitNexus MCP tools,
-`.gitnexus/run.cjs`, or a usable index are missing, bootstrap from the
-repository root **before editing** — do not skip the graph:
-
-```bash
-bunx gitnexus@latest analyze --embeddings --pdg --index-only
-```
-
-Prefer `node .gitnexus/run.cjs analyze --embeddings --pdg --index-only` once the
-runner exists. `npx gitnexus` / `pnpm dlx gitnexus@latest` also work; npm 11
-`npx` can crash (`node.target is null`; GitNexus #1939). Details:
-[`.claude/skills/gitnexus-cli/SKILL.md`](.claude/skills/gitnexus-cli/SKILL.md).
-Operating agents in `ops/` must not bootstrap GitNexus or edit source.
-
-## Ops skills and operator docs (completion gate)
+## Ops skills completion gate (summary of AGENTS.md)
 
 This gate applies to **contributors** changing ThyTrader. It does **not** apply in
 the `ops/` workspace. Operating agents must never update documentation or source.
 
-When a change touches any of: product surfaces, CLI, HTTP agent APIs, strategy
-semantics, timeframes, runtime, research, data ingest, or operator reports, the
-**same change** must update:
-
-1. The relevant `skills/thytrader-*` SKILL.md (canonical skill text operator
-   agents read). `ops/.cursor/skills/` are symlinks into `skills/`; do not
-   maintain a second skill tree.
-2. Operator report schemas if payloads changed
-   (`skills/thytrader-operator/references/` and related contract tests).
-3. `docs/` that operators and agents read (user-facing `docs/README.md` and
-   `docs/user/`, plus `docs/agent-integration.md`, and roadmap shipped vs
-   destination when slice status changes). Update CLI `--help` when flags or
-   invocation change.
+A change to an operator-facing surface must, in the same change, update the relevant
+`skills/thytrader-*` SKILL.md and `references/`, regenerate the operator report schema
+with `scripts/export_operator_schema.py` when payloads change, and update CLI `--help`.
+Update `docs/user/` only when the browser UI changes; add an ADR for significant
+decisions. No roadmap, plans, or agent-integration doc.
 
 A slice is **not done** if ops skills would leave an operator agent unable to
 discover or correctly invoke the new surface. Do not merge or report the work

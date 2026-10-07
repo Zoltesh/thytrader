@@ -1,24 +1,8 @@
 # Architecture Decision Records
 
-[ADR 0116](0116-live-execution-evidence-and-backtest-bar-explanations.md) is accepted:
-read-only live round-trip fee and slippage evidence, explicit twin cannot-compare rules, and
-bounded backtest bar explanations. It does not rewrite historical fills or the backtest engine.
+Architecture decision records (ADRs) capture choices that materially shape ThyTrader. Never delete or rename one; supersede it with a new ADR and update the status of the old one here and in its header. Number 0067 was never assigned.
 
-[ADR 0117](0117-truthful-inventory-and-fleet-controls.md) is accepted: deployment inventory
-pages use a stable created-at snapshot, and fleet disarm, managed stop, and flatten are
-separate confirmation-gated controls. Disarm inhibits entries and never flattens.
-
-[ADR 0107](0107-capital-normalized-live-performance.md) is accepted: pinned performance capital
-and durable observed drawdown correct zero-based live percentages without rewriting ledger cash
-or historical baselines. It amends ADRs 0050/0058 and preserves ADR 0106's account risk scope.
-
-[ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md) is accepted and supersedes
-ADR 0058's capital-base scope: account risk capital, separate bot allocations, and live startup
-baselines. Protection, reconciliation, leases, and lifecycle rules remain unchanged.
-
-Architecture decision records (ADRs) capture choices that materially shape ThyTrader. They explain context and consequences so future contributors can change direction deliberately rather than accidentally.
-
-## Accepted decisions
+## Index
 
 | ADR | Decision | Status |
 |---|---|---|
@@ -30,21 +14,21 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0006](0006-credential-permission-acceptance.md) | Accept operator-selected Coinbase keys with additional permissions | Accepted |
 | [0007](0007-immutable-research-run-specifications.md) | Publish immutable research-run specifications before simulation | Accepted — superseded in part by 0082 and 0083 |
 | [0008](0008-deterministic-signal-evaluation.md) | Version deterministic signal evaluation separately from request-only runs | Accepted — extended by 0026, 0027, 0028, 0029, 0032, 0042, 0047, and 0086 — superseded in part by 0083 |
-| [0009](0009-deterministic-bar-level-backtest-engine.md) | Version bar-level backtest simulation separately from signal evaluation | Accepted — superseded in part by 0083 |
-| [0010](0010-constant-spread-backtest-provenance.md) | Version constant-spread stress assumptions as immutable backtest evidence | Accepted — superseded in part by 0083 |
+| [0009](0009-deterministic-bar-level-backtest-engine.md) | Version bar-level backtest simulation separately from signal evaluation | Superseded by 0083 |
+| [0010](0010-constant-spread-backtest-provenance.md) | Version constant-spread stress assumptions as immutable backtest evidence | Superseded by 0083 |
 | [0011](0011-derived-buy-and-hold-benchmark.md) | Keep buy-and-hold comparison as a derived backtest report | Accepted |
 | [0012](0012-operator-diagnostics.md) | Versioned operator diagnostics CLI/API and confirmation-gated research CLI | Accepted — superseded in part by 0082 |
 | [0013](0013-http-first-agent-clients.md) | HTTP-first agent CLIs and confirmation-gated runtime control skill | Accepted |
 | [0014](0014-watchlist-and-5m-research.md) | Watchlist ingest and 5m research datasets; paper/live stay 1h | Accepted — superseded in part by 0015, 0016, and 0018 |
 | [0015](0015-worker-owned-ingest-and-ops-workspace.md) | Worker-owned ingest jobs, inclusive Coinbase paging, heartbeats, ops workspace | Accepted |
 | [0016](0016-longer-complete-5m-datasets.md) | Longer complete 5m datasets via a 25,920-bar cap and chunked UTC-day publish | Accepted |
-| [0017](0017-maker-limit-bar-backtest.md) | Maker-limit bar backtest as `thytrader-bar-backtest-v3` | Accepted — superseded in part by 0083 |
+| [0017](0017-maker-limit-bar-backtest.md) | Maker-limit bar backtest as `thytrader-bar-backtest-v3` | Superseded by 0083 |
 | [0018](0018-5m-paper-not-live.md) | Paper may evaluate closed 5m bars; live remains 1h | Accepted — superseded in part by 0036 |
 | [0019](0019-ops-contract-identity.md) | Health/CLI ops contract independent of package version `0.1.0` | Accepted — superseded in part by 0083 |
-| [0020](0020-complete-only-15m-datasets.md) | Complete-only 15m historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
-| [0021](0021-complete-only-30m-datasets.md) | Complete-only 30m historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
-| [0022](0022-complete-only-6h-datasets.md) | Complete-only 6h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
-| [0023](0023-complete-only-1d-datasets.md) | Complete-only 1d historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted |
+| [0020](0020-complete-only-15m-datasets.md) | Complete-only 15m historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted — superseded in part by 0040 |
+| [0021](0021-complete-only-30m-datasets.md) | Complete-only 30m historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted — superseded in part by 0040 |
+| [0022](0022-complete-only-6h-datasets.md) | Complete-only 6h historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted — superseded in part by 0040 |
+| [0023](0023-complete-only-1d-datasets.md) | Complete-only 1d historical datasets; strategy/paper/live clocks stay 1h/5m | Accepted — superseded in part by 0040 |
 | [0024](0024-agent-data-loop-completeness-and-image-identity.md) | Fail-closed watch completeness and stale-image identity for every agent CLI | Accepted |
 | [0025](0025-multi-timeframe-htf-filter.md) | Optional HTF filter + LTF entry; closed-bar alignment (paper/live in 0041) | Accepted — paper/live evaluation added by 0041 |
 | [0026](0026-phase-9-single-output-indicator-catalog.md) | Phase 9 first slice: `highest`, `lowest`, and population `stdev` | Accepted |
@@ -54,7 +38,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0030](0030-agent-e2e-primary-surface.md) | Agent-driven E2E is the primary product surface; UI still required | Accepted |
 | [0031](0031-coinbase-first-platform-end-state.md) | Coinbase-first platform end-state: on-demand trades, venue TFs, single- and multi-asset | Accepted — superseded in part by 0046 |
 | [0032](0032-phase-9-macd-bollinger.md) | Phase 9 fifth slice: `macd` and `bollinger` with referenceable series ids | Accepted |
-| [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted |
+| [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted — extended by 0056 |
 | [0034](0034-phase-12-agent-orchestration-yolo.md) | Phase 12 playbook over existing CLIs and default-off YOLO confirmation opt-in | Accepted — superseded in part by 0043 and 0082 |
 | [0035](0035-phase-11-research-rigor.md) | Phase 11 walk-forward, OOS, and cross-market research studies; richer templates; V1/V2/V3 matrix | Accepted — superseded in part by 0082 and 0083 |
 | [0036](0036-phase-13-live-extras.md) | Phase 13 5m live, ATR trailing stops, user-order WS, native OCO brackets | Accepted — amended by 0090 |
@@ -67,11 +51,11 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0043](0043-yolo-live-skip-confirm.md) | Operator-enabled YOLO `live` tier skips `--confirm` on live start/pause/resume/stop; `--i-understand-live` remains | Accepted |
 | [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted — superseded in part by 0082 |
 | [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted — amended by 0090 |
-| [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted |
+| [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted — superseded in part by 0056 |
 | [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted — extended by 0086 |
-| [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted |
+| [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted — superseded in part by 0122 |
 | [0049](0049-experiential-train-v1.md) | Bounded journal-evidence experiential training V1; advisory research input only | Accepted |
-| [0050](0050-daily-loss-drawdown-rate-collars.md) | Daily-loss / drawdown breakers, order-rate limits, and reference-price collars on the Phase 10 registry | Accepted |
+| [0050](0050-daily-loss-drawdown-rate-collars.md) | Daily-loss / drawdown breakers, order-rate limits, and reference-price collars on the Phase 10 registry | Accepted — superseded in part by 0107; amended by 0111 |
 | [0051](0051-in-app-operator-chat.md) | Loopback in-app operator chat over gated skill-lane HTTP; user-pasted LLM key distinct from Coinbase | Accepted |
 | [0052](0052-richer-sweep-axes-study-catalog.md) | Richer sweep axes and persisted research-study catalog rows | Accepted |
 | [0053](0053-workstation-ia-write-only-coinbase-credentials.md) | First-class workstation IA plus write-only Coinbase credentials UI/CLI | Accepted — superseded in part by 0079 |
@@ -79,7 +63,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
 | [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted |
 | [0057](0057-atomic-fill-ledger-and-product-isolation.md) | Atomic fill ledger and product isolation | Accepted |
-| [0058](0058-protection-lifecycle-accounting.md) | Verified protection, leases, stop vs flatten, live capital, durable loss baselines | Accepted — amended by 0097 and 0098 |
+| [0058](0058-protection-lifecycle-accounting.md) | Verified protection, leases, stop vs flatten, live capital, durable loss baselines | Accepted — superseded in part by 0106; amended by 0097, 0098, 0107, 0110, and 0112 |
 | [0059](0059-coinbase-list-fills-cursor-pagination.md) | Cursor-terminated Coinbase List Fills with fail-closed parsing | Accepted |
 | [0060](0060-multi-book-deployment-api.md) | Multi-book deployment HTTP, operator books, and product-tagged orders/fills | Accepted |
 | [0061](0061-application-trust-boundary.md) | Application trust boundary: installation Bearer auth, Host/Origin, CSRF session | Accepted |
@@ -123,8 +107,13 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0100](0100-fee-adjusted-open-book-pnl.md) | Marked open-book PnL after allocated paid entry fees, bounded verified fill evidence, explicit net/gross UI basis; future exit fees excluded; ops contract v60 / no migration | Accepted |
 | [0101](0101-atomic-portfolio-creation-with-sleeves.md) | Optional initial sleeves in portfolio create API/CLI; full validation and atomic portfolio, sleeves, and journal at revision 1; ops contract v61 / no migration | Accepted |
 | [0102](0102-explicit-paper-live-twin-links.md) | Durable one-to-one paper/live comparison links; metadata-only runtime controls; saved pairs replace inference | Accepted — amends 0097 and 0098 |
-| [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
+| [0103](0103-worker-planned-async-studies.md) | Async studies are planned in the research worker, not on the API path | Accepted — amends 0097 |
+| [0104](0104-bounded-newest-candle-wait.md) | Bounded wait for a settling newest decision candle before pausing a book | Accepted — amends 0095 |
+| [0105](0105-rule-equivalent-clone-twins.md) | Explicit twin links may pair strategy clones whose pinned trading rules verify equal | Accepted — amends 0102 |
+| [0106](0106-account-risk-capital-and-live-startup-baselines.md) | Account risk capital, separate bot allocations, and zero-based live startup baselines | Accepted — supersedes in part 0058 |
+| [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — supersedes in part 0050 and 0058 |
 | [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
+| [0109](0109-research-publication-projections-and-campaigns.md) | Bounded publication evidence and reproducible research campaigns | Accepted — amends 0083, 0090, and 0094 |
 | [0110](0110-stopped-lifecycle-reconciliation.md) | Reconcile paused and stopped books fully; keep protection when flatten has no verified price | Accepted — amends 0058 |
 | [0111](0111-durable-risk-accounting-scopes.md) | Separate exposure/occupancy from UTC-day loss and latches; strategy-scoped drawdown and retained paper risk evidence | Accepted |
 | [0112](0112-quantitative-protection-evidence.md) | Quantitative protection evidence; live cover requires a confirmed matching stop; paper cover stays worker-dependent | Accepted — amends 0058 and 0098 |
@@ -141,17 +130,16 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 
 ## Status values
 
-- **Proposed:** under active consideration.
 - **Accepted:** current direction.
 - **Superseded:** replaced by a newer ADR; retain for history.
-- **Rejected:** considered but not adopted.
+- **Superseded in part / amended:** the named part changed; the rest stands.
 
 ## New ADR template
 
 ```markdown
 # NNNN: Decision title
 
-- Status: Proposed
+- Status: Accepted
 - Date: YYYY-MM-DD
 
 ## Context

@@ -6,7 +6,7 @@
   [0013](0013-http-first-agent-clients.md), [0031](0031-coinbase-first-platform-end-state.md)
 - Supersedes: the product framing that ThyTrader's three operating models are **equal** and that
   none is privileged as the design target (README, [product vision](../product/vision.md),
-  [agent integration](../agent-integration.md)). It does **not** supersede ADR 0001 (SvelteKit
+  agent integration). It does **not** supersede ADR 0001 (SvelteKit
   remains the application UI), ADR 0012, or ADR 0013 (skill lanes and confirmation gates stay).
 
 ## Context

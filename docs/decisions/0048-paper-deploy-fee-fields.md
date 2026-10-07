@@ -1,6 +1,6 @@
 # 0048: Paper deploy maker/taker fee fields
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0122](0122-paper-fees-default-to-account-rates.md) (the omitted-rate default: new paper books now take the account's Coinbase rates)
 - Date: 2026-09-16
 - Relates to: [0007](0007-immutable-research-run-specifications.md),
   [0013](0013-http-first-agent-clients.md), [0019](0019-ops-contract-identity.md),
