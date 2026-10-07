@@ -1,7 +1,8 @@
 """Live PostgreSQL coverage for portfolio deployment, breakers, and proposals (ADR 0091).
 
-Needs ``THYTRADER_TEST_DATABASE_URL`` pointing at a database migrated to head. The
-migration test creates and drops its own scratch database.
+Needs ``THYTRADER_TEST_DATABASE_URL`` pointing at a disposable test server. Each
+scenario creates, migrates, and drops its own database; retained account evidence
+from other suites must not change this scenario's policy/funding assumptions.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
+from tests.persistence.test_risk_retention import _migrate
 from thytrader.execution.models import DeploymentStatus
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.persistence.database import create_engine, dispose
@@ -44,8 +46,6 @@ from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
     from thytrader.execution.models import Deployment
     from thytrader.portfolios.models import PortfolioAggregate
 
@@ -57,13 +57,6 @@ pytestmark = pytest.mark.skipif(
     _TEST_DATABASE_URL is None,
     reason="THYTRADER_TEST_DATABASE_URL is required for PostgreSQL integration coverage.",
 )
-
-
-def _engine() -> AsyncEngine:
-    """Open one engine against the configured integration database."""
-    if _TEST_DATABASE_URL is None:
-        raise AssertionError("PostgreSQL integration URL was not configured.")
-    return create_engine(SecretStr(_TEST_DATABASE_URL))
 
 
 def _operator() -> MutationContext:
@@ -174,11 +167,14 @@ def _rebalance(
     )
 
 
-def test_deploy_supervise_propose_and_delete_against_postgres() -> None:
-    """Tagged books persist; CAS, breakers, proposals, and the delete guard hold in SQL."""
+def test_deploy_supervise_propose_and_delete_against_postgres(scratch_database: str) -> None:
+    """A fresh policy domain exercises tagged books, CAS, breakers, proposals, and deletion."""
+    upgraded = _migrate(scratch_database, "upgrade", "head")
+    assert upgraded.returncode == 0, upgraded.stderr
 
     async def exercise() -> None:
-        engine = _engine()
+        """Keep all end-to-end assertions without clearing or ignoring foreign account evidence."""
+        engine = create_engine(SecretStr(scratch_database))
         strategies = PostgresStrategyStore(engine)
         execution = PostgresExecutionStore(engine)
         store = PostgresPortfolioStore(engine)

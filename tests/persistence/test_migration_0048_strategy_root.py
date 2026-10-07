@@ -16,7 +16,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID, uuid4
 
 from alembic.autogenerate import compare_metadata
@@ -60,13 +60,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _alembic(database_url: str, target: str) -> subprocess.CompletedProcess[str]:
-    """Run one Alembic upgrade against an explicit database in a subprocess."""
-    environment = {**os.environ, "THYTRADER_DATABASE_URL": database_url}
-    return subprocess.run(  # noqa: S603 - fixed interpreter and arguments
-        [sys.executable, "-m", "alembic", "-c", "alembic.ini", "upgrade", target],
+def _alembic(
+    database_url: str, target: str, *, operation: Literal["upgrade", "downgrade"] = "upgrade"
+) -> subprocess.CompletedProcess[str]:
+    """Isolate migration logging and disable dotenv/secret inheritance in the child."""
+    script = (
+        "from thytrader.config import Settings; Settings.model_config['env_file'] = None; "
+        "from alembic.config import Config; from alembic import command; "
+        f"command.{operation}(Config('alembic.ini'), {target!r})"
+    )
+    return subprocess.run(  # noqa: S603 - fixed interpreter/script and explicit test-only URL
+        [sys.executable, "-c", script],
         cwd=_ROOT,
-        env=environment,
+        env={"PATH": os.defpath, "THYTRADER_DATABASE_URL": database_url},
         capture_output=True,
         text=True,
         check=False,

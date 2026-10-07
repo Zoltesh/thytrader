@@ -17,6 +17,8 @@ No roadmap. No gap-plan. No phase dump. Those stay with contributors.
 - [Product vision](product/vision.md) — the destination, in product language
 - [Setup](user/setup.md) — `make run`, `make down`, loopback ports, Compose, native processes
 - [Safety](user/safety.md) — secrets, loopback, confirmation, live arming
+- [Conflicts and replacement protection](user/operate.md#conflicts-and-replacement-protection) —
+  fresh admission after a concurrent change; no guessed sell quantity from unpublished fills
 - [Operate](user/operate.md) — browser workspace (rail, ⌘K palette, Agent panel, themes), each
   bot's per-bar Decisions timeline, indicator operand offsets, open-book prices and PnL after paid entry fees,
   operator chat, and agent how-to
@@ -32,6 +34,14 @@ Bots with higher-timeframe filters load warmup for both current and previous com
 including their first clock rollover. Missing coverage still pauses execution; see
 [Operate](user/operate.md) for diagnosis and explicit resume after repair.
 
+Lifecycle supervision remains per-product while paused, between bars, or warming history.
+Canceled executions awaiting fills and applied-but-unprojected inventory are not flatness;
+protection and committed live exits remain supervised across restart. See
+[Operate](user/operate.md) before treating an empty position row as a successful flatten.
+Reporting keeps these books unverified with null dependent totals/quantities. Readiness and venue
+reconciliation disclose accounting completeness separately from successful storage reads; unknown
+inventory is not free capacity, foreign holdings, or recovered protection.
+
 The Decisions timeline distinguishes protective-order maintenance from canceled entries and
 explains exposure rejections with the actual capital and limit. See [Operate](user/operate.md).
 Agents can read its complete recorded conditions and UTC signal evidence with
@@ -39,6 +49,15 @@ Agents can read its complete recorded conditions and UTC signal evidence with
 empty timeline.
 The operator strategy report includes the newest 100 library rows; follow its truncation warning
 and use the research CLI to read older strategies or page the full library.
+
+Home → Data health and `thytrader-operator data-health` show freshness across all enabled
+watched markets, aligned to each candle clock. Published-tail health is separate from
+historical coverage and a bot's own decision/reconciliation status.
+
+Protection badges distinguish fresh live **order state** from independently audited venue stop
+geometry. Only actual venue receipt timestamps supply freshness; local writes and legacy rows
+cannot. Fresh order-state cover remains amber with its submitted-geometry limitation; paper says
+**Worker stop**. See [protection evidence](user/operate.md) for timestamps and partial coverage.
 
 Exchange diagnostics identify which account read failed and its safe error category.
 Reconciliation links audit failures to their timestamps and observed recovery events.
@@ -63,7 +82,9 @@ shared limits — backtest them together, then start the portfolio as one bot pe
 shared caps and loss stops. A manager agent can propose rebalances and pauses with its reasons;
 you approve or decline anything outside its permissions, and it never places orders. Agents can
 [create a complete portfolio with sleeves](user/operate.md#create-a-portfolio-from-a-file) in one
-confirmed call; creation saves the definition and does not start trading.
+confirmed call; creation saves the definition and does not start trading. Current portfolio
+reports qualify economic completeness: unresolved inventory makes dependent equity/PnL/exposure
+unknown, not zero. Recorded allocations and historical evidence remain separate.
 
 You can:
 
@@ -73,7 +94,9 @@ You can:
 3. **Share the wheel** — the agent edits a strategy; you backtest and arm (or the reverse).
 
 Safety that outlives any one screen: [Safety](user/safety.md) and the
-[security and trading-risk baseline](security-and-risk.md).
+[security and trading-risk baseline](security-and-risk.md). Daily-risk checks require fresh
+complete accounting and genuine UTC opening evidence; old opening stamps and late observations
+are not midnight equity. See [daily-risk evidence and full-policy publication](user/safety.md#daily-risk-evidence-and-policy-publication).
 
 
 To select intended paper/live comparison partners, use **Paper/live twin** on Bot detail or

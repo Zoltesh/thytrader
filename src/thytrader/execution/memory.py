@@ -6,7 +6,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.fill_ledger import (
+    applied_fill_quantity,
+    fill_projection_deployment,
+    project_fill_economics,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import (
     MAX_POSITION_FEE_FILLS,
@@ -17,11 +21,13 @@ from thytrader.execution.models import (
     Deployment,
     DeploymentBookTotals,
     DeploymentSnapshot,
+    DeploymentStatus,
     DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
     InstrumentRuntime,
+    IntentPurpose,
     Order,
     OrderIntent,
     OrderStatus,
@@ -44,6 +50,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from decimal import Decimal
 
+    from thytrader.fleet_control.store import EntryGate
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -66,6 +73,12 @@ class InMemoryExecutionStore:
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
+        # Database-free test backend starts with an explicitly clear memory latch.
+        self._entry_gate: EntryGate | None = None
+
+    def bind_entry_gate(self, gate: EntryGate) -> None:
+        """Bind the fleet latch that must be held across a start insert."""
+        self._entry_gate = gate
 
     async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
         """Read a saved pair from either member."""
@@ -133,8 +146,14 @@ class InMemoryExecutionStore:
         del self.twin_links[current.paper_deployment_id]
 
     async def create_deployment(self, deployment: Deployment) -> Deployment:
-        """Insert one new deployment row."""
-        self.deployments[deployment.id] = deployment
+        """Insert one new deployment row unless the bound latch refuses the mode."""
+        gate = self._entry_gate
+        if gate is None:
+            self.deployments[deployment.id] = deployment
+            return deployment
+        async with gate.hold():
+            gate.raise_if_inhibited(deployment.mode.value, action="start")
+            self.deployments[deployment.id] = deployment
         return deployment
 
     async def get_deployment(self, deployment_id: UUID) -> DeploymentSnapshot:
@@ -168,6 +187,10 @@ class InMemoryExecutionStore:
             positions=positions,
             instrument_runtimes=runtimes,
         )
+
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Read all products' current economics from the authoritative in-memory store."""
+        return await self.get_deployment(deployment_id)
 
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
@@ -314,17 +337,52 @@ class InMemoryExecutionStore:
         }
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment."""
+        """Check the revision before mutating parent/runtime, without yielding between writes."""
+        if instrument_runtime is not None and expected_revision is None:
+            raise ExecutionStoreError("Atomic runtime saves require an expected revision.")
         current = self.deployments.get(deployment.id)
         if current is None:
             raise ExecutionStoreError("Deployment was not found.")
         if expected_revision is not None and current.revision != expected_revision:
             raise ExecutionConflictError("Deployment revision conflict.")
-        next_revision = deployment.revision + 1
-        saved = replace(deployment, revision=next_revision)
+        saved = replace(deployment, revision=current.revision + 1)
         self.deployments[deployment.id] = saved
+        if instrument_runtime is not None:
+            self.instrument_runtimes[
+                _position_key(deployment.id, instrument_runtime.product_id)
+            ] = instrument_runtime
+        return saved
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Atomically change only breaker status/detail/latch, preserving independent state."""
+        current = self.deployments.get(deployment_id)
+        if current is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        if current.revision != expected_revision:
+            raise ExecutionConflictError("Deployment revision conflict.")
+        running = current.status is DeploymentStatus.RUNNING
+        saved = replace(
+            current,
+            status=DeploymentStatus.PAUSED if running else current.status,
+            mismatch_detail=detail if running else current.mismatch_detail,
+            daily_loss_latched=current.daily_loss_latched or daily_loss_latched,
+            updated_at=utc_now(),
+            revision=current.revision + 1,
+        )
+        self.deployments[deployment_id] = saved
         return saved
 
     async def acquire_worker_lease(
@@ -358,13 +416,34 @@ class InMemoryExecutionStore:
         return saved
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
-        """Insert one order intent before venue submission."""
+        """Insert one order intent before venue submission.
+
+        Entry intents consult the bound fleet latch. Exit and protection intents
+        do not, so disarm cannot block a risk-reducing order.
+        """
         if intent.idempotency_key is not None:
             existing = await self.get_intent_by_idempotency_key(intent.idempotency_key)
             if existing is not None:
                 raise ExecutionConflictError("idempotency_key already used")
-        self.intents[intent.id] = intent
+        gate = self._entry_gate
+        if intent.purpose is IntentPurpose.ENTRY and gate is not None:
+            deployment = self.deployments.get(intent.deployment_id)
+            if deployment is None:
+                raise ExecutionStoreError("Entry deployment was not found.")
+            async with gate.hold():
+                gate.raise_if_inhibited(deployment.mode.value, action="entry")
+                self.intents[intent.id] = intent
+        else:
+            self.intents[intent.id] = intent
         return intent
+
+    async def read_entry_inhibition(self) -> dict[str, bool]:
+        """Return the bound latch, or both modes clear when no latch is bound."""
+        gate = self._entry_gate
+        if gate is None:
+            return {"paper": False, "live": False}
+        snapshot = await gate.read_inhibition()
+        return {"paper": snapshot.paper_inhibited, "live": snapshot.live_inhibited}
 
     async def save_order(self, order: Order) -> Order:
         """Insert or replace one venue-visible order snapshot."""
@@ -437,7 +516,11 @@ class InMemoryExecutionStore:
         self._applied_fill_keys.add(key)
         applied_fill = replace(
             order,
-            status=OrderStatus.FILLED,
+            status=(
+                OrderStatus.FILLED
+                if applied_fill_quantity(snapshot, order.id) + fill.quantity >= order.quantity
+                else order.status
+            ),
             filled_quantity=max(
                 order.filled_quantity,
                 applied_fill_quantity(snapshot, order.id) + fill.quantity,
@@ -455,8 +538,11 @@ class InMemoryExecutionStore:
         if existing_order is not None:
             self.orders.pop(existing_order.id, None)
         self.orders[applied_fill.id] = applied_fill
-        saved = replace(projected.deployment, revision=projected.deployment.revision + 1)
+        parent = fill_projection_deployment(snapshot, projected)
+        saved = replace(parent, revision=snapshot.deployment.revision + 1)
         self.deployments[saved.id] = saved
+        for runtime in projected.instrument_runtimes:
+            self.instrument_runtimes[_position_key(deployment_id, runtime.product_id)] = runtime
         product_id = order.product_id or projected.deployment.product_id
         if projected.position is not None:
             self.positions[_position_key(deployment_id, product_id)] = projected.position

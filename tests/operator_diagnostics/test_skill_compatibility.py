@@ -45,6 +45,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/monitor",
         "/trade-reasons",
         "/data-catalog",
+        "/data-health",
         "/products",
         "/indicators",
         "/support-bundle",
@@ -53,6 +54,8 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
         "/fees",
         "/decisions",
         "/portfolios",
+        "/readiness",
+        "/venue-reconciliation",
     ):
         assert f"{OPERATOR_API_PREFIX}{suffix}" in combined
     assert "thytrader-operator" in skill
@@ -74,7 +77,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v66" in skill
+    assert "thytrader-ops-contract-v68" in skill
     assert "capital_normalized_performance" in skill
     assert "performance_capital_quote" in schemas
     assert "performance_maximum_drawdown_fraction" in schemas
@@ -380,9 +383,7 @@ def test_committed_schema_describes_atomic_portfolio_creation() -> None:
             encoding="utf-8"
         )
     )
-    operations = schema["properties"]["payload"]["properties"]["ops_contract"]["properties"][
-        "portfolio_sleeve_operations"
-    ]
+    operations = schema["$defs"]["OpsContractPayload"]["properties"]["portfolio_sleeve_operations"]
     assert operations["items"]["enum"] == ["batch_add", "create_with_sleeves"]
     assert "revision 1" in operations["description"]
 

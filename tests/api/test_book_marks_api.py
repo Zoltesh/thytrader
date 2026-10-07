@@ -20,6 +20,7 @@ import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.execution import protection
 from thytrader.execution.decision_store import DecisionStoreError, InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -27,12 +28,14 @@ from thytrader.execution.models import (
     DeploymentMode,
     ExecutionStoreError,
     Fill,
+    InstrumentRuntime,
     Order,
     OrderKind,
     OrderSide,
     OrderStatus,
     Position,
     PositionSide,
+    RuntimePhase,
 )
 from thytrader.portfolios.store import InMemoryPortfolioStore
 from thytrader.risk.models import compiled_default_risk_policy
@@ -58,6 +61,12 @@ class World:
     strategies: InMemoryStrategyStore
     execution: InMemoryExecutionStore
     journal: InMemoryDecisionJournalStore
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Compare response evidence at a fixed reporting instant."""
+    monkeypatch.setattr(protection, "utc_now", lambda: _BAR)
 
 
 @pytest.fixture
@@ -155,6 +164,25 @@ def test_sleeve_books_carry_entry_stop_target_state_and_last_bar_pnl(world: Worl
         "target_price": "64000",
         "entered_bar": "2026-10-01T08:00:00Z",
         "position_state": "open_protected",
+        "protection": {
+            "required_quantity": "0.01",
+            "covered_quantity": "0.01",
+            "uncovered_quantity": "0",
+            "stop_side": "sell",
+            "stop_side_valid": True,
+            "stop_geometry_valid": True,
+            "mechanism": "synthetic",
+            "venue_resting": False,
+            "worker_dependent": True,
+            "observed_at": None,
+            "verified_at": None,
+            "observation_source": "synthetic_worker",
+            "freshness": "unknown",
+            "evaluated_at": _BAR.isoformat(),
+            "freshness_max_age_seconds": 120,
+            "geometry_basis": "working_target",
+            "reasons": ["synthetic_worker_dependent"],
+        },
         "mark_price": "61000",
         "marked_at": "2026-10-01T12:00:00Z",
         "unrealized_pnl": "10",
@@ -408,8 +436,9 @@ def test_runtime_ledger_uses_each_open_books_journaled_mark(
     assert response.status_code == 200, response.text
     body: JsonBody = response.json()
     ledger = body["ledger"]
-    assert ledger["mark_complete"] is (coverage == "complete")
-    if coverage == "complete":
+    complete_accounting = coverage == "complete" and detail == "full"
+    assert ledger["mark_complete"] is complete_accounting
+    if complete_accounting:
         assert Decimal(ledger["marked_exposure"]) == Decimal("105")
         assert Decimal(ledger["total_net_pnl"]) == Decimal("3")
         assert Decimal(ledger["total_return_fraction"]) == Decimal("0.006")
@@ -419,7 +448,8 @@ def test_runtime_ledger_uses_each_open_books_journaled_mark(
         assert ledger["total_return_fraction"] is None
     report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
     (row,) = report["payload"]["deployments"]
-    assert row["ledger_mark_complete"] is ledger["mark_complete"]
+    # Operator runtime is a bounded summary, not a retained-economics completeness proof.
+    assert row["ledger_mark_complete"] is False
 
 
 def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(
@@ -447,3 +477,31 @@ def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(
     report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
     (row,) = report["payload"]["deployments"]
     assert row["ledger_mark_complete"] is False
+
+
+def test_portfolio_http_reports_runtime_inventory_uncertainty(world: World) -> None:
+    """Actual route/briefing consumers do not derive current totals from a missing ETH row."""
+    portfolio_id, bot = _started_portfolio(world)
+    _open_long(world, bot, close="60200")
+    asyncio.run(
+        world.execution.save_instrument_runtime(
+            InstrumentRuntime(product_id="ETH-USDC", phase=RuntimePhase.OPEN), deployment_id=bot
+        )
+    )
+    view_response = world.client.get(f"/api/v1/portfolios/{portfolio_id}/deployment")
+    assert view_response.status_code == 200, view_response.text
+    view = view_response.json()
+    assert view["breaker"]["accounting_complete"] is False
+    assert view["breaker"]["equity"] is None and view["breaker"]["daily_pnl"] is None
+    assert view["exposure"]["total_quote"] is None
+    assert UUID(view["exposure"]["unresolved_deployment_ids"][0]) == bot
+    sleeve = view["sleeves"][0]["deployment"]
+    assert sleeve["net_pnl"] is None and sleeve["performance_equity"] is None
+    assert sleeve["position_state"] == "open_unverified"
+    assert sleeve["books"][0]["mark_price"] == "60200"
+    assert sleeve["books"][0]["quantity"] == "0.01"  # Known projected BTC row survives.
+    briefing_response = world.client.get(f"/api/v1/portfolios/{portfolio_id}/briefing")
+    assert briefing_response.status_code == 200, briefing_response.text
+    performance = briefing_response.json()["performance"]
+    assert performance["accounting_complete"] is False
+    assert performance["equity"] is performance["net_pnl"] is performance["return_fraction"] is None

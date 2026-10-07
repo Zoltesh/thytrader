@@ -88,8 +88,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v66"
-EXPECTED_SCHEMA_REVISION = "0064"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v68"
+EXPECTED_SCHEMA_REVISION = "0069"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -220,6 +220,17 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "capital_normalized_performance",
     "exchange_read_failures",
     "audit_failure_evidence",
+    "watched_market_tail_health",
+    "venue_order_observations",
+    "verified_utc_day_open_evidence",
+    "quantitative_protection_evidence",
+    "managed_venue_reconciliation",
+    "capacity_readiness",
+    "durable_safety_alerts",
+    "execution_quality_evidence",
+    "complete_fleet_inventory",
+    "revision_fenced_fleet_controls",
+    "backtest_bar_explanations",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

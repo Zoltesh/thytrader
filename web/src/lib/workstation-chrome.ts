@@ -23,6 +23,7 @@ export type WorkstationHref =
 	| '/audit'
 	| '/journals'
 	| '/memory'
+	| '/alerts'
 	| '/chat';
 
 export type PrimaryNavItem = {
@@ -35,7 +36,7 @@ export type PrimaryNavItem = {
 
 export type SystemNavItem = {
 	href: WorkstationHref;
-	label: 'Settings' | 'Audit log' | 'Journal' | 'Memory & why-trade';
+	label: 'Settings' | 'Audit log' | 'Journal' | 'Memory & why-trade' | 'Alerts';
 };
 
 export const PRIMARY_NAV: readonly PrimaryNavItem[] = [
@@ -54,7 +55,8 @@ export const SYSTEM_NAV: readonly SystemNavItem[] = [
 	{ href: '/settings', label: 'Settings' },
 	{ href: '/audit', label: 'Audit log' },
 	{ href: '/journals', label: 'Journal' },
-	{ href: '/memory', label: 'Memory & why-trade' }
+	{ href: '/memory', label: 'Memory & why-trade' },
+	{ href: '/alerts', label: 'Alerts' }
 ];
 
 /** Whether `routeId` is `root` or nested under it. `/` only matches itself. */
@@ -109,6 +111,7 @@ const BREADCRUMBS: Readonly<Record<string, Breadcrumb>> = {
 	'/audit': { section: 'System', page: 'Audit log' },
 	'/journals': { section: 'System', page: 'Journal' },
 	'/memory': { section: 'System', page: 'Memory & why-trade' },
+	'/alerts': { section: 'System', page: 'Alerts' },
 	'/chat': { section: 'Agent', page: 'Operator chat' }
 };
 

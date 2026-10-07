@@ -237,6 +237,7 @@ def _fill(*, deployment_id: UUID, order_id: UUID, price: Decimal, fee: Decimal, 
         quantity=Decimal("1"),
         fee=fee,
         filled_at=datetime(2026, 1, 1, hour, tzinfo=UTC),
+        economics_applied_at=datetime(2026, 1, 1, hour, tzinfo=UTC),
     )
 
 

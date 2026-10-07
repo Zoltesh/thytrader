@@ -85,6 +85,10 @@ class RevisionFencedStore:
         """Load one deployment with its related records or fail."""
         return await self._inner.get_deployment(deployment_id)
 
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Forward a fresh full read without dropping revision fencing on writes."""
+        return await self._inner.get_accounting_snapshot(deployment_id)
+
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
         return await self._inner.get_deployment_summary(deployment_id)
@@ -130,7 +134,11 @@ class RevisionFencedStore:
         return grouped
 
     async def save_deployment(
-        self, deployment: Deployment, *, expected_revision: int | None = None
+        self,
+        deployment: Deployment,
+        *,
+        expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
         """Replace runtime fields only when the fenced revision still matches.
 
@@ -139,11 +147,37 @@ class RevisionFencedStore:
         """
         if deployment.id != self._deployment_id:
             return await self._inner.save_deployment(
-                deployment, expected_revision=expected_revision
+                deployment,
+                expected_revision=expected_revision,
+                instrument_runtime=instrument_runtime,
             )
         expected = self._expected_revision if expected_revision is None else expected_revision
-        saved = await self._inner.save_deployment(deployment, expected_revision=expected)
+        # A fill may have advanced this wrapper's fence. That does not authorize
+        # writing an older caller's cash/runtime against the newer revision.
+        require_revision(deployment, expected)
+        saved = await self._inner.save_deployment(
+            deployment, expected_revision=expected, instrument_runtime=instrument_runtime
+        )
         self._expected_revision = saved.revision
+        return saved
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """Use the peer's explicit fence, refreshing this wrapper only for its own book."""
+        saved = await self._inner.save_breaker_pause(
+            deployment_id,
+            expected_revision=expected_revision,
+            detail=detail,
+            daily_loss_latched=daily_loss_latched,
+        )
+        if deployment_id == self._deployment_id:
+            self._expected_revision = saved.revision
         return saved
 
     async def acquire_worker_lease(

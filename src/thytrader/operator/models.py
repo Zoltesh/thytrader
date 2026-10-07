@@ -21,6 +21,7 @@ from thytrader.execution.decisions import (
     BarDecision,
     DecisionOutcome,
 )
+from thytrader.execution.protection import ProtectionEvidenceResponse
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
@@ -41,6 +42,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "exchange",
     "market_data",
     "data_catalog",
+    "data_health",
     "products",
     "indicators",
     "strategies",
@@ -56,6 +58,9 @@ REPORT_KINDS: tuple[str, ...] = (
     "portfolio",
     "fees",
     "portfolios",
+    "readiness",
+    "venue_reconciliation",
+    "alerts",
 )
 
 SupportedTimeframe = DatasetTimeframe
@@ -220,7 +225,12 @@ class OpsContractPayload(_FrozenModel):
     async_study_planning: Literal["worker"]
     newest_bar_settle_seconds: int = Field(ge=0)
     portfolio_max_sleeves: int = Field(ge=1)
-    portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...]
+    portfolio_sleeve_operations: tuple[Literal["batch_add", "create_with_sleeves"], ...] = Field(
+        description=(
+            "create_with_sleeves saves initial sleeves atomically at portfolio revision 1; "
+            "neither operation grants deployment authority."
+        )
+    )
     same_bar_exit_precedence: tuple[Literal["stop", "take_profit", "signal_exit", "time_exit"], ...]
     runtime_observability: tuple[
         Literal[
@@ -236,6 +246,17 @@ class OpsContractPayload(_FrozenModel):
             "capital_normalized_performance",
             "exchange_read_failures",
             "audit_failure_evidence",
+            "watched_market_tail_health",
+            "venue_order_observations",
+            "verified_utc_day_open_evidence",
+            "quantitative_protection_evidence",
+            "managed_venue_reconciliation",
+            "capacity_readiness",
+            "durable_safety_alerts",
+            "execution_quality_evidence",
+            "complete_fleet_inventory",
+            "revision_fenced_fleet_controls",
+            "backtest_bar_explanations",
         ],
         ...,
     ]
@@ -605,6 +626,13 @@ class DeploymentBookSummary(_FrozenModel):
     phase: str
     side: str | None = None
     protection_status: str
+    protection: ProtectionEvidenceResponse = Field(
+        description=(
+            "Quantitative stop cover (ADR 0112). Includes coverage quantities. Prices, "
+            "cash, and order payloads stay omitted. Paper is worker-dependent, not a "
+            "venue-resting stop. Null times mean unknown."
+        ),
+    )
     position_state: str = "flat"
     exit_in_flight: bool = False
 
@@ -749,6 +777,9 @@ class RiskPayload(_FrozenModel):
     max_daily_loss_quote: str | None = None
     max_portfolio_exposure_quote: str | None = None
     max_venue_order_actions_per_minute: int | None = None
+    max_order_quantity: str | None = None
+    max_order_notional_quote: str | None = None
+    min_available_quote_reserve: str | None = None
     findings: tuple[RiskFinding, ...]
 
 

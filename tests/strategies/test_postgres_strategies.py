@@ -369,7 +369,7 @@ async def _count_rows(engine: AsyncEngine, table: str, column: str, value: str) 
 
 
 def test_delete_cascades_research_and_paper_but_keeps_stopped_live_history() -> None:
-    """Deletion removes research and paper books; stopped live books stay, detached."""
+    """Deletion removes research but retains paper and live financial evidence, detached."""
 
     async def exercise() -> None:
         engine = _engine()
@@ -394,7 +394,7 @@ def test_delete_cascades_research_and_paper_but_keeps_stopped_live_history() -> 
             preview = await store.preview_deletion(record.strategy_id)
             assert preview.blocking_deployment_ids == ()
             assert preview.counts.backtests == 1
-            assert preview.counts.paper_deployments == 1
+            assert preview.counts.paper_deployments == 0
             assert preview.counts.live_deployments_kept == 1
             assert preview.counts.snapshots == 0
 
@@ -412,8 +412,12 @@ def test_delete_cascades_research_and_paper_but_keeps_stopped_live_history() -> 
                 "research_study_strategies",
             ):
                 assert await _count_rows(engine, table, "strategy_id", sid) == 0, table
-            assert await _count_rows(engine, "deployments", "id", str(paper.id)) == 0
-            assert await _count_rows(engine, "execution_fills", "deployment_id", str(paper.id)) == 0
+            assert await _count_rows(engine, "deployments", "id", str(paper.id)) == 1
+            assert await _count_rows(engine, "execution_fills", "deployment_id", str(paper.id)) == 1
+            kept_paper = (await execution.get_deployment(paper.id)).deployment
+            assert kept_paper.strategy_id is None
+            assert kept_paper.strategy_deleted is True
+            assert kept_paper.strategy_fingerprint == fingerprint
             kept = (await execution.get_deployment(live.id)).deployment
             assert kept.strategy_id is None
             assert kept.strategy_deleted is True

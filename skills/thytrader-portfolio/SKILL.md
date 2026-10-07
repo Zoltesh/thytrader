@@ -218,6 +218,9 @@ the portfolio's bots (blocked entries show `PORTFOLIO_TOTAL_EXPOSURE_LIMIT` /
 `PORTFOLIO_ASSET_EXPOSURE_LIMIT` in the decision timeline), and the optional `daily_loss_quote` and
 `max_drawdown_fraction` stops pause every sleeve and latch (`PORTFOLIO_DAILY_LOSS_STOP` /
 `PORTFOLIO_DRAWDOWN_STOP`) until an operator runs `thytrader-runtime portfolio-reset-breaker`.
+While a run sleeve's accounting is unresolved, the worker holds the run's equity, day-open, and
+high-water baselines and evaluates no new trip (unknown is not zero PnL); an existing latch still
+pauses sleeves, and the sleeve's own risk gate denies entries until its evidence resolves.
 Weights decide each sleeve's capital: a weight change on a deployed portfolio moves each sleeve
 bot's allocated capital on the worker's next cycle (live and paper; a paper sleeve never sizes
 beyond its own paper cash).
@@ -258,6 +261,28 @@ standalone return, pairwise `correlation` plus `correlation_to_rest`, `overlap`
 child `run_fingerprint`/`result_fingerprint`, and `disclosures`. State the disclosure when you
 report numbers: sleeves are simulated independently on fixed capital slices; portfolio-level caps
 and cross-sleeve interactions are **not simulated**. Fills are simulated from candles.
+
+## Unknown current accounting
+
+Read `deployment --portfolio-id ID` and `briefing --portfolio-id ID` before using current
+portfolio totals. Sleeve bots, `breaker`, `exposure`, and briefing `performance` carry
+`accounting_complete`; breaker/exposure also list `unresolved_deployment_ids`. An occupied
+`OPEN` / `PENDING_EXIT` product runtime without its own position is unresolved even if a sibling
+position survives, the book is stopped, or all reads succeed. Unprojected owned fills,
+unsettled executions, and missing/focused snapshots also cannot certify complete current totals.
+
+Dependent sleeve PnL/equity/exposure/return/drawdown, portfolio equity/daily PnL/drawdown,
+exposure totals/fractions, and briefing performance become null, **not zero or free capacity**.
+Recorded allocations, limits, baselines, journal/backtest history and independently resolved
+books/assets remain evidence. Run equity covers current-run history (including stopped books);
+exposure still qualifies old occupied/residual books, including detached ones. Other portfolios,
+modes and quote currencies are not combined. An independent quote exposure subtotal does not
+certify complete run accounting. Projected `books[]` quantities/gross marked PnL describe those
+rows only, not missing inventory. A missing sleeve snapshot has `open_books: null`.
+
+Unknown is not recovery or permission to reset/resume. Diagnose with the read-only operator
+readiness/venue-reconciliation and runtime show surfaces; do not invent an exit quantity or
+repair records. This lane still never deploys a portfolio or places orders.
 
 ## HTTP
 

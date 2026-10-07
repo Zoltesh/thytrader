@@ -1,9 +1,14 @@
 # Operator report schema
 
+Contributors regenerate the complete report models with
+`uv run python scripts/export_operator_schema.py`; `--check` detects artifact drift after
+integration. This imports typed contracts only and never opens a database or exchange session.
+Operator agents read the committed schema, never regenerate it on a running installation.
+
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -15,6 +20,18 @@ Every JSON report includes:
 - `payload`: report-specific object
 
 `reason_code` matches `^[A-Z][A-Z0-9_]{0,63}$`.
+
+`data_health` covers **all enabled watches** from the local published catalog. Its payload has
+`inventory_complete`, `watched_count`, `attention_count` and `datasets[]`. Every row reports
+`expected_closed_end`, `covered_ends_at` (exclusive closes), `tail_state` (`fresh`, `settling`,
+`stale`, `missing`, `invalid`), `lag_seconds`, `missing_closed_bars`, `settlement_deadline`,
+`watch_complete`, `island_complete`, `worker_status`, and `failure_code`. The latest expected
+close is aligned to that row's timeframe; a daily midnight close is not stale merely because
+hours have passed. Only one missing close inside the existing 120-second settlement grace is
+`settling`; older tails are stale. Unavailable catalog evidence degrades the report and sets
+`inventory_complete=false`, never an empty healthy inventory. A fresh tail does not prove
+complete historical coverage or execution readiness. Home → Data health displays this
+snapshot with an explicit refresh button ([ADR 0118](../../../docs/decisions/0118-watched-market-tail-health.md)).
 
 Ops contract v64 / Alembic `0061` advertises `capital_normalized_performance` and adds
 `performance_capital_quote` / `performance_maximum_drawdown_fraction` to
@@ -51,17 +68,26 @@ stopped live book whose strategy was deleted), the snapshot `strategy_fingerprin
 uses the same `books[]` on each deployment row. `protection_status` is classified from verified
 attached-child coverage and venue-visible resting exits, not inferred parent geometry
 ([ADR 0058](../../../docs/decisions/0058-protection-lifecycle-accounting.md)); an open paper book is
-always `covered`, matching its `position_state`
-([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each row also
+`covered` when its inventory economics are resolved, matching its `position_state`
+([ADR 0098](../../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Each book also
+carries `protection` ([ADR 0112](../../../docs/decisions/0112-quantitative-protection-evidence.md)):
+coverage quantities (decimal strings, or null when inventory is unresolved), stop
+side/geometry validity, `mechanism`, `venue_resting`,
+`worker_dependent`, observed/verified time or null, and `reasons`. Live `covered` is a confirmed
+OPEN matching stop, not a take-profit and not a pending or unknown order. Paper `covered` is
+`mechanism: synthetic`. Each row also
 reports `lifecycle_command` (`none` / `stop_new_entries` / `flatten` / `managed_shutdown`),
 breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic `revision`,
 `worker_lease_held` without cash or lease-holder identity, optional `ledger_mark_complete`, and
 `open_book_count` without cash or quantities. Latches persist across pause.
-`ledger_mark_complete` uses each open product's last journaled close: true when all are marked
-or the deployment is flat, false when any close is missing or the journal is unavailable, null
-when the books could not be read. It shares the deployment detail's journal mark source; the
-separate `performance` report uses market-data closes. Summary reads remain bounded and do not
-load historical fills or fetch venue prices.
+`ledger_mark_complete` is false for unresolved economics or bounded summary accounting,
+not a cash-only flatness certificate. Complete books require each needed mark; null means books
+could not be read. Bounded summaries still expose known local position cover, but cannot prove
+flatness for absent positions or aggregate PnL. Full `performance` reports use market-data closes;
+`ACCOUNTING_UNRESOLVED` nulls dependent aggregate totals without inventing positions/marks.
+Applied-but-unprojected owned fills and unsettled executions report `open_unverified` / `unknown`
+with null protection quantities, surviving mismatch clearing and restart. Recorded fill metrics
+are known-population statistics, not complete-account audits.
 Default HTTP stop is managed shutdown; flatten is `POST /api/v1/deployments/{id}/stop?flatten=true`
 or `thytrader-runtime stop UUID --flatten --confirm`. Latched breakers clear only through
 `thytrader-runtime reset-breaker-latches UUID --confirm` /
@@ -91,6 +117,14 @@ missing `trade_time` / `commission` ([ADR 0059](../../../docs/decisions/0059-coi
 Do not treat that failure as “no remaining fills.”
 
 The `risk` payload reports `risk_policy_registry: available` plus policy source, fingerprint, slot caps, allowlist, occupied running and open counts per mode, `daily_loss_limit_fraction`, `max_strategy_drawdown_fraction`, `max_entry_orders_per_minute`, `max_cancellations_per_minute`, `reference_price_collar_fraction`, `allow_intra_strategy_pyramiding`, optional `max_daily_loss_quote` / `max_portfolio_exposure_quote` / `max_venue_order_actions_per_minute` ([ADR 0063](../../../docs/decisions/0063-stage-5-release-discipline-ci-risk-defaults-rate-budget.md)), and pause/mismatch findings. Breaker trips prefix `mismatch_detail` with `DAILY_LOSS_LIMIT` or `STRATEGY_DRAWDOWN_LIMIT` and add a finding with that code. A live deployment still running under the compiled default (only possible from before ADR 0063) adds a `LIVE_RUNNING_ON_COMPILED_DEFAULT_POLICY` finding. The payload omits observed account balances and PnL; policy-configured fractions, integers, the pyramiding boolean, and the operator's own absolute quote caps above are allowed — they are configuration the operator set, not observed exchange balances.
+
+Optional entry bounds `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` are also nullable decimal strings in the primary `risk` payload.
+They echo configuration, not balances; null means unset. Publication replaces the whole active
+policy and omission removes that bound from the successor, without changing historical versions.
+Runtime capital separately exposes qualified `risk_day_open_evidence` (`source`, `day_start`,
+`equity`, `fills_fingerprint`, `marks[]`); legacy `utc_day_open_equity` remains preserved but
+unverified. Current-day validity requires complete accounting, not just a same-day timestamp.
 
 Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement), plus `settings_file`, `yaml_loaded`, and `yaml_source_of_truth` (always true), and `effective_api_base_url` — the loopback origin agent CLIs resolve for this checkout (`THYTRADER_API_BASE_URL` / settings). Non-secret knobs including YOLO live in `thytrader.yaml` and apply without restart; leftover `THYTRADER_YOLO_TIERS=paper` is valid. Those flags never grant playbook live authority. YOLO `live` may skip `--confirm` on runtime start/pause/resume/stop; live start, live resume, and live place-order still require `--i-understand-live`
 (HTTP `i_understand_live: true`). Live place-order, `set-risk-policy`, and `set-settings` still require `--confirm`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
@@ -150,6 +184,20 @@ order constraints `price_increment`, `base_increment`, `quote_increment`, `base_
 `price_increment`, and a quote notional is at least `quote_min_size`. The `indicators` payload lists the 53 implemented kinds only ([ADR 0086](../../../docs/decisions/0086-indicator-catalog-expansion-and-offset.md)), in this order: ema, sma, rsi, atr, volume_sma, highest, lowest, stdev, stdev_sample, roc, williams_r, cci, wma, momentum, mfi, macd, bollinger, stochastic, adx, identity, constant, dema, tema, hma, kama, vwma, supertrend, parabolic_sar, aroon, ichimoku, vortex, linear_regression, trix, stochastic_rsi, ppo, ultimate_oscillator, awesome_oscillator, cmo, tsi, keltner, donchian, bollinger_percent_b, bollinger_bandwidth, natr, choppiness, historical_volatility, obv, cmf, accumulation_distribution, vwap, force_index, zscore, percent_rank. Each row carries `kind`, `label`, `category` (`trend`, `momentum`, `volatility`, `volume`, `statistical`, or `price`), a one-line `summary`, `inputs`, `input_mode` (`configurable`: author picks one of open/high/low/close/volume; `locked`: exactly `inputs` in that order; `none`: omit input), `default_input`, `parameter_kind`, `period_min`/`period_max` (bounds of the required integer parameters), `parameters` (each `name`, `label`, `value_type` `integer`/`decimal`, `minimum`, `maximum`, `exclusive_minimum`, builder `default`, `optional`, and one-line `help`; decimals are strings), `constraints` (ordering rules such as `fast_period < slow_period`), `outputs` (series names for multi-series kinds; empty for single-output), `warmup` (formula in parameter names), `default_warmup_bars`, `supports_timeframe`, and `supports_offset` (false only for `constant`). `parameter_kind` is one of `period`, `none`, `value`, `macd` (MACD and PPO), `bollinger` (Bollinger, %B, bandwidth), `stochastic`, `kama`, `supertrend`, `parabolic_sar`, `ichimoku`, `stochastic_rsi`, `ultimate_oscillator`, `awesome_oscillator`, `tsi`, `keltner`, `historical_volatility`, or `signal` (OBV and A/D). Unlisted kinds are not present. Optional per-indicator `timeframe` and bar-lag `offset` are strategy-document fields, not catalog rows; health `ops_contract.indicator_timeframe_runtimes` and `ops_contract.indicator_offset_runtimes` name research, paper, and live.
 
 The support-bundle `payload` nests the other reports unchanged (it does not nest `runtime`, `data_catalog`, `products`, `indicators`, or `studies`).
+
+Occupied product runtimes (`open` / `pending_exit`) missing their own position add protection
+reason `runtime_position_unresolved`, nullable quantitative cover and unresolved accounting even
+when sibling inventory survives. Read success does not certify product flatness or incident recovery.
+
+Portfolio deployment/briefing report models additionally qualify current accounting: sleeve,
+`breaker`, `exposure` and briefing `performance` carry `accounting_complete`; breaker/exposure
+carry `unresolved_deployment_ids`. Sleeve `net_pnl` / `exposure_quote` and missing-read
+`open_books`, breaker `equity`, exposure `total_quote` / `fraction_of_capital`, affected asset
+`exposure_quote` / `fraction_of_capital`, and briefing `equity` / `net_pnl` / `return_fraction`
+are nullable. Existing nullable current equity/return/drawdown/daily-PnL fields also become unknown
+when dependent economics are unresolved. Recorded baselines, allocations, caps, historical
+backtests/journal and independent projected-row/asset evidence remain available. Run history and
+residual exposure have different scopes; no report changes policy, controls or order authority.
 
 The committed JSON Schema is [operator-report-v1.schema.json](operator-report-v1.schema.json). Run `uv run thytrader-operator schema-check` to verify skill docs against `SCHEMA_VERSION`.
 
@@ -243,3 +291,80 @@ own `attribution_fingerprint`, source `result_fingerprint` / `run_fingerprint`,
 spread/slippage are already in fill prices. The residual is ledger net minus
 (before-fees PnL minus both fees); the delta is summary net minus ledger net.
 This report does not change canonical result bytes and is null for paper/live.
+
+## Readiness preflight and venue reconciliation (ADR 0114)
+
+`readiness` (`GET /api/v1/operator/readiness`, optional `deployment_id` or `portfolio_id`;
+neither is the fleet) is advisory. `payload.account.enforcement` is `advisory_only`.
+`capital_base` is venue available quote in the policy quote currency plus managed long
+inventory cost and working buy-entry reservations. Caps are `null` when that balance is
+unknown. `ALLOCATION_OVERCOMMITMENT` is advisory (sizing limits, not reserved funds).
+`ACCOUNT_EXPOSURE_CAP_EXCEEDED`, `PRODUCT_EXPOSURE_CAP_EXCEEDED`,
+`PORTFOLIO_EXPOSURE_CAP_EXCEEDED`, and `PORTFOLIO_ASSET_EXPOSURE_CAP_EXCEEDED` are
+violations of recorded position cost plus working entry remainders, not live marks. `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC` means a
+paper book assumes cheaper maker/taker rates than account evidence (for example older
+`0.001`/`0.002` versus account `0.005`/`0.009`). `FEE_EVIDENCE_UNAVAILABLE` means no
+comparison was invented. Quote currencies are never summed; `QUOTE_CURRENCY_MISMATCH`
+excludes other quotes using actual product books (including mixed-product snapshots),
+not only the primary deployment product. Mixed deployments have `quote_exposures[]`
+and null cross-quote totals. `account.inventory` and each portfolio's `inventory`
+state read `status` separately from `accounting_status` (`complete` / `unresolved` /
+`unavailable`) and `unresolved_deployment_ids`. Incomplete managed reads or retained unresolved
+economics null total exposure, effective account caps, and remaining capacity.
+`BOOK_ACCOUNTING_UNRESOLVED` identifies affected books. Per-quote deployment `inventory_cost`
+and `exposure` can be null while independent working reservations and stored allocations remain
+known. A prior valid day opening/profit does not repair inventory projection. Scoped deployment rows still use every live book for
+account capacity and every relevant sibling for portfolio exposure.
+`portfolios[].runtime_available=false` means `breaker_latched=null`, never false.
+Missing/truncated portfolio scope sets `payload.portfolio_scope_complete=false` and
+degrades health. `tighter_daily_breaker` compares only live, policy-quote portfolios;
+paper/other-quote stops are `not_comparable`. The report never changes policy.
+
+`venue_reconciliation` (`GET /api/v1/operator/venue-reconciliation`) compares managed live
+books with a fresh venue listing. `EXTERNAL_INVENTORY` and `EXTERNAL_OPEN_ORDERS` are
+information, not errors, and are never flattened or cancelled. `MANAGED_INVENTORY_SHORTFALL`
+and `MANAGED_ORDER_NOT_AT_VENUE` are warnings; unknown is not rejected. `balances_listing`
+and `orders_listing` are `complete` or `unavailable`; `managed_listing` separately
+states `complete`, `partial`, or `unavailable`, with read/expected counts and missing
+book IDs. Separate `accounting_status` (`complete` / `unresolved` / `unavailable`) and
+`unresolved_deployment_ids` disclose retained unresolved inventory/executions even when read
+`status=complete`. `MANAGED_ACCOUNTING_UNRESOLVED` makes affected asset quantities and foreign
+differences null (`managed_unknown`); unaffected assets and order ownership checks remain
+independent. Either incomplete read side leaves dependent `foreign_quantity`, `foreign`,
+`orphan`, and `matched` null, never guessed; incomplete managed asset rows are
+`managed_unknown`. Missing storage cannot establish an empty managed fleet.
+`orders_listing.scope=spot_order_history_nonterminal` means all spot-history pages
+(no status/time/source/account filter), retaining OPEN/PENDING/QUEUED/CANCEL_QUEUED/
+EDIT_QUEUED. Queued cancellations remain working. Unknown statuses, malformed rows/
+pages, duplicate order IDs, cursor cycles, and page exhaustion fail closed. Managed
+pending submissions match by client ID; a locally terminal managed order still working
+at the venue is `MANAGED_ORDER_STATUS_MISMATCH`, not external activity. Duplicate
+balance rows are summed; malformed balance evidence fails the listing. These are
+sequential REST reads, not an atomic snapshot. No account identifiers or secrets.
+
+## Safety alerts (ADR 0115)
+
+`alerts` is read-only. `payload.storage` is `available` or `unavailable`. `payload.open_alerts`
+and `payload.resolved_alerts` are durable rows (`code`, `severity`, `subject`, `detail`,
+`occurrences`, `delivery.status`). `delivery_warning` is set when `notify_provider=none`:
+the local feed still works and no webhook destination is invented. Open critical alerts
+make `overall_status` `failed`. Counts/status use the full open inventory; the bounded display
+prioritizes critical rows and reports truncation in `partial_result_warnings`.
+This report never places, cancels, or escalates orders.
+A `STOP_TRIGGERED_UNFILLED` row means a protective stop traded through and remained
+unfilled; supervision does not submit a market order. When every resting closing-side stop
+of an occupied live book is triggered-unfilled, the book also reports `STOP_UNCOVERED`:
+the resting orders no longer evidence cover. Unresolved fill economics make a live book's cover
+`STOP_COVERAGE_UNKNOWN`, but a live position with no working stop at all (confirmed, pending,
+or unknown) still reports critical `STOP_UNCOVERED`. Unknown evidence never resolves an alert;
+only that check's verified absence (or authoritative deployment removal) does. Partial
+snapshots/inventories and cold/warming caches are not recovery. Applied-but-unprojected owned
+fills and unsettled canceled/filled executions likewise cannot clear protection/trigger incidents
+on missing positions or terminal status; independent authoritative checks may still recover. Implausibly future lease
+expiries indicate unknown age/possible clock skew, not verified freshness. Worker error counts persist across
+restart; observing a held supervision pause does not fabricate additional errors.
+
+Delivery timestamps never refresh safety evidence. Notification attempts use durable claims
+and stable alert IDs; recipients must dedupe those IDs to prevent duplicate handling across
+ambiguous send/ack crashes. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
+while the durable alert stays locally readable.

@@ -3,6 +3,7 @@
  * redirect and chooser.
  */
 import { expect, test } from '../e2e/harness';
+import { inventoryPageFixture } from '../e2e/inventory';
 import {
 	definition,
 	deployment,
@@ -309,7 +310,7 @@ test('every bot of the strategy is listed with Current rules or Earlier edit', a
 		(url) => url.pathname === '/api/v1/deployments',
 		(route) => {
 			requested.push(new URL(route.request().url()).searchParams.get('strategy_id') ?? '');
-			return route.fulfill({ json: { deployments: [current, earlier] } });
+			return route.fulfill({ json: inventoryPageFixture([current, earlier]) });
 		}
 	);
 	await page.goto(runStage);

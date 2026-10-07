@@ -1,5 +1,15 @@
 # Agent and Operator Integration
 
+[ADR 0121](decisions/0121-execution-write-boundaries.md) fences reused discretionary pending
+state, commits scoped runtime/parent updates together, serializes same-book fill projection and
+restricts peer breaker pauses to metadata. A conflicting entry requires fresh observation and
+admission, not retrying stale financial state under a new revision. Protection replacement waits
+for applied post-cancel execution evidence; uncertainty cannot supply a sell quantity. No new CLI
+flags, confirmation bypass, public payload or migration is introduced by this correction.
+The report's missing occupied-product inventory predicate also constrains admission without a
+price observation, verified UTC opening reconstruction and flat-day accounting. Successful full
+reads and prior opening proof do not turn a missing OPEN/PENDING_EXIT position into zero risk.
+
 Runtime risk scope and diagnostic semantics follow [ADR 0106](decisions/0106-account-risk-capital-and-live-startup-baselines.md).
 Live account fractions use one observed venue quote balance plus managed long inventory cost and
 buy-entry reservations; per-bot allocations and portfolio caps remain separate. Existing decision
@@ -115,7 +125,7 @@ Prefer a versioned `thytrader` operator CLI backed by the same application servi
 
 Shipped command groups:
 
-- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, products, indicators, strategies, performance, risk, reconciliation, runtime, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
+- `thytrader-operator` — health, configuration, exchange, market-data, data-catalog, data-health (all enabled watched tails; clock-aware, historical coverage separate), products, indicators, strategies, performance, risk, readiness, reconciliation, venue-reconciliation, runtime, alerts, execution-quality, monitor, studies, trade-reasons, decisions, portfolios (including `paper_live_fill_comparisons` for paper/live twins of one strategy snapshot; [ADR 0097](decisions/0097-runtime-parity-and-observability.md)), support-bundle, schema-check, chat-status.
 
 `uv run thytrader-operator indicators` lists the fail-closed catalog an agent may author: 53 kinds
 grouped by `category` (trend, momentum, volatility, volume, statistical, price), each with its
@@ -165,6 +175,52 @@ Their window remains deployment-anchored across restart. This does not waive com
 an archived catalog success cannot clear an execution mismatch. Diagnose through operator/runtime
 reads, repair the cause, then explicitly resume in the runtime lane with the existing confirmation
 and live acknowledgement gates and verify a fresh decision.
+
+Lifecycle supervision scopes every product independently between bars, on a data gap, and
+during cold-cache warming. Deliberate pauses remain paused; an already recorded live signal
+exit, reached time exit, or flatten continues from a verified traded close without signal
+reevaluation or decision-cursor advancement. Warming does not authorize a replacement bracket
+that reverses that exit. Atomic fill transactions persist the focused runtime transition and
+shared cash/fees together; the parent phase aggregates siblings without moving its cursor.
+
+Canceled-order executions still await applied REST-fill coverage, even when only some fragments
+are published. Applied entry economics with unprojected inventory are unresolved ledger evidence,
+not a display-message predicate: a later read fault, restart, or cleared `mismatch_detail` cannot
+prove flatness or authorize removing protection. Read `thytrader-runtime show UUID` and
+`thytrader-operator reconciliation` and report the fault; do not invent a stop/quantity, rewrite
+fills/fees, or resume a deliberately paused book ([ADR 0110](decisions/0110-stopped-lifecycle-reconciliation.md)).
+An occupied product runtime (`open` / `pending_exit`) without its own position is likewise
+unresolved (`runtime_position_unresolved`), even with surviving sibling inventory and regardless
+of running/paused/stopped status. Reporting exposes these books as `unknown` / `open_unverified` with nullable protection quantities
+and aggregate PnL/equity/exposure. Bounded summaries cannot certify flatness or full accounting;
+valid focused book evidence is not shared-account completeness. Readiness inventory and venue
+`managed_listing` separate read `status` from `accounting_status` (`complete` / `unresolved` /
+`unavailable`) and `unresolved_deployment_ids`. `BOOK_ACCOUNTING_UNRESOLVED` /
+`MANAGED_ACCOUNTING_UNRESOLVED` preserve null dependent capacity and affected asset differences
+(`managed_unknown`), not fake zero/free capacity/foreign holdings. Independent balances, quotes,
+assets and order checks remain known when proved. Protection/trigger incidents do not recover
+just because positions disappear or executions become terminal. Prior opening proof/profits
+cannot repair projection. Portfolio deployment/briefing readers qualify sleeve, breaker, exposure
+and briefing performance with `accounting_complete`; breaker/exposure list affected deployment IDs.
+Dependent current equity/PnL/exposure/return/drawdown are null, not zero. Run history includes
+stopped current-run books; exposure also qualifies older occupied/residual books. Independent
+allocations, baselines, historical evidence and resolved projected books/assets remain available.
+Other portfolio/mode/quote scopes are not combined; a quote exposure subtotal cannot certify full
+run accounting. No reporting flag resets latches, changes admission, or grants order authority. Full performance reports use `ACCOUNTING_UNRESOLVED`; confirmation
+gates and read-only authority are unchanged.
+
+Order-state provenance is independent of local row recency: `venue_observed_at` is persisted
+only after identified live order reads, with legacy rows unknown until reconciliation. Do not
+read local `updated_at` as venue verification ([ADR 0119](decisions/0119-venue-order-observation-provenance.md)).
+Protection evidence uses `observation_source: venue_order_state` and `freshness: recent_venue`
+only for actual identified OPEN status receipts within 120 seconds, with each contributing
+quantity checked separately. `observed_at` is the latest relevant receipt; `verified_at` is the
+oldest contributing fresh receipt (only that fraction if cover is partial). UNKNOWN/error reads
+clear the evidence; local writes cannot renew it. Legacy/local evidence remains `persisted_order`
+and unknown. `geometry_basis` names a persisted submitted-geometry check, **not** an independent
+venue geometry audit or complete account reconciliation. UI fresh order state remains amber;
+do not convert `covered` into an audited venue guarantee
+([ADR 0112](decisions/0112-quantitative-protection-evidence.md)).
 
 Judge configured market-data coverage by `watch_complete`. For a watched target, catalog, ingest, and gap payloads make `complete` watch-relative and keep `island_complete`; coverage is `watch_covered_candle_count` of `watch_expected_candle_count`. Catalog `watch_sparsity` is `gapped` when the watch is incomplete. Thin markets carry flat no-trade bars (`synthetic_no_trade_intervals`), and `history_floor_at` marks only a proven listing ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). `inspect-gaps` may return `truncated=true` with a partial `gap_summary` when a server-side budget stops the scan ([ADR 0072](decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)). `GET /api/v1/market-data/datasets` lists fingerprint-addressed island publications only. `/datasets/latest` and operator `data-catalog` are catalog-grade (structural checks, stat-identity cache, under a second warm); binding a dataset to a backtest, study, or deployment re-verifies its exact content fingerprint ([ADR 0085](decisions/0085-fast-research-ingest.md)). A CLI that prints `Timed out after N s waiting for the ThyTrader API` gave up waiting on a busy API; for a mutation, read state back before retrying.
 
@@ -428,8 +484,8 @@ for `ledger_mark_complete`. Every open book needs its own close: a missing mark 
 outage leaves aggregate PnL/exposure unknown. These reads stay local and bounded; the separate
 operator `performance` report uses market-data closes.
 `GET /api/v1/portfolios/{id}/fill-comparisons` returns the operator report's
-`paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. An open paper book's
-`protection_status` is `covered` on every read.
+`paper_live_fill_comparisons` rows for twins of that portfolio's sleeves. A resolved open paper
+book's `protection_status` is `covered` on every read.
 Sparse markets ([ADR 0095](decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)): Coinbase returns no candle for an interval without
 trades. The worker publishes each confirmed one as a flat zero-volume bar. Dataset manifests count
 them (`synthetic_no_trade_intervals`), and backtests whose window holds one disclose
@@ -480,6 +536,27 @@ Default `detail=summary` omits historical orders and fills; paginate **`/fills`*
 `runtime` expose redacted `books[]` only. Numbered recipe:
 [`docs/agent/portfolio-research-ops-playbook.md`](agent/portfolio-research-ops-playbook.md).
 
+### Verified daily-risk evidence
+
+Admission and runtime breakers reload fresh unfiltered accounting for all retained books;
+a current product overlay or cached portfolio never replaces sibling fill evidence.
+`capital.utc_day_open_equity` remains preserved legacy data, not verified midnight equity.
+Nullable `capital.risk_day_open_evidence` contains `source: per_product_applied_fills_v1`, UTC
+`day_start`, exact decimal `equity`, `fills_fingerprint`, and per-product midnight `marks[]`
+(`product_id`, `closes_at`, exact `price`). Complete applied fills reconstruct opening cash and
+signed quantities separately; genuine flat midnight needs no price. Nonzero overnight inventory
+needs actual closed midnight prices, recoverable through an exact complete hourly range.
+Readers revalidate against current fills and UTC day; old evidence or an old stamp cannot bypass
+`BREAKER_MARK_MISSING`. Maintenance, late restart and latch reset never invent opening equity.
+See [ADR 0120](decisions/0120-verified-risk-opening-evidence.md).
+
+Primary operator `risk` reports `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` as nullable configuration strings, never observed balances.
+`PUT /api/v1/risk-policy` and `set-risk-policy --confirm` replace the whole policy: omission
+unsets optional bounds in the successor. Read the current policy and resupply bounds to retain
+them; immutable historical documents and compiled fingerprints are unchanged. The current
+frontend reads risk policy; it has no separate direct risk-policy editor/publication path.
+
 ### Orchestration skill
 
 `thytrader-playbook` sequences data → research → optional paper by calling existing CLIs. It
@@ -492,6 +569,44 @@ why-trade review, and trains a fail-closed advisory model from attributed local 
 `--confirm` is always required. YOLO never covers this lane. Operator `monitor` and
 `trade-reasons` are read-only. Place-order `--note` is the first why-trade note; later notes use
 `add-trade-reason-note --confirm`. Training consumes `JournalEntry` as stored.
+
+### Durable safety alerts
+
+Use `uv run thytrader-operator alerts`, `GET /api/v1/operator/alerts`, or `/alerts`
+for durable local safety observations ([ADR 0115](decisions/0115-durable-safety-alerts-and-supervision.md)).
+This is read-only; control stays in the separately confirmation-gated runtime lane.
+Recovery is per-check and requires complete evidence. Missing/stale/partial snapshots,
+storage failures, unavailable/warming or insufficient candles, and non-authoritative
+subset inventories never mean healthy. A consumed live stop remains sticky until
+terminal/fill/removal evidence clears it; a price rebound is not recovery and the
+alert does not authorize a market exit. Future-skewed leases mean unknown age.
+
+Counts/status use the full open inventory even when the displayed feed is bounded.
+Repeated verified failures can fence a new-entry pause without overwriting a stop,
+operator pause, latch, strategy identity, or unrelated mismatch. That pause survives
+restart; ambiguous no-op passes do not reset the failure count, and maintenance,
+reconciliation, and exits continue. It is never auto-resumed.
+
+`notify_provider=none` explicitly records skipped/disabled delivery and does not
+spend retry attempts. Delivery is independent of execution cycles. Durable claims
+prevent concurrent sends while the claim is valid; retries reuse the alert UUID.
+A send/ack crash can still duplicate an external webhook, so receivers must
+idempotently deduplicate. Bounded retries can exhaust without external receipt.
+Do not infer exactly-once delivery or invent a destination.
+
+### Fleet controls
+
+Mode-wide controls live in the confirmation-gated runtime lane, not the read-only operator lane
+([ADR 0117](decisions/0117-truthful-inventory-and-fleet-controls.md)): `uv run thytrader-runtime
+fleet-preview|fleet-status|fleet-disarm|fleet-stop|fleet-flatten|fleet-rearm`, or
+`GET /api/v1/fleet-control`, `GET /api/v1/fleet-control/preview?action=&mode=` and
+`POST /api/v1/fleet-control/{disarm|stop|flatten|rearm}`. Disarm only inhibits new starts and
+entries; stop is a managed shutdown that keeps protection; flatten is explicit; rearm clears the
+latch without resuming books. Every mutation requires `confirm`, the previewed deployment
+revisions (and latch revisions for disarm/rearm), and an idempotency key; live flatten and live
+rearm also require the live acknowledgement. YOLO never covers them. An agent must not refresh
+revisions to replace the person's consent, and a partial result does not mean positions are flat.
+The [runtime skill](../skills/thytrader-runtime/SKILL.md) has the exact flags.
 
 ## Stable diagnostics schema
 
@@ -573,7 +688,7 @@ The operator skill tells agents to:
 
 | Capability available | Supported agent authority |
 |---|---|
-| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, strategy library state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, the per-bar decision timeline (`decisions`), and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
+| Supported read-only diagnostics | `thytrader-operator`: health, configuration validity, market-data quality, strategy library state, backtest/paper/live performance slices, reconciliation, runtime watch (redacted `books[]`), persisted research-study catalog, why-trade journals, the per-bar decision timeline (`decisions`), durable safety alerts (`alerts`), and a redacted support bundle. Account balances and portfolio history: `GET /api/v1/portfolio` and `/history` (not an operator CLI subcommand). Deployment quantities: `thytrader-runtime show`. HTTP by default. |
 | Supported strategy/backtest mutation contracts | `thytrader-research`: confirmation-gated strategy create/save/import/clone/delete, backtest submission by `strategy_id` (including `additional_instrument_datasets` for extra covered products), composed OOS / walk-forward / cross-market / sweep / WFO studies, and persisted study catalog reads. HTTP by default. |
 | Paper runtime | Read-only paper-session status and fill-ledger PnL through the operator skill. Paper start/pause/resume/stop uses `thytrader-runtime` with `--confirm`. Optional `--maker-fee-rate` / `--taker-fee-rate` are documented paper assumptions ([ADR 0048](decisions/0048-paper-deploy-fee-fields.md)); omitted rates stay `0.001` / `0.002`. `thytrader-playbook` may start paper only and uses those defaults. |
 | Guarded live execution | `thytrader-runtime start --mode live --confirm --i-understand-live` or, when YOLO advertises `live`, `start --mode live --i-understand-live` after an audited skip. Live `place-order` still needs `--confirm` and `--i-understand-live`. Live fills ingest through cursor-terminated List Fills and quarantine incomplete rows ([ADR 0059](decisions/0059-coinbase-list-fills-cursor-pagination.md)). Arming, cancellation of individual venue orders, configuration changes, and kill switches never inherit authority from an observation, research, or playbook skill. |
@@ -641,7 +756,7 @@ validated. Publication-time metadata lives outside canonical result bytes (Alemb
 0064); missing legacy bounded metadata remains null with a warning. Full detail
 computes it without mutating a publication. See the research skill for invocations.
 
-The expected operational schema revision is `0064`, including backtest fee metadata.
+The expected operational schema revision is `0066` (durable safety alerts). Backtest fee metadata remains the Alembic `0064` column.
 Health rejects a different applied revision. A repository test compares the
 advertised revision with Alembic head so a migration cannot silently ship a stale
 health contract. Matching application versions alone remains insufficient.

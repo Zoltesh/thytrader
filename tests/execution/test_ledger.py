@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from thytrader.execution.ledger import (
     PAPER_MAKER_FEE_RATE,
     PAPER_TAKER_FEE_RATE,
@@ -287,7 +288,7 @@ def test_ledger_from_snapshot_joins_fill_sides() -> None:
             ),
         ),
     )
-    ledger = ledger_from_snapshot(snapshot, mark_price=None)
+    ledger = ledger_from_snapshot(settled_snapshot(snapshot), mark_price=None)
     assert ledger.trade_count == 1
     assert ledger.total_net_pnl == Decimal("9.79")
     assert ledger.total_fees == Decimal("0.21")
@@ -351,6 +352,7 @@ def test_snapshot_open_position_uses_stored_entry_and_quantity() -> None:
             ),
         ),
     )
+    snapshot = settled_snapshot(snapshot)
     unmarked = ledger_from_snapshot(snapshot, mark_price=None)
     assert unmarked.total_net_pnl is None
     marked = ledger_from_snapshot(snapshot, mark_price=Decimal("105"))
@@ -457,6 +459,7 @@ def test_multi_book_ledger_aggregates_equity_and_marked_exposure() -> None:
             ),
         ),
     )
+    snapshot = settled_snapshot(snapshot)
     partial = ledger_from_snapshot(
         snapshot,
         marks={"BTC-USD": Decimal("110")},

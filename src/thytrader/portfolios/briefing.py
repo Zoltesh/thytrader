@@ -59,7 +59,8 @@ _RATIO = Decimal("0.01")
 
 BRIEFING_DISCLOSURES: Final[tuple[str, ...]] = (
     "Performance uses each sleeve bot's last persisted bar-close equity; it lags by up to "
-    "one bar of the sleeve's clock.",
+    "one bar of the sleeve's clock. Unresolved accounting makes dependent current totals null, "
+    "not zero; recorded baselines, allocations and historical evidence remain independent.",
     "Backtest evidence is the newest stored portfolio backtest: sleeves simulated "
     "independently on fixed capital slices; portfolio caps and cross-sleeve interactions "
     "are not simulated. Fills are simulated from candles.",
@@ -111,9 +112,10 @@ class BriefingPerformance(BaseModel):
     """The portfolio's run performance."""
 
     capital_quote: str
-    equity: str
-    net_pnl: str
-    return_fraction: str
+    accounting_complete: bool
+    equity: str | None
+    net_pnl: str | None
+    return_fraction: str | None
     daily_pnl: str | None
     drawdown_fraction: str | None
     run_started_at: str | None
@@ -206,7 +208,8 @@ async def build_manager_briefing(
         ]
     )
     capital = Decimal(portfolio.capital_quote)
-    pnl = snapshot.equity - capital
+    equity = deployment.breaker.equity
+    pnl = None if equity is None else Decimal(equity) - capital
     return ManagerBriefing(
         generated_at=utc_text(moment),
         portfolio_id=portfolio_id,
@@ -222,11 +225,16 @@ async def build_manager_briefing(
         state=deployment.state,
         performance=BriefingPerformance(
             capital_quote=portfolio.capital_quote,
-            equity=canonical_decimal(snapshot.equity),
-            net_pnl=canonical_decimal(pnl),
-            return_fraction=canonical_decimal((pnl / capital).quantize(Decimal("0.000001")))
-            if capital > 0
-            else "0",
+            accounting_complete=deployment.breaker.accounting_complete,
+            equity=equity,
+            net_pnl=None if pnl is None else canonical_decimal(pnl),
+            return_fraction=(
+                None
+                if pnl is None
+                else canonical_decimal((pnl / capital).quantize(Decimal("0.000001")))
+                if capital > 0
+                else "0"
+            ),
             daily_pnl=deployment.breaker.daily_pnl,
             drawdown_fraction=deployment.breaker.drawdown_fraction,
             run_started_at=deployment.breaker.run_started_at,

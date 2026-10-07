@@ -1,5 +1,13 @@
 # Architecture Decision Records
 
+[ADR 0116](0116-live-execution-evidence-and-backtest-bar-explanations.md) is accepted:
+read-only live round-trip fee and slippage evidence, explicit twin cannot-compare rules, and
+bounded backtest bar explanations. It does not rewrite historical fills or the backtest engine.
+
+[ADR 0117](0117-truthful-inventory-and-fleet-controls.md) is accepted: deployment inventory
+pages use a stable created-at snapshot, and fleet disarm, managed stop, and flatten are
+separate confirmation-gated controls. Disarm inhibits entries and never flattens.
+
 [ADR 0107](0107-capital-normalized-live-performance.md) is accepted: pinned performance capital
 and durable observed drawdown correct zero-based live percentages without rewriting ledger cash
 or historical baselines. It amends ADRs 0050/0058 and preserves ADR 0106's account risk scope.
@@ -117,6 +125,18 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0102](0102-explicit-paper-live-twin-links.md) | Durable one-to-one paper/live comparison links; metadata-only runtime controls; saved pairs replace inference | Accepted — amends 0097 and 0098 |
 | [0107](0107-capital-normalized-live-performance.md) | Pinned performance capital and durable observed drawdown for live PnL ledgers; ops contract v64 / Alembic 0061 | Accepted — amends 0050 and 0058 |
 | [0108](0108-account-read-and-audit-failure-evidence.md) | Safe operation-specific account-read errors and individual audit failures with conservative recovery evidence; ops contract v65 | Accepted |
+| [0110](0110-stopped-lifecycle-reconciliation.md) | Reconcile paused and stopped books fully; keep protection when flatten has no verified price | Accepted — amends 0058 |
+| [0111](0111-durable-risk-accounting-scopes.md) | Separate exposure/occupancy from UTC-day loss and latches; strategy-scoped drawdown and retained paper risk evidence | Accepted |
+| [0112](0112-quantitative-protection-evidence.md) | Quantitative protection evidence; live cover requires a confirmed matching stop; paper cover stays worker-dependent | Accepted — amends 0058 and 0098 |
+| [0113](0113-deploy-anchored-window-cache.md) | Bounded incremental history loading with exact anchored indicator state and explicit cold-cache warming | Accepted |
+| [0114](0114-readiness-preflight-and-venue-reconciliation.md) | Advisory capacity and fee preflight; explicit managed-versus-venue inventory evidence | Accepted |
+| [0115](0115-durable-safety-alerts-and-supervision.md) | Durable deduplicated safety alerts and execution-worker supervision pauses; Alembic 0066 | Accepted |
+| [0116](0116-live-execution-evidence-and-backtest-bar-explanations.md) | Recorded execution quality and bounded reproducible bar explanations; unknown comparisons do not rewrite economics | Accepted |
+| [0117](0117-truthful-inventory-and-fleet-controls.md) | Fenced complete inventory and separate consent-bound disarm, managed stop, flatten and rearm | Accepted |
+| [0118](0118-watched-market-tail-health.md) | All-enabled-watch published-tail health aligned to each clock; history and worker success stay independent | Accepted |
+| [0119](0119-venue-order-observation-provenance.md) | Durable venue order-state observation time independent of local writes; no invented legacy backfill | Accepted |
+| [0120](0120-verified-risk-opening-evidence.md) | Authoritative accounting and verified UTC opening reconstruction; legacy stamps remain untrusted | Accepted |
+| [0121](0121-execution-write-boundaries.md) | Atomic conditional parent/runtime writes, narrow breaker metadata and serialized same-book fill projection | Accepted |
 
 ## Status values
 

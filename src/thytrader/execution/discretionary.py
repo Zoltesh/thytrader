@@ -42,6 +42,7 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     IntentOrigin,
     IntentPurpose,
+    LifecycleCommand,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -59,7 +60,9 @@ from thytrader.execution.trade_reason_scope import (
 )
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.exposure import counts_for_daily_loss
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
 from thytrader.risk.store import load_effective_policy
@@ -203,6 +206,7 @@ async def place_discretionary_order(
         request=request,
         risk_store=risk_store,
         notional=sized.notional,
+        quantity=sized.quantity,
         live_quote_cash=live_quote_cash,
         entry_price=sized.entry_price,
         reference_price=mark_candle.close,
@@ -218,7 +222,9 @@ async def place_discretionary_order(
         last_signal="discretionary",
         clear_mismatch=True,
     )
-    await store.save_deployment(pending)
+    # No intent or venue submission follows a lost candidate revision. Re-admission
+    # must start from fresh evidence, not restore stale cash/status/lifecycle fields.
+    await store.save_deployment(pending, expected_revision=snapshot.deployment.revision)
     active = await load_effective_policy(risk_store)
     scope = discretionary_trade_reason_scope(
         memory_store,
@@ -418,6 +424,7 @@ async def _book_for_entry(
     request: DiscretionaryOrderRequest,
     risk_store: RiskPolicyStore | None,
     notional: Decimal,
+    quantity: Decimal,
     live_quote_cash: Decimal | None,
     entry_price: Decimal,
     reference_price: Decimal,
@@ -426,14 +433,29 @@ async def _book_for_entry(
     existing = await store.list_deployments()
     reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
     if reusable is not None:
-        _require_matching_paper_fees(reusable, request)
-        snapshot = await store.get_deployment(reusable.id)
+        snapshot = await accounting_snapshot(store, reusable.id, as_of=utc_now())
+        fresh = snapshot.deployment
+        if (
+            _reusable_book((fresh,), product_id=request.product_id, mode=request.mode) is None
+            or snapshot.positions
+            or snapshot.position is not None
+            or fresh.lifecycle_command is not LifecycleCommand.NONE
+            or any(
+                order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+                for order in snapshot.orders
+            )
+        ):
+            raise ExecutionConflictError(
+                "Discretionary candidate changed; read fresh state before retrying."
+            )
+        _require_matching_paper_fees(fresh, request)
         await _require_entry_admission(
             risk_store,
             store=store,
             request=request,
             snapshot=snapshot,
             notional=notional,
+            quantity=quantity,
             live_quote_cash=live_quote_cash,
             deployments=existing,
             entry_price=entry_price,
@@ -453,6 +475,7 @@ async def _book_for_entry(
         request=request,
         snapshot=DeploymentSnapshot(deployment=candidate),
         notional=notional,
+        quantity=quantity,
         live_quote_cash=live_quote_cash,
         deployments=existing,
         entry_price=entry_price,
@@ -590,6 +613,7 @@ async def _require_entry_admission(
     request: DiscretionaryOrderRequest,
     snapshot: DeploymentSnapshot,
     notional: Decimal,
+    quantity: Decimal,
     live_quote_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
     entry_price: Decimal,
@@ -597,7 +621,7 @@ async def _require_entry_admission(
 ) -> None:
     """Fail closed when the registry rejects this sized entry."""
     active = await load_effective_policy(risk_store)
-    peers = await _occupied_snapshots(
+    peers = await _accounting_snapshots(
         store, deployments=deployments, exclude_id=snapshot.deployment.id
     )
     live_cash = live_quote_cash if request.mode is DeploymentMode.LIVE else None
@@ -608,6 +632,7 @@ async def _require_entry_admission(
             product_id=request.product_id,
             strategy_id=None,
             notional=notional,
+            quantity=quantity,
         ),
         snapshots=(*peers, snapshot),
         live_quote_cash=live_cash,
@@ -640,15 +665,17 @@ async def _pause_on_breaker(
     peers: tuple[DeploymentSnapshot, ...],
     verdict: RiskVerdict,
 ) -> None:
-    """Pause this book, or the whole mode on daily-loss, when the gate trips."""
+    """Pause this book, or persisted same-quote mode peers on daily loss, with a latch."""
     if not pauses_risk_increasing(verdict.reason_code):
         return
     detail = f"{verdict.reason_code.value}: {verdict.detail}"
     if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
+        persisted = {item.id for item in deployments}
         await _pause_mode_running(
             store=store,
             mode=request.mode,
-            portfolio=(*peers, snapshot),
+            product_id=request.product_id,
+            portfolio=tuple(item for item in (*peers, snapshot) if item.deployment.id in persisted),
             detail=detail,
         )
         return
@@ -656,18 +683,18 @@ async def _pause_on_breaker(
         await _pause(snapshot, store=store, detail=detail)
 
 
-async def _occupied_snapshots(
+async def _accounting_snapshots(
     store: ExecutionStore,
     *,
     deployments: tuple[Deployment, ...],
     exclude_id: UUID,
 ) -> tuple[DeploymentSnapshot, ...]:
-    """Load occupied peer books so breakers see fills, orders, and inventory."""
+    """Load peer books that can still evidence UTC-day loss, including stopped flat rows."""
     peers: list[DeploymentSnapshot] = []
     for item in deployments:
-        if item.id == exclude_id or item.status not in _OCCUPIED:
+        if item.id == exclude_id or not counts_for_daily_loss(item.status):
             continue
-        peers.append(await store.get_deployment(item.id))
+        peers.append(await accounting_snapshot(store, item.id, as_of=utc_now()))
     return tuple(peers)
 
 

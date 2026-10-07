@@ -12,17 +12,25 @@ if TYPE_CHECKING:
 from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import (
+    Deployment,
     DeploymentSnapshot,
     DeploymentStatus,
     Fill,
+    IntentPurpose,
     Order,
     OrderSide,
+    OrderStatus,
     Position,
     PositionSide,
     RuntimePhase,
+    aggregate_phase,
+    is_venue_protection,
     resolved_product_id,
+    runtime_from_deployment,
+    snapshot_positions,
     with_runtime,
 )
+from thytrader.execution.overlay import overlay_snapshot
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -70,6 +78,118 @@ def fill_economics_complete(snapshot: DeploymentSnapshot, order: Order) -> bool:
     return applied >= covered
 
 
+def unsettled_fill_evidence(snapshot: DeploymentSnapshot) -> bool:
+    """Block further execution while recorded executions exceed applied economics.
+
+    A terminal cancel only settles its remainder, not its executed quantity. Applied
+    fragments do not prove a locally FILLED order is complete either.
+    """
+    applied: dict[UUID, Decimal] = {}
+    for fill in snapshot.fills:
+        if fill.economics_applied_at is None:
+            return True
+        applied[fill.order_id] = applied.get(fill.order_id, Decimal(0)) + fill.quantity
+    return any(
+        applied.get(order.id, Decimal(0))
+        < (
+            max(order.quantity, order.filled_quantity)
+            if order.status is OrderStatus.FILLED
+            else order.filled_quantity
+        )
+        for order in snapshot.orders
+    )
+
+
+def unprojected_inventory_products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
+    """Identify owned applied inventory not represented by the position projection.
+
+    Retained orders/fills, not a mutable mismatch string, are the durable evidence.
+    Only products with applied entry evidence are anchored; legacy seeded positions
+    without an entry ledger are not reconstructed or assigned invented geometry.
+    A larger same-side legacy position is allowed, but cannot hide recorded inventory
+    on the opposite side or a recorded balance larger than the projected position.
+    This predicate never supplies an executable quantity or repairs historical fills.
+    """
+    entries = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    orders = {order.id: order for order in snapshot.orders}
+    anchors: dict[str, datetime] = {}
+    for fill in snapshot.fills:
+        order = orders.get(fill.order_id)
+        if (
+            fill.economics_applied_at is None
+            or order is None
+            or order.intent_id not in entries
+            or is_venue_protection(order.kind)
+        ):
+            continue
+        product_id = resolved_product_id(order.product_id, snapshot.deployment)
+        anchors[product_id] = min(anchors.get(product_id, order.created_at), order.created_at)
+    balances = _anchored_inventory_balances(snapshot, orders=orders, anchors=anchors)
+    positions = {
+        resolved_product_id(position.product_id, snapshot.deployment): (
+            position.quantity if position.side is PositionSide.LONG else -position.quantity
+        )
+        for position in snapshot_positions(snapshot)
+    }
+    return tuple(
+        sorted(
+            product_id
+            for product_id in anchors
+            if (balance := balances.get(product_id, Decimal(0))) != 0
+            and (
+                balance * positions.get(product_id, Decimal(0)) <= 0
+                or abs(balance) > abs(positions.get(product_id, Decimal(0)))
+            )
+        )
+    )
+
+
+def _anchored_inventory_balances(
+    snapshot: DeploymentSnapshot,
+    *,
+    orders: dict[UUID, Order],
+    anchors: dict[str, datetime],
+) -> dict[str, Decimal]:
+    """Net applied fills from the first owned entry order, excluding legacy exit orders.
+
+    Anchor on durable local order creation, not fill publication or a possibly identical
+    venue fill timestamp. An older exit order cannot establish that a later owned entry
+    was projected/settled; ambiguous late executions keep this predicate conservative.
+    """
+    balances: dict[str, Decimal] = {}
+    for fill in snapshot.fills:
+        order = orders.get(fill.order_id)
+        if fill.economics_applied_at is None or order is None:
+            continue
+        product_id = resolved_product_id(order.product_id, snapshot.deployment)
+        anchor = anchors.get(product_id)
+        if anchor is None or order.created_at < anchor:
+            continue
+        signed = fill.quantity if order.side is OrderSide.BUY else -fill.quantity
+        balances[product_id] = balances.get(product_id, Decimal(0)) + signed
+    return balances
+
+
+def fill_projection_deployment(
+    before: DeploymentSnapshot, projected: DeploymentSnapshot
+) -> Deployment:
+    """Merge shared fill changes without replacing a multi-book decision cursor.
+
+    The projection's deployment is focused on the filled product. The parent keeps
+    its scheduling fields while its phase reflects all persisted product runtimes.
+    """
+    if not projected.instrument_runtimes:
+        return projected.deployment
+    return replace(
+        before.deployment,
+        cash=projected.deployment.cash,
+        status=projected.deployment.status,
+        mismatch_detail=projected.deployment.mismatch_detail,
+        phase=aggregate_phase(projected.instrument_runtimes),
+        updated_at=projected.deployment.updated_at,
+    )
+
+
 def prior_fills_for_order(snapshot: DeploymentSnapshot, order_id: UUID) -> int:
     """Count fills already recorded for one order (including unapplied evidence)."""
     return sum(1 for fill in snapshot.fills if fill.order_id == order_id)
@@ -83,7 +203,32 @@ def project_fill_economics(
     cooldown_bars: int = 0,
     timeframe: str | None = None,
 ) -> tuple[DeploymentSnapshot, Fill]:
-    """Apply one fill to cash/position in memory without persisting."""
+    """Apply one fill to its own product book without persisting.
+
+    Atomic stores load the full deployment, so the product must be selected here,
+    not merely in the caller's overlay. Sibling positions are never the exit target.
+    """
+    product_id = resolved_product_id(order.product_id, snapshot.deployment)
+    focused = overlay_snapshot(snapshot, product_id)
+    projected, stamped = _project_inventory(
+        focused, fill=fill, order=order, cooldown_bars=cooldown_bars, timeframe=timeframe
+    )
+    if not snapshot.instrument_runtimes:
+        return replace(projected, instrument_runtimes=()), stamped
+    runtime = runtime_from_deployment(projected.deployment, product_id)
+    siblings = tuple(item for item in snapshot.instrument_runtimes if item.product_id != product_id)
+    return replace(projected, instrument_runtimes=(*siblings, runtime)), stamped
+
+
+def _project_inventory(
+    snapshot: DeploymentSnapshot,
+    *,
+    fill: Fill,
+    order: Order,
+    cooldown_bars: int,
+    timeframe: str | None,
+) -> tuple[DeploymentSnapshot, Fill]:
+    """Project one already-focused inventory change and preserve exact cash/fee economics."""
     now = utc_now()
     stamped = (
         fill if fill.economics_applied_at is not None else replace(fill, economics_applied_at=now)
@@ -120,6 +265,12 @@ def _project_entry(
     deployment = snapshot.deployment
     side = PositionSide.LONG if order.side is OrderSide.BUY else PositionSide.SHORT
     cash = _cash_after_fill(deployment.cash, fill=fill, order_side=order.side)
+    # Shutdown remains durable even if a late entry fill lacks projection metadata.
+    fault_status = (
+        DeploymentStatus.STOPPED
+        if deployment.status is DeploymentStatus.STOPPED
+        else DeploymentStatus.PAUSED
+    )
     stop = deployment.pending_stop_price
     # A None target is legal: the strategy declares no take-profit (ADR 0090), and the
     # book is protected by its stop alone. The stop is always required.
@@ -130,7 +281,7 @@ def _project_entry(
             deployment,
             updated_at=now,
             cash=cash,
-            status=DeploymentStatus.PAUSED,
+            status=fault_status,
             mismatch_detail="Entry fill is missing its stored stop price.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
@@ -150,7 +301,7 @@ def _project_entry(
             deployment,
             updated_at=now,
             cash=cash,
-            status=DeploymentStatus.PAUSED,
+            status=fault_status,
             mismatch_detail="Entry fill is missing a deployment timeframe for bar bucketing.",
             phase=RuntimePhase.FLAT,
             clear_pending_levels=True,
@@ -288,10 +439,9 @@ def _project_exit(
         for item in snapshot.positions
         if product_id is None or resolved_product_id(item.product_id, deployment) != product_id
     )
-    focused = None if not positions else positions[0]
     return DeploymentSnapshot(
         deployment=updated,
-        position=focused,
+        position=None,
         orders=snapshot.orders,
         fills=_upsert_fill(snapshot.fills, fill),
         intents=snapshot.intents,
@@ -366,7 +516,10 @@ async def ingest_fill(
         )
     elif projected.deployment.phase is RuntimePhase.FLAT:
         await store.save_position(None, deployment_id=snapshot.deployment.id, product_id=product_id)
-    await store.save_deployment(projected.deployment)
+    for runtime in projected.instrument_runtimes:
+        if runtime.product_id == product_id:
+            await store.save_instrument_runtime(runtime, deployment_id=snapshot.deployment.id)
+    await store.save_deployment(fill_projection_deployment(snapshot, projected))
     refreshed = await store.get_deployment(snapshot.deployment.id)
     return FillIngestResult(applied=True, snapshot=refreshed)
 

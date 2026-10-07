@@ -55,11 +55,13 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Exchange | `uv run thytrader-operator exchange` | `GET /api/v1/operator/exchange` |
 | Market data | `uv run thytrader-operator market-data [--product-id BTC-USD] [--timeframe 1h\|5m\|15m\|30m\|6h\|1d\|1m\|2h\|4h]` | `GET /api/v1/operator/market-data` |
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
+| All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products` | `GET /api/v1/operator/products` |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
 | Monitor | `uv run thytrader-operator monitor` | `GET /api/v1/operator/monitor` (deployments, recent journals, notify delivery; omits balances and webhook URLs) |
+| Safety alerts | `uv run thytrader-operator alerts` | `GET /api/v1/operator/alerts` (durable pause/mismatch, breaker, uncovered or unknown stop cover, stop-triggered-but-unfilled, missed decision/maintenance deadlines, worker lease age including unknown, consecutive worker failures; local feed works with `notify_provider=none` and sets `delivery_warning`; no webhook URL; no order authority; ADR 0115) |
 | Why-trade review | `uv run thytrader-operator trade-reasons [--intent-id UUID] [--deployment-id UUID]` | `GET /api/v1/operator/trade-reasons` |
 | Decision timeline | `uv run thytrader-operator decisions [--deployment-id UUID \| --strategy-id UUID] [--outcome OUTCOME ...] [--limit N] [--cursor C]` | `GET /api/v1/operator/decisions` (per-bar `thytrader-bar-decision-v1` rows, newest first; repeated `outcome`; `next_cursor` paging) |
 | Performance | `uv run thytrader-operator performance --result-fingerprint sha256:…` or `--deployment-id UUID` | `GET /api/v1/operator/performance` |
@@ -69,13 +71,43 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
 | Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins with verified identical trading rules; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
+| Readiness preflight | `uv run thytrader-operator readiness [--deployment-id UUID] [--portfolio-id UUID]` | `GET /api/v1/operator/readiness` (advisory allocation vs venue quote vs account and portfolio caps, per-asset caps, remaining entry capacity, paper fee assumptions vs account fee evidence, and which daily-loss breaker binds tighter; never changes policy; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md)) |
+| Venue reconciliation | `uv run thytrader-operator venue-reconciliation` | `GET /api/v1/operator/venue-reconciliation` (managed live inventory and working orders versus a fresh venue listing; foreign holdings are not errors and are not flattened; incomplete listings stay unknown; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md)) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
 | In-app LLM key flag | `uv run thytrader-operator chat-status` | `GET /api/v1/operator-chat/status` (HTTP-only; never prints the key; not Coinbase; `--local` is rejected) |
+| Execution quality | `uv run thytrader-operator execution-quality --deployment-id UUID [--twin]` | `GET /api/v1/deployments/{id}/execution-quality` and `.../execution-quality/twin` (HTTP-only; recorded closed-trade fees and journaled-close slippage; missing fees/liquidity are not zero; `--local` is rejected; ADR 0116) |
+
+`execution-quality` slippage is relative to the persisted intent's **completed** decision
+bar; `reference_*` identifies that price, intent and bar. It is not a future fill-bar close
+or a quote at later repricing. Each book's `recorded_fills` includes partial exits exactly
+once. Twin `population=recorded_fill_lifetime` summaries are **context only** when
+`summaries_context_only=true`; intersecting dates do not prove equal histories or rules.
+Different strategy fingerprints need the server's pinned-rule proof (ADR 0105). Fee
+normalization always covers all applied lifetime live fills, independent of overlap;
+unknown liquidity or missing fill coverage makes counterfactual fees and delta **null**,
+never zero. Keep the observed fees and PnL separate from those assumptions.
 
 `--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 
 Machine-readable envelope: [operator-report-v1.schema.json](references/operator-report-v1.schema.json).
+
+For `readiness`, inspect inventory read `status`, separate `accounting_status`,
+`unresolved_deployment_ids`, and `partial_result_warnings` before reading remaining capacity.
+Successful full reads can still contain unprojected applied inventory or unpublished/unapplied
+executions (`BOOK_ACCOUNTING_UNRESOLVED`). Dependent exposure/capacity is null, not free capacity. Exposure is position cost plus working entries, not live
+marks. Actual product quotes (not the deployment primary product) determine scope;
+mixed books have per-quote rows and no cross-quote total. A deployment preflight still
+counts portfolio siblings. Missing runtime state has a null latch, not a reset.
+Paper/other-quote portfolio breakers are not compared to the live policy-quote account.
+For `venue-reconciliation`, **both** `managed_listing` and venue listings must be complete
+before foreign/orphan claims mean anything. Also inspect managed `accounting_status` and
+`unresolved_deployment_ids`: `MANAGED_ACCOUNTING_UNRESOLVED` leaves affected asset quantities
+and `foreign_quantity` null (`managed_unknown`), even if every read succeeded. Independent
+asset/order comparisons can remain known; economic incompleteness is not a failed venue read. Missing storage is not an empty fleet.
+Spot-history pagination includes queued cancellations/edits and pending orders; unknown
+statuses or malformed/duplicate pages fail closed. `CANCEL_QUEUED` is not cancellation
+confirmation. These observations never authorize replacement, cancellation, or flattening.
 
 `strategies` lists the 100 most recently updated strategies (`strategy_id`, `name`, `revision`, `valid`,
 `current_fingerprint` or `null` when the saved definition is invalid, `product_id`, `timeframe`,
@@ -89,17 +121,52 @@ rows. Its absence does not mean deletion or a rule mismatch. Read its current ru
 `thytrader-research list-strategies --limit 100` and the returned `--cursor`.
 
 `strategies` and `runtime` deployment rows include redacted `books[]` (`product_id`, `phase`,
-`side`, `protection_status`, `position_state`, `exit_in_flight`) without quantities ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+`side`, `protection_status`, `protection`, `position_state`, `exit_in_flight`). They omit prices,
+cash, and order payloads. `protection` coverage quantities are the only sizes on the row
+([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md),
+[ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)).
 Each row also carries the deployment's worst-book `position_state` / `exit_in_flight`
 ([ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md)). Report a book by
 `position_state`, not by `phase`: `phase: pending_exit` includes an open book whose TP/SL
 bracket (or stop-only protection) merely rests, which is `open_protected`. Only `exiting`
 (`exit_in_flight: true`) means an exit is being sent.
-`protection_status` is `flat` / `covered` / `unprotected` / `unknown` from verified attached-child
-coverage and venue-visible exits, not inferred parent geometry
+`protection_status` is `flat` / `covered` / `unprotected` / `unknown` from matching persisted
+stop evidence, not inferred parent geometry
 ([ADR 0058](../../docs/decisions/0058-protection-lifecycle-accounting.md)). An open paper book is
-always `covered` (its synthetic stop runs every closed bar), so it agrees with `position_state`
-([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Rows also include
+`covered` when its inventory economics are resolved (its synthetic stop runs every closed
+bar), so it agrees with `position_state`
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Do not read that
+paper `covered` as a venue-resting stop. Each book also carries `protection`
+([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)): `required_quantity`,
+`covered_quantity`, `uncovered_quantity` (exact decimals or null for unresolved inventory;
+unknown is not zero and is never a sell quantity; these coverage quantities are the
+exception to the no-quantity redaction and are not prices or cash), `stop_side`,
+`stop_side_valid`, `stop_geometry_valid`, `mechanism` (`venue` / `synthetic` / `none` /
+`unverified`), `venue_resting`, `worker_dependent`, `observed_at`, `verified_at` (null means
+unknown — do not invent a time), and `reasons`. Live `covered` requires a recent OPEN stop on
+the closing side whose remaining quantity and stop geometry match the book. A take-profit alone,
+a pending stop, and an unknown stop are not covered. The same attached child is counted once.
+`observation_source` names `venue_order_state`, `persisted_order` (legacy/local-only),
+`synthetic_worker`, or `none`. Live timestamps come only from `Order.venue_observed_at`
+([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)), never local
+`updated_at`: `observed_at` is the latest relevant receipt; `verified_at` is the oldest receipt
+among contributing fresh OPEN stops. With partial cover it verifies only that fraction, not
+the book. `freshness` (`recent_venue` / `stale` / `unknown`) conservatively describes order-state
+age against `evaluated_at`, with `freshness_max_age_seconds: 120` (worker-poll based, not candle
+frequency). Every contributing partial needs its own fresh receipt. Missing, stale, future-dated,
+or unidentified OPEN rows contribute no covered quantity. UNKNOWN/error reads clear receipt
+provenance; legacy rows stay unknown until actually observed. Local writes cannot refresh it.
+`covered` plus `recent_venue` proves fresh order state matching **persisted submitted geometry**,
+not an independent venue geometry audit or whole-account reconciliation. UI says **Order state
+fresh** in amber and discloses the geometry limitation; do not report audited/guaranteed venue
+cover or a green audit claim. Old `recent_local` payloads remain unverified.
+`geometry_basis` is `working_target`, `stop_limit_trigger`, or `unknown`; profitable trailing
+stops may cross entry. A STOP tag or trigger on a plain limit is not an executable stop.
+Duplicate precedence uses real venue receipts, not local recency. Terminal/UNKNOWN histories,
+missing provenance, geometry/quantity conflicts, and regressing fills cannot resurrect OPEN
+coverage through another local write.
+Paper `mechanism` is `synthetic` and `worker_dependent` is true. These are read-only reporting
+rules: do not automatically pause/resume or replace orders based on them. Rows also include
 `lifecycle_command`, breaker latches (`daily_loss_latched`, `drawdown_latched`), optimistic
 `revision`, and `worker_lease_held` (boolean only; no holder identity). Latches persist across
 pause and managed shutdown until an explicit operator reset via
@@ -114,12 +181,17 @@ For sizes, orders, and fills use `thytrader-runtime show` (`positions`, `instrum
 product-tagged orders/fills, `book_totals`). The singular HTTP `position` field is
 compatibility-only.
 
-`strategies` and `runtime` also report `ledger_mark_complete`: true when every open product
-book has a last-close mark in the decision journal (or the deployment is flat), false when any
-open book has no journaled close or the journal cannot be read, and null when its books cannot
-be loaded. This uses the same journal marks as `thytrader-runtime show`, without fetching venue
-prices or historical fills. The separate `performance` report uses market-data closes and can
-still be marked when journal evidence is unavailable.
+Unprojected applied fills and unsettled executions report `unknown` / `open_unverified`, not
+`flat`, even after restart or clearing a mismatch. Bounded summaries omit retained fill economics:
+absent positions are unverified and aggregate `ledger_mark_complete` is false, not a flatness
+certificate. Full `performance` reports set `ACCOUNTING_UNRESOLVED` and null dependent PnL/equity/
+exposure when economics are unresolved; known recorded fill statistics remain population evidence.
+Use `thytrader-runtime show UUID` (`detail=full`) for retained orders/fills, and `readiness` /
+`venue-reconciliation` for completeness. A prior qualified opening or prior profits do not repair
+projection. Protection/trigger incidents do not recover on missing positions or terminal status
+until their product's economics are resolved; independently proved row checks may still recover.
+For complete books, `ledger_mark_complete` requires every needed last-close mark. Focused valid
+book protection/marks are local evidence, never complete shared-account accounting.
 
 ## Decision timeline
 
@@ -179,6 +251,24 @@ distinguishes missing inventory marks from unavailable equity/day-open baselines
 live ledger baseline is not missing. Use the runtime lane's `show` and `show-risk-policy` for
 capital and policy evidence; never infer that a flat bot or a healthy reconciliation permits
 bypassing a risk denial ([ADR 0106](../../docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md)).
+The primary `risk` payload also echoes `max_order_quantity`, `max_order_notional_quote`, and
+`min_available_quote_reserve` as nullable decimal strings: null means the optional bound is unset,
+not that account funds are missing. These are configured limits, never observed balances.
+Risk publication replaces the entire policy; omitting a previously configured bound removes it
+from the successor, so read `show-risk-policy` and resupply bounds you intend to retain.
+Runtime `show` exposes `capital.risk_day_open_evidence` separately from preserved legacy
+`utc_day_open_equity`; a legacy stamp or an old evidence day is not verified current-day equity.
+The worker uses fresh complete sibling fill economics and actual closed midnight marks when
+needed ([ADR 0120](../../docs/decisions/0120-verified-risk-opening-evidence.md)). Missing opening
+provenance blocks new risk; resetting a latch cannot establish it.
+
+An occupied product runtime (`open` / `pending_exit`) with no position for that product stays
+`unknown` / `open_unverified`, even when another product survives and every collection read
+succeeds. This holds for running, paused and stopped deployments. Reason
+`runtime_position_unresolved` does not supply a quantity; prior coverage/trigger incidents cannot
+recover from that absence. Independent sibling/row findings and verified flat products still work.
+Portfolio deployment/briefing reads in the portfolio/runtime lanes separately qualify run and
+exposure `accounting_complete` and list affected IDs; null totals are unknown, not zero.
 
 ## Portfolio vs deployment inventory
 
@@ -188,7 +278,7 @@ Three read-only surfaces answer different questions. Do not conflate them.
 | --- | --- | --- |
 | Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
 | Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}?detail=full` (default `detail=summary` omits historical orders/fills; paginate `.../fills` and `.../orders`) |
-| Diagnostic phase/side/protection without sizes | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
+| Diagnostic phase/side/protection (coverage quantities only; no prices/cash) | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
 
 `health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
 `risk` and `monitor` omit balances (`balances_omitted: true`). For a numbered portfolio → research
@@ -218,7 +308,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v66`
+1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v68`
    (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
    windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
    Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
@@ -419,6 +509,25 @@ unchanged and may lack this trace. The runtime decision timeline displays the tr
 Read-only campaign/economic tools and bounded exports live in the research skill;
 operator observation grants no research mutation or runtime/order authority.
 
+## Safety alert recovery and delivery (ADR 0115)
+
+`uv run thytrader-operator alerts` is read-only. Missing/partial snapshot or candle evidence,
+cache warming, a failed inventory read, or a subset inventory never proves an alert
+recovered. Verified checks recover independently; a triggered-unfilled stop stays unsafe
+until durable order/fill/removal evidence clears it, not merely a price rebound.
+Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
+reset them. A supervision entry pause is lease/revision fenced and never auto-resumed;
+reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
+not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown
+age/possible clock skew, not verified freshness. Counts and health use all open alerts,
+even when the displayed feed is bounded; consult partial-result warnings for truncation.
+
+Notification dispatch is separate from safety cycles. `notify_provider=none` leaves the
+durable local feed and explicit warning intact. Attempts are durably claimed, bounded,
+and retried with stable alert IDs; a webhook receiver must dedupe that ID to prevent duplicate
+processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
+external delivery is not guaranteed. Delivery errors never reveal the configured destination.
+
 ## Backtest fee attribution
 
 `uv run thytrader-operator performance --result-fingerprint sha256:…` includes
@@ -432,7 +541,15 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-The current fee-attribution migration and health contract both require schema revision
-`0064`. After updating main, use `make run` to apply migrations and rebuild the services.
+The fee-attribution column shipped in schema revision `0064`. The health contract now
+requires revision `0069`, including durable alerts, fleet controls, venue observation provenance,
+and separate verified UTC-opening evidence. Legacy opening stamps are not verification.
+After updating main, use `make run` to apply migrations and rebuild the services.
+
+Venue order-state observation time is persisted separately from local `updated_at`
+([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)). A local write
+cannot renew venue evidence. Existing rows remain unknown until a successful reconciliation
+read; no migration invents a past verification time. This is order-state evidence, not an
+independent venue-geometry or whole-account audit, nor a guarantee that a stop-limit will fill.
 A repeated revision mismatch after that is a contributor defect, not a reason to
 bypass the CLI check or keep restarting unchanged images.

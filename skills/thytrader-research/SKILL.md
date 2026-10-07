@@ -224,9 +224,10 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
 | List result summaries | `uv run thytrader-research list-results [--strategy-id UUID \| --strategy-fingerprint sha256:…] [--limit 20] [--cursor CURSOR]` |
 | Show one result summary | `uv run thytrader-research show-result --result-fingerprint sha256:…` |
 | Trace the entry rule bar by bar for one result | `uv run thytrader-research-evaluate sha256:… [--outcome matched] [--limit 200] [--cursor CURSOR] [--pretty]` |
+| Explain one result bar by bar, including recorded fills | `uv run thytrader-research explain-bars --result-fingerprint sha256:… [--limit 100] [--cursor CURSOR]` |
 | Show IS/OOS/sweep/paper/live evidence | `uv run thytrader-research show-evidence --strategy-fingerprint sha256:…` |
 
-`list-results`, `show-result`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
+`list-results`, `show-result`, `explain-bars`, `show-strategy`, `show-snapshot`, `show-evidence`, `list-templates`, `show-template`, `backtest-model`, `plan-study`,
 `list-studies`, `list-strategies`, `list-research-jobs`, `show-research-job`, and
 `show-study` are read-only and
 do not use `--confirm`. `list-results` and `list-strategies` page at most 100 rows (`has_more` /
@@ -518,6 +519,12 @@ re-evaluated trace does not reproduce the result) instead of a generic message. 
 `THYTRADER_DATABASE_URL` or local Parquet files. It copies the snapshot's decision clock (`1m` through `1d`, including `2h` and
 `4h`) into the compact summary `timeframe`. It does not default every result to `1h`.
 
+`explain-bars` (`GET /api/v1/backtests/{result_fingerprint}/bar-explanations`, ADR 0116) is the
+bounded page that joins that verified trace to the immutable result's own fills and equity marks.
+It is read-only, needs no `--confirm`, and is HTTP-only (`--local` is rejected). `outside_trace`
+lists fills whose candle was not a signal bar, including evaluation-end liquidation. A trace that
+does not match the result is `bar_explanations_unavailable`, not a guessed explanation.
+
 ## Maker/taker rates
 
 `GET /api/v1/fees` (or `thytrader-operator fees`) includes `suggested_maker_fee_rate` /
@@ -610,15 +617,17 @@ first, so heavy research no longer slows other API calls.
   `GET /api/v1/strategies/snapshots/{strategy_fingerprint}`.
 - `delete-strategy --strategy-id UUID --confirm` **hard-deletes** the strategy and everything that
   belongs to it: snapshots, backtests, run specs, studies that include it, research jobs, dataset
-  bindings, and PAPER deployments with their orders, fills, positions, intents, and trade reasons.
+  bindings, except retained execution evidence below (ADR 0111).
   It also removes the strategy's portfolio sleeves; each removal is journaled in its portfolio and
   counted as `portfolio_sleeves`.
   It is refused with HTTP 409 `strategy_has_active_deployments` (with `deployment_ids`) while any
   bot of the strategy is running or paused — stop it with `skills/thytrader-runtime/SKILL.md`
-  first (that is a runtime-lane action; this skill never stops bots). Stopped LIVE deployments are
-  **kept** with their orders, fills, positions, trade reasons, and the snapshot they ran; they are
-  detached (`strategy_id: null`, `strategy_deleted: true`, `strategy_name` kept). Real-money
-  records are never destroyed. If the active risk policy allocated capital to the strategy, the
+  first (that is a runtime-lane action; this skill never stops bots). Stopped PAPER and LIVE
+  deployments are **kept** with orders, fills, positions, trade reasons, breaker latches, and the
+  snapshot they ran; they are detached (`strategy_id: null`, `strategy_deleted: true`,
+  `strategy_name` kept). Financial loss evidence is never deleted by this command, and deletion
+  does not reset daily loss or a latch. `counts.paper_deployments` counts removals (now zero),
+  while `live_deployments_kept` keeps its existing meaning. If the active risk policy allocated capital to the strategy, the
   same transaction publishes the next risk-policy version without that allocation
   (`risk_policy_republished: true`). The output `counts` lists what was removed.
 - `bulk-delete-strategies --strategy-id … --dry-run` previews each id (`would_delete` with
@@ -628,8 +637,8 @@ first, so heavy research no longer slows other API calls.
 - `bulk-delete-strategies --tag TAG --dry-run` previews every strategy tagged `TAG` (the CLI pages
   the tagged library, then sends batches of 100 to the same bulk route); `--tag TAG --confirm`
   deletes them. The output adds `tag` and `matched` and sums the per-batch counts. Safety is the
-  same as by id: running or paused bots block their strategy (`blocked`) and stopped live books are
-  kept. `--tag` and `--strategy-id` cannot be combined.
+  same as by id: running or paused bots block their strategy (`blocked`) and stopped paper/live
+  books and their risk evidence are kept. `--tag` and `--strategy-id` cannot be combined.
 - Deletion cannot be undone. Only delete when the user explicitly named the strategies.
 
 ## Confirmation

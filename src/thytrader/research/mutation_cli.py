@@ -402,6 +402,22 @@ def _add_backtest_commands(
     listing.add_argument("--cursor", default=None, help="Opaque next_cursor from the last page.")
     show = subparsers.add_parser("show-result", parents=[trailing], help="Show one result summary.")
     show.add_argument("--result-fingerprint", required=True)
+    explain = subparsers.add_parser(
+        "explain-bars",
+        parents=[trailing],
+        help=(
+            "Read one bounded page of per-bar signal and fill explanations for a saved result. "
+            "Read-only; does not rerun or mutate the backtest."
+        ),
+    )
+    explain.add_argument("--result-fingerprint", required=True)
+    explain.add_argument(
+        "--limit",
+        type=_explanation_limit,
+        default=100,
+        help="Bars per page, 1-500. Default 100.",
+    )
+    explain.add_argument("--cursor", default=None, help="next_cursor from the previous page.")
     export = subparsers.add_parser(
         "export-results", parents=[trailing], help="Export a bounded page of result evidence."
     )
@@ -524,6 +540,15 @@ def _page_limit(value: str) -> int:
     parsed = int(value)
     if parsed < 1 or parsed > 100:
         message = "limit must be between 1 and 100"
+        raise argparse.ArgumentTypeError(message)
+    return parsed
+
+
+def _explanation_limit(value: str) -> int:
+    """Parse a 1-500 bar-explanation page size."""
+    parsed = int(value)
+    if parsed < 1 or parsed > 500:
+        message = "limit must be between 1 and 500"
         raise argparse.ArgumentTypeError(message)
     return parsed
 
@@ -684,6 +709,12 @@ _HTTP_HANDLERS: dict[str, Callable[[str, argparse.Namespace], str]] = {
         strategy_id=_optional_uuid(args.strategy_id, "--strategy-id"),
     ),
     "show-result": lambda url, args: research_http.show_result(url, args.result_fingerprint),
+    "explain-bars": lambda url, args: research_http.explain_bars(
+        url,
+        args.result_fingerprint,
+        limit=args.limit,
+        cursor=args.cursor,
+    ),
     "list-studies": lambda url, args: research_http.list_studies(
         url, args.kind, args.limit, _optional_uuid(args.strategy_id, "--strategy-id")
     ),

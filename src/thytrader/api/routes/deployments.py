@@ -28,6 +28,7 @@ from thytrader.execution.book_marks import (
     last_bar_marks,
     signed_unrealized_pnl,
 )
+from thytrader.execution.day_open import DailyOpeningEvidence
 from thytrader.execution.decision_store import (
     DecisionJournalStore,
 )
@@ -52,10 +53,12 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.protection import (
     PositionState,
+    ProtectionEvidenceResponse,
     book_exit_in_flight,
     book_position_state,
-    book_protection_status,
+    book_protection_evidence,
     deployment_position_state,
+    protection_evidence_response,
     working_order_count,
 )
 from thytrader.execution.service import (
@@ -73,6 +76,8 @@ from thytrader.execution.twins import (
     TwinValidationError,
     load_twin_snapshots,
 )
+from thytrader.fleet_control.inventory import read_stable_inventory
+from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
@@ -148,14 +153,27 @@ class PositionResponse(BaseModel):
             "exiting (ADR 0093). Null when no signal exit is pending."
         ),
     )
-    protection_status: str
+    protection_status: str = Field(
+        description=(
+            "flat, covered, unprotected, or unknown. Live covered requires a confirmed "
+            "open stop of sufficient remaining quantity and valid geometry. A take-profit "
+            "alone is not covered. Pending and unknown are not covered (ADR 0112)."
+        ),
+    )
+    protection: ProtectionEvidenceResponse = Field(
+        description=(
+            "Quantitative stop cover: required, covered, and uncovered quantity, stop "
+            "side and geometry, synthetic versus venue, and observed or verified time. "
+            "Null times mean unknown. Paper cover is worker-dependent, not venue-resting."
+        ),
+    )
     position_state: str = Field(
         default="open_protected",
         description=(
-            "Operator reading of this book (ADR 0097): open_protected (TP/SL bracket, "
-            "stop-only protection, or the paper synthetic stop rests), open_unprotected, "
-            "open_unverified, or exiting. Prefer it over the raw phase, which reads "
-            "pending_exit while protection merely rests."
+            "Operator reading of this book (ADR 0097): open_protected (matching venue "
+            "stop, or the paper synthetic stop), open_unprotected, open_unverified, or "
+            "exiting. Prefer it over the raw phase, which reads pending_exit while "
+            "protection merely rests. A take-profit alone is not open_protected."
         ),
     )
     exit_in_flight: bool = Field(
@@ -236,7 +254,10 @@ class DeploymentCapitalResponse(BaseModel):
     initial_equity: str | None = None
     baseline_equity: str | None = None
     high_water_mark_equity: str | None = None
-    utc_day_open_equity: str | None = None
+    utc_day_open_equity: str | None = Field(
+        default=None, description="Preserved legacy observation, not verified midnight evidence."
+    )
+    risk_day_open_evidence: DailyOpeningEvidence | None = None
 
 
 class OrderResponse(BaseModel):
@@ -354,15 +375,29 @@ class DeploymentResponse(BaseModel):
     ledger: DeploymentLedgerSummaryResponse | None = None
     orders: tuple[OrderResponse, ...] = ()
     fills: tuple[FillResponse, ...] = ()
+    detail: Literal["summary", "full"] = "summary"
+    historical_orders_included: bool = False
+    historical_fills_included: bool = False
+    ledger_omission: str | None = SUMMARY_LEDGER_OMISSION
 
 
 class DeploymentListResponse(BaseModel):
-    """Newest-first deployment summaries without historical orders or fills."""
+    """Stable created-at inventory page without historical orders or fills.
+
+    ``has_more`` is exact for this snapshot. Pass the returned ``as_of`` on the
+    next offset page so a deployment created during the walk cannot shift rows.
+    """
 
     deployments: tuple[DeploymentResponse, ...]
     limit: int
     offset: int
     returned: int
+    has_more: bool
+    total: int
+    order: str
+    as_of: str
+    fingerprint: str
+    next_cursor: str | None
 
 
 class FillListResponse(BaseModel):
@@ -447,24 +482,54 @@ async def list_deployments(
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     strategy_id: Annotated[UUID | None, Query()] = None,
+    as_of: Annotated[
+        str | None,
+        Query(description="Timezone-aware UTC snapshot from a previous page. Omit for a new read."),
+    ] = None,
+    cursor: Annotated[str | None, Query(max_length=2048)] = None,
 ) -> DeploymentListResponse:
-    """Return deployment summaries, optionally only one strategy's bots (indexed)."""
+    """Return one stable inventory page. Default limit 50 is not the whole fleet."""
+    pinned = _parse_as_of(as_of)
     try:
-        if strategy_id is None:
-            deployment_rows = await store.list_deployments(limit=limit, offset=offset)
-        else:
-            owned = await store.list_by_strategy(str(strategy_id))
-            deployment_rows = owned[offset : offset + limit]
+        page = await read_stable_inventory(
+            store,
+            limit=limit,
+            offset=offset,
+            strategy_id=strategy_id,
+            as_of=pinned,
+            cursor=cursor,
+        )
+    except ExecutionConflictError as error:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
     except ExecutionStoreError as error:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(error)
         ) from None
     bodies: list[DeploymentResponse] = []
-    for item in deployment_rows:
+    for item in page.deployments:
         try:
             summary = await store.get_deployment_summary(item.id)
-        except ExecutionStoreError:
-            continue
+        except ExecutionStoreError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=str(error),
+            ) from None
+        if (
+            summary.deployment.mode,
+            summary.deployment.kind,
+            summary.deployment.strategy_id,
+            summary.deployment.strategy_fingerprint,
+            summary.deployment.product_id,
+        ) != (
+            item.mode,
+            item.kind,
+            item.strategy_id,
+            item.strategy_fingerprint,
+            item.product_id,
+        ):
+            raise HTTPException(
+                status_code=409, detail="inventory_changed: deployment reclassified during read."
+            )
         extra = await _covered_products(publication_store, item)
         bodies.append(
             await _summary_response(
@@ -475,9 +540,15 @@ async def list_deployments(
         )
     return DeploymentListResponse(
         deployments=tuple(bodies),
-        limit=limit,
-        offset=offset,
+        limit=page.limit,
+        offset=page.offset,
         returned=len(bodies),
+        has_more=page.has_more,
+        total=page.total,
+        order=page.order,
+        as_of=page.as_of.isoformat(),
+        fingerprint=page.fingerprint,
+        next_cursor=page.next_cursor,
     )
 
 
@@ -871,6 +942,7 @@ def _capital_response(deployment: Deployment) -> DeploymentCapitalResponse:
         baseline_equity=_optional_decimal_string(deployment.baseline_equity),
         high_water_mark_equity=_optional_decimal_string(deployment.high_water_mark_equity),
         utc_day_open_equity=_optional_decimal_string(deployment.utc_day_open_equity),
+        risk_day_open_evidence=deployment.risk_day_open_evidence,
     )
 
 
@@ -964,6 +1036,11 @@ async def _snapshot_response(
                 working_orders=working_order_count(snapshot.orders),
                 fill_count=len(snapshot.fills),
             ),
+            "detail": "full",
+            "historical_orders_included": True,
+            "historical_fills_included": True,
+            "ledger_omission": None,
+            "capital": _accounting_capital_response(response.capital, ledger),
             "ledger": _ledger_summary_response(ledger),
             "orders": tuple(
                 _order_response(order, product_id=order_products[order.id])
@@ -1010,6 +1087,11 @@ async def _summary_response(
                 working_orders=summary.book_totals.working_orders,
                 fill_count=summary.book_totals.fill_count,
             ),
+            "detail": "summary",
+            "historical_orders_included": False,
+            "historical_fills_included": False,
+            "ledger_omission": SUMMARY_LEDGER_OMISSION,
+            "capital": _accounting_capital_response(response.capital, ledger),
             "ledger": _ledger_summary_response(ledger),
             "orders": (),
             "fills": (),
@@ -1025,6 +1107,18 @@ def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapsh
         positions=summary.positions,
         instrument_runtimes=summary.instrument_runtimes,
         orders=summary.open_orders,
+        accounting_complete=False,
+    )
+
+
+def _accounting_capital_response(
+    capital: DeploymentCapitalResponse, ledger: DeploymentLedger
+) -> DeploymentCapitalResponse:
+    """Retain independent funding/budget history, not stale current totals as complete facts."""
+    if ledger.accounting_complete:
+        return capital
+    return capital.model_copy(
+        update={"inventory_cost": None, "reserved_buying_power": None, "performance_equity": None}
     )
 
 
@@ -1082,6 +1176,7 @@ def _position_response(
 ) -> PositionResponse:
     """Serialize one open long or short product book."""
     product_id = resolved_product_id(position.product_id, snapshot.deployment)
+    evidence = book_protection_evidence(snapshot, product_id=product_id, position=position)
     return PositionResponse(
         product_id=product_id,
         quantity=format(position.quantity, "f"),
@@ -1097,11 +1192,14 @@ def _position_response(
         signal_exit_bar=(
             None if position.signal_exit_bar is None else position.signal_exit_bar.isoformat()
         ),
-        protection_status=book_protection_status(
-            snapshot, product_id=product_id, position=position
-        ).value,
+        protection_status=evidence.status.value,
+        protection=protection_evidence_response(evidence),
         position_state=book_position_state(
-            snapshot, product_id=product_id, position=position, phase=RuntimePhase.OPEN
+            snapshot,
+            product_id=product_id,
+            position=position,
+            phase=RuntimePhase.OPEN,
+            evidence=evidence,
         ).value,
         exit_in_flight=book_exit_in_flight(snapshot, product_id=product_id, position=position),
         compatibility_focus=compatibility_focus,
@@ -1173,6 +1271,25 @@ def _fill_response(fill: Fill, *, product_id: str) -> FillResponse:
         fee=format(fill.fee, "f"),
         filled_at=fill.filled_at.isoformat(),
     )
+
+
+def _parse_as_of(value: str | None) -> datetime | None:
+    """Parse a pinned inventory snapshot. Naive timestamps are refused."""
+    if value is None or value == "":
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="as_of must be a timezone-aware ISO-8601 timestamp.",
+        ) from error
+    if parsed.tzinfo is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="as_of must be a timezone-aware ISO-8601 timestamp.",
+        )
+    return parsed.astimezone(UTC)
 
 
 def _optional_decimal(value: Decimal | None) -> str | None:

@@ -6,7 +6,11 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime  # noqa: TC003 - dataclass fields resolve at type-check and runtime.
 from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003 - dataclass fields resolve at type-check and runtime.
+
+if TYPE_CHECKING:
+    from thytrader.execution.day_open import DailyOpeningEvidence
 
 
 class DeploymentMode(StrEnum):
@@ -181,6 +185,9 @@ class Order:
     parent_order_id: UUID | None = None
     attached_child_venue_order_id: str | None = None
     pyramid_add: bool = False
+    # Successful venue order-state read, not an ordinary local write or a geometry audit.
+    # Legacy rows remain unknown until reconciliation actually observes them.
+    venue_observed_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +273,7 @@ class Deployment:
     baseline_equity: Decimal | None = None
     utc_day_open_equity: Decimal | None = None
     utc_day_open_at: datetime | None = None
+    risk_day_open_evidence: DailyOpeningEvidence | None = None
     high_water_mark_equity: Decimal | None = None
     daily_loss_latched: bool = False
     drawdown_latched: bool = False
@@ -345,6 +353,8 @@ class DeploymentSnapshot:
     intents: tuple[OrderIntent, ...] = field(default_factory=tuple)
     positions: tuple[Position, ...] = field(default_factory=tuple)
     instrument_runtimes: tuple[InstrumentRuntime, ...] = field(default_factory=tuple)
+    accounting_complete: bool = True
+    """False for product overlays: omitted sibling economics cannot prove account risk."""
 
 
 def with_status(

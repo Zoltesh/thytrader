@@ -8,7 +8,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002
 
+from thytrader.alerts.report import AlertsReport
+from thytrader.alerts.store import AlertStore  # noqa: TC001 - FastAPI evaluates hints at runtime.
 from thytrader.api.dependencies import (
+    get_alert_store,
     get_audit_event_store,
     get_backtest_result_store,
     get_database_engine,
@@ -42,6 +45,7 @@ from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
+from thytrader.operator.data_health import DataHealthReport, data_health_report
 from thytrader.operator.models import (
     ConfigurationReport,
     DataCatalogReport,
@@ -64,7 +68,9 @@ from thytrader.operator.models import (
     SupportBundleReport,
     TradeReasonsReport,
 )
+from thytrader.operator.readiness import ReadinessReport
 from thytrader.operator.service import OperatorDiagnostics
+from thytrader.operator.venue_reconciliation import VenueReconciliationReport
 from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
@@ -105,6 +111,7 @@ def get_operator_diagnostics(
     decision_store: Annotated[DecisionJournalStore, Depends(get_decision_journal_store)],
     portfolios: Annotated[PortfolioStorage, Depends(get_portfolio_storage)],
     research_queue: Annotated[PostgresResearchQueue | None, Depends(get_research_queue)],
+    alert_store: Annotated[AlertStore, Depends(get_alert_store)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -130,6 +137,7 @@ def get_operator_diagnostics(
         decision_store=decision_store,
         portfolios=portfolios,
         research_queue=research_queue,
+        alert_store=alert_store,
     )
 
 
@@ -181,6 +189,14 @@ async def get_operator_data_catalog(
 ) -> DataCatalogReport:
     """Return local dataset coverage joined with the ingestion watchlist."""
     return await diagnostics.data_catalog()
+
+
+@router.get("/data-health", response_model=DataHealthReport)
+async def get_operator_data_health(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> DataHealthReport:
+    """Return clock-aware tails for every enabled watch, without provider reads."""
+    return data_health_report(await diagnostics.data_catalog())
 
 
 @router.get("/indicators", response_model=IndicatorsReport)
@@ -277,6 +293,32 @@ async def get_operator_portfolios(
     return await diagnostics.portfolios_report()
 
 
+@router.get("/readiness", response_model=ReadinessReport)
+async def get_operator_readiness(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    deployment_id: UUID | None = None,
+    portfolio_id: UUID | None = None,
+) -> ReadinessReport:
+    """Return an advisory allocation, cap, fee, and breaker preflight.
+
+    Read-only. This route never tightens risk policy or changes a deployment.
+    """
+    return await diagnostics.readiness_report(
+        deployment_id=deployment_id, portfolio_id=portfolio_id
+    )
+
+
+@router.get("/venue-reconciliation", response_model=VenueReconciliationReport)
+async def get_operator_venue_reconciliation(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> VenueReconciliationReport:
+    """Compare managed inventory and working orders with a fresh venue listing.
+
+    Read-only. This route never creates, cancels, or replaces an order.
+    """
+    return await diagnostics.venue_reconciliation_report()
+
+
 @router.get("/trade-reasons", response_model=TradeReasonsReport)
 async def get_operator_trade_reasons(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
@@ -304,6 +346,14 @@ async def get_operator_decisions(
         limit=limit,
         cursor=cursor,
     )
+
+
+@router.get("/alerts", response_model=AlertsReport)
+async def get_operator_alerts(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> AlertsReport:
+    """Return durable safety alerts without trading authority."""
+    return await diagnostics.alerts()
 
 
 @router.get("/support-bundle", response_model=SupportBundleReport)

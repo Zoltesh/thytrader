@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from thytrader.alerts.store import AlertStore, DisabledAlertStore
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
@@ -43,6 +44,7 @@ from thytrader.strategies.library import StrategyStore
 from thytrader.strategies.snapshots import StrategySnapshotStore
 
 if TYPE_CHECKING:
+    from thytrader.fleet_control.store import FleetControlStore
     from thytrader.research.jobs import ResearchJobStore
 
 
@@ -244,6 +246,23 @@ def get_execution_store(request: Request) -> ExecutionStore:
     store = getattr(request.app.state, "execution_store", None)
     if not isinstance(store, ExecutionStore):
         message = "Execution store is unavailable."
+        raise TypeError(message)
+    return store
+
+
+def get_alert_store(request: Request) -> AlertStore:
+    """Return the durable alert feed, or a disabled store when unconfigured."""
+    store = getattr(request.app.state, "alert_store", None)
+    if isinstance(store, AlertStore):
+        return store
+    return DisabledAlertStore()
+
+
+def get_fleet_control_store(request: Request) -> FleetControlStore:
+    """Return the fleet latch and operation log attached during app startup."""
+    store = getattr(request.app.state, "fleet_control_store", None)
+    if store is None or not hasattr(store, "read_inhibition"):
+        message = "Fleet control store is unavailable."
         raise TypeError(message)
     return store
 

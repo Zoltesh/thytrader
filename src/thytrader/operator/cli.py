@@ -10,12 +10,18 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from thytrader import __version__
-from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_http import (
+    AgentHttpError,
+    request_json,
+    require_matching_ops_contract,
+    resolve_api_base_url,
+)
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.models import DATASET_TIMEFRAMES
+from thytrader.operator.data_health import data_health_report
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.models import HealthReport
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
@@ -115,6 +121,11 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     subparsers.add_parser(
+        "data-health",
+        parents=[trailing],
+        help="All enabled watched markets: expected close, tail lag and historical coverage.",
+    )
+    subparsers.add_parser(
         "indicators",
         parents=[trailing],
         help="Implemented indicator kinds and period bounds.",
@@ -160,6 +171,7 @@ def _parser() -> argparse.ArgumentParser:
     trade_reasons.add_argument("--deployment-id", default=None)
     trade_reasons.add_argument("--intent-id", default=None)
     _add_decisions_parser(subparsers, trailing)
+    _add_execution_quality_parser(subparsers, trailing)
     subparsers.add_parser(
         "studies",
         parents=[trailing],
@@ -183,6 +195,32 @@ def _parser() -> argparse.ArgumentParser:
             "backtest (read-only; no deployment authority)."
         ),
     )
+    readiness = subparsers.add_parser(
+        "readiness",
+        parents=[trailing],
+        help=(
+            "Advisory preflight: allocations vs venue balance vs account and portfolio "
+            "caps, fee assumptions, and breaker disclosures. Never changes policy."
+        ),
+    )
+    readiness.add_argument("--deployment-id", default=None, help="One book's preflight.")
+    readiness.add_argument("--portfolio-id", default=None, help="One portfolio's sleeves and caps.")
+    subparsers.add_parser(
+        "venue-reconciliation",
+        parents=[trailing],
+        help=(
+            "Managed live inventory and working orders versus the venue listing. "
+            "Read-only; never cancels or flattens foreign holdings."
+        ),
+    )
+    subparsers.add_parser(
+        "alerts",
+        parents=[trailing],
+        help=(
+            "Durable safety alerts (pause, breaker, stop cover, deadlines, worker failures). "
+            "Read-only. Works with notify_provider=none; delivery_warning says so."
+        ),
+    )
     subparsers.add_parser(
         "support-bundle",
         parents=[trailing],
@@ -199,6 +237,27 @@ def _parser() -> argparse.ArgumentParser:
         help="Whether an LLM key is held in the API process (never prints the key).",
     )
     return parser
+
+
+def _add_execution_quality_parser(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """Register the read-only recorded-fill execution-quality report."""
+    quality = subparsers.add_parser(
+        "execution-quality",
+        parents=[trailing],
+        help=(
+            "Recorded closed-trade fees, net PnL, and slippage versus journaled closes. "
+            "HTTP-only. Missing fees and liquidity are never treated as zero."
+        ),
+    )
+    quality.add_argument("--deployment-id", required=True, help="One paper or live bot.")
+    quality.add_argument(
+        "--twin",
+        action="store_true",
+        help="Compare the explicit paper/live twin instead of one book.",
+    )
 
 
 def _add_decisions_parser(
@@ -245,12 +304,13 @@ async def _dispatch(
             limit=arguments.limit,
             cursor=arguments.cursor,
         )
-    if command == "market-data":
-        return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
+    scoped = await _argument_report(diagnostics, arguments)
+    if scoped is not None:
+        return scoped
     if command == "products":
         return await diagnostics.products()
-    if command == "data-catalog":
-        return await diagnostics.data_catalog()
+    if command == "data-health":
+        return data_health_report(await diagnostics.data_catalog())
     if command == "indicators":
         return await diagnostics.indicators()
     if command == "performance":
@@ -266,6 +326,7 @@ async def _dispatch(
             deployment_id=_uuid_or_none(getattr(arguments, "deployment_id", None)),
         )
     factories = {
+        "data-catalog": diagnostics.data_catalog,
         "health": lambda: diagnostics.health(probe_api=True),
         "configuration": diagnostics.configuration,
         "exchange": diagnostics.exchange,
@@ -277,12 +338,30 @@ async def _dispatch(
         "portfolio": diagnostics.portfolio_report,
         "fees": diagnostics.fees_report,
         "portfolios": diagnostics.portfolios_report,
+        "alerts": diagnostics.alerts,
         "support-bundle": diagnostics.support_bundle,
     }
     factory = factories.get(command)
     if factory is None:
         raise AssertionError(f"unsupported operator command: {command}")
     return await factory()
+
+
+async def _argument_report(
+    diagnostics: OperatorDiagnostics, arguments: argparse.Namespace
+) -> OperatorEnvelope | None:
+    """Reports whose flags do not fit the no-argument factory table."""
+    command = arguments.command
+    if command == "market-data":
+        return await diagnostics.market_data_report(arguments.product_id, arguments.timeframe)
+    if command == "readiness":
+        return await diagnostics.readiness_report(
+            deployment_id=_uuid_or_none(getattr(arguments, "deployment_id", None)),
+            portfolio_id=_uuid_or_none(getattr(arguments, "portfolio_id", None)),
+        )
+    if command == "venue-reconciliation":
+        return await diagnostics.venue_reconciliation_report()
+    return None
 
 
 def _uuid_or_none(value: str | None) -> UUID | None:
@@ -312,6 +391,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     intent_id = getattr(arguments, "intent_id", None)
     if isinstance(intent_id, str) and intent_id:
         query["intent_id"] = intent_id
+    portfolio_id = getattr(arguments, "portfolio_id", None)
+    if isinstance(portfolio_id, str) and portfolio_id:
+        query["portfolio_id"] = portfolio_id
     return query
 
 
@@ -433,6 +515,51 @@ def _run_chat_status(arguments: argparse.Namespace) -> int:
     return EXIT_HEALTHY
 
 
+def _run_execution_quality(arguments: argparse.Namespace) -> int:
+    """Fetch recorded execution-quality evidence. HTTP-only; it never mutates fills."""
+    if arguments.local:
+        raise AgentHttpError(
+            "execution-quality is HTTP-only because it reads the API's execution and decision "
+            "stores together. Do not pass --local."
+        )
+    try:
+        deployment_id = UUID(arguments.deployment_id)
+    except ValueError:
+        raise AgentHttpError("--deployment-id must be a UUID.") from None
+    settings = Settings()
+    secrets = configured_secrets(settings)
+    base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
+    require_matching_ops_contract(base_url)
+    suffix = "/twin" if arguments.twin else ""
+    payload = request_json(
+        method="GET",
+        url=f"{base_url}/api/v1/deployments/{deployment_id}/execution-quality{suffix}",
+    )
+    if not isinstance(payload, dict):
+        raise AgentHttpError("Execution-quality response was not a JSON object.")
+    evidence = {str(key): value for key, value in payload.items()}
+    if arguments.format == "text":
+        rendered = _execution_quality_text(evidence, twin=bool(arguments.twin))
+        sys.stdout.write(f"{redact_text(rendered, secrets)}\n")
+        return EXIT_HEALTHY
+    sys.stdout.write(f"{dumps_redacted(payload, secrets)}\n")
+    return EXIT_HEALTHY
+
+
+def _execution_quality_text(payload: dict[str, object], *, twin: bool) -> str:
+    """Summarize one execution-quality payload without inventing missing fields."""
+    if twin:
+        comparable = payload.get("comparable")
+        reasons = payload.get("reasons")
+        reason_text = ",".join(str(item) for item in reasons) if isinstance(reasons, list) else ""
+        return f"comparable={comparable}\nreasons={reason_text}"
+    totals = payload.get("totals")
+    evidence = payload.get("evidence")
+    net = totals.get("net_pnl") if isinstance(totals, dict) else None
+    complete = evidence.get("complete") if isinstance(evidence, dict) else None
+    return f"net_pnl={net}\nevidence_complete={complete}"
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     """Print one operator report and exit with 0/1/2 for healthy/degraded/failed."""
     parser = _parser()
@@ -447,6 +574,8 @@ def main(argv: Sequence[str] | None = None) -> None:
             code = _run_schema_check(fmt=arguments.format)
         elif arguments.command == "chat-status":
             code = _run_chat_status(arguments)
+        elif arguments.command == "execution-quality":
+            code = _run_execution_quality(arguments)
         elif arguments.local:
             code = asyncio.run(_run_local(arguments))
         else:

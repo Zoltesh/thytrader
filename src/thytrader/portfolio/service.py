@@ -4,10 +4,17 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.exchanges.read_errors import (
+    ExchangeReadError,
+    ExchangeReadFailure,
+    ExchangeReadFailureKind,
+    ExchangeReadOperation,
+)
 from thytrader.portfolio.models import Money, Portfolio, PortfolioAsset, PortfolioConnection
 
 if TYPE_CHECKING:
     from thytrader.exchanges.fees import FeeProfile
+    from thytrader.exchanges.models import ExchangeOpenOrder
     from thytrader.exchanges.protocols import ExchangeAccount
 
 
@@ -72,3 +79,22 @@ class PortfolioService:
     async def get_fee_profile(self) -> FeeProfile:
         """Fetch 30-day volume and current fee rates."""
         return await self._exchange.get_fee_profile()
+
+    async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """Fetch the venue's resting open orders through the neutral boundary.
+
+        Read-only observation for venue-wide reconciliation (ADR 0114); this never
+        creates, cancels, or replaces an order. The listing capability is optional on
+        the account boundary: adapters without it fail closed with a typed read error
+        so the reconciliation report degrades to an unknown listing instead of
+        guessing an empty book.
+        """
+        listing = getattr(self._exchange, "list_open_orders", None)
+        if listing is None:  # getattr is unavoidable: the protocol member is optional.
+            raise ExchangeReadError(
+                ExchangeReadFailure(
+                    operation=ExchangeReadOperation.OPEN_ORDERS,
+                    kind=ExchangeReadFailureKind.UNSUPPORTED,
+                )
+            )
+        return await listing()

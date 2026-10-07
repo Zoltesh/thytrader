@@ -7,11 +7,16 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import and_, delete, func, or_, select
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import and_, case, delete, func, or_, select
+from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from thytrader.execution.fill_ledger import applied_fill_quantity, project_fill_economics
+from thytrader.execution.day_open import DailyOpeningEvidence
+from thytrader.execution.fill_ledger import (
+    applied_fill_quantity,
+    fill_projection_deployment,
+    project_fill_economics,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.ledger import (
     MAX_POSITION_FEE_FILLS,
@@ -51,6 +56,9 @@ from thytrader.execution.pagination import (
     encode_order_cursor,
 )
 from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
+from thytrader.fleet_control.admission import refuse_postgres_entry
+from thytrader.fleet_control.commands import confirmed_command
+from thytrader.fleet_control.inventory import InventoryPage, page_deployments
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -58,6 +66,7 @@ from thytrader.persistence.schema import (
     execution_instrument_state,
     execution_orders,
     execution_positions,
+    fleet_entry_inhibition,
     order_intents,
 )
 
@@ -68,7 +77,41 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+    from thytrader.fleet_control.models import (
+        ExpectedTarget,
+        FleetAction,
+        FleetModeScope,
+        TargetResult,
+    )
     from thytrader.strategies.snapshots import StrategySnapshot
+
+
+def _instrument_runtime_upsert(runtime: InstrumentRuntime, deployment_id: UUID) -> Insert:
+    """Build the same product-state write for ordinary saves and atomic fill commits."""
+    values = {
+        "deployment_id": deployment_id,
+        "product_id": runtime.product_id,
+        "phase": runtime.phase.value,
+        "last_evaluated_bar": runtime.last_evaluated_bar,
+        "last_signal": runtime.last_signal,
+        "pending_entry_bars": runtime.pending_entry_bars,
+        "bars_held": runtime.bars_held,
+        "cooldown_bars_remaining": runtime.cooldown_bars_remaining,
+        "pending_stop_price": _text(runtime.pending_stop_price),
+        "pending_target_price": _text(runtime.pending_target_price),
+    }
+    statement = insert(execution_instrument_state).values(values)
+    return statement.on_conflict_do_update(
+        index_elements=[
+            execution_instrument_state.c.deployment_id,
+            execution_instrument_state.c.product_id,
+        ],
+        set_={
+            name: getattr(statement.excluded, name)
+            for name in values
+            if name not in {"deployment_id", "product_id"}
+        },
+    )
 
 
 def _decimal(value: str | None) -> Decimal | None:
@@ -228,11 +271,67 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Twin link storage is unavailable.") from error
 
+    @property
+    def fleet_database_engine(self) -> AsyncEngine:
+        """Expose database identity for atomic fleet command/receipt coordination."""
+        return self._engine
+
+    async def record_confirmed_fleet_command(
+        self,
+        connection: AsyncConnection,
+        expected: ExpectedTarget,
+        action: FleetAction,
+        mode: FleetModeScope,
+        *,
+        now: datetime,
+    ) -> TargetResult:
+        """Lock, check the confirmed revision, and save within the receipt transaction."""
+        row = (
+            (
+                await connection.execute(
+                    select(deployments)
+                    .where(deployments.c.id == expected.deployment_id)
+                    .with_for_update()
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        current = None if row is None else _deployment_from_row(row)
+        updated, receipt = confirmed_command(current, expected, action, mode, now)
+        if updated is not None:
+            values = _mutable_deployment_values(updated)
+            values["revision"] = expected.revision + 1
+            result = await connection.execute(
+                deployments.update()
+                .where(
+                    deployments.c.id == expected.deployment_id,
+                    deployments.c.revision == expected.revision,
+                )
+                .values(values)
+            )
+            if result.rowcount != 1:
+                raise ExecutionConflictError("Deployment revision conflict.")
+        return receipt
+
+    async def read_entry_inhibition(self) -> dict[str, bool]:
+        """Read both durable latch rows; absence or failure cannot admit risk."""
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(select(fleet_entry_inhibition))).mappings().all()
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Entry inhibition storage is unavailable.") from error
+        by_mode = {str(row["mode"]): bool(row["inhibited"]) for row in rows}
+        if "paper" not in by_mode or "live" not in by_mode:
+            raise ExecutionStoreError("Entry inhibition state is incomplete.")
+        return by_mode
+
     async def create_deployment(self, deployment: Deployment) -> Deployment:
         """Insert one new deployment row."""
         statement = insert(deployments).values(_deployment_values(deployment))
         try:
             async with self._engine.begin() as connection:
+                await refuse_postgres_entry(connection, mode=deployment.mode.value, action="start")
                 await connection.execute(statement)
         except IntegrityError as error:
             if "ux_deployments_active_strategy_mode" in str(error).lower():
@@ -262,6 +361,27 @@ class PostgresExecutionStore:
                 return await _snapshot(connection, _deployment_from_row(row))
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
+        """Read complete shared-book evidence in one repeatable database observation."""
+        try:
+            async with self._engine.connect() as connection:
+                await connection.execution_options(isolation_level="REPEATABLE READ")
+                async with connection.begin():
+                    row = (
+                        (
+                            await connection.execute(
+                                select(deployments).where(deployments.c.id == deployment_id)
+                            )
+                        )
+                        .mappings()
+                        .one_or_none()
+                    )
+                    if row is None:
+                        raise ExecutionStoreError("Deployment was not found.")
+                    return await _snapshot(connection, _deployment_from_row(row))
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Accounting evidence is unavailable.") from error
 
     async def get_deployment_summary(self, deployment_id: UUID) -> DeploymentSummarySnapshot:
         """Load positions and overlays without historical orders or fills."""
@@ -296,6 +416,23 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
+
+    async def list_stable_inventory(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        strategy_id: UUID | None,
+        as_of: datetime,
+    ) -> InventoryPage:
+        """Read a legacy offset page; complete consumers use the fenced cursor API."""
+        return page_deployments(
+            await self.list_deployments(),
+            limit=limit,
+            offset=offset,
+            strategy_id=strategy_id,
+            as_of=as_of,
+        )
 
     async def get_position_entry_fees(
         self, position: Position, *, product_id: str
@@ -462,25 +599,62 @@ class PostgresExecutionStore:
         deployment: Deployment,
         *,
         expected_revision: int | None = None,
+        instrument_runtime: InstrumentRuntime | None = None,
     ) -> Deployment:
-        """Replace mutable runtime fields for one existing deployment."""
-        next_revision = deployment.revision + 1
+        """Gate parent and optional product runtime in one transaction with zero partial effects."""
+        if instrument_runtime is not None and expected_revision is None:
+            raise ExecutionStoreError("Atomic runtime saves require an expected revision.")
         values = _mutable_deployment_values(deployment)
-        values["revision"] = next_revision
+        values["revision"] = deployments.c.revision + 1
         statement = deployments.update().where(deployments.c.id == deployment.id)
         if expected_revision is not None:
             statement = statement.where(deployments.c.revision == expected_revision)
-        statement = statement.values(values)
+        statement = statement.values(values).returning(deployments)
         try:
             async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
+                row = (await connection.execute(statement)).mappings().one_or_none()
+                if row is None:
+                    if expected_revision is not None:
+                        raise ExecutionConflictError("Deployment revision conflict.")
+                    raise ExecutionStoreError("Deployment was not found.")
+                if instrument_runtime is not None:
+                    await connection.execute(
+                        _instrument_runtime_upsert(instrument_runtime, deployment.id)
+                    )
+                return _deployment_from_row(row)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
-        if result.rowcount != 1:
-            if expected_revision is not None:
-                raise ExecutionConflictError("Deployment revision conflict.")
-            raise ExecutionStoreError("Deployment was not found.")
-        return replace(deployment, revision=next_revision)
+
+    async def save_breaker_pause(
+        self,
+        deployment_id: UUID,
+        *,
+        expected_revision: int,
+        detail: str,
+        daily_loss_latched: bool = False,
+    ) -> Deployment:
+        """CAS only breaker-owned metadata; preserve economics, lifecycle and runtime rows."""
+        running = deployments.c.status == DeploymentStatus.RUNNING.value
+        statement = (
+            deployments.update()
+            .where(deployments.c.id == deployment_id, deployments.c.revision == expected_revision)
+            .values(
+                status=case((running, DeploymentStatus.PAUSED.value), else_=deployments.c.status),
+                mismatch_detail=case((running, detail), else_=deployments.c.mismatch_detail),
+                daily_loss_latched=True if daily_loss_latched else deployments.c.daily_loss_latched,
+                updated_at=utc_now(),
+                revision=deployments.c.revision + 1,
+            )
+            .returning(deployments)
+        )
+        try:
+            async with self._engine.begin() as connection:
+                row = (await connection.execute(statement)).mappings().one_or_none()
+                if row is None:
+                    raise ExecutionConflictError("Deployment revision conflict.")
+                return _deployment_from_row(row)
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
 
     async def acquire_worker_lease(
         self,
@@ -541,7 +715,18 @@ class PostgresExecutionStore:
         )
         try:
             async with self._engine.begin() as connection:
+                if intent.purpose is IntentPurpose.ENTRY:
+                    mode = await connection.scalar(
+                        select(deployments.c.mode).where(deployments.c.id == intent.deployment_id)
+                    )
+                    if not isinstance(mode, str):
+                        raise ExecutionStoreError(
+                            "Entry deployment mode is unavailable; refusing risk."
+                        )
+                    await refuse_postgres_entry(connection, mode=mode, action="entry")
                 await connection.execute(statement)
+        except ExecutionConflictError:
+            raise
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return intent
@@ -564,6 +749,7 @@ class PostgresExecutionStore:
                 "quantity": statement.excluded.quantity,
                 "parent_order_id": statement.excluded.parent_order_id,
                 "attached_child_venue_order_id": statement.excluded.attached_child_venue_order_id,
+                "venue_observed_at": statement.excluded.venue_observed_at,
                 "pyramid_add": statement.excluded.pyramid_add,
             },
         )
@@ -607,13 +793,17 @@ class PostgresExecutionStore:
         cooldown_bars: int = 0,
         timeframe: str | None = None,
     ) -> tuple[bool, DeploymentSnapshot]:
-        """Insert fill evidence and apply economics in one database transaction."""
+        """Serialize same-book projection, then commit evidence and economics atomically."""
         try:
             async with self._engine.begin() as connection:
+                # Lock before child reads/projection. UPDATE-only locking is too late:
+                # independent writers would otherwise compute from the same old cash.
                 row = (
                     (
                         await connection.execute(
-                            select(deployments).where(deployments.c.id == deployment_id)
+                            select(deployments)
+                            .where(deployments.c.id == deployment_id)
+                            .with_for_update()
                         )
                     )
                     .mappings()
@@ -666,7 +856,12 @@ class PostgresExecutionStore:
                 )
                 applied_fill = replace(
                     order,
-                    status=OrderStatus.FILLED,
+                    status=(
+                        OrderStatus.FILLED
+                        if applied_fill_quantity(snapshot, order.id) + fill.quantity
+                        >= order.quantity
+                        else order.status
+                    ),
                     filled_quantity=max(
                         order.filled_quantity,
                         applied_fill_quantity(snapshot, order.id) + fill.quantity,
@@ -694,8 +889,11 @@ class PostgresExecutionStore:
                     )
                     .values(economics_applied_at=stamped.economics_applied_at)
                 )
+                for runtime in projected.instrument_runtimes:
+                    await connection.execute(_instrument_runtime_upsert(runtime, deployment_id))
+                parent = fill_projection_deployment(snapshot, projected)
                 next_revision = deployment.revision + 1
-                deployment_values = _mutable_deployment_values(projected.deployment)
+                deployment_values = _mutable_deployment_values(parent)
                 deployment_values["revision"] = next_revision
                 await connection.execute(
                     deployments.update()
@@ -728,9 +926,7 @@ class PostgresExecutionStore:
                             signal_exit_bar=position.signal_exit_bar,
                         )
                     )
-                refreshed = await _snapshot(
-                    connection, replace(projected.deployment, revision=next_revision)
-                )
+                refreshed = await _snapshot(connection, replace(parent, revision=next_revision))
                 return True, refreshed
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
@@ -784,38 +980,9 @@ class PostgresExecutionStore:
         self, runtime: InstrumentRuntime, *, deployment_id: UUID
     ) -> None:
         """Replace one product overlay row."""
-        values = {
-            "deployment_id": deployment_id,
-            "product_id": runtime.product_id,
-            "phase": runtime.phase.value,
-            "last_evaluated_bar": runtime.last_evaluated_bar,
-            "last_signal": runtime.last_signal,
-            "pending_entry_bars": runtime.pending_entry_bars,
-            "bars_held": runtime.bars_held,
-            "cooldown_bars_remaining": runtime.cooldown_bars_remaining,
-            "pending_stop_price": _text(runtime.pending_stop_price),
-            "pending_target_price": _text(runtime.pending_target_price),
-        }
-        statement = insert(execution_instrument_state).values(values)
-        statement = statement.on_conflict_do_update(
-            index_elements=[
-                execution_instrument_state.c.deployment_id,
-                execution_instrument_state.c.product_id,
-            ],
-            set_={
-                "phase": statement.excluded.phase,
-                "last_evaluated_bar": statement.excluded.last_evaluated_bar,
-                "last_signal": statement.excluded.last_signal,
-                "pending_entry_bars": statement.excluded.pending_entry_bars,
-                "bars_held": statement.excluded.bars_held,
-                "cooldown_bars_remaining": statement.excluded.cooldown_bars_remaining,
-                "pending_stop_price": statement.excluded.pending_stop_price,
-                "pending_target_price": statement.excluded.pending_target_price,
-            },
-        )
         try:
             async with self._engine.begin() as connection:
-                await connection.execute(statement)
+                await connection.execute(_instrument_runtime_upsert(runtime, deployment_id))
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 
@@ -912,6 +1079,11 @@ def _deployment_values(deployment: Deployment) -> dict[str, object]:
         "baseline_equity": _text(deployment.baseline_equity),
         "utc_day_open_equity": _text(deployment.utc_day_open_equity),
         "utc_day_open_at": deployment.utc_day_open_at,
+        "risk_day_open_evidence": (
+            None
+            if deployment.risk_day_open_evidence is None
+            else deployment.risk_day_open_evidence.model_dump_json()
+        ),
         "high_water_mark_equity": _text(deployment.high_water_mark_equity),
         "daily_loss_latched": deployment.daily_loss_latched,
         "drawdown_latched": deployment.drawdown_latched,
@@ -942,6 +1114,7 @@ def _order_values(order: Order) -> dict[str, object]:
         "product_id": order.product_id,
         "parent_order_id": order.parent_order_id,
         "attached_child_venue_order_id": order.attached_child_venue_order_id,
+        "venue_observed_at": order.venue_observed_at,
         "pyramid_add": order.pyramid_add,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
@@ -991,6 +1164,11 @@ def _deployment_from_row(row: RowMapping) -> Deployment:
         baseline_equity=_decimal(row.get("baseline_equity")),
         utc_day_open_equity=_decimal(row.get("utc_day_open_equity")),
         utc_day_open_at=row.get("utc_day_open_at"),
+        risk_day_open_evidence=(
+            None
+            if row.get("risk_day_open_evidence") is None
+            else DailyOpeningEvidence.model_validate_json(str(row["risk_day_open_evidence"]))
+        ),
         high_water_mark_equity=_decimal(row.get("high_water_mark_equity")),
         daily_loss_latched=bool(row.get("daily_loss_latched", False)),
         drawdown_latched=bool(row.get("drawdown_latched", False)),
@@ -1021,6 +1199,7 @@ def _order_from_row(row: RowMapping) -> Order:
         product_id=row["product_id"] if row["product_id"] is not None else "",
         parent_order_id=row.get("parent_order_id"),
         attached_child_venue_order_id=row.get("attached_child_venue_order_id"),
+        venue_observed_at=row.get("venue_observed_at"),
         pyramid_add=bool(row.get("pyramid_add", False)),
         created_at=row["created_at"],
         updated_at=row["updated_at"],

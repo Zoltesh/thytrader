@@ -78,6 +78,9 @@ class RiskReasonCode(StrEnum):
     PYRAMIDING_NOT_ALLOWED = "PYRAMIDING_NOT_ALLOWED"
     LIVE_REQUIRES_PUBLISHED_POLICY = "LIVE_REQUIRES_PUBLISHED_POLICY"
     VENUE_REQUEST_BUDGET_EXCEEDED = "VENUE_REQUEST_BUDGET_EXCEEDED"
+    MAX_ORDER_QUANTITY = "MAX_ORDER_QUANTITY"
+    MAX_ORDER_NOTIONAL = "MAX_ORDER_NOTIONAL"
+    BALANCE_RESERVE = "BALANCE_RESERVE"
     STALE_MARK = "STALE_MARK"
     PRODUCT_DISABLED = "PRODUCT_DISABLED"
     CONNECTION_UNHEALTHY = "CONNECTION_UNHEALTHY"
@@ -160,6 +163,15 @@ class RiskPolicyDefinition(_FrozenModel):
     max_venue_order_actions_per_minute: int | None = Field(
         default=None, ge=1, le=10000, exclude_if=lambda v: v is None
     )
+    # Optional entry bounds. Unset means the compiled and previously published limits
+    # are unchanged. They never replace exposure fractions or the capital base.
+    max_order_quantity: DecimalText | None = Field(default=None, exclude_if=lambda v: v is None)
+    max_order_notional_quote: DecimalText | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    min_available_quote_reserve: DecimalText | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @field_validator("product_allowlist")
     @classmethod
@@ -169,10 +181,16 @@ class RiskPolicyDefinition(_FrozenModel):
             raise ValueError("product_allowlist must be unique")
         return value
 
-    @field_validator("max_daily_loss_quote", "max_portfolio_exposure_quote")
+    @field_validator(
+        "max_daily_loss_quote",
+        "max_portfolio_exposure_quote",
+        "max_order_quantity",
+        "max_order_notional_quote",
+        "min_available_quote_reserve",
+    )
     @classmethod
     def require_positive_absolute_cap(cls, value: str | None) -> str | None:
-        """Reject a zero or negative absolute monetary ceiling when one is set."""
+        """Reject a zero or negative absolute ceiling or entry bound when one is set."""
         if value is not None and Decimal(value) <= 0:
             raise ValueError("absolute monetary caps must be greater than 0 when set")
         return value
@@ -248,6 +266,9 @@ class RiskPolicyWrite(_FrozenModel):
     max_daily_loss_quote: DecimalText | None = None
     max_portfolio_exposure_quote: DecimalText | None = None
     max_venue_order_actions_per_minute: int | None = Field(default=None, ge=1, le=10000)
+    max_order_quantity: DecimalText | None = None
+    max_order_notional_quote: DecimalText | None = None
+    min_available_quote_reserve: DecimalText | None = None
 
 
 class ActiveRiskPolicy(_FrozenModel):

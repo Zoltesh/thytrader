@@ -11,6 +11,7 @@
 	 */
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
+	import PreflightPanel from '$lib/PreflightPanel.svelte';
 	import Segmented from '$lib/Segmented.svelte';
 	import PortfolioWorkspace from '$lib/portfolios/PortfolioWorkspace.svelte';
 	import {
@@ -27,6 +28,7 @@
 		type StrategyIdentity
 	} from '$lib/deployment-portfolio';
 	import { listAllDeployments, listDeploymentsPage, type Deployment } from '$lib/deployments';
+	import FleetControls from '$lib/FleetControls.svelte';
 	import { lifecycleContractNote } from '$lib/lifecycle-contract';
 	import { listStrategies } from '$lib/strategies';
 
@@ -40,6 +42,8 @@
 	let pageRows = $state<Deployment[]>([]);
 	let hasMore = $state(false);
 	let offset = $state(0);
+	let pageCursors = $state<Record<number, string>>({});
+	let pageFingerprint = $state<string | null>(null);
 	/** Distinguishes a truly empty inventory from an exhausted trailing page. */
 	let everLoaded = $state(false);
 	let listLoading = $state(true);
@@ -77,7 +81,22 @@
 		listLoading = true;
 		listError = null;
 		try {
-			const result = await listDeploymentsPage(PAGE_SIZE, targetOffset);
+			const cursor = targetOffset === 0 ? undefined : pageCursors[targetOffset];
+			if (targetOffset > 0 && cursor === undefined)
+				throw new Error('Inventory continuation is unavailable; restart at page one.');
+			const result = await listDeploymentsPage(PAGE_SIZE, 0, { cursor });
+			if (
+				result.fingerprint === null ||
+				(targetOffset > 0 && result.fingerprint !== pageFingerprint)
+			)
+				throw new Error('Inventory changed; restart at page one.');
+			if (targetOffset === 0) {
+				pageFingerprint = result.fingerprint;
+				pageCursors = {};
+			}
+			if (result.hasMore && result.nextCursor === null)
+				throw new Error('Inventory continuation is missing; incomplete.');
+			if (result.nextCursor !== null) pageCursors[targetOffset + PAGE_SIZE] = result.nextCursor;
 			// Fail closed on a page that claims more while being empty.
 			if (result.deployments.length === 0 && result.hasMore) {
 				throw new Error('Deployment inventory returned an empty page while claiming more rows.');
@@ -87,6 +106,8 @@
 			offset = targetOffset;
 			if (result.deployments.length > 0) everLoaded = true;
 		} catch (caught) {
+			pageRows = [];
+			hasMore = false;
 			listError = caught instanceof Error ? caught.message : 'Could not load deployments.';
 		} finally {
 			listLoading = false;
@@ -136,6 +157,8 @@
 <main>
 	<PortfolioWorkspace {inventory} />
 
+	<FleetControls />
+
 	<div class="bots-head">
 		<div>
 			<h2 id="all-bots">All bots</h2>
@@ -155,6 +178,8 @@
 			<a class="btn" href={resolve('/strategies')}>Start a deployment</a>
 		</div>
 	</div>
+
+	<PreflightPanel />
 
 	<section class="card idbar" aria-label="Bot summary" data-testid="portfolio-metrics">
 		<div class="counts">

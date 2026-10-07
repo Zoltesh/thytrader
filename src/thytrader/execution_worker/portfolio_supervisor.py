@@ -6,7 +6,8 @@ paused sleeve:
 1. keep each sleeve's allocated capital equal to its weight times the portfolio's capital
    (a rebalance or capital change binds the sleeve's next entries, paper and live);
 2. record the run's equity (capital plus each run book's persisted net PnL), rolling the
-   UTC day open and raising the high-water mark;
+   UTC day open and raising the high-water mark. While a run book's recorded equity is
+   unresolved, the baselines are held and no new trip is evaluated: unknown is not zero PnL;
 3. trip the portfolio breakers: the daily loss stop (``daily_loss_quote``) and the
    drawdown stop (``max_drawdown_fraction``). A trip latches until an operator reset,
    pauses every running sleeve with a ``PORTFOLIO_*_STOP:`` detail, and is journaled. While
@@ -25,6 +26,7 @@ from decimal import Decimal
 import logging
 from typing import TYPE_CHECKING
 
+from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.models import (
     DeploymentStatus,
     ExecutionConflictError,
@@ -119,10 +121,12 @@ async def _supervise_one(
     if not occupied:
         return runtime
     await _sync_allocations(aggregate, occupied, store=store, now=now)
-    equity = run_equity(aggregate, run_members(tagged, runtime))
-    recorded = roll_baselines(runtime, equity=equity, now=now)
-    trip = None if runtime.breaker_latched else tripped_breaker(aggregate, recorded)
     running = tuple(item for item in occupied if item.status is DeploymentStatus.RUNNING)
+    run = run_members(tagged, runtime)
+    if await _equity_unresolved(run, store=store):
+        return await _enforce_latch(runtime, running, store=store, now=now)
+    recorded = roll_baselines(runtime, equity=run_equity(aggregate, run), now=now)
+    trip = None if runtime.breaker_latched else tripped_breaker(aggregate, recorded)
     journal: tuple[JournalEntry, ...] = ()
     if trip is not None:
         recorded = replace(
@@ -139,6 +143,37 @@ async def _supervise_one(
             recorded, expected_revision=runtime.revision, journal=journal
         )
         state = written or (recorded if trip is not None else runtime)
+    return await _enforce_latch(state, running, store=store, now=now)
+
+
+async def _equity_unresolved(run: Sequence[Deployment], *, store: ExecutionStore) -> bool:
+    """Whether a run book's null equity is unresolved accounting rather than zero PnL.
+
+    :func:`net_pnl` reads a null persisted equity as zero, which is right before a book's
+    first mark but not once the ledger refused to certify its accounting. This is the same
+    ledger check the portfolio views use to withhold run equity. An unreadable book counts
+    as unresolved.
+    """
+    for book in run:
+        if book.performance_equity is not None:
+            continue
+        try:
+            snapshot = await store.get_deployment(book.id)
+        except ExecutionStoreError:
+            return True
+        if not ledger_from_snapshot(snapshot).accounting_complete:
+            return True
+    return False
+
+
+async def _enforce_latch(
+    state: PortfolioRuntimeState,
+    running: Sequence[Deployment],
+    *,
+    store: ExecutionStore,
+    now: datetime,
+) -> PortfolioRuntimeState:
+    """Pause every running sleeve while the breaker is latched; return the gate's state."""
     if state.breaker_reason is not None and running:
         detail = f"{state.breaker_reason}: {state.breaker_detail or 'portfolio breaker latched'}"
         await _pause_running(running, detail=detail[:2000], store=store, now=now)

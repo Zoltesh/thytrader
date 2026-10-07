@@ -267,14 +267,14 @@ describe('portfolio rows', () => {
 			}),
 			index
 		);
-		expect(resting.protection).toBe('Stop 61902 · TP 66432 · Open · protected (TP/SL resting)');
+		expect(resting.protection).toBe('Stop 61902 · TP 66432 · Protected · unverified');
 		const stopOnly = portfolioRow(
 			deployment({
 				positions: [{ ...openLong, target_price: null, position_state: 'open_protected' }]
 			}),
 			index
 		);
-		expect(stopOnly.protection).toBe('Stop 61902 · TP none · Open · protected (stop resting)');
+		expect(stopOnly.protection).toBe('Stop 61902 · TP none · Protected · unverified');
 		const exiting = portfolioRow(
 			deployment({
 				position_state: 'exiting',

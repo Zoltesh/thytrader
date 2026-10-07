@@ -1,6 +1,7 @@
 import { type Page, type Route } from '@playwright/test';
 
 import { expect, isStrategyLibraryRequest, test } from '../e2e/harness';
+import { inventoryPageFixture } from '../e2e/inventory';
 
 /**
  * Home (ADR 0084): header, KPI tiles, chart, Needs attention, Your bots,
@@ -269,7 +270,7 @@ async function mockHome(page: Page, mocks: HomeMocks = {}): Promise<void> {
 		(route) => {
 			const deployments = mocks.deployments ?? [];
 			return route.fulfill({
-				json: { deployments, limit: 200, offset: 0, returned: deployments.length }
+				json: inventoryPageFixture(deployments)
 			});
 		}
 	);
@@ -1110,7 +1111,7 @@ test('shows a bots error with its own retry while the rest of Home loads', async
 				return;
 			}
 			await route.fulfill({
-				json: { deployments: [deploymentFixture()], limit: 200, offset: 0, returned: 1 }
+				json: inventoryPageFixture([deploymentFixture()])
 			});
 		}
 	);

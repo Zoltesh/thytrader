@@ -24,6 +24,7 @@
 		type DatasetCoverageRow
 	} from './home-data';
 	import { formatShortUtc } from './home-format';
+	import WatchedTails from './WatchedTails.svelte';
 	import type { Load } from './load';
 
 	let {
@@ -231,6 +232,7 @@
 			{/if}
 		</section>
 		{#if marketLoaded}
+			<WatchedTails />
 			<MarketDataPanel
 				preview={marketDataPreview}
 				range={marketDataRange}

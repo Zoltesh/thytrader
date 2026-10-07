@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Accepted — protection classification amended by [ADR 0112](0112-quantitative-protection-evidence.md)
 
 Capital-base scope is superseded by [ADR 0106](0106-account-risk-capital-and-live-startup-baselines.md):
 mode-wide risk uses account quote and managed holdings, while per-bot allocations remain sizing

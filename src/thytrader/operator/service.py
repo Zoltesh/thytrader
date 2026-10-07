@@ -12,6 +12,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
+from thytrader.alerts.report import AlertsReport, build_alerts_report
 from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
@@ -42,8 +43,9 @@ from thytrader.execution.protection import (
     PositionState,
     book_exit_in_flight,
     book_position_state,
-    book_protection_status,
+    book_protection_evidence,
     deployment_position_state,
+    protection_evidence_response,
 )
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
@@ -133,8 +135,13 @@ from thytrader.operator.models import (
     current_ops_contract,
 )
 from thytrader.operator.portfolios_report import build_portfolios_report
+from thytrader.operator.readiness import ReadinessReport, build_readiness_report
 from thytrader.operator.research_workers import research_worker_health, stale_after_seconds
 from thytrader.operator.status import aggregate_status, recommend_next_action
+from thytrader.operator.venue_reconciliation import (
+    VenueReconciliationReport,
+    build_venue_reconciliation_report,
+)
 from thytrader.persistence.audit_events import AuditEventStore, AuditEventUnavailableError
 from thytrader.persistence.backtest_results import (
     BacktestResultNotFoundError,
@@ -194,6 +201,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from thytrader.alerts.store import AlertStore
     from thytrader.config import Settings
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
@@ -242,6 +250,7 @@ class OperatorDiagnostics:
     decision_store: DecisionJournalStore | None = None
     portfolios: PortfolioStorage | None = None
     research_queue: ResearchQueueSnapshotReader | None = None
+    alert_store: AlertStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -513,6 +522,33 @@ class OperatorDiagnostics:
         """List portfolios with sleeves, deployment and breaker state, and the newest backtest."""
         return await build_portfolios_report(self.portfolios, self.execution)
 
+    async def readiness_report(
+        self,
+        deployment_id: UUID | None = None,
+        portfolio_id: UUID | None = None,
+    ) -> ReadinessReport:
+        """Advisory allocation, cap, fee, and breaker preflight (ADR 0114).
+
+        Read-only. It never tightens the published risk policy or changes a bot.
+        """
+        return await build_readiness_report(
+            portfolio=self.portfolio,
+            execution=self.execution,
+            risk_policies=self.risk_policies,
+            portfolios=self.portfolios,
+            deployment_id=deployment_id,
+            portfolio_id=portfolio_id,
+        )
+
+    async def venue_reconciliation_report(self) -> VenueReconciliationReport:
+        """Compare managed live books with a fresh venue listing (ADR 0114).
+
+        Read-only. It never creates, cancels, or replaces an order.
+        """
+        return await build_venue_reconciliation_report(
+            portfolio=self.portfolio, execution=self.execution
+        )
+
     async def market_data_report(
         self,
         product_id: str | None = None,
@@ -765,6 +801,9 @@ class OperatorDiagnostics:
                 max_daily_loss_quote=policy.max_daily_loss_quote,
                 max_portfolio_exposure_quote=policy.max_portfolio_exposure_quote,
                 max_venue_order_actions_per_minute=policy.max_venue_order_actions_per_minute,
+                max_order_quantity=policy.max_order_quantity,
+                max_order_notional_quote=policy.max_order_notional_quote,
+                min_available_quote_reserve=policy.min_available_quote_reserve,
                 findings=findings,
             ),
         )
@@ -880,6 +919,10 @@ class OperatorDiagnostics:
             last_message_at=snapshot.last_message_at,
             last_heartbeat_at=snapshot.last_heartbeat_at,
         )
+
+    async def alerts(self) -> AlertsReport:
+        """Return the durable safety-alert feed without trading authority."""
+        return await build_alerts_report(self.alert_store, self.settings)
 
     async def monitor(self) -> MonitorReport:
         """Watch deployments, recent journals, and notification delivery."""
@@ -2201,6 +2244,7 @@ def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapsh
         positions=summary.positions,
         instrument_runtimes=summary.instrument_runtimes,
         orders=summary.open_orders,
+        accounting_complete=False,
     )
 
 
@@ -2224,7 +2268,7 @@ def _book_summaries(
     *,
     extra_product_ids: tuple[str, ...],
 ) -> tuple[DeploymentBookSummary, ...]:
-    """Project per-product phase, side, and protection without quantities."""
+    """Project phase, side and quantitative stop evidence, omitting prices and cash."""
     if snapshot is None:
         return ()
     positions = {
@@ -2234,16 +2278,22 @@ def _book_summaries(
     rows: list[DeploymentBookSummary] = []
     for runtime in visible_instrument_runtimes(snapshot, extra_product_ids=extra_product_ids):
         position = positions.get(runtime.product_id)
+        evidence = book_protection_evidence(
+            snapshot, product_id=runtime.product_id, position=position
+        )
         rows.append(
             DeploymentBookSummary(
                 product_id=runtime.product_id,
                 phase=runtime.phase.value,
                 side=None if position is None else position.side.value,
-                protection_status=book_protection_status(
-                    snapshot, product_id=runtime.product_id, position=position
-                ).value,
+                protection_status=evidence.status.value,
+                protection=protection_evidence_response(evidence),
                 position_state=book_position_state(
-                    snapshot, product_id=runtime.product_id, position=position, phase=runtime.phase
+                    snapshot,
+                    product_id=runtime.product_id,
+                    position=position,
+                    phase=runtime.phase,
+                    evidence=evidence,
                 ).value,
                 exit_in_flight=book_exit_in_flight(
                     snapshot, product_id=runtime.product_id, position=position
@@ -2310,6 +2360,19 @@ def _deployment_ledger_component(
     deployment: Deployment, ledger: DeploymentLedger
 ) -> tuple[ComponentReport, tuple[str, ...]]:
     """Classify fill-ledger completeness without inventing missing marks or fills."""
+    if not ledger.accounting_complete:
+        return (
+            ComponentReport(
+                name="performance",
+                status=ReportStatus.DEGRADED,
+                reason_code="ACCOUNTING_UNRESOLVED",
+                detail=(
+                    "Inventory projection, fill economics, or accounting scope is unresolved; "
+                    "aggregate PnL, equity and exposure are omitted, not reconstructed."
+                ),
+            ),
+            ("Recorded fill statistics do not certify complete account economics.",),
+        )
     if not ledger.mark_complete:
         return (
             ComponentReport(

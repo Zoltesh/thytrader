@@ -117,21 +117,32 @@ def test_operator_books_omit_quantities_and_label_each_product() -> None:
     assert set(by_product) == {"BTC-USD", "ETH-USD"}
     assert by_product["BTC-USD"].phase == "flat"
     assert by_product["BTC-USD"].side is None
-    assert by_product["BTC-USD"].protection_status == "flat"
+    # Bounded runtime summaries omit historical economics: absence is not proved flatness.
+    assert by_product["BTC-USD"].protection_status == "unknown"
+    assert by_product["BTC-USD"].protection.required_quantity is None
     assert by_product["ETH-USD"].phase == "open"
     assert by_product["ETH-USD"].side == "short"
     # ADR 0098: the paper synthetic stop is cover, so the two fields agree.
     assert by_product["ETH-USD"].protection_status == "covered"
     # ADR 0097: the paper synthetic stop protects the open book; nothing is exiting.
     assert (by_product["BTC-USD"].position_state, by_product["BTC-USD"].exit_in_flight) == (
-        "flat",
+        "open_unverified",
         False,
     )
     assert (by_product["ETH-USD"].position_state, by_product["ETH-USD"].exit_in_flight) == (
         "open_protected",
         False,
     )
-    assert (row.position_state, row.exit_in_flight) == ("open_protected", False)
+    assert (row.position_state, row.exit_in_flight) == ("open_unverified", False)
+    eth = by_product["ETH-USD"].protection
+    assert eth.mechanism == "synthetic"
+    assert eth.worker_dependent is True
+    assert eth.venue_resting is False
+    assert eth.required_quantity == "0.5"
+    assert eth.covered_quantity == "0.5"
+    assert eth.uncovered_quantity == "0"
+    assert eth.verified_at is None
+    assert "synthetic_worker_dependent" in eth.reasons
     dumped = row.model_dump()
-    assert "0.5" not in str(dumped)
     assert "3000" not in str(dumped)
+    assert "2700" not in str(dumped)

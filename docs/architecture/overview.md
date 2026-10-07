@@ -1,5 +1,13 @@
 # Architecture Overview
 
+Execution write boundaries follow [ADR 0121](../decisions/0121-execution-write-boundaries.md):
+conditional parent/runtime changes commit together, same-book fill projections lock the parent
+before reading economics, and quote-peer breaker pauses mutate only their owned metadata.
+An authoritative accounting read is not a fence for a later write. Cancel-time execution must
+be reconciled before sizing replacement protection; product identity remains explicit at
+mark/protection effect boundaries. These contracts do not universally serialize every raw store
+writer or promise exactly-once venue execution.
+
 Mode-wide live exposure and daily-loss capital is observed account quote plus managed long
 inventory cost and working buy-entry reservations; bot allocations are separate sizing limits.
 Do not substitute one sleeve's allocation or add its ledger cash to an account balance.
@@ -58,8 +66,8 @@ Research worker (N processes) -----------+   backtests, studies, portfolio backt
   pages render body content only (a compact `PageHead` plus the page)
   ([ADR 0079](../decisions/0079-four-destination-shell-agent-panel-palette-tokens.md)):
   - A left rail with four destinations (Home `/`, Strategies `/strategies`, Portfolio
-    `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Audit log, Journal,
-    Memory & why-trade). The rail collapses to icons on narrow desktop widths.
+    `/deployments`, Trade `/trade`) and a collapsible System group (Settings, Alerts, Audit log,
+    Journal, Memory & why-trade). The rail collapses to icons on narrow desktop widths.
   - A per-strategy workspace layout at `/strategies/[id]` with stage routes Build (`/`), Test
     (`/test`), Run (`/run`), and Why (`/why`), and a sticky identity bar with the strategy's
     saved/validation state, shared through Svelte context (`web/src/lib/workspace/`)
@@ -275,6 +283,22 @@ Default services bind to loopback. Remote access is an explicit deployment profi
 Rust is a future implementation option for measured hot paths such as feed handling, event processing, order-book simulation, or execution components. Extraction should occur only after profiling shows a material benefit. Stable message/domain contracts make that evolution possible; speculative microservices do not.
 
 Internet-connected Coinbase trading should not be marketed as true HFT merely because a component is written in Rust. Exchange and network latency, data quality, execution design, and risk controls dominate.
+
+## Projection-completeness diagnostics
+
+Reporting consumes the durable fill-ledger predicates for unprojected owned inventory and
+unsettled execution economics, not mutable mismatch text. It also rejects per-product occupancy
+contradictions: an occupied runtime without its own position is unknown even with sibling inventory. Absent position rows and terminal
+orders alone cannot certify flatness, aggregate PnL/equity/exposure, or protection recovery.
+Unknown protection quantities are null, never an executable reconstruction. Readiness and
+venue reconciliation separate storage-read completeness from economic completeness, name
+affected deployments, and preserve independent quote/asset/order evidence. Bounded summaries
+and focused product snapshots cannot certify complete shared-account accounting. This is
+read-only derived reporting; it does not repair records, change risk policy, or grant orders.
+Portfolio report views qualify current-run equity and residual exposure separately, using ledger
+completeness rather than letting stored counters repair missing economics. Dependent totals are
+nullable; recorded allocations/limits/baselines/history and independent resolved books/assets stay
+visible. Report qualification never changes portfolio control, admission, or breaker policy.
 
 ## Account-read and audit diagnostics
 

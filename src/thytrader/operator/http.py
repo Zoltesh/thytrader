@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlencode
 
 from thytrader.agent_http import request_json
+from thytrader.alerts.report import AlertsReport
+from thytrader.operator.data_health import DataHealthReport
 from thytrader.operator.models import (
     OPERATOR_API_PREFIX,
     ConfigurationReport,
@@ -31,6 +33,8 @@ from thytrader.operator.models import (
     SupportBundleReport,
     TradeReasonsReport,
 )
+from thytrader.operator.readiness import ReadinessReport
+from thytrader.operator.venue_reconciliation import VenueReconciliationReport
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -41,6 +45,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "exchange": ExchangeReport,
     "market-data": MarketDataReport,
     "data-catalog": DataCatalogReport,
+    "data-health": DataHealthReport,
     "products": ProductsReport,
     "indicators": IndicatorsReport,
     "strategies": StrategiesReport,
@@ -56,6 +61,9 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "portfolio": PortfolioReport,
     "fees": FeesReport,
     "portfolios": PortfoliosReport,
+    "readiness": ReadinessReport,
+    "venue-reconciliation": VenueReconciliationReport,
+    "alerts": AlertsReport,
 }
 
 

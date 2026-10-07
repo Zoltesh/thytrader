@@ -388,8 +388,10 @@ async def test_live_pending_cancel_keeps_exiting_instead_of_re_resting_protectio
         broker=venue,
         store=store,
     )
-    assert venue.placed == []
-    assert waiting.position is not None
+    # Reconciliation now confirms the cancel at the start of this poll, so the
+    # cover need not wait for an additional artificial maintenance cycle.
+    assert venue.placed == [OrderKind.MARKETABLE]
+    assert waiting.position is None
     assert waiting.deployment.status is DeploymentStatus.RUNNING
     settled = await maintain_open_inventory(
         waiting,
@@ -400,7 +402,8 @@ async def test_live_pending_cancel_keeps_exiting_instead_of_re_resting_protectio
         store=store,
     )
     assert venue.kinds("cancel") == ["stop-1"]
-    assert venue.kinds("get") == ["stop-1", "stop-1"]
+    assert venue.kinds("get").count("stop-1") >= 2
+    assert venue.events.index(("get", "stop-1")) < venue.events.index(("place", "marketable-1"))
     assert venue.placed == [OrderKind.MARKETABLE]
     assert OrderKind.STOP_LIMIT not in venue.placed
     assert settled.position is None

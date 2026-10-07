@@ -14,7 +14,9 @@ from uuid import uuid4
 
 import pytest
 
+from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_loop import _always_entry_strategy, _filled_long
+from thytrader.execution import protection
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
@@ -39,6 +41,12 @@ from thytrader.execution.protection import (
 )
 
 _NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
+
+
+@pytest.fixture(autouse=True)
+def _reporting_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freeze reporting recency independently of execution test clocks."""
+    monkeypatch.setattr(protection, "utc_now", lambda: _NOW)
 
 
 def _live(phase: RuntimePhase = RuntimePhase.PENDING_EXIT) -> Deployment:
@@ -93,9 +101,10 @@ def _order(
         status=status,
         created_at=_NOW,
         updated_at=_NOW,
-        price=Decimal("64000"),
+        price=Decimal("57900") if kind is OrderKind.STOP_LIMIT else Decimal("64000"),
         stop_trigger_price=Decimal("58000"),
         venue_order_id=f"venue-{uuid4()}",
+        venue_observed_at=_NOW,
         product_id=product_id,
     )
 
@@ -163,7 +172,11 @@ def test_opening_side_or_finished_marketable_orders_are_not_an_exit() -> None:
             _order(deployment, kind=OrderKind.TRIGGER_BRACKET),
         ),
     )
-    assert deployment_position_state(snapshot) is PositionState.OPEN_PROTECTED
+    assert not deployment_exit_in_flight(snapshot)
+    # A terminal status without its applied execution cannot certify remaining cover.
+    assert deployment_position_state(snapshot) is PositionState.OPEN_UNVERIFIED
+    # The retained position/cash in this geometry fixture already reflect the sell.
+    assert deployment_position_state(settled_snapshot(snapshot)) is PositionState.OPEN_PROTECTED
 
 
 def test_signal_exit_marker_and_flatten_are_exiting() -> None:

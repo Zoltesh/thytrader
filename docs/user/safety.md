@@ -60,5 +60,20 @@ permission to trade. Research is not permission to deploy. See [Operate](operate
 - Missing candles are never interpolated. An interval without trades is published as a flat
   zero-volume bar at the previous close, counted and disclosed in research results.
 
+## Daily-risk evidence and policy publication
+
+Risk checks use fresh complete accounting, including sibling markets and stopped flat books.
+A late restart or maintenance poll cannot label current equity as midnight equity. Complete
+applied fills can prove a flat midnight without a price; overnight inventory requires actual
+closed midnight marks for each product. Missing/inconsistent evidence denies new risk, not
+protection, and resetting a latch does not repair it. `thytrader-runtime show` preserves legacy
+`capital.utc_day_open_equity` but only separately qualified `capital.risk_day_open_evidence`
+records genuine opening provenance for its stated UTC day ([ADR 0120](../decisions/0120-verified-risk-opening-evidence.md)).
+
+`thytrader-operator risk` reports optional quantity, notional and available-quote reserve bounds
+as configuration, not balances. `set-risk-policy --confirm` replaces the whole active policy:
+omitting an optional bound removes it in the successor. Read `show-risk-policy` first and
+resupply any limits you intend to retain. Historical policy versions remain immutable.
+
 The full baseline (risk-policy registry, execution policy, audit) is
 [security and trading-risk](../security-and-risk.md).

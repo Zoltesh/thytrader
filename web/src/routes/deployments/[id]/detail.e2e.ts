@@ -15,6 +15,7 @@ import {
 	type Json
 } from '../../../e2e/decision-fixtures';
 import { expect, test } from '../../../e2e/harness';
+import { inventoryPageFixture } from '../../../e2e/inventory';
 
 const deploymentId = '01a0ad72-0000-0000-0000-000000000000';
 const fingerprintA = `sha256:${'a'.repeat(64)}`;
@@ -214,12 +215,7 @@ async function mockDetailRoutes(
 		(url) => url.pathname === '/api/v1/deployments',
 		(route) =>
 			route.fulfill({
-				json: {
-					deployments: overrides.inventory ?? [],
-					limit: 200,
-					offset: 0,
-					returned: (overrides.inventory ?? []).length
-				}
+				json: inventoryPageFixture(overrides.inventory ?? [])
 			})
 	);
 	await page.route(
@@ -425,7 +421,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -486,7 +482,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -604,6 +600,135 @@ test.describe('deployment detail', () => {
 		);
 	});
 
+	test('protection evidence is not a green venue badge for a worker stop or a take-profit', async ({
+		page
+	}) => {
+		const book = {
+			product_id: 'ETH-USDC',
+			quantity: '0.5',
+			entry_price: '3000',
+			stop_price: '2800',
+			target_price: '3400',
+			entered_bar: '2026-09-21T20:00:00+00:00',
+			side: 'long',
+			protection_status: 'covered',
+			position_state: 'open_protected',
+			exit_in_flight: false,
+			protection: {
+				required_quantity: '0.5',
+				covered_quantity: '0.5',
+				uncovered_quantity: '0',
+				stop_side: 'sell',
+				stop_side_valid: true,
+				stop_geometry_valid: true,
+				mechanism: 'synthetic',
+				venue_resting: false,
+				worker_dependent: true,
+				observed_at: null,
+				verified_at: null,
+				observation_source: 'synthetic_worker',
+				freshness: 'unknown',
+				evaluated_at: '2026-09-21T20:05:00+00:00',
+				freshness_max_age_seconds: 120,
+				geometry_basis: 'working_target',
+				reasons: ['synthetic_worker_dependent']
+			}
+		};
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'paper',
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [book]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Worker stop/);
+		await expect(page.getByTestId('protection-evidence')).toContainText('not venue-resting');
+		await expect(page.getByTestId('position-state')).not.toHaveText('Venue TP/SL');
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'live',
+				phase: 'open',
+				position_state: 'open_unprotected',
+				positions: [
+					{
+						...book,
+						protection_status: 'unprotected',
+						position_state: 'open_unprotected',
+						protection: {
+							...book.protection,
+							covered_quantity: '0',
+							uncovered_quantity: '0.5',
+							mechanism: 'none',
+							worker_dependent: false,
+							stop_side_valid: false,
+							stop_geometry_valid: false,
+							reasons: ['take_profit_only', 'no_resting_stop']
+						}
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Unprotected/);
+		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
+	});
+
+	test('a legacy persisted cover claim is not fresh venue-state or geometry verification', async ({
+		page
+	}) => {
+		await mockDetailRoutes(page, {
+			deployment: detailDeployment({
+				mode: 'live',
+				phase: 'pending_exit',
+				position_state: 'open_protected',
+				positions: [
+					{
+						product_id: 'ADA-USDC',
+						quantity: '20',
+						entry_price: '0.40',
+						stop_price: '0.36',
+						target_price: '0.48',
+						entered_bar: '2026-09-21T20:00:00+00:00',
+						side: 'long',
+						protection_status: 'covered',
+						position_state: 'open_protected',
+						protection: {
+							required_quantity: '20',
+							covered_quantity: '20',
+							uncovered_quantity: '0',
+							stop_side: 'sell',
+							stop_side_valid: true,
+							stop_geometry_valid: true,
+							mechanism: 'venue',
+							venue_resting: true,
+							worker_dependent: false,
+							observed_at: '2026-09-21T20:05:00+00:00',
+							verified_at: null,
+							observation_source: 'persisted_order',
+							freshness: 'recent_local',
+							evaluated_at: '2026-09-21T20:05:00+00:00',
+							freshness_max_age_seconds: 120,
+							geometry_basis: 'working_target',
+							reasons: ['venue_stop_resting', 'local_observation_only']
+						}
+					}
+				]
+			})
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		await expect(page.getByTestId('position-state')).toHaveText(/Unverified/);
+		await expect(page.getByTestId('position-state')).not.toHaveClass(/ok/);
+		await expect(page.getByTestId('protection-evidence')).toContainText('20 of 20');
+		await expect(page.getByTestId('protection-evidence')).toContainText(
+			'venue order-state freshness unverified'
+		);
+		await expect(page.getByTestId('protection-evidence')).toContainText(
+			'venue geometry not independently verified'
+		);
+	});
+
 	test('a resting TP/SL reads as open and protected, not exiting (ADR 0097)', async ({ page }) => {
 		await mockDetailRoutes(page, {
 			deployment: detailDeployment({
@@ -627,10 +752,8 @@ test.describe('deployment detail', () => {
 			})
 		});
 		await page.goto(`/deployments/${deploymentId}`);
-		await expect(page.getByTestId('position-state')).toHaveText('Open · protected (TP/SL resting)');
-		await expect(page.getByTestId('kpi-position')).toContainText(
-			'Open · protected (TP/SL resting)'
-		);
+		await expect(page.getByTestId('position-state')).toHaveText('Protected · unverified');
+		await expect(page.getByTestId('kpi-position')).toContainText('Protected · unverified');
 		await expect(page.getByTestId('kpi-position')).not.toContainText('Exiting');
 	});
 
@@ -652,7 +775,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -714,7 +837,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -763,7 +886,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -830,7 +953,7 @@ test.describe('deployment detail', () => {
 		});
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',
@@ -893,7 +1016,7 @@ test.describe('deployment detail', () => {
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/deployments',
-			(route) => route.fulfill({ json: { deployments: [], limit: 200, offset: 0, returned: 0 } })
+			(route) => route.fulfill({ json: inventoryPageFixture([]) })
 		);
 		await page.route(
 			(url) => url.pathname === '/api/v1/operator/performance',

@@ -6,6 +6,10 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.execution.fill_ledger import (
+    unprojected_inventory_products,
+    unsettled_fill_evidence,
+)
 from thytrader.execution.models import (
     OrderKind,
     OrderSide,
@@ -18,6 +22,10 @@ from thytrader.execution.performance import (
     current_drawdown,
     ledger_starting_equity,
     performance_capital,
+)
+from thytrader.execution.protection import (
+    book_inventory_reasons,
+    missing_occupied_inventory_products,
 )
 from thytrader.research.indicators import canonical_decimal
 
@@ -51,7 +59,7 @@ class ProductBookLedger:
     """Per-product fill-ledger statistics marked at one last-close price."""
 
     product_id: str
-    base_quantity: Decimal
+    base_quantity: Decimal | None
     mark_price: Decimal | None
     realized_net_pnl: Decimal
     unrealized_net_pnl: Decimal | None
@@ -66,7 +74,7 @@ class DeploymentLedger:
 
     starting_cash: Decimal
     cash: Decimal
-    base_quantity: Decimal
+    base_quantity: Decimal | None
     mark_price: Decimal | None
     equity: Decimal | None
     realized_net_pnl: Decimal
@@ -80,6 +88,7 @@ class DeploymentLedger:
     mark_complete: bool
     books: tuple[ProductBookLedger, ...] = ()
     marked_exposure: Decimal | None = None
+    accounting_complete: bool = True
 
     def total_net_pnl_text(self) -> str | None:
         """Render total net PnL as a canonical decimal, or None when the mark is missing."""
@@ -235,7 +244,52 @@ def ledger_from_snapshot(
             positions=positions,
             marks_map=marks_map,
         )
+    ledger = _inventory_checked_ledger(snapshot, ledger)
     return _capital_normalized_ledger(snapshot, ledger)
+
+
+def _inventory_checked_ledger(
+    snapshot: DeploymentSnapshot, ledger: DeploymentLedger
+) -> DeploymentLedger:
+    """Keep known recorded fill statistics, but never certify unresolved account totals.
+
+    Missing projections cannot be repaired with a latest mark or a profitable opening.
+    Focused overlays may describe valid local books, not complete shared cash/equity.
+    """
+    complete = (
+        snapshot.accounting_complete
+        and not unprojected_inventory_products(snapshot)
+        and not missing_occupied_inventory_products(snapshot)
+        and not unsettled_fill_evidence(snapshot)
+    )
+    if complete:
+        return ledger
+    books = tuple(
+        replace(
+            book,
+            base_quantity=None,
+            unrealized_net_pnl=None,
+            total_net_pnl=None,
+            mark_complete=False,
+        )
+        if book_inventory_reasons(snapshot, product_id=book.product_id)
+        else book
+        for book in ledger.books
+    )
+    return replace(
+        ledger,
+        base_quantity=None,
+        equity=None,
+        unrealized_net_pnl=None,
+        total_net_pnl=None,
+        total_return_fraction=None,
+        maximum_drawdown=None,
+        maximum_drawdown_fraction=None,
+        mark_complete=False,
+        marked_exposure=None,
+        books=books,
+        accounting_complete=False,
+    )
 
 
 def _capital_normalized_ledger(

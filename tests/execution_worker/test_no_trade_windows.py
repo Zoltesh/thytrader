@@ -73,7 +73,7 @@ def test_interior_no_trade_bars_are_filled_after_one_confirmation() -> None:
 
     candles, last_closed = _window(provider)
 
-    assert provider.calls == 2, "one fetch plus one confirmation"
+    assert provider.calls == 3, "settled fetch + confirmation + refetched publication tail"
     flat = [candle for candle in candles if candle.volume == 0]
     assert len(flat) == 2
     assert all(candle.close == candles[2].close for candle in flat)
@@ -100,12 +100,12 @@ def test_a_bar_present_in_either_response_is_real() -> None:
 
 
 def test_a_liquid_window_is_fetched_once_and_unchanged() -> None:
-    """Gap-free windows cost no confirmation and carry no flat bars."""
+    """Gap-free prefix plus mutable tail costs no confirmation and carries no flat bars."""
     provider = _QuietDemo(lambda _call, _bars, _offset: frozenset())
 
     candles, _last_closed = _window(provider)
 
-    assert provider.calls == 1
+    assert provider.calls == 2
     assert all(candle.volume > 0 for candle in candles)
 
 

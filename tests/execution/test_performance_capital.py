@@ -81,6 +81,7 @@ def _live_snapshot() -> DeploymentSnapshot:
         quantity=Decimal("1"),
         fee=Decimal("0.5"),
         filled_at=_NOW,
+        economics_applied_at=_NOW,
     )
     position = Position(
         deployment_id=deployment.id,
@@ -204,15 +205,21 @@ def test_unknown_capital_denies_drawdown_evaluation_instead_of_reporting_zero() 
     assert "performance-capital" in verdict.detail
 
 
-def test_legacy_funded_live_ledger_keeps_its_existing_return_basis() -> None:
-    """A live book whose opening cash was funded is not given that cash a second time."""
+@pytest.mark.parametrize("phase", [RuntimePhase.FLAT, RuntimePhase.OPEN])
+def test_legacy_funded_live_ledger_keeps_its_existing_return_basis(phase: RuntimePhase) -> None:
+    """Funded flat cash keeps its basis; missing occupied inventory cannot certify equity."""
     deployment = replace(
         _live_snapshot().deployment,
+        phase=phase,
         cash=Decimal("950"),
         initial_equity=Decimal("1000"),
         high_water_mark_equity=Decimal("1100"),
     )
     ledger = ledger_from_snapshot(DeploymentSnapshot(deployment))
+    if phase is RuntimePhase.OPEN:
+        assert not ledger.accounting_complete and not ledger.mark_complete
+        assert ledger.total_net_pnl is ledger.equity is ledger.total_return_fraction is None
+        return
     assert ledger.total_net_pnl == Decimal("-50")
     assert ledger.total_return_fraction == Decimal("-0.05")
     assert ledger.maximum_drawdown_fraction == Decimal("150") / Decimal("1100")

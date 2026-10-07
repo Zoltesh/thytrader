@@ -58,7 +58,15 @@ every worker poll, including empty `due` and feed-down. Default stop is managed 
 (protective brackets and residual occupancy stay in account risk). `--flatten` /
 `POST /api/v1/deployments/{id}/stop?flatten=true` marketably exits then cancels remainders.
 Live sizing uses allocated capital or venue available quote, never ledger `cash`. Workers hold
-a 45s fenced lease; writes are revision-checked. UTC day-open and high-water baselines persist
+a 45s fenced lease; writes are revision-checked. Scoped parent/runtime writes commit together;
+a rejected revision has no partial runtime effect. Distinct same-book fills serialize local
+financial projection, not external venue execution. Reused discretionary entry conflicts before
+submission if concurrent state changes; read fresh state and re-admit, never force stale financial
+fields under a new revision. Replacement protection reconciles cancel-time executions and waits
+for complete applied economics before sizing; missing publication is not permission to infer a
+sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and other latches
+([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
+UTC day-open and high-water baselines persist
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
 on `thytrader-runtime show`.
 
@@ -74,6 +82,49 @@ proposed notional, account capital, and cap; `ALLOCATION_EXCEEDED` names the str
 `BREAKER_MARK_MISSING` details distinguish missing inventory marks from missing equity baselines
 and identify the affected deployment. Preserve the gate; diagnose through `decisions`, `show`,
 `thytrader-operator reconciliation`, and `show-risk-policy` before changing policy.
+
+Daily loss is not the exposure set ([ADR 0111](../../docs/decisions/0111-durable-risk-accounting-scopes.md)).
+Exposure and order-rate occupancy still count running, paused, and stopped books that hold
+inventory or working entries. UTC-day loss also includes stopped flat books of the same mode and
+the same spot quote, including a fill dated today after stop. Stopping a book does not reset that
+loss or either latch. A drawdown latch blocks only the matching strategy, or a discretionary book
+on that product; it does not block unrelated strategies. USD, USDC, and USDT losses are never
+added together. An open book without a same-UTC-day baseline denies new risk and does not invent
+equity. `reset-breaker-latches` clears latch flags only; a loss still over the limit can trip
+again, and the bot stays stopped or paused until a separate resume. Paper and live strategy
+deletion retain stopped books, fills, latches, and referenced snapshots, detached from the deleted
+strategy; deletion is not a reset. A null strategy FK does not turn that strategy's drawdown into
+discretionary drawdown. Daily loss pauses only running books of that mode and quote; deliberate
+pauses and stopped choices are preserved. A first discretionary denial can leave its latch on a
+persisted same-quote peer even though no new candidate book was created. Reset the specific row
+carrying the latch, not unrelated books. Risk checks reload fresh complete accounting for every
+retained book; a product-focused view or cached portfolio cannot hide sibling fills.
+Older books need verified opening evidence ([ADR 0120](../../docs/decisions/0120-verified-risk-opening-evidence.md)):
+complete applied fills reconstruct midnight cash and separate product quantities. A genuinely
+flat midnight needs no price; overnight inventory, including a later closure, needs an actual
+closed midnight mark for each product. The worker can recover an exact complete hourly range.
+Missing/inconsistent economics, filled orders missing fills, or unavailable opening prices deny
+rather than becoming zero loss. An OPEN/PENDING_EXIT product runtime without its own positive
+position is also unresolved, even when another product's position survives. It blocks new-entry
+admission without a price observation and cannot certify midnight equity or flat-day zero PnL. Unapplied live fills deny until economics reconcile. Neither
+maintenance nor a late restart promotes current equity or legacy stamps into midnight evidence.
+Paper starts share one policy funding envelope, not a separate envelope per quote: occupied
+foreign-quote paper books deny new funding rather than reuse or convert that budget. Retained
+stopped flat loss evidence does not occupy funding. Concurrent multi-quote paper funding is not
+supported by the current scalar paper-capital policy.
+
+Optional `set-risk-policy` flags `--max-order-quantity`, `--max-order-notional-quote`, and
+`--min-available-quote-reserve` are unset by default; compiled defaults and old stored policy
+hashes stay unchanged. Publication replaces the policy, not patches it: resupply any configured
+optional bounds you intend to keep. When set, they deny only an exceeding entry (`MAX_ORDER_QUANTITY`,
+`MAX_ORDER_NOTIONAL`, `BALANCE_RESERVE`). Monetary bounds require matching `--quote-currency`;
+there is no USD/USDC conversion. Reserve is **notional admission headroom, not a guaranteed
+post-fill balance**: live fees/slippage are unknown and not guaranteed covered. Live subtracts
+candidate notional and local unheld buy remainders from observed venue available quote, not
+confirmed venue holds a second time; ambiguous holds deny. Paper includes occupied-book cash
+changes (recorded fees/loss), working buy reserves, and conservative stored/default paper taker
+fees. Unknown quote, quantity when capped, or paper opening cash fails closed. Limits never gate
+protective exits. These are observation-time checks, not atomic reserves against external trades.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
@@ -111,6 +162,21 @@ For `HTF candle coverage is incomplete or not contiguous.`, inspect `decisions`,
 operator `market-data`, and `reconciliation`; preserve the filter and risk limits. After repairing
 coverage or updating a faulty worker, use explicit `resume --confirm --i-understand-live` for a
 live bot and verify a fresh decision. Restart alone does not clear its persisted mismatch.
+
+Execution history longevity ([ADR 0113](../../docs/decisions/0113-deploy-anchored-window-cache.md)):
+the fixed deployment warmup start does not slide, even after more than 90 days on `1m`.
+The worker caches settled history and re-reads the newest/unsettled closed tail on every load;
+a missing newest candle is still never fabricated. HTF/extra indicators sharing a clock reuse
+only sufficient union coverage, and reference coverage includes lagged and crossover reads.
+After restart, credential replacement, or cache eviction, an old book's anchored history may
+need several bounded warming passes before decisions can continue. Local cache warming is
+**not missing exchange data**, is not a request to resume, and must not clear a deliberate
+pause or breaker. Do not change policy, recreate the bot, or queue ingest merely to bypass it.
+Check `show`, `decisions`, and operator `runtime` / `reconciliation`; report a persistent stall.
+Candle-independent order reconciliation/protection must continue during warming. Each window
+load permits eight range calls of at most 350 candles including overlap/confirmation; this is
+not a global worker/venue HTTP rate budget. The retained prefix and full indicator computation
+still grow with lifetime; this is not constant-memory indicator state.
 
 ## Hard stop
 
@@ -192,8 +258,9 @@ same server-side.
 Strategy deletion (`thytrader-research delete-strategy`) is refused with HTTP 409
 `strategy_has_active_deployments` while any bot of that strategy is running or paused; stopping it
 is this lane's job and needs the user's request. After deletion, stopped live books remain with
-`strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; paper books of the
-strategy are removed with it.
+`strategy_id: null`, `strategy_deleted: true`, and `strategy_name` kept; stopped paper books and
+their referenced snapshots are likewise retained as risk evidence (ADR 0111). Deletion output
+`counts.paper_deployments` counts removals and is zero, not a count of retained books.
 
 ## Signal exits (paper and live)
 
@@ -263,8 +330,35 @@ carry them too:
 `exit_in_flight` is true only for `exiting`. A deployment takes its worst book (exiting, then
 unprotected, then unverified, then protected). Open paper books that are not exiting are always
 `open_protected`: the worker enforces the stop on every closed bar. Their `protection_status` is
-`covered` on every read, `list` included, so the two fields agree
-([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)).
+`covered` on every read when inventory economics are resolved, `list` included, so the two
+fields agree
+([ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). That paper
+`covered` is worker-dependent, not a venue-resting order.
+
+`show` and `list` positions, operator runtime `books[]`, and portfolio sleeve `books[]` include
+`protection` ([ADR 0112](../../docs/decisions/0112-quantitative-protection-evidence.md)). Read it
+before treating `protection_status: covered` or `position_state: open_protected` as a green venue
+stop. Live cover requires recent persisted OPEN stop evidence on the closing side, with remaining quantity at
+least the book quantity and stop geometry matching the working stop (a bracket target must match
+too). A take-profit alone is `unprotected`. Pending and unknown stops are `unknown`, not covered.
+`covered_quantity` + `uncovered_quantity` equals `required_quantity`. `verified_at` / `observed_at`
+are null when unknown. Paper evidence has `mechanism: synthetic` and `worker_dependent: true`.
+Partial fills, pyramid adds, and stale mismatched brackets leave `uncovered_quantity` above zero.
+The same attached child is not counted twice; latest duplicate observations, including terminal
+or unknown rows, override older OPEN evidence. Actual order kind and executable trigger/limit
+geometry matter, not merely the intent purpose. A profitable trailing stop may cross entry;
+`geometry_basis` labels `working_target`, `stop_limit_trigger`, or `unknown`.
+
+`observed_at` is a local row update, **not** venue verification. `verified_at` stays null because
+existing orders do not persist a dedicated verification instant. `observation_source` is
+`persisted_order`, `synthetic_worker`, or `none`. `freshness` (`recent_local` / `stale` / `unknown`)
+is local-row recency against `evaluated_at` and `freshness_max_age_seconds: 120` (four default
+worker polls, independent of strategy candles). Stale, future-dated, undated, or unidentified
+OPEN rows contribute no covered quantity. `covered` with `local_observation_only` remains a
+persisted-state claim, **not** a fresh venue guarantee; the UI shows unverified rather than green.
+Slow custom polling may therefore report unverified without changing supervision. Missing
+legacy evidence is not green either. This reporting change does not submit/cancel orders or
+alter deliberate pauses; never infer mutation authority from a protection badge.
 
 `show` (`GET /api/v1/deployments/{id}`) also marks each `positions[]` row: `mark_price` is the
 close of the newest bar the bot evaluated for that product (from the decision journal),
@@ -277,11 +371,14 @@ allocate entry fees proportionally; adds accumulate paid fees. Future exit fees 
 so this is not a liquidation estimate. Missing, mismatched, or over-1000 applied current-window
 fills leave both fee fields null, retaining the gross mark; never assume null means zero.
 [ADR 0100](../../docs/decisions/0100-fee-adjusted-open-book-pnl.md).
-On `show` (both summary and full HTTP detail), `ledger.mark_complete`, `marked_exposure`,
-`total_net_pnl`, and `total_return_fraction` use the same per-product journaled closes as the
-positions. Every open book needs its own mark; a missing close or unavailable journal leaves
-aggregate PnL and exposure null. Reads never fetch a venue price to fill the gap. Use full
-detail or the paged ledgers when historical fills or round-trip counts are needed.
+On full `show --detail full`, `ledger.mark_complete`, `marked_exposure`, `total_net_pnl`, and
+`total_return_fraction` require resolved inventory/execution economics and every needed product's
+journaled close. Missing projection, unpublished/unapplied execution economics, or missing marks
+leave dependent totals null. Summary `show` omits retained fill economics: it cannot certify
+aggregate accounting or flatness from absent positions. Known local position cover stays visible,
+not a whole-account completeness claim. Unknown protection quantities are null, never zero or an
+executable sell quantity. Reads never fetch a venue price or reconstruct a position to fill the
+gap. Use full detail for retained economics; paged ledgers disclose only their own population.
 
 ## Same-bar exits (paper equals the backtest)
 
@@ -346,8 +443,16 @@ single bots; `--i-understand-live` is never skipped.
 | Resume a portfolio (or one sleeve) | `uv run thytrader-runtime portfolio-resume --portfolio-id ID [--sleeve-id ID] --confirm [--i-understand-live]` |
 | Stop a portfolio (managed, or flatten) | `uv run thytrader-runtime portfolio-stop --portfolio-id ID [--sleeve-id ID] [--flatten] --confirm` |
 | Reset a latched portfolio breaker | `uv run thytrader-runtime portfolio-reset-breaker --portfolio-id ID --confirm` |
-| List deployments | `uv run thytrader-runtime list` |
-| Show one snapshot | `uv run thytrader-runtime show UUID` |
+| List deployments (complete stable snapshot) | `uv run thytrader-runtime list` |
+| One inventory page (`has_more` is explicit) | `uv run thytrader-runtime list --limit 50 --offset 0` |
+| Show summary (labels omitted history) | `uv run thytrader-runtime show UUID` |
+| Show full orders and fills | `uv run thytrader-runtime show UUID --detail full` |
+| Page orders or fills | `uv run thytrader-runtime orders UUID` / `fills UUID` |
+| Preview a fleet action | `uv run thytrader-runtime fleet-preview --action disarm --mode paper` |
+| Disarm entries (no flatten) | `uv run thytrader-runtime fleet-disarm --mode paper --idempotency-key KEY --expect-inhibition paper:REV --confirm` |
+| Managed-stop confirmed ids | `uv run thytrader-runtime fleet-stop --mode paper --idempotency-key KEY --expect ID:REV --confirm` |
+| Explicit flatten confirmed ids | `uv run thytrader-runtime fleet-flatten --mode live --idempotency-key KEY --expect ID:REV --confirm --i-understand-live` |
+| Rearm after disarm | `uv run thytrader-runtime fleet-rearm --mode live --idempotency-key KEY --expect-inhibition live:REV --confirm --i-understand-live` |
 | Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
 | Decisions across a strategy's bots | `uv run thytrader-runtime decisions --strategy-id UUID [DEPLOYMENT_UUID] [--outcome entry_signal --outcome exit]` |
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
@@ -386,7 +491,10 @@ strategy's paper starting cash stays bounded by its allocation (a rehearsal of t
 reservation). The allocations may not sum above `--paper-capital-quote`. Omit `--allocation`
 unless the user wants exactly that live restriction.
 
-`list` and `show` return `positions[]`, `instrument_runtimes[]`, product-tagged `orders`/`fills`,
+`list` and summary `show` return `positions[]`, `instrument_runtimes[]`, and aggregate
+`book_totals`. They do **not** include historical `orders`/`fills`. Summary `show` sets
+`ledger_omission` to say so. `show --detail full` includes those collections; otherwise read
+`orders` / `fills` pages. A full detail response still returns product-tagged `orders`/`fills`,
 `book_totals` (`open_books`, `working_orders`, `fill_count`) that must match those collections
 ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)), the snapshot's
 `timeframe` (copied from the strategy snapshot when the stored deployment row is null;
@@ -397,7 +505,15 @@ ADR 0058 lifecycle fields
 `capital` block with `allocated_capital`, `venue_available_quote`, `reserved_buying_power`,
 `inventory_cost`, `performance_equity`, `performance_capital_quote`,
 `performance_maximum_drawdown_fraction`, `initial_equity`, `baseline_equity`,
-`high_water_mark_equity`, and `utc_day_open_equity`
+`high_water_mark_equity`, preserved legacy `utc_day_open_equity`, and optional
+`risk_day_open_evidence` (`source`, `day_start`, `equity`, `fills_fingerprint`, product `marks[]`
+with `product_id`, `closes_at`, `price`). Legacy opening equity is **not** verified midnight
+provenance. Qualified evidence must belong to the observed UTC day and still match complete
+current accounting; old preserved evidence alone is not permission to trade.
+`capital.inventory_cost`, `reserved_buying_power`, and `performance_equity` are null when report
+accounting is incomplete, including bounded summaries. Independent stored funding/budget history
+and observed venue quote remain visible; they do not repair projection or certify current equity.
+Use operator `readiness` / `venue-reconciliation` to inspect separate read/accounting completeness.
 ([ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md)). Top-level `cash` is
 ledger fill accounting only. `reserved_buying_power` counts working entry remainders;
 known protective or other exit intents never reserve entry quote, including paper limit exits.
@@ -525,8 +641,18 @@ The worker never re-submits an order automatically
 
 Underlying HTTP:
 
-- `GET /api/v1/deployments?limit=&offset=` (summary rows; no historical orders/fills)
-- `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`)
+- `GET /api/v1/deployments?limit=&offset=&as_of=&cursor=` (summary rows; stable `created_at,id`
+  order; `has_more`, `returned`, `total`, `order`, `as_of`, `fingerprint`, `next_cursor`.
+  Default limit 50 is one page, not the fleet. Follow `next_cursor` with offset 0. A changed
+  membership/classification returns 409 `inventory_changed`; restart or report incomplete.
+  Legacy offset pages cannot prove completeness. No historical orders/fills;
+  `ledger_omission` says so.)
+- `GET /api/v1/deployments/{id}?detail=summary|full` (default `summary`; summary sets
+  `ledger_omission` and omits historical orders/fills)
+- `GET /api/v1/fleet-control` and `GET /api/v1/fleet-control/preview?action=&mode=`
+- `POST /api/v1/fleet-control/{disarm|stop|flatten|rearm}` (`confirm: true`; live rearm and
+  live-capable flatten also `i_understand_live: true`; disarm/rearm also require
+  `expected_inhibition` preview revisions for every scoped mode)
 - `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
 - `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428)
 - `POST /api/v1/deployments/{id}/pause`
@@ -622,3 +748,87 @@ Use the research skill to author and validate a new snapshot, then the existing 
 confirmation and live-acknowledgment gates to deploy only when requested. New decision
 rows display protective replacement identities and confirmed working coverage without
 rewriting historical evidence. Simulation `execution_stress` is research-only.
+
+## Stopped books, pauses, and missing candles (ADR 0110)
+
+An operator pause does not stop reconciliation. Every watched order and attached child is
+still reconciled; a genuine new fault is kept and the book is not unpaused. A missing
+decision-candle window journals `data_gap`, blocks new entries, and still reconciles live
+orders and fills. Cold-cache history rebuilding is a transient wait, **not** evidence of a
+venue data gap: it neither pauses nor resumes the bot or advances its decision cursor.
+Reconciliation and native protection from persisted stop/target levels continue when a fresh
+venue context exists, without evaluating incomplete signal/ATR history. No candle or price
+is fabricated. Managed stop and explicit flatten stay distinct. Flatten without a verified
+closed price keeps protective orders and reports pending (`Flatten is pending: no verified
+closed price...`), not success; a genuine reconciliation fault takes precedence in the detail.
+Only an enabled product's **most-recent closed, traded** provider candle (including a preview)
+may price that exit; stale, in-progress, and synthesized no-trade bars cannot. Stopped
+discretionary books and every covered book, including a sole secondary position, stay
+supervised. Cancel/fill races, late fills, and unknown cancels remain supervised across
+worker restarts. Diagnose with `show` and `thytrader-operator reconciliation`; do not
+treat a pending flatten as flat.
+
+Between-bar, data-gap, and warming supervision use each product's own runtime, inventory,
+venue increments, and verified context — never the compatibility-only singular `position`.
+Warming may finish an already recorded live signal exit, reached time exit, or flatten; it
+must not replace that decision with a new bracket or advance the strategy decision cursor.
+A deliberate pause stays paused.
+
+A canceled order's reported executions must be fully represented by applied REST fills
+before another cover or flat settlement. Empty or partially published fills remain a wait
+across restart; `canceled` does not mean its executed quantity was zero. If bought/sold
+inventory has applied cash/fee economics but could not acquire position metadata, retained
+entry orders and fills keep it unresolved even if `mismatch_detail` later changes. Protection
+is kept; no stop geometry or sell quantity is invented. A missing position row is not proof
+of flatness. This also applies to an `OPEN` / `PENDING_EXIT` product runtime whose own position
+is absent while another product remains projected, in running, paused and stopped books.
+Read `show UUID` and `thytrader-operator reconciliation`, report the projection
+fault, and do not clear it by resuming, restarting, or editing storage/recorded fills.
+
+`portfolio-status --portfolio-id ID` qualifies current accounting separately from lifecycle
+state. Sleeve, breaker and exposure `accounting_complete` flags and breaker/exposure
+`unresolved_deployment_ids` disclose uncertainty. Dependent equity/PnL/exposure/return/drawdown
+are null, not free capacity; stored limits/allocations/baselines and independent projected books
+remain visible. Run performance includes stopped current-run books, while exposure also qualifies
+older occupied/residual books. Missing sleeve reads have `open_books: null`. These reporting
+flags grant no mutation authority and do not reset a breaker or override a deliberate pause.
+
+## Fleet controls (ADR 0117)
+
+`fleet-preview` is read-only. It lists affected deployment ids, current revisions, and residual
+positions. Unknown position reads stay unknown; do not treat them as flat. Disarm, managed stop,
+and flatten are different commands:
+
+- `fleet-disarm` inhibits new starts and entries for `--mode paper|live|all` until `fleet-rearm`.
+  It does not pause, cancel, or flatten. It does not need `--i-understand-live`.
+- `fleet-stop` records managed shutdown only for each `--expect ID:REVISION` from the preview.
+  Protection stays. This is not a flatten. Repeat the same `--idempotency-key` after a timeout.
+- `fleet-flatten` is explicit. Live scope also needs `--i-understand-live`. Acceptance means the
+  lifecycle command was recorded. The worker exits asynchronously. A partial `status` means at
+  least one confirmed book was not commanded. Do not claim positions are flat.
+- `fleet-rearm` clears the latch and does not resume books. Live scope needs `--i-understand-live`.
+  A later live `resume` still needs its own acknowledgement.
+
+YOLO never covers these commands. `--confirm` is always required. A changed revision returns
+`revision_conflict` for that id and does not apply the stale preview.
+
+Disarm/rearm must also confirm latch revisions from `fleet-preview.inhibition`. Pass
+`--expect-inhibition paper:N` for paper, `live:N` for live, and **both** for `--mode all`.
+Do not automatically fetch newer revisions to replace the person's consent. An unchanged but
+newly confirmed disarm still advances its revision, so an earlier rearm preview cannot clear it.
+After a timeout, repeat the **identical** action, mode, expected ids/latch revisions, acknowledgements,
+and idempotency key. A changed request for that key is rejected. A result's `inhibition` is the
+snapshot in its causal receipt, not proof of current latch state; `fleet-status` reads current state.
+Unknown errors leave pending progress, never accepted venue work. Receipts survive restarts and
+are coupled to the latch or revision-guarded lifecycle write; replay never guesses from coincidental
+current state.
+
+Disarm linearizes against the admission commit on the mode latch row. Entry intents and open orders
+accepted before it may remain in flight: disarm does not cancel them. Missing durable state or a
+worker not yet refreshed at boot inhibits new entries, without stopping reconciliation/protection.
+
+`list` / `list --all` follows checked keyset cursors and publishes only a complete walk. For a
+manual page use `list --limit 50`, then `list --limit 50 --cursor CURSOR` from `next_cursor`.
+`list --limit 50 --offset 50` is a legacy page; `complete: false` even at the tail. Membership changes,
+missing/repeated cursors, duplicate ids, or inconsistent totals cause an incomplete error. Restart
+from page one; never present a returned prefix as the full fleet.

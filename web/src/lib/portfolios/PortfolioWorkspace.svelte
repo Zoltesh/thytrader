@@ -31,6 +31,7 @@
 		portfolioActions,
 		portfolioErrorCode,
 		portfolioSubtitle,
+		portfolioRunPnl,
 		quoteText,
 		resetPortfolioBreaker,
 		signedQuote,
@@ -44,7 +45,6 @@
 		type PortfolioDialogAction,
 		type PortfolioTab
 	} from '$lib/portfolios';
-	import { subtractDecimalStrings } from '$lib/portfolio';
 	import type { PortfolioFillComparisons } from '$lib/fill-comparison';
 	import PortfolioActionDialog from './PortfolioActionDialog.svelte';
 	import { listStrategies, type StrategyLibraryEntry } from '$lib/strategies';
@@ -89,9 +89,7 @@
 	const fillRows = $derived(
 		fills !== null && fills.portfolio_id === selected?.portfolio_id ? fills : null
 	);
-	const pnl = $derived(
-		view === null ? null : subtractDecimalStrings(view.breaker.equity, view.capital_quote)
-	);
+	const pnl = $derived(portfolioRunPnl(view));
 
 	async function loadDeployment(): Promise<void> {
 		const current = selected;

@@ -6,6 +6,20 @@ agent can do the same loop **100%** through the shipped skills. Nothing requires
 When an agent is operating a **running** instance, open [`ops/`](../../ops/README.md) rather than
 the git root. Skills of record: [`skills/README.md`](../../skills/README.md).
 
+## Conflicts and replacement protection
+
+A reused discretionary book is rechecked against authoritative accounting. If another fill or
+lifecycle action changes it before pending state is saved, the request conflicts before submitting
+an order; read fresh state and obtain fresh consent/admission rather than forcing the old state.
+When canceling protection reveals execution, replacement waits for complete applied fill evidence
+and uses the current projected quantity. Missing or partially published fills do not authorize a
+guessed remaining sell. A breaker pause preserves newer cash, lifecycle intent and deliberate
+stopped/paused state. See [ADR 0121](../decisions/0121-execution-write-boundaries.md).
+
+An occupied product runtime whose position is missing is unknown, not flat—even if another
+product still has a position. The same uncertainty blocks new-entry admission and verified
+opening/flat-day accounting; a prior opening proof cannot repair later missing inventory.
+
 ## Live performance accounting
 
 Bot detail and `uv run thytrader-operator performance --deployment-id UUID` report return and
@@ -45,6 +59,60 @@ health. `unresolved` means no matching recovery was observed in this window, and
 means there is no recovery rule for the action. A later connection never proves an
 ambiguous order succeeded. Recovered failures remain visible and degraded in this
 window; historical audit records are retained.
+
+## Durable safety alerts
+
+Read `uv run thytrader-operator alerts` (HTTP by default),
+`GET /api/v1/operator/alerts`, or **System → Alerts** (`/alerts`). The feed retains
+open and recently resolved book failures, breaker/mismatch pauses, protection
+problems, decision deadlines, and unknown/stale worker-lease evidence. It never
+places an order or changes a deployment. Counts and health use all open alerts;
+the bounded display prioritizes critical rows and warns when it is truncated.
+
+An alert resolves only after its own condition is rechecked with complete evidence.
+Unavailable/partial snapshots, missing or warming candle data, storage failures,
+and subset inventories are **unknown, not recovery**. A consumed live stop stays
+open through a price rebound until durable terminal/fill/removal evidence clears
+that order; alerts never turn it into a market order. An implausibly future lease
+means unknown age/possible clock skew, not proof that protection maintenance ran.
+
+Repeated failures without verified recovery can pause new entries using a fenced
+book write. User pauses, stop commands, latches, and unrelated mismatches remain
+intact. A persisted supervision pause survives restart; reconciliation and exits
+continue. After review, control belongs to the separate confirmation-gated runtime
+lane, not the read-only operator lane. No automatic resume is performed.
+
+Alerts are durable even with `notify_provider=none`: delivery is explicitly
+skipped/disabled and no destination is invented. Optional delivery runs outside
+trading cycles with bounded retries. Webhook receivers should deduplicate on the
+stable alert UUID: a crash after send but before acknowledgement can cause a retry;
+bounded retries can also exhaust without delivery, so external receipt is not
+guaranteed. See
+[ADR 0115](../decisions/0115-durable-safety-alerts-and-supervision.md) and the
+[operator skill](../../skills/thytrader-operator/SKILL.md).
+
+## Fleet controls
+
+**Fleet controls** on **Portfolio** (`/deployments`), `uv run thytrader-runtime fleet-*`, and
+`/api/v1/fleet-control` act on every paper, live, or paper-and-live bot at once
+([ADR 0117](../decisions/0117-truthful-inventory-and-fleet-controls.md)). Each action starts
+with a read-only preview listing the affected bot ids, their revisions, and residual positions.
+An unknown position read stays unknown; it is not flat. The four actions are different:
+
+- **Disarm** blocks new starts and entries for the mode until **Rearm**. It does not pause,
+  cancel, or flatten anything, and exits and protection keep running.
+- **Stop** records a managed stop for each previewed bot. Protection stays; this is not a flatten.
+- **Flatten** is explicit and needs the live acknowledgement for live bots. Acceptance means the
+  command was recorded; bots exit asynchronously, so check each one before calling it flat.
+- **Rearm** clears the entry latch. It does not resume paused or stopped bots; a live resume
+  still needs its own acknowledgement.
+
+Confirmation applies only to the preview you reviewed: a bot whose revision changed is reported
+as a conflict and is not commanded, and a newer latch revision is never substituted for your
+consent. After a timeout, repeat the identical request; it carries the same idempotency key and
+is applied once. The disarm latch survives restarts, and a worker that cannot read it blocks new
+entries without stopping reconciliation or protection. See the
+[runtime skill](../../skills/thytrader-runtime/SKILL.md) for the CLI flags.
 
 ## In the browser
 
@@ -349,13 +417,53 @@ drawdown baselines. Live books size from allocated capital or venue available qu
 ([ADR 0065](../decisions/0065-deployment-capital-accounting-http.md)). Operator `runtime` shows
 `lifecycle_command`, latches, `revision`, and whether a worker lease is held without cash.
 
+Between-bar, missing-data, and cold-cache supervision maintain each product book using
+its own verified venue context, even when only a secondary product holds inventory. An
+operator pause is not lifted. Warming can continue an already recorded live signal exit,
+reached time exit, or flatten; it does not reevaluate signals or replace a committed exit
+with fresh protection.
+
+A canceled order may have executed before its REST fills appear. The worker waits for all
+reported executions to have applied economics before sizing another cover or declaring
+flat, including across restart. If entry economics applied but missing position metadata
+prevented inventory projection, protection remains and the book is not proved flat merely
+because `positions` is empty or a later read fault changed `mismatch_detail`. Diagnose with
+`thytrader-runtime show UUID` and `thytrader-operator reconciliation`; report the unresolved
+projection instead of resuming the bot or editing historical fills/fees to clear the message.
+An occupied `open` / `pending_exit` product runtime without its own position is also unresolved,
+even if a sibling position remains and the deployment is running, paused or stopped.
+Reports keep unresolved books **Unverified** (`unknown` / `open_unverified`), with null protection
+quantities and dependent aggregate PnL/equity/exposure rather than zero or cash-only totals.
+Bounded summaries omit retained fill economics: they cannot prove flatness from a missing position
+or certify aggregate accounting. Full `thytrader-operator performance --deployment-id UUID` reports
+`ACCOUNTING_UNRESOLVED` when needed. Prior profits or a valid old day opening do not fix projection.
+
+Use `thytrader-operator readiness [--deployment-id UUID]` and
+`thytrader-operator venue-reconciliation` for read-only capacity/ownership evidence. Inventory read
+`status=complete` means the reads succeeded; separate `accounting_status` and
+`unresolved_deployment_ids` disclose unresolved economics. Readiness leaves dependent capacity
+null. Venue reconciliation leaves affected assets `managed_unknown`, not foreign, preserving
+independent venue balances and unaffected asset/order observations. Unknown is not recovery:
+protection/trigger incidents remain open until their product's economics are resolved. No report
+places orders or repairs economic records.
+
+Portfolio `deployment` / `briefing` and runtime `portfolio-status --portfolio-id ID` reads carry
+`accounting_complete` on sleeves, breaker, exposure and briefing performance; breaker/exposure
+also name `unresolved_deployment_ids`. Dependent current equity/PnL/return/drawdown/exposure are
+null and display **unknown**, not zero or free capacity. Recorded limits, allocations, baselines,
+journal/backtest history and independently resolved projected books/assets remain visible.
+Run equity includes stopped books in the current run; exposure still qualifies older occupied or
+residual books. Missing sleeve reads have `open_books: null`. Do not reset/resume to hide unknown
+accounting: these reports neither repair records nor change control or risk policy.
+
 A multi-instrument document still starts **one** deployment. Deploy and
 `GET /api/v1/deployments` list every product book (`positions`, `instrument_runtimes`) with
 protection status. Orders and fills carry `product_id`. `book_totals` must match those
 collections. The singular `position` field is compatibility-only (the focused book, always
 product-tagged); do not treat it as the full inventory
 ([ADR 0060](../decisions/0060-multi-book-deployment-api.md)). Operator `strategies` / `runtime`
-reports include redacted `books[]` (product, phase, side, protection — no quantities).
+reports include redacted `books[]` (product, phase, side, protection coverage quantities only —
+no prices, cash, or order payloads).
 
 Bot detail, Portfolio rows, Home, and portfolio sleeves describe a book by its **position state**,
 not its raw phase ([ADR 0097](../decisions/0097-runtime-parity-and-observability.md)). Right after
@@ -363,10 +471,24 @@ an entry fills, the TP/SL bracket (or the stop-only order) rests and the worker'
 `pending_exit`, but the book shows **Open · protected (TP/SL resting)** (or **(stop resting)** with no
 take-profit). **Exiting** appears only while an exit is actually being sent: a marketable exit, a
 matched exit rule, or a flatten. HTTP and operator payloads carry the same reading as
-`position_state` and `exit_in_flight`. An open paper book's `protection_status` is always
+`position_state` and `exit_in_flight`. A resolved open paper book's `protection_status` is
 `covered`, on list and summary reads too: its stop is enforced on every closed bar and any
 take-profit rests in the paper broker
 ([ADR 0098](../decisions/0098-library-views-book-marks-portfolio-fills.md)).
+
+Protection badges distinguish **Worker stop** (paper), **Order state fresh** (live, amber), and
+**Unverified** (missing/stale evidence). Fresh live coverage requires enough identified OPEN
+stop quantity, matching executable kind and persisted stop/target geometry, with each contributing
+order's actual `venue_observed_at` receipt within 120 seconds. Local bookkeeping timestamps never
+refresh it; UNKNOWN/error reads clear it and legacy rows stay unknown until actually read.
+`protection.observed_at` is the latest relevant receipt; `verified_at` is the oldest contributing
+fresh receipt (only the covered fraction when coverage is partial). The badge's submitted
+`geometry_basis` is not an independent venue geometry audit, whole-account reconciliation, or
+fill guarantee. Even fresh order state is amber, explicitly **venue geometry not independently
+verified**. Profitable trailing stops may cross entry; partial or TP-only orders cannot provide
+full stop cover. These are read-only reporting rules, not an automatic pause or replacement order.
+See [ADR 0112](../decisions/0112-quantitative-protection-evidence.md) and
+[ADR 0119](../decisions/0119-venue-order-observation-provenance.md).
 
 Each open book also shows its **unrealized PnL** at the close of the last bar the bot evaluated,
 and how long it has been held. On bot detail these are the **Unrealized** and **Held** columns of
@@ -498,6 +620,9 @@ stop or stop and flatten) act on every sleeve. Four tabs (kept in the URL as `?p
   portfolio every sleeve's new entries must fit the caps (a refused entry shows the portfolio
   reason on the bot's decision timeline). A tripped stop pauses every sleeve and stays latched:
   **Reset breaker…** clears it and re-baselines; sleeves stay paused until you resume them.
+  While a sleeve's accounting is unresolved, run equity shows as unknown and the worker holds the
+  breaker baselines instead of counting that sleeve as zero profit or loss; an already latched
+  breaker still pauses sleeves.
 
 Every change is revision-guarded: if someone else changed the portfolio first, the page reloads it
 and says so. Deleting a strategy removes its sleeves (journaled). Agents use
@@ -726,6 +851,22 @@ use the covered range. Earlier bars are never invented, and results over quiet b
 (unless a listing floor is set). The Home data-health table shows the same coverage as "X / Y",
 adds "· N no-trade" when no-trade bars exist, and shows "Complete from listing" when a floor is
 set.
+
+Venue order observations are separate from local bookkeeping timestamps. A restart or migration
+does not assert that an order was freshly checked; legacy observation times stay unknown until
+reconciliation reads the order. This is not a guarantee that a stop-limit will fill or a full
+account audit ([ADR 0119](../decisions/0119-venue-order-observation-provenance.md)).
+
+For **freshness across all enabled watches**, run `uv run thytrader-operator data-health`, or
+open Home → Data health → Watched-market freshness. This read-only snapshot compares each
+published tail with its own latest closed candle and reports how many closed bars are missing.
+Daily and 6h markets are not judged by a 1-minute clock. A successful ingest chunk and a
+complete historical island do not prove a fresh tail; historical watch coverage remains a
+separate field. `settling` means only the newest close is inside the 120-second publication
+grace. `stale`, `missing`, or `invalid` needs inspection; an incomplete inventory is not an
+all-clear. Refresh explicitly to obtain a new snapshot. This is published-dataset health, not
+proof that an individual bot has evaluated or reconciled its latest bar.
+
 `inspect-gaps` may return `truncated` with a partial `gap_summary` when a server-side budget
 stops the scan ([ADR 0072](../decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md)).
 
@@ -775,5 +916,5 @@ HTTP/CLI lane and `/research` UI. They confer no deployment or order authority.
 
 After an update, `make run` applies the migration head and rebuilds every service.
 Health compares the applied database revision with the shipped expected revision
-(currently `0064`). If a mismatch persists after rebuilding latest main, report it;
+(currently `0066`, including durable safety alerts). If a mismatch persists after rebuilding latest main, report it;
 do not bypass the readiness check.

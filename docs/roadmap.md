@@ -7,6 +7,19 @@ is [product vision](product/vision.md), [ADR 0030](decisions/0030-agent-e2e-prim
 [ADR 0031](decisions/0031-coinbase-first-platform-end-state.md). This file sequences **how** we get
 there. Do not treat a shipped narrow clock or catalog as the ceiling.
 
+## Runtime-safety review integration (in progress)
+
+The [2026-10-06 implementation plan](plans/2026-10-06-runtime-safety-and-operator-truth.md)
+tracks reconciliation/shutdown safety, durable loss scope, quantitative protection evidence,
+required-clock data windows, readiness, alerts, execution evidence, and explicit fleet controls.
+The all-watch `data-health` slice ([ADR 0118](decisions/0118-watched-market-tail-health.md))
+adds clock-aware published-tail freshness alongside historical completeness. These changes are
+**not a deployed release** until integrated verification, PR merge, migration and fleet checks
+are complete. Existing policy limits, strategy snapshots and deliberate pauses are preserved.
+The [release acceptance checklist](plans/2026-10-06-release-acceptance.md) freezes further feature
+expansion and tracks the remaining transaction, cancel/fill, scoped mark/exit and reporting
+counterexamples separately from broad test counts.
+
 ## Current delivery focus: remaining destination (phases 0–14 shipped)
 
 Phases 0–14 and every sequenced destination slice through

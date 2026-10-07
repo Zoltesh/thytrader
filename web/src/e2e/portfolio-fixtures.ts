@@ -4,6 +4,7 @@
  * strategies, deployments, and fees routes the page reads.
  */
 import type { Page, Route } from '@playwright/test';
+import { inventoryPageFixture } from './inventory';
 
 export type Json = Record<string, unknown>;
 
@@ -829,7 +830,7 @@ export async function mockPortfolioApi(page: Page, state: MockState): Promise<vo
 	);
 	await page.route(
 		(url) => url.pathname === '/api/v1/deployments',
-		(route) => route.fulfill({ json: { deployments: [], limit: 50, offset: 0, returned: 0 } })
+		(route) => route.fulfill({ json: inventoryPageFixture([]) })
 	);
 	await page.route(
 		(url) => url.pathname === '/api/v1/strategies',

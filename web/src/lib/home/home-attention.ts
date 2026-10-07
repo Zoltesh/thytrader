@@ -150,7 +150,7 @@ export function deploymentAttention(
 					severity: 'critical',
 					icon: 'shield',
 					label: `${name} holds a live position without exit cover`,
-					detail: `${where} · stopped · no venue-visible stop or take-profit`
+					detail: `${where} · stopped · no confirmed venue stop`
 				});
 			}
 			continue;
@@ -206,7 +206,7 @@ export function deploymentAttention(
 				severity: 'critical',
 				icon: 'shield',
 				label: `${name} has a live position without exit cover`,
-				detail: `${where} · ${plural(protection.unprotected, 'open book')} with no venue-visible stop or take-profit`
+				detail: `${where} · ${plural(protection.unprotected, 'open book')} with no confirmed venue stop`
 			});
 		} else if (protection.unconfirmed > 0) {
 			items.push({

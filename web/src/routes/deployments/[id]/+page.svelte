@@ -69,7 +69,6 @@
 		listDeploymentFills,
 		listDeploymentOrders,
 		pauseDeployment,
-		positionStateLabel,
 		resetBreakerLatches,
 		resumeDeployment,
 		stopDeployment,
@@ -79,7 +78,8 @@
 		type OperatorPerformanceReport
 	} from '$lib/deployments';
 	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
-	import { bookStateChip, heldText, markTitle, unrealizedText } from '$lib/open-books';
+	import { heldText, markTitle, unrealizedText } from '$lib/open-books';
+	import { protectionBadge } from '$lib/protection-evidence';
 	import { loadStrategyConfig, type StrategySourceState } from '$lib/strategy-config';
 
 	const id = $derived(pageState.params.id ?? '');
@@ -890,6 +890,7 @@
 						<tbody>
 							{#each positions as position (position.product_id)}
 								{@const pnl = unrealizedText(position, productIdQuote(position.product_id) ?? '')}
+								{@const badge = protectionBadge(position, { fallback: 'sentence' })}
 								<tr>
 									<td>{position.product_id}</td>
 									<td>{position.side ?? 'long'}</td>
@@ -909,13 +910,12 @@
 									>
 									<td
 										data-testid="position-state"
-										class="state-cell {bookStateChip(position.position_state).tone}"
-										title={position.protection_status ?? 'unknown'}
-										>{positionStateLabel(position.position_state, {
-											hasTarget: position.target_price !== null
-										}) ??
-											position.protection_status ??
-											'unknown'}</td
+										class="state-cell {badge.tone}"
+										title={badge.title}
+										>{badge.text}{#if position.protection}<span
+												class="protection-evidence"
+												data-testid="protection-evidence">{badge.detail}</span
+											>{/if}</td
 									>
 								</tr>
 							{/each}
@@ -940,6 +940,12 @@
 						{/if}
 						<a href={resolve('/journals')}>Trade journals</a>
 						<a href={resolve('/audit')}>Audit log</a>
+						<a
+							data-testid="execution-quality-link"
+							href={resolve(`/deployments/${id}/execution-quality`)}
+						>
+							Execution quality
+						</a>
 					</p>
 					<p class="quiet small">{EVIDENCE_BOUNDED_NOTE}</p>
 				</div>
@@ -1101,6 +1107,11 @@
 	}
 	.state-cell.bad::before {
 		background: var(--neg);
+	}
+	.protection-evidence {
+		display: block;
+		color: var(--muted);
+		font-size: var(--fs-xs);
 	}
 	.back-link {
 		display: inline-block;

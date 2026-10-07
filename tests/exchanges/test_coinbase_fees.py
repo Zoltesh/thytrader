@@ -50,6 +50,11 @@ class FeeStubCoinbaseClient:
         del kwargs
         return StubResponse(self._summary_payload)
 
+    def list_orders(self, **kwargs: Any) -> Any:
+        """Open-order listings are unused by fee-profile tests."""
+        del kwargs
+        return StubResponse({"orders": [], "has_next": False})
+
 
 def test_fee_profile_domain_validation() -> None:
     """FeeProfile requires Decimal rates in [0, 1] and positive volume."""

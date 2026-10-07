@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -11,12 +11,18 @@ from uuid import UUID
 import pytest
 
 from tests.execution.decision_support import Catalog, candles, journaled_bar, strategy
+from tests.operator_diagnostics.test_projection_observability import _order
 from tests.portfolios.runtime_support import World, operator, portfolio, world
 from thytrader.exchanges.models import ExchangeBalance
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
 from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, LifecycleCommand
+from thytrader.execution.models import (
+    DeploymentMode,
+    DeploymentStatus,
+    LifecycleCommand,
+    OrderStatus,
+)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import PortfolioSleeveStart, create_deployment
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
@@ -126,6 +132,79 @@ async def test_limits_within_bounds_leave_the_sleeves_running() -> None:
     runtime = await state.portfolios.runtime_state(pid)
     assert (runtime.last_equity, runtime.day_open_equity) == (Decimal("970"), Decimal("1000"))
     assert {book.status for book in await state.tagged(pid)} == {DeploymentStatus.RUNNING}
+
+
+async def _unresolve_equity(state: World, deployment_id: UUID) -> None:
+    """A FILLED order with no published fills, and the null equity refresh_performance stamps."""
+    deployment = (await state.execution.get_deployment(deployment_id)).deployment
+    await _order(
+        state.execution,
+        deployment,
+        product="BTC-USDC",
+        status=OrderStatus.FILLED,
+        filled="1",
+        created_at=deployment.created_at + timedelta(seconds=1),
+    )
+    current = (await state.execution.get_deployment(deployment_id)).deployment
+    await state.execution.save_deployment(replace(current, performance_equity=None))
+
+
+async def test_an_unresolved_profitable_sleeve_does_not_trip_a_false_drawdown() -> None:
+    """Unknown equity is not zero PnL: losing sight of a +50 gain must not read as a loss."""
+    state = world()
+    current = await _running(state, PortfolioLimits(max_drawdown_fraction="0.03"))
+    pid = current.portfolio.portfolio_id
+    books = await state.tagged(pid)
+    await state.mark_equity(books[0].id, pnl="50")
+    await _supervise(state)
+    recorded = await state.portfolios.runtime_state(pid)
+    assert recorded.high_water_mark_equity == Decimal("1050")
+    await _unresolve_equity(state, books[0].id)
+    gate = await _supervise(state)
+    assert gate[pid].breaker_reason is None
+    held = await state.portfolios.runtime_state(pid)
+    assert (held.last_equity, held.high_water_mark_equity, held.day_open_equity) == (
+        recorded.last_equity,
+        recorded.high_water_mark_equity,
+        recorded.day_open_equity,
+    )
+    assert {book.status for book in await state.tagged(pid)} == {DeploymentStatus.RUNNING}
+
+
+async def test_an_unresolved_losing_sleeve_does_not_raise_the_high_water_mark() -> None:
+    """Hiding a loss must not lift the peak and arm a false drawdown once the sleeve resolves."""
+    state = world()
+    current = await _running(state, PortfolioLimits(max_drawdown_fraction="0.2"))
+    pid = current.portfolio.portfolio_id
+    books = await state.tagged(pid)
+    await _supervise(state)
+    await state.mark_equity(books[0].id, pnl="-60")
+    await state.mark_equity(books[1].id, pnl="40")
+    await _supervise(state)
+    await _unresolve_equity(state, books[0].id)
+    await _supervise(state)
+    held = await state.portfolios.runtime_state(pid)
+    assert (held.last_equity, held.high_water_mark_equity) == (Decimal("980"), Decimal("1000"))
+
+
+async def test_a_latched_breaker_still_pauses_sleeves_while_equity_is_unresolved() -> None:
+    """Holding the baselines never releases an existing latch."""
+    state = world()
+    current = await _running(state, PortfolioLimits(daily_loss_quote="40"))
+    pid = current.portfolio.portfolio_id
+    books = await state.tagged(pid)
+    await _supervise(state)
+    await state.mark_equity(books[0].id, pnl="-45")
+    await _supervise(state)
+    await _unresolve_equity(state, books[0].id)
+    first = (await state.execution.get_deployment(books[1].id)).deployment
+    await state.execution.save_deployment(
+        replace(first, status=DeploymentStatus.RUNNING, lifecycle_command=LifecycleCommand.NONE)
+    )
+    gate = await _supervise(state)
+    assert gate[pid].breaker_reason is RiskReasonCode.PORTFOLIO_DAILY_LOSS_STOP
+    again = (await state.execution.get_deployment(books[1].id)).deployment
+    assert again.status is DeploymentStatus.PAUSED
 
 
 async def test_supervision_keeps_each_sleeve_allocation_at_weight_times_capital() -> None:

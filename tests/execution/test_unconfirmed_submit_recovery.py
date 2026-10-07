@@ -162,7 +162,7 @@ async def test_unconfirmed_submit_not_found_stays_unknown_and_audits_once() -> N
 
 @pytest.mark.anyio
 async def test_incomplete_lookup_raises_instead_of_claiming_absence() -> None:
-    """A failed or truncated scan propagates BrokerError; the order is untouched."""
+    """An incomplete lookup remains unknown with a fault, never claims venue absence."""
 
     class _BrokenLookup(_RecoveringBroker):
         """Lookup that fails mid-scan."""
@@ -182,14 +182,17 @@ async def test_incomplete_lookup_raises_instead_of_claiming_absence() -> None:
     deployment_id = uuid7(utc_now())
     order = _unknown_order(deployment_id)
     await _snapshot_with_order(store, order)
-    with pytest.raises(BrokerError):
-        await reconcile_open_orders(
-            await store.get_deployment(deployment_id),
-            broker=_BrokenLookup(None),
-            store=store,
-            product_id="BTC-USD",
-        )
+    await reconcile_open_orders(
+        await store.get_deployment(deployment_id),
+        broker=_BrokenLookup(None),
+        store=store,
+        product_id="BTC-USD",
+    )
     current = await store.get_deployment(deployment_id)
+    assert current.deployment.status is DeploymentStatus.PAUSED
+    assert current.deployment.mismatch_detail == (
+        "Order reconciliation is unconfirmed: order read failed."
+    )
     assert next(item for item in current.orders if item.id == order.id).status is (
         OrderStatus.UNKNOWN
     )

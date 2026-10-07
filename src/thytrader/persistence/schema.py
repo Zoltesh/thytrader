@@ -722,6 +722,7 @@ deployments = Table(
     Column("baseline_equity", String(64), nullable=True),
     Column("utc_day_open_equity", String(64), nullable=True),
     Column("utc_day_open_at", DateTime(timezone=True), nullable=True),
+    Column("risk_day_open_evidence", Text, nullable=True),
     Column("high_water_mark_equity", String(64), nullable=True),
     Column("daily_loss_latched", Boolean(), nullable=False, server_default="false"),
     Column("drawdown_latched", Boolean(), nullable=False, server_default="false"),
@@ -766,7 +767,7 @@ deployments = Table(
     CheckConstraint(
         "("
         "kind = 'strategy' AND strategy_fingerprint IS NOT NULL AND ("
-        "strategy_id IS NOT NULL OR (mode = 'live' AND status = 'stopped'))"
+        "strategy_id IS NOT NULL OR status = 'stopped')"
         ") OR ("
         "kind = 'discretionary' AND strategy_fingerprint IS NULL AND strategy_id IS NULL "
         "AND timeframe IN ('1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '1d')"
@@ -871,6 +872,7 @@ execution_orders = Table(
     Column("product_id", String(32), nullable=False),
     Column("parent_order_id", UUID(), nullable=True),
     Column("attached_child_venue_order_id", String(128), nullable=True),
+    Column("venue_observed_at", DateTime(timezone=True), nullable=True),
     Column("pyramid_add", Boolean(), nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
@@ -1301,6 +1303,78 @@ Index(
 
 Index("ix_bar_decisions_bar_starts_at", bar_decisions.c.bar_starts_at)
 
+operator_alert_checks = Table(
+    "operator_alert_checks",
+    metadata,
+    Column("code", String(48), primary_key=True),
+    Column("subject", String(128), primary_key=True),
+    Column("observed_at", DateTime(timezone=True), nullable=False),
+    Column("failed", Boolean(), nullable=False),
+    comment="Persistent monotone check watermarks, including verified healthy observations.",
+)
+
+operator_alerts = Table(
+    "operator_alerts",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("code", String(48), nullable=False, comment="Stable alert reason code (ADR 0115)."),
+    Column("scope", String(16), nullable=False, comment="deployment or worker scope."),
+    Column("subject", String(128), nullable=False, comment="Deployment id or worker identity."),
+    Column(
+        "deployment_id",
+        UUID(),
+        nullable=True,
+        comment="Owning book when the alert is deployment-scoped.",
+    ),
+    Column("product_id", String(32), nullable=True),
+    Column("severity", String(12), nullable=False),
+    Column("detail", String(500), nullable=False, comment="Redacted operator-facing summary."),
+    Column("first_seen_at", DateTime(timezone=True), nullable=False),
+    Column("last_seen_at", DateTime(timezone=True), nullable=False),
+    Column(
+        "occurrences",
+        Integer(),
+        nullable=False,
+        comment="Consecutive supervision cycles that re-observed this open alert.",
+    ),
+    Column("resolved_at", DateTime(timezone=True), nullable=True),
+    Column("resolution_detail", String(500), nullable=False, server_default=""),
+    Column("delivery_provider", String(16), nullable=False, server_default="none"),
+    Column("delivery_status", String(16), nullable=False, server_default="pending"),
+    Column("delivery_attempts", Integer(), nullable=False, server_default="0"),
+    Column("delivery_detail", String(500), nullable=False, server_default=""),
+    Column("delivery_token", UUID(as_uuid=True), nullable=True),
+    Column("delivery_expires_at", DateTime(timezone=True), nullable=True),
+    ForeignKeyConstraint(
+        ["deployment_id"],
+        ["deployments.id"],
+        ondelete="SET NULL",
+        name="fk_operator_alerts_deployment_id",
+    ),
+    CheckConstraint(
+        "severity IN ('info', 'warning', 'critical')", name="ck_operator_alerts_severity"
+    ),
+    CheckConstraint(
+        "delivery_status IN ('pending', 'skipped', 'logged', 'delivered', 'failed', 'exhausted')",
+        name="ck_operator_alerts_delivery_status",
+    ),
+    CheckConstraint("occurrences >= 1", name="ck_operator_alerts_occurrences_positive"),
+    comment="Durable deduplicated operator safety alerts (ADR 0115).",
+)
+
+Index(
+    "ux_operator_alerts_open",
+    operator_alerts.c.code,
+    operator_alerts.c.subject,
+    unique=True,
+    postgresql_where=operator_alerts.c.resolved_at.is_(None),
+)
+
+Index(
+    "ix_operator_alerts_last_seen",
+    operator_alerts.c.last_seen_at,
+)
+
 _FRACTION_REGEX = "'^(0|[1-9][0-9]*)([.][0-9]{1,4})?$'"
 _QUOTE_REGEX = "'^(0|[1-9][0-9]*)([.][0-9]{1,8})?$'"
 
@@ -1624,6 +1698,48 @@ Index(
     portfolio_proposals.c.created_at.desc(),
 )
 
+fleet_entry_inhibition = Table(
+    "fleet_entry_inhibition",
+    metadata,
+    Column("mode", String(16), primary_key=True),
+    Column("inhibited", Boolean(), nullable=False),
+    Column("revision", Integer(), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("reason", Text(), nullable=True),
+    CheckConstraint("mode IN ('paper', 'live')", name="ck_fleet_entry_inhibition_mode"),
+)
+
+fleet_control_operations = Table(
+    "fleet_control_operations",
+    metadata,
+    Column("id", UUID(), primary_key=True),
+    Column("idempotency_key", String(128), nullable=False),
+    Column("action", String(32), nullable=False),
+    Column("mode", String(16), nullable=False),
+    Column("status", String(32), nullable=False),
+    Column("request_fingerprint", String(4000), nullable=False),
+    Column("request_json", Text(), nullable=False),
+    Column("result_json", Text(), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "action IN ('disarm', 'managed_stop', 'flatten', 'rearm')",
+        name="ck_fleet_control_operations_action",
+    ),
+    CheckConstraint("mode IN ('paper', 'live', 'all')", name="ck_fleet_control_operations_mode"),
+    CheckConstraint(
+        "status IN ('pending', 'accepted', 'partial', 'completed', 'rejected')",
+        name="ck_fleet_control_operations_status",
+    ),
+    UniqueConstraint("idempotency_key", name="ux_fleet_control_operations_idempotency_key"),
+)
+
+Index(
+    "ix_deployments_inventory_created_id",
+    deployments.c.created_at.desc(),
+    deployments.c.id.desc(),
+)
+
 __all__ = [
     "active_risk_policy",
     "audit_events",
@@ -1639,10 +1755,14 @@ __all__ = [
     "experiential_notifications",
     "experiential_pattern_observations",
     "experiential_sentiment_snapshots",
+    "fleet_control_operations",
+    "fleet_entry_inhibition",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",
     "metadata",
+    "operator_alert_checks",
+    "operator_alerts",
     "order_intents",
     "portfolio_backtest_jobs",
     "portfolio_journal_entries",

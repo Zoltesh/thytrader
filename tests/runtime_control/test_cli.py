@@ -261,7 +261,7 @@ def test_runtime_cli_refuses_stale_ops_contract_before_command() -> None:
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(stale_ready_payload()),
         ),
-        patch("thytrader.runtime_control.cli.list_deployments") as request,
+        patch("thytrader.runtime_control.cli.run_inventory_read") as request,
         pytest.raises(SystemExit, match="make run"),
     ):
         main(["list"])

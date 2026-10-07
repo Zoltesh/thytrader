@@ -88,6 +88,11 @@ class StubCoinbaseClient:
             }
         )
 
+    def list_orders(self, **kwargs: Any) -> Any:
+        """Return an empty open-order page unless a test overrides it."""
+        del kwargs
+        return StubResponse({"orders": [], "has_next": False})
+
 
 class StubResponse:
     """Coinbase SDK response exposing its documented dictionary conversion."""

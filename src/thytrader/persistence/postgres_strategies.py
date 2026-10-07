@@ -40,11 +40,6 @@ from thytrader.persistence.postgres_portfolio_rows import (
 from thytrader.persistence.postgres_risk import load_active_policy_in, publish_policy_in
 from thytrader.persistence.schema import (
     deployments,
-    execution_fills,
-    execution_instrument_state,
-    execution_orders,
-    execution_positions,
-    order_intents,
     published_backtest_results,
     published_research_run_specs,
     published_research_studies,
@@ -53,7 +48,6 @@ from thytrader.persistence.schema import (
     strategies,
     strategy_dataset_bindings,
     strategy_snapshots,
-    trade_reason_records,
 )
 from thytrader.risk.store import RiskPolicyStoreError, successor_without_allocation
 from thytrader.strategies.library import (
@@ -344,7 +338,7 @@ class PostgresStrategyStore:
         )
 
     async def delete(self, strategy_id: UUID) -> StrategyDeletionResult:
-        """Hard-delete one strategy in one transaction, keeping stopped live books."""
+        """Delete a strategy atomically, retaining all stopped execution risk evidence."""
         try:
             async with self._engine.begin() as connection:
                 target = await _strategy_row(connection, strategy_id, lock=True)
@@ -355,7 +349,6 @@ class PostgresStrategyStore:
                 await remove_strategy_sleeves_in(
                     connection, target.strategy_id, occurred_at=_journal_instant()
                 )
-                await _delete_paper_books(connection, target.strategy_id)
                 await _delete_research(connection, target.strategy_id)
                 await _delete_unreferenced_snapshots(connection, target.strategy_id)
                 await connection.execute(
@@ -642,10 +635,9 @@ def _studies_condition(strategy_id: str) -> ColumnElement[bool]:
 
 
 def _kept_snapshot_condition(strategy_id: str) -> ColumnElement[bool]:
-    """The strategy's snapshots that no kept (live) deployment references."""
+    """The strategy's snapshots that no retained paper or live deployment references."""
     referenced = select(deployments.c.strategy_fingerprint).where(
         deployments.c.strategy_fingerprint.is_not(None),
-        deployments.c.mode == "live",
     )
     return (strategy_snapshots.c.strategy_id == strategy_id) & (
         strategy_snapshots.c.strategy_fingerprint.not_in(referenced)
@@ -684,7 +676,8 @@ async def _deletion_counts(connection: AsyncConnection, strategy_id: str) -> Str
         ),
         research_jobs=await _count(connection, by_strategy(research_jobs)),
         dataset_bindings=await _count(connection, by_strategy(strategy_dataset_bindings)),
-        paper_deployments=await _count(connection, books("paper")),
+        # This existing payload field counts removals, not retained evidence (ADR 0111).
+        paper_deployments=0,
         live_deployments_kept=await _count(connection, books("live")),
         allocations_removed=await _allocation_count(connection, UUID(strategy_id)),
         portfolio_sleeves=await count_strategy_sleeves(connection, strategy_id),
@@ -695,32 +688,6 @@ async def _allocation_count(connection: AsyncConnection, strategy_id: UUID) -> i
     """Return how many active risk-policy allocations reserve capital for the strategy."""
     active = await load_active_policy_in(connection)
     return sum(1 for item in active.definition.allocations if item.strategy_id == strategy_id)
-
-
-async def _delete_paper_books(connection: AsyncConnection, strategy_id: str) -> None:
-    """Delete the strategy's paper deployments with their complete ledgers."""
-    paper_ids = select(deployments.c.id).where(
-        deployments.c.strategy_id == strategy_id, deployments.c.mode == "paper"
-    )
-    await connection.execute(
-        update(execution_orders)
-        .where(execution_orders.c.deployment_id.in_(paper_ids))
-        .values(parent_order_id=None)
-    )
-    for table in (
-        trade_reason_records,
-        execution_fills,
-        execution_orders,
-        order_intents,
-        execution_positions,
-        execution_instrument_state,
-    ):
-        await connection.execute(delete(table).where(table.c.deployment_id.in_(paper_ids)))
-    await connection.execute(
-        delete(deployments).where(
-            deployments.c.strategy_id == strategy_id, deployments.c.mode == "paper"
-        )
-    )
 
 
 async def _delete_research(connection: AsyncConnection, strategy_id: str) -> None:
@@ -749,7 +716,7 @@ async def _delete_research(connection: AsyncConnection, strategy_id: str) -> Non
 
 
 async def _delete_unreferenced_snapshots(connection: AsyncConnection, strategy_id: str) -> None:
-    """Delete the strategy's snapshots except those a kept live deployment ran."""
+    """Delete snapshots except those a retained paper or live deployment ran."""
     await connection.execute(
         delete(strategy_snapshots).where(_kept_snapshot_condition(strategy_id))
     )

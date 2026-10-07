@@ -12,9 +12,12 @@ from thytrader.execution.fill_ledger import (
     fill_economics_complete,
     ingest_fill,
     replay_unapplied_fills,
+    unprojected_inventory_products,
 )
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.models import (
+    Deployment,
+    DeploymentMode,
     DeploymentStatus,
     Fill,
     Order,
@@ -23,7 +26,7 @@ from thytrader.execution.models import (
     OrderStatus,
     with_runtime,
 )
-from thytrader.execution.overlay import overlay_snapshot
+from thytrader.execution.overlay import InstrumentScopedStore, overlay_snapshot
 from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
@@ -33,6 +36,7 @@ if TYPE_CHECKING:
 
 UNCONFIRMED_SUBMIT_PREFIX = "Order submit is unconfirmed"
 FILLED_WITHOUT_REST_FILLS_DETAIL = "Filled order has no REST fills."
+RECONCILE_UNCONFIRMED_PREFIX = "Order reconciliation is unconfirmed"
 
 _WATCH = {
     OrderStatus.OPEN,
@@ -51,46 +55,153 @@ async def reconcile_open_orders(
     product_id: str | None = None,
     cooldown_bars: int = 0,
 ) -> DeploymentSnapshot:
-    """GET each watched order and ingest fills that are missing locally."""
+    """GET each watched order and ingest fills that are missing locally.
+
+    A preexisting operator pause does not end the walk. Every watched order and
+    attached child is still reconciled. A new fault is retained, and neither a
+    pause nor a stopped shutdown is cleared.
+    """
+    started = snapshot.deployment
     snapshot = await replay_unapplied_fills(snapshot, store=store, cooldown_bars=cooldown_bars)
+    if any(fill.economics_applied_at is None for fill in snapshot.fills):
+        snapshot = await _record_reconcile_fault(
+            snapshot, store=store, detail="Stored fills have unapplied economics."
+        )
+    if snapshot.deployment.status is DeploymentStatus.RUNNING and unprojected_inventory_products(
+        snapshot
+    ):
+        snapshot = await _record_reconcile_fault(
+            snapshot, store=store, detail="Applied fills contain unprojected inventory."
+        )
     known = {fill.venue_fill_id for fill in snapshot.fills}
+    first_fault = _first_new_fault(None, before=started, after=snapshot.deployment)
+    snapshot = await _retain_reconcile_supervision(
+        snapshot,
+        store=store,
+        started_status=started.status,
+        started_detail=started.mismatch_detail,
+        first_fault=first_fault,
+    )
     for order in tuple(snapshot.orders):
+        before = snapshot.deployment
         order_product = order.product_id or product_id or snapshot.deployment.product_id
         scoped = overlay_snapshot(snapshot, order_product)
         scoped = await _reconcile_one_order(
             scoped,
             order=order,
             broker=broker,
-            store=store,
+            store=InstrumentScopedStore(store, order_product),
             product_id=order_product,
             known=known,
             cooldown_bars=cooldown_bars,
         )
-        snapshot = _merge_overlay(snapshot, scoped, order_product)
-        if snapshot.deployment.status is DeploymentStatus.PAUSED:
-            return snapshot
+        snapshot = await store.get_deployment(snapshot.deployment.id)
+        first_fault = _first_new_fault(first_fault, before=before, after=snapshot.deployment)
+        snapshot = await _retain_reconcile_supervision(
+            snapshot,
+            store=store,
+            started_status=started.status,
+            started_detail=started.mismatch_detail,
+            first_fault=first_fault,
+        )
     # Re-read so attached child ids adopted while reconciling entries this cycle are seen.
     snapshot = await store.get_deployment(snapshot.deployment.id)
+    before_children = snapshot.deployment
     snapshot = await _import_attached_children(
         snapshot, broker=broker, store=store, product_id=product_id, cooldown_bars=cooldown_bars
     )
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    first_fault = _first_new_fault(first_fault, before=before_children, after=snapshot.deployment)
+    return await _retain_reconcile_supervision(
+        snapshot,
+        store=store,
+        started_status=started.status,
+        started_detail=started.mismatch_detail,
+        first_fault=first_fault,
+    )
+
+
+def _fault_status(deployment: Deployment) -> DeploymentStatus:
+    """Keep a stopped shutdown stopped; every other book pauses on a new fault."""
+    if deployment.status is DeploymentStatus.STOPPED:
+        return DeploymentStatus.STOPPED
+    return DeploymentStatus.PAUSED
+
+
+def _first_new_fault(
+    current: str | None,
+    *,
+    before: Deployment,
+    after: Deployment,
+) -> str | None:
+    """Keep the first fault detail introduced while reconciling this cycle."""
+    if current is not None:
+        return current
+    detail = after.mismatch_detail
+    if detail is None or detail == before.mismatch_detail:
+        return None
+    if after.status not in {DeploymentStatus.PAUSED, DeploymentStatus.STOPPED}:
+        return None
+    return detail
+
+
+async def _record_reconcile_fault(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    detail: str,
+) -> DeploymentSnapshot:
+    """Persist one reconcile fault without unpausing or unstopping the book."""
+    faulted = with_runtime(
+        snapshot.deployment,
+        updated_at=utc_now(),
+        status=_fault_status(snapshot.deployment),
+        mismatch_detail=detail,
+    )
+    await store.save_deployment(faulted)
     return await store.get_deployment(snapshot.deployment.id)
 
 
-def _merge_overlay(
-    parent: DeploymentSnapshot,
-    scoped: DeploymentSnapshot,
-    product_id: str,
+async def _retain_reconcile_supervision(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    started_status: DeploymentStatus,
+    started_detail: str | None,
+    first_fault: str | None,
 ) -> DeploymentSnapshot:
-    """Merge one product overlay back into the parent multi-book snapshot."""
-    del product_id
-    return replace(
-        parent,
-        deployment=scoped.deployment,
-        position=scoped.position if scoped.position is not None else parent.position,
-        positions=scoped.positions or parent.positions,
-        instrument_runtimes=scoped.instrument_runtimes or parent.instrument_runtimes,
+    """Restore a preexisting pause or stop, keeping the first new fault detail."""
+    deployment = snapshot.deployment
+    status = _retained_status(started_status, deployment.status, first_fault)
+    detail = first_fault if first_fault is not None else started_detail
+    if status is deployment.status and detail == deployment.mismatch_detail:
+        return snapshot
+    if started_status is DeploymentStatus.RUNNING and first_fault is None:
+        return snapshot
+    retained = with_runtime(
+        deployment,
+        updated_at=utc_now(),
+        status=status,
+        mismatch_detail=detail,
+        clear_mismatch=detail is None,
     )
+    await store.save_deployment(retained)
+    return await store.get_deployment(deployment.id)
+
+
+def _retained_status(
+    started: DeploymentStatus,
+    current: DeploymentStatus,
+    first_fault: str | None,
+) -> DeploymentStatus:
+    """Never unpause or unstop; a new fault pauses a book that was running."""
+    if started is DeploymentStatus.STOPPED:
+        return DeploymentStatus.STOPPED
+    if started is DeploymentStatus.PAUSED:
+        return DeploymentStatus.PAUSED
+    if first_fault is not None:
+        return DeploymentStatus.PAUSED
+    return current
 
 
 async def _reconcile_one_order(
@@ -106,32 +217,45 @@ async def _reconcile_one_order(
     """Refresh one watched order from REST JSON and apply unseen fills."""
     if not _needs_reconcile(order, snapshot):
         return snapshot
-    if not order.venue_order_id and isinstance(broker, ClientOrderLookup):
-        recovered = await _recover_unconfirmed_submit(order, broker=broker, product_id=product_id)
-        if recovered is None:
-            return await _pause_unconfirmed_submit(snapshot, order=order, store=store)
-        result = recovered
-    else:
-        result = await broker.get_order(
-            venue_order_id=order.venue_order_id or "",
-            client_order_id=order.client_order_id,
+    try:
+        if not order.venue_order_id and isinstance(broker, ClientOrderLookup):
+            recovered = await _recover_unconfirmed_submit(
+                order, broker=broker, product_id=product_id
+            )
+            if recovered is None:
+                return await _pause_unconfirmed_submit(snapshot, order=order, store=store)
+            result = recovered
+        else:
+            result = await broker.get_order(
+                venue_order_id=order.venue_order_id or "",
+                client_order_id=order.client_order_id,
+            )
+    except BrokerError:
+        await store.save_order(
+            replace(order, status=OrderStatus.UNKNOWN, venue_observed_at=None, updated_at=utc_now())
+        )
+        return await _record_reconcile_fault(
+            snapshot, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: order read failed."
         )
     venue_order_id = result.venue_order_id or order.venue_order_id
     if not venue_order_id:
-        paused = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=f"{UNCONFIRMED_SUBMIT_PREFIX} and has no venue id.",
+        return await _record_reconcile_fault(
+            snapshot,
+            store=store,
+            detail=f"{UNCONFIRMED_SUBMIT_PREFIX} and has no venue id.",
         )
-        await store.save_deployment(paused)
-        return await store.get_deployment(order.deployment_id)
     updated = replace(
         order,
         venue_order_id=venue_order_id,
         status=result.status,
-        filled_quantity=result.filled_quantity,
+        filled_quantity=max(order.filled_quantity, result.filled_quantity),
         reject_reason=result.reject_reason,
+        venue_observed_at=(
+            utc_now()
+            if snapshot.deployment.mode is DeploymentMode.LIVE
+            and result.status is not OrderStatus.UNKNOWN
+            else None
+        ),
         # Keep a known attached child; otherwise adopt the one the venue now reports, so an
         # entry whose create response omitted it is still recognized as venue-protected.
         attached_child_venue_order_id=(
@@ -140,17 +264,24 @@ async def _reconcile_one_order(
         updated_at=utc_now(),
     )
     await store.save_order(updated)
-    remote_fills = await broker.list_fills(product_id=product_id, order_id=updated.venue_order_id)
-    if result.status is OrderStatus.FILLED and not remote_fills:
-        paused = with_runtime(
-            snapshot.deployment,
-            updated_at=utc_now(),
-            status=DeploymentStatus.PAUSED,
-            mismatch_detail=FILLED_WITHOUT_REST_FILLS_DETAIL,
+    try:
+        remote_fills = await broker.list_fills(
+            product_id=product_id, order_id=updated.venue_order_id
         )
-        await store.save_deployment(paused)
-        return await store.get_deployment(order.deployment_id)
-    return await _ingest_fills(
+    except BrokerError:
+        await store.save_order(
+            replace(
+                updated, status=OrderStatus.UNKNOWN, venue_observed_at=None, updated_at=utc_now()
+            )
+        )
+        return await _record_reconcile_fault(
+            snapshot, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: fill read failed."
+        )
+    if result.status is OrderStatus.FILLED and not remote_fills:
+        return await _record_reconcile_fault(
+            snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL
+        )
+    current = await _ingest_fills(
         snapshot,
         order=updated,
         remote_fills=remote_fills,
@@ -158,6 +289,15 @@ async def _reconcile_one_order(
         known=known,
         cooldown_bars=cooldown_bars,
     )
+    if applied_fill_quantity(current, updated.id) < updated.filled_quantity:
+        return await _record_reconcile_fault(
+            current, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL
+        )
+    if result.status is OrderStatus.UNKNOWN:
+        return await _record_reconcile_fault(
+            current, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: venue status is unknown."
+        )
+    return current
 
 
 async def _recover_unconfirmed_submit(
@@ -209,7 +349,7 @@ async def _pause_unconfirmed_submit(
     paused = with_runtime(
         snapshot.deployment,
         updated_at=utc_now(),
-        status=DeploymentStatus.PAUSED,
+        status=_fault_status(snapshot.deployment),
         mismatch_detail=detail,
     )
     await store.save_deployment(paused)
@@ -227,6 +367,19 @@ def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:
     """Return whether local fill coverage is still incomplete for this order."""
     if order.status not in _WATCH:
         return False
+    if order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}:
+        return True
+    # Atomic fill application may mark a partially executed order FILLED before
+    # REST reveals its remaining order state. Applied fragments are not a watermark.
+    if (
+        order.status is OrderStatus.FILLED
+        and applied_fill_quantity(snapshot, order.id) < order.quantity
+    ):
+        return True
+    # A cancel acknowledgement is not a fill-visibility watermark. Keep learning
+    # late fills even when the currently reported partial fills already applied.
+    if order.status is OrderStatus.CANCELED:
+        return True
     if fill_economics_complete(snapshot, order):
         return False
     if order.status is not OrderStatus.FILLED:
@@ -329,12 +482,14 @@ async def _import_attached_children(
     """Persist and reconcile attached child venue orders that are not local yet."""
     known_venues = {order.venue_order_id for order in snapshot.orders if order.venue_order_id}
     current = snapshot
+    first_fault: str | None = None
     for order in tuple(snapshot.orders):
         child_id = order.attached_child_venue_order_id
         if not child_id or child_id in known_venues:
             continue
-        result = await broker.get_order(venue_order_id=child_id, client_order_id="")
-        child_venue = result.venue_order_id or child_id
+        # Persist the known child identity before a venue read: a failed import
+        # must remain locally blocking rather than disappear from supervision.
+        before = current.deployment
         child = Order(
             id=uuid7(utc_now()),
             deployment_id=order.deployment_id,
@@ -346,26 +501,32 @@ async def _import_attached_children(
             price=order.take_profit_price,
             stop_trigger_price=order.stop_trigger_price,
             take_profit_price=order.take_profit_price,
-            status=result.status,
+            status=OrderStatus.UNKNOWN,
             created_at=utc_now(),
             updated_at=utc_now(),
-            venue_order_id=child_venue,
-            filled_quantity=result.filled_quantity,
+            venue_order_id=child_id,
             product_id=order.product_id or product_id or snapshot.deployment.product_id,
             parent_order_id=order.id,
         )
         await store.save_order(child)
-        known_venues.add(child_venue)
+        known_venues.add(child_id)
         current = await store.get_deployment(order.deployment_id)
         order_product = child.product_id or product_id or snapshot.deployment.product_id
-        remote_fills = await broker.list_fills(product_id=order_product, order_id=child_venue)
-        known_fills = {fill.venue_fill_id for fill in current.fills}
-        current = await _ingest_fills(
-            current,
+        await _reconcile_one_order(
+            overlay_snapshot(current, order_product),
             order=child,
-            remote_fills=remote_fills,
-            store=store,
-            known=known_fills,
+            broker=broker,
+            store=InstrumentScopedStore(store, order_product),
+            product_id=order_product,
+            known={fill.venue_fill_id for fill in current.fills},
             cooldown_bars=cooldown_bars,
         )
-    return current
+        current = await store.get_deployment(order.deployment_id)
+        first_fault = _first_new_fault(first_fault, before=before, after=current.deployment)
+    return await _retain_reconcile_supervision(
+        current,
+        store=store,
+        started_status=snapshot.deployment.status,
+        started_detail=snapshot.deployment.mismatch_detail,
+        first_fault=first_fault,
+    )
