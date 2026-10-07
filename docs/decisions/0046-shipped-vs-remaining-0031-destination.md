@@ -1,6 +1,6 @@
 # 0046: Shipped vs remaining Coinbase-first destination
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0056](0056-multi-instrument-documents-and-pyramiding.md) (multi-instrument documents shipped)
 - Date: 2026-09-16
 - Relates to: [0031](0031-coinbase-first-platform-end-state.md),
   [0033](0033-phase-10-risk-policy-registry.md),

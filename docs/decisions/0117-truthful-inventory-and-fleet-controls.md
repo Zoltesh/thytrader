@@ -62,8 +62,7 @@ exits.
    Admission linearizes on the mode row: a start/entry-intent transaction accepted before disarm
    may remain in flight after disarm, just as pre-existing open orders may. Disarm is not
    cancellation; it makes no impossible instantaneous-submission promise.
-   Alembic `0067` adds the latch and operation log. This worktree chains it from `0064`; lead
-   rechains it after `0065`/`0066`.
+   Alembic `0067` adds the latch and operation log.
 
 ### Amendment 2026-10-06 — lead correctness review
 
@@ -82,9 +81,6 @@ is introduced. These corrections are release prerequisites, not evidence of depl
 - Disarm cannot be mistaken for flatten. Residual positions remain until an explicit flatten
   or an ordinary exit.
 - A restart reads the same latch. Rearm is explicit and, for live scope, acknowledged.
-- Ops contract identity is left for lead integration. `EXPECTED_SCHEMA_REVISION` matches this
-  worktree's Alembic head so the head test passes; lead must reconcile it with the other
-  reserved revisions.
 
 ## Alternatives considered
 

@@ -20,7 +20,7 @@ The SvelteKit workstation already shipped strategy create, backtests, paper/live
 in-app operator chat ([ADR 0051](0051-in-app-operator-chat.md)), but research and deploy still
 lived inside a crowded strategy-library drawer. Destination still asked for uncluttered
 professional surfaces and a loopback form to set, rotate, and clear Coinbase Advanced Trade
-secrets without echoing them ([docs/roadmap.md](../roadmap.md) Workstation IA and Coinbase
+secrets without echoing them (the former roadmap, Workstation IA and Coinbase
 secrets UI rows).
 
 Agent-driven E2E remains the primary product surface ([ADR 0030](0030-agent-e2e-primary-surface.md)).

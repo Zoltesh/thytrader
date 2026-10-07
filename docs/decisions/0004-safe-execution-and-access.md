@@ -1,6 +1,6 @@
 # 0004: Safe execution and local access defaults
 
-- Status: Superseded by [0006](0006-credential-permission-acceptance.md)
+- Status: Superseded in part by [0006](0006-credential-permission-acceptance.md) (credential permission acceptance only)
 - Date: 2026-07-26
 
 ## Context

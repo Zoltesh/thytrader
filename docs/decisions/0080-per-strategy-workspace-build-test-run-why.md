@@ -7,7 +7,7 @@
 - Relates to: [0079](0079-four-destination-shell-agent-panel-palette-tokens.md),
   [0054](0054-trade-reason-journals.md), [0053](0053-workstation-ia-write-only-coinbase-credentials.md),
   [0065](0065-deployment-capital-accounting-http.md), [0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md)
-- Design spec: [strategy-version workspace](../plans/2026-09-17-strategy-version-workspace-design.md)
+- Design spec: strategy-version workspace
 
 ## Context
 

@@ -90,9 +90,12 @@ Deep setup, credentials (names only), native processes: **[docs/user/setup.md](d
 
 | | |
 |---|---|
-| <img src="docs/assets/icon-yours.svg" width="36" alt=""> **[Start here](docs/README.md)** | What it is, why it's yours |
+| <img src="docs/assets/icon-yours.svg" width="36" alt=""> **[Vision](docs/product/vision.md)** | What it is, why it's yours, what it won't do |
 | <img src="docs/assets/icon-device.svg" width="36" alt=""> **[Setup](docs/user/setup.md)** | Clone-and-run, loopback, Compose, `.env` names |
-| <img src="docs/assets/thytrader-mark.svg" width="36" alt=""> **[Safety](docs/user/safety.md)** | Secrets, live arming, confirmation gates |
-| <img src="docs/assets/icon-agent.svg" width="36" alt=""> **[Operate](docs/user/operate.md)** | Browser **and/or** agent, paper vs live |
+| <img src="docs/assets/thytrader-mark.svg" width="36" alt=""> **[Safety](docs/user/safety.md)** | Secrets, live arming, risk policy, fleet controls |
+| <img src="docs/assets/icon-automate.svg" width="36" alt=""> **[Operate](docs/user/operate.md)** · **[Research](docs/user/research.md)** | The browser workstation, paper vs live, studies |
+| <img src="docs/assets/icon-agent.svg" width="36" alt=""> **[Agent skills](skills/README.md)** | Every CLI and HTTP lane an agent (or you) can drive; open [`ops/`](ops/README.md) to operate |
+
+Contributors: [`AGENTS.md`](AGENTS.md) and the [decision log](docs/decisions/README.md).
 
 <p align="center"><sub>Art in <a href="docs/assets/">docs/assets/</a> is original ThyTrader work — no venue marks, no scraped logos.</sub></p>

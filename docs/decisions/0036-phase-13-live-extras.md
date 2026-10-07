@@ -1,6 +1,6 @@
 # 0036: Phase 13 live extras — 5m live, trailing stops, user-order WS, native OCO
 
-- Status: Accepted
+- Status: Accepted — amended by [0090](0090-research-correctness-optional-take-profit-diagnostics.md)
 - Date: 2026-09-15
 - Relates to: [0004](0004-safe-execution-and-access.md), [0005](0005-canonical-strategy-schema.md),
   [0018](0018-5m-paper-not-live.md), [0019](0019-ops-contract-identity.md),

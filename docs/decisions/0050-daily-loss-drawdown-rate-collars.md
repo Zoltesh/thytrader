@@ -1,10 +1,9 @@
 # 0050: Daily-loss, drawdown, order-rate, and reference-price collars
 
-The drawdown calculation is amended by [ADR 0107](0107-capital-normalized-live-performance.md):
-the breaker uses current loss from the durable ledger peak on a pinned performance-capital
-basis, and reports preserve the maximum observed fraction across restart and recovery.
-
-- Status: Accepted — amended by [ADR 0111](0111-durable-risk-accounting-scopes.md)
+- Status: Accepted — superseded in part by [ADR 0107](0107-capital-normalized-live-performance.md)
+  (drawdown calculation: the breaker uses current loss from the durable ledger peak on a pinned
+  performance-capital basis, and reports preserve the maximum observed fraction across restart and
+  recovery); amended by [ADR 0111](0111-durable-risk-accounting-scopes.md)
 - Date: 2026-09-16
 - Relates to: [0004](0004-safe-execution-and-access.md),
   [0019](0019-ops-contract-identity.md),
@@ -22,7 +21,7 @@ Phase 10 shipped a typed `thytrader-risk-policy-v1` registry: allowlist, concurr
 exposure fractions, paper book, and allocations ([ADR 0033](0033-phase-10-risk-policy-registry.md)).
 Entries already go through that gate; exits do not. Destination still named daily-loss and
 drawdown breakers, order-rate limits, and reference-price collars
-([docs/security-and-risk.md](../security-and-risk.md),
+(the security-and-risk baseline of the time,
 [ADR 0046](0046-shipped-vs-remaining-0031-destination.md) remaining list).
 
 Those remainders were not pause-on-breaker behavior. `--confirm` and `--i-understand-live` stay

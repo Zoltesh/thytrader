@@ -149,4 +149,4 @@ settlement, sparse leading/interior/empty scans and pending confirmation, provid
 concurrency, revisions, as-of/lookahead caps, shared-clock reuse/fallback, reference clocks,
 lagged crossover values and signal exits. No production connections or operations are used.
 Exact commands, results, graph limitations and cross-lane interfaces are recorded in
-[the slice completion note](../plans/2026-10-06-windows-slice-completion.md).
+the slice completion note (removed in the 2026-10 docs cleanup; see git history).

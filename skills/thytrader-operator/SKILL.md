@@ -20,29 +20,20 @@ same decision journal as bot detail, with verified entry fees and net PnL when a
 
 Schema version: `thytrader-operator-report-v1` (`schema_version` on every JSON report).
 
-Default transport is the loopback HTTP API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. Pass `--local` only when you intentionally want process stores instead of HTTP. Do not
-fall back from HTTP to PostgreSQL if the API is down. Failures say what failed: a timeout
-names the call, an unreachable API names the resolved origin, a dropped connection says to
-retry the read, and a report the CLI cannot validate names the field (compare ops contracts
-and rebuild with `make run`).
-
-Production installs advertise trust-boundary status at `GET /api/v1/security/status` (no secrets).
-Read-only operator routes stay unauthenticated; mutations use installation auth per
-[ADR 0061](../../docs/decisions/0061-application-trust-boundary.md).
+Default transport is the loopback HTTP API; base-URL resolution, installation auth, failure
+messages, and the stale-image rule are in the [shared rules](../README.md#shared-rules-every-lane).
+Pass `--local` only when you intentionally want process stores instead of HTTP. Do not fall back
+from HTTP to PostgreSQL if the API is down. Read-only operator routes stay unauthenticated
+([ADR 0061](../../docs/decisions/0061-application-trust-boundary.md)).
 
 JSON is the default CLI output. Do not add `--format json` to every command.
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Rebuild or restart only
-with `make run` when the user asked to rebuild, or when health/HTTP says the Compose image is stale
-(version mismatch, ops-contract mismatch, or 404 on agent routes while `/health/ready` is 200). Open the `ops/` workspace
-instead of the git root. Run every `uv run thytrader-*` command from the repository root (the parent
-of `ops/`).
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not search the tree for a code patch. Report failures through this skill. Rebuild
+only with `make run` when the user asked or the [stale-image rule](../README.md#shared-rules-every-lane)
+applies. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
 
@@ -276,14 +267,13 @@ Three read-only surfaces answer different questions. Do not conflate them.
 
 | Question | Surface | Access |
 | --- | --- | --- |
-| Account balances and portfolio history (demo or Coinbase) | Account portfolio API | `GET /api/v1/portfolio`, `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` — **no** `thytrader-operator` subcommand today |
+| Account balances (demo or Coinbase) and portfolio history | Account portfolio | `uv run thytrader-operator portfolio` / `GET /api/v1/operator/portfolio` for balances; `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` for history |
 | Deployment quantities, orders, fills, capital, protection | Runtime inventory | `uv run thytrader-runtime show DEPLOYMENT_ID` / `GET /api/v1/deployments/{id}?detail=full` (default `detail=summary` omits historical orders/fills; paginate `.../fills` and `.../orders`) |
 | Diagnostic phase/side/protection (coverage quantities only; no prices/cash) | Operator reports | `strategies`, `runtime` (`books[]` redacted) |
 
 `health` may list a `portfolio_history` component (snapshot freshness). That is not holdings.
-`risk` and `monitor` omit balances (`balances_omitted: true`). For a numbered portfolio → research
-recipe using these surfaces, see
-[`docs/agent/portfolio-research-ops-playbook.md`](../../docs/agent/portfolio-research-ops-playbook.md).
+`risk` and `monitor` omit balances (`balances_omitted: true`). For a portfolio → research recipe
+using these surfaces, see the [playbook skill](../thytrader-playbook/SKILL.md#portfolio--research-manual-sequence).
 
 ## Exit codes
 
@@ -308,48 +298,19 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 
 ## Workflow
 
-1. Verify CLI help and run `health` first. Expect ops contract `thytrader-ops-contract-v68`
-   (`research_dataset_autobind` `backtest`/`study` and `study_budgets` sync 8 candidates / 128
-   windows, async 64 / 512; [ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)),
-   Alembic revision `0061`, `indicator_operand_offset_runtimes` `research`/`paper`/`live`
-   (native-clock operand lags; [ADR 0099](../../docs/decisions/0099-operand-level-indicator-offsets.md)),
-   `portfolio_sleeve_operations` `batch_add`/`create_with_sleeves` (atomic portfolio definition
-   creation at revision 1 in the portfolio lane;
-   [ADR 0101](../../docs/decisions/0101-atomic-portfolio-creation-with-sleeves.md)),
-   `research_worker_pool` (leased research worker pool;
-   [ADR 0092](../../docs/decisions/0092-research-worker-pool.md)), `signal_exit_runtimes`
-   `research`/`paper`/`live` (`exits.signal_exit`;
-   [ADR 0093](../../docs/decisions/0093-signal-based-exits.md)), `reference_instrument_runtimes`
-   `research`/`paper`/`live` with `max_reference_instruments` 3 (read-only reference instruments;
-   [ADR 0096](../../docs/decisions/0096-reference-instruments.md)), `take_profit_kinds` `reward_risk`/`none`, `live_protection_kinds`
-   `trigger_bracket`/`stop_limit`, `backtest_diagnostics`, `fee_suggestion_source`
-   `coinbase_account` ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)),
-   `decision_journals` `paper`/`live` (per-bar decision timeline;
-   [ADR 0087](../../docs/decisions/0087-per-bar-decision-timeline.md)), `portfolio_model` (sleeves, shared limits, manager settings, journal,
-   portfolio backtest; [ADR 0088](../../docs/decisions/0088-portfolio-model-and-portfolio-backtest.md); plus deployment, portfolio limits, and manager proposals with `portfolio_deployment`, `portfolio_breakers`, `portfolio_proposal_kinds`, and `portfolio_briefing_contract` `thytrader-portfolio-briefing-v1`; [ADR 0091](../../docs/decisions/0091-portfolio-deployment-limits-and-manager-proposals.md)), `backtest_engine` `thytrader-backtest` (one unified backtest model;
-   [ADR 0083](../../docs/decisions/0083-unified-backtest-model.md)), `strategy_model` (`mutable_root`, `auto_snapshot`, `hard_delete`;
-   [ADR 0082](../../docs/decisions/0082-strategy-root-mutable-strategies-auto-snapshots.md)), `spot_quote_currencies` `USD`/`USDC`/`USDT`, `catalog_health`, bounded
-   deployment reads (`list`, `summary`, `fills`, `orders`), cursor ledger pagination, and
-   multi-book ledger on a current image ([ADR 0074](../../docs/decisions/0074-multi-book-ledger-bounded-reads.md),
-   [ADR 0064](../../docs/decisions/0064-deployment-http-lifecycle-and-breaker-latch-reset.md),
-   [ADR 0065](../../docs/decisions/0065-deployment-capital-accounting-http.md),
-   [ADR 0066](../../docs/decisions/0066-research-ops-contract-v4.md),
-   [ADR 0068](../../docs/decisions/0068-slow-timeframe-watch-lookback-and-catalog-ingest.md),
-   [ADR 0069](../../docs/decisions/0069-async-backtest-jobs-study-summary.md),
-   [ADR 0071](../../docs/decisions/0071-usdc-spot-quote-markets.md),
-   [ADR 0072](../../docs/decisions/0072-catalog-health-bounded-gaps-self-complete-ingest.md),
-   [ADR 0073](../../docs/decisions/0073-durable-research-jobs.md),
-   [ADR 0085](../../docs/decisions/0085-fast-research-ingest.md)). `catalog_health` includes
-   `ranged_backfill`, `explicit_watch_ingest`, `research_lookback_ceilings`, and (sparse markets,
-   [ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md))
-   `no_trade_bars`, `listing_history_floor`, and `watch_relative_complete`.
-   `same_bar_exit_precedence` (`stop`, `take_profit`, `signal_exit`, `time_exit`: paper and the
-   backtest resolve a same-bar tie in that order) and `runtime_observability` (`position_state`,
-   `exit_in_flight`, `paper_live_fill_comparison`;
-   [ADR 0097](../../docs/decisions/0097-runtime-parity-and-observability.md); plus
-   `paper_protection_covered`, `book_marks`, `fee_adjusted_book_pnl`, `portfolio_fill_comparisons`, and `strategy_library`
-   `origin_filter`; [ADR 0098](../../docs/decisions/0098-library-views-book-marks-portfolio-fills.md)). Mismatch means
-   rebuild with `make run`.
+1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
+   this checkout's (`thytrader-ops-contract-v68`, schema revision `0069`) and exits on any
+   mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
+   on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
+   (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
+   `decision_journals`; `signal_exit_runtimes`; `reference_instrument_runtimes` with
+   `max_reference_instruments` 3; `same_bar_exit_precedence` (`stop`, `take_profit`,
+   `signal_exit`, `time_exit`); `catalog_health` (incl. `watch_relative_complete`);
+   `research_dataset_autobind` and `study_budgets` (sync 8 candidates / 128 windows, async
+   64 / 512); and `runtime_observability` (incl. `position_state`, `fee_adjusted_book_pnl`,
+   `capital_normalized_performance`, `explicit_deployment_twins`,
+   `rule_matched_deployment_twins`, `exchange_read_failures`, `audit_failure_evidence`).
+   Multi-book reads follow [ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
 4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
@@ -397,7 +358,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    `Timed out after N s waiting for the ThyTrader API to answer GET …` hit a busy API, not a
    failed one; reads are safe to repeat after a short wait.
 7. Separate verified report fields from hypotheses.
-8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Strategy create/save/import/clone/delete and backtests/studies require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
+8. Stop. Watchlist/ingest/gap-fill require `skills/thytrader-data/SKILL.md` and `--confirm`. Strategy create/save/import/clone/delete and backtests/studies require `skills/thytrader-research/SKILL.md` and `--confirm`. Deploy, pause, resume, stop, fleet controls, live arming, risk-policy publication, and Coinbase credential show/set/clear require `skills/thytrader-runtime/SKILL.md` with `--confirm` unless YOLO covers that tier (live start, live resume, and live place-order also `--i-understand-live`). Credential set/clear always need `--confirm`; YOLO never covers them. Sequencing data → research → optional paper uses `skills/thytrader-playbook/SKILL.md` and still never starts live. Journals, sentiment/pattern hooks, notify, and fail-closed `train` use `skills/thytrader-memory/SKILL.md` with `--confirm`; YOLO never covers that lane.
 
 ## Forbidden
 
@@ -429,8 +390,8 @@ secrets surface (`/settings` and `thytrader-runtime` show/set/clear-coinbase-cre
 never returns `api_key`. Coinbase keys never go to the browser.
 
 The chat invokes the same versioned HTTP skill routes as these CLIs. Operator tools stay read-only.
-Data, research, runtime, and memory mutations wait on in-app confirmation (`--confirm`). Live start
-and live place-order also need the understand-live checkbox. YOLO never skips understand-live.
+Data, research, runtime, and memory mutations wait on in-app confirmation (`--confirm`). Live start,
+live resume, and live place-order also need the understand-live checkbox. YOLO never skips understand-live.
 Memory always confirms. The playbook never starts live. This skill stays read-only; chat is not
 extra trading authority and not a substitute for the lane skills.
 
@@ -444,29 +405,21 @@ Prefer net when present; null means unverified evidence, never zero costs. The o
 ledger totals retain their existing meanings; do not subtract these per-book fees again.
 
 
-Paper/live fill comparisons require a saved one-to-one twin link (ADR 0102; capability
-`explicit_deployment_twins`). Matching fingerprints alone no longer select partners. If no pair
-is saved, the comparison is absent; unavailable link storage warns instead of guessing.
-Use `uv run thytrader-runtime show-twin BOT_ID` to read pairing metadata. Linking/unlinking belongs
-in the [runtime skill](../thytrader-runtime/SKILL.md), always with `--confirm`, never in this
-read-only operator lane. At most 10 saved pairs appear, newest-linked first.
+Paper/live fill comparisons require a saved one-to-one twin link (ADR 0102, ADR 0105;
+`explicit_deployment_twins`). Matching fingerprints alone never select partners; with no saved
+pair the comparison is absent. Read pairing with `uv run thytrader-runtime show-twin BOT_ID`;
+linking and unlinking belong in the [runtime skill](../thytrader-runtime/SKILL.md), always with
+`--confirm`. At most 10 saved pairs appear, newest-linked first.
 
-Ops contract v63 also advertises `async_study_planning: worker`, `newest_bar_settle_seconds: 120`,
-and `strategy_library: origin_counts`. Decision `skip_reason: bar_settling` means the newest decision
+`newest_bar_settle_seconds: 120`: decision `skip_reason: bar_settling` means the newest decision
 candle alone is still within its fixed publication wait; no entries are evaluated, and inventory
 maintenance continues. `data_gap` after the deadline remains a paused book requiring the usual
-runtime lane action; do not automatically resume it.
-
-Ops contract v63 adds `runtime_observability: rule_matched_deployment_twins`
-([ADR 0105](../../docs/decisions/0105-rule-equivalent-clone-twins.md)). Intended paper/live clones
-can link when their pinned rules match exactly; the server ignores only root id, name, description,
-creation time, and metadata. Each fill-comparison side exposes its actual `strategy_fingerprint`;
-the top-level fingerprint remains the paper-side reference. This never changes a bot or its rules.
+runtime lane action; do not automatically resume it. `async_study_planning: worker` and
+`strategy_library: origin_counts` are research-lane capabilities.
 
 ## Account reads and audit recovery
 
-Ops contract v65 advertises `exchange_read_failures` and `audit_failure_evidence` in
-`runtime_observability` (Alembic remains `0061`). On `EXCHANGE_UNAVAILABLE`, inspect
+On `EXCHANGE_UNAVAILABLE`, inspect
 `thytrader-operator exchange`: `payload.failure` distinguishes `operation`
 (`balances`, `permissions`, `price`, `fees`), `kind` (`http`, `timeout`, `network`,
 `invalid_response`), and nullable `http_status`. Health component details carry the
@@ -541,10 +494,8 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-The fee-attribution column shipped in schema revision `0064`. The health contract now
-requires revision `0069`, including durable alerts, fleet controls, venue observation provenance,
-and separate verified UTC-opening evidence. Legacy opening stamps are not verification.
-After updating main, use `make run` to apply migrations and rebuild the services.
+Health requires the shipped schema revision (`0069`). After updating main, use `make run` to
+apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
 ([ADR 0119](../../docs/decisions/0119-venue-order-observation-provenance.md)). A local write

@@ -8,7 +8,7 @@
   [0080](0080-per-strategy-workspace-build-test-run-why.md),
   [0078](0078-live-readiness-http-ack-venue-reload-definite-rejects.md),
   [0065](0065-deployment-capital-accounting-http.md), [0054](0054-trade-reason-journals.md)
-- Design spec: [strategy-version workspace](../plans/2026-09-17-strategy-version-workspace-design.md)
+- Design spec: strategy-version workspace
 
 ## Context
 

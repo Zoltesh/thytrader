@@ -23,7 +23,7 @@ identifier, and an explicit deterministic seed.
 Publication is append-only and content-addressed. PostgreSQL stores canonical specifications only after
 revalidating the typed model and reverifying the strategy, immutable dataset, existing binding, coverage,
 and compatibility. Every load repeats those checks. The detailed implemented contract is specified in
-[research-run-specification.md](../architecture/research-run-specification.md).
+`docs/architecture/research-run-specification.md` (removed in the 2026-10 docs cleanup; see git history).
 
 This decision creates no simulation, broker, order, paper, or live-trading authority.
 

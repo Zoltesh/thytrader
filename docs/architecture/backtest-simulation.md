@@ -12,7 +12,7 @@ candidate, and benchmark uses this model.
 
 It is a research-only component: it cannot create an order intent, submit an order, connect to an
 exchange, or grant paper/live trading authority. Results are **simulated research evidence, not a
-promise** of paper or live performance. Mermaid: [contract diagrams — backtest result](contracts/backtest-result.md).
+promise** of paper or live performance.
 
 The public commands are:
 
@@ -75,7 +75,7 @@ boundary concern; the simulator does not claim venue-valid order quantities.
 
 ## Bar event ordering
 
-Signals are evaluated on completed candles only ([signal evaluation](signal-evaluation.md)). For
+Signals are evaluated on completed candles only ([ADR 0008](../decisions/0008-deterministic-signal-evaluation.md)). For
 each evaluation candle, and for each covered product in lexicographic `product_id` order, the
 simulator runs this fixed sequence:
 
@@ -278,4 +278,5 @@ optional spread stress, and a "How backtests simulate" disclosure summarizes the
   submissions; see [research studies](research-studies.md));
 - paper broker, exchange adapters, Coinbase submission, or live execution.
 
-Indicator warmup and first-valid-index rules: [indicators.md](indicators.md).
+Indicator warmup and first-valid-index rules: `src/thytrader/strategies/` (each indicator spec) and
+[ADR 0062](../decisions/0062-research-paper-semantics-audit-stage-4.md).

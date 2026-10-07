@@ -302,7 +302,7 @@ async def _require_spot_product(market_data: MarketDataService, product_id: str)
         ) from error
     if product is None:
         raise DataControlError(
-            f"{product_id} is not an enabled USD or USDC spot product. "
+            f"{product_id} is not an enabled USD, USDC, or USDT spot product. "
             "List enabled products with `uv run thytrader-operator products`."
         )
 

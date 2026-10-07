@@ -138,10 +138,9 @@ from canonical JSON so Phase 11 / ADR 0044 request fingerprints stay stable.
 
 ### Persisted catalog
 
-`submit-study` writes one `published_research_studies` row (Alembic `0031`, ops contract
-`thytrader-ops-contract-v19`). PostgreSQL is durable. The API without a database keeps a
+`submit-study` writes one `published_research_studies` row. PostgreSQL is durable. The API without a database keeps a
 process-local catalog. Operator `--local` without PostgreSQL reports `STUDY_CATALOG_UNAVAILABLE`
-rather than an empty healthy list. Since Alembic `0048` each row carries the primary
+rather than an empty healthy list. Each row carries the primary
 `strategy_id` (FK, `ON DELETE CASCADE`) and `research_study_strategies` links every strategy the
 study includes, so `GET /api/v1/research/studies?strategy_id=` (CLI `list-studies --strategy-id`)
 lists every study that touches a strategy, and deleting any included strategy deletes the study.
@@ -192,7 +191,7 @@ aggregate zeroes every `oos_*` field and populates `candidate_window_count`,
 
 - `GET /api/v1/research/backtest-model` — the single model's `engine`, `decision_record`,
   `honesty`, and `assumptions[]` (`key`, `label`, `detail`).
-- `GET /api/v1/research/templates` — draft template ids.
+- `GET /api/v1/research/templates` — template ids.
 - `GET /api/v1/research/templates/{template_id}` — one template's `indicator_ids`, shipped
   `defaults`, warmup, and `sweepable_axes` (404 on unknown ids).
 - `POST /api/v1/research/studies/plan` — window schedule, no simulation.
@@ -209,7 +208,7 @@ Study requests forward `htf_dataset_fingerprint` and `indicator_dataset_fingerpr
 child backtest. Unbound extra indicator clocks still require those fingerprints; an extra TF that
 equals `htf_filter.timeframe` stays on the HTF dataset.
 
-## Explicitly not in this slice
+## Explicitly not modeled
 
 - paper or live evaluation;
 - auto-tuning inside `save-strategy` / strategy authoring;

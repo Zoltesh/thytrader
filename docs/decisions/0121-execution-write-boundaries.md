@@ -62,8 +62,8 @@ fill transactions may wait on one another; unrelated books retain concurrency. T
 financial idempotence, not a promise of exactly-once venue execution. Existing unguarded whole-row
 writers outside these repaired paths are not universally redesigned or certified by this ADR.
 
-The [boundary implementation/evidence note](../plans/2026-10-06-core-transaction-boundaries.md)
-and [release acceptance matrix](../plans/2026-10-06-release-acceptance.md) separate focused
+The boundary implementation/evidence note
+and release acceptance matrix (both removed in the 2026-10 docs cleanup; see git history) separate focused
 counterexamples from final integrated and independent acceptance. An implementation commit is
 not deployment evidence.
 

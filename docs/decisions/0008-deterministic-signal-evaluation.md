@@ -37,7 +37,7 @@ The first executable engine:
 5. emits a canonical, fingerprinted, in-memory entry-condition trace.
 
 The normative formulas, trace fields, and failure boundaries are defined in
-[signal-evaluation.md](../architecture/signal-evaluation.md).
+`docs/architecture/signal-evaluation.md` (removed in the 2026-10 docs cleanup; see git history).
 
 A matched condition is not an order intent. Cooldown, risk, exits, order modeling, fills, capital,
 costs, and results remain outside this engine.

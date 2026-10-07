@@ -14,16 +14,10 @@ description: >-
 Orchestration over **existing** CLIs. This skill is not an extension of `thytrader-operator`,
 `thytrader-data`, `thytrader-research`, or `thytrader-runtime`. It does not grant live authority.
 
-HTTP-only against the loopback API. The CLI resolves its base URL from `--base-url`, then `THYTRADER_API_BASE_URL`, then the
-`THYTRADER_API_HOST` / `THYTRADER_API_PORT` settings (the same `.env` Compose reads; the default
-port is `8200`, but installs may override it, so never hard-code a port). For raw `curl`, export
-`THYTRADER_API_BASE_URL` and call `"$THYTRADER_API_BASE_URL/api/v1/..."`. There is
-no `--local` database mode. Child mutation CLIs send installation Bearer auth on writes per
-[ADR 0061](../../docs/decisions/0061-application-trust-boundary.md) and
-[ADR 0070](../../docs/decisions/0070-mutation-cli-installation-auth.md). The playbook calls
-`thytrader-operator`, `thytrader-data`,
-`thytrader-research`, and `thytrader-runtime` `main()` functions. It never constructs
-`--mode live` or `--i-understand-live`.
+HTTP-only against the loopback API (base URL and installation Bearer auth for child mutation
+CLIs: [shared rules](../README.md#shared-rules-every-lane)). There is no `--local` database mode.
+The playbook calls the `thytrader-operator`, `thytrader-data`, `thytrader-research`, and
+`thytrader-runtime` `main()` functions. It never constructs `--mode live` or `--i-understand-live`.
 
 In-app operator chat may read playbook status (`GET /api/v1/agent-orchestration`) and sequence
 paper through `runtime_start` with `mode=paper`. Chat must not start live. Do not treat chat as
@@ -39,12 +33,10 @@ playbook.
 
 ## Hard stop
 
-When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or tests.
-Do not search the tree for a code patch. Report failures through this skill. Every command preflights
-the full `/health/ready` ops contract. Rebuild or restart only with `make run` when the user asked,
-or when the CLI reports a version or ops-contract mismatch, or HTTP 404 on an agent route while
-`/health/ready` is 200 (the shared stale-image signal). Matching `0.1.0` alone is not current-image
-evidence. Open the `ops/` workspace instead of the git root. Run every
+When operating a running instance, do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic, or
+tests, and do not search the tree for a code patch. Report failures through this skill. Every
+command preflights the full `/health/ready` ops contract; rebuild only with `make run` when the
+user asked or the [stale-image rule](../README.md#shared-rules-every-lane) applies. Run every
 `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
 ## Commands
@@ -122,30 +114,51 @@ Underlying HTTP used by this CLI:
 ## Portfolio + research (manual sequence)
 
 `thytrader-playbook run` sequences **one decision clock** through data → strategy → backtest →
-optional paper. It does **not** call account portfolio HTTP or deployment `show` first. When the
-operator asks for portfolio visibility **and** research on the same pass, run this manual sequence
-(see [`docs/agent/portfolio-research-ops-playbook.md`](../../docs/agent/portfolio-research-ops-playbook.md)):
+optional paper. It does **not** read account balances or deployment inventory first. When the
+operator asks for portfolio visibility **and** research on the same pass, run this manual sequence.
+It never deploys unless the operator explicitly asks for that later step.
 
-1. `uv run thytrader-operator health` then `configuration` (YOLO/YAML; no restart for tier changes).
-2. Optional account snapshot: `GET /api/v1/portfolio` and `GET /api/v1/portfolio/history?range=7d`.
+Three read-only portfolio surfaces answer different questions; do not conflate them:
+
+| Surface | What it shows | How to read it |
+| --- | --- | --- |
+| Account portfolio | Demo or Coinbase balances; portfolio history for the UI | `uv run thytrader-operator portfolio` (`GET /api/v1/operator/portfolio`); history: `GET /api/v1/portfolio/history?range=7d\|24h\|30d\|forever` |
+| Deployment inventory | Quantities, orders, fills, capital, protection per book | `uv run thytrader-runtime show DEPLOYMENT_ID` |
+| Diagnostic inventory | Redacted phase/side/protection without prices or cash | `uv run thytrader-operator strategies` / `runtime` (`books[]`) |
+
+Operator `health` may report a `portfolio_history` component (snapshot freshness); that is not
+holdings. Operator `risk` and `monitor` set `balances_omitted: true`. Never infer a secondary open
+book from a deployment's primary `product_id`: read `positions[]` and `book_totals` on runtime
+`show` ([ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md)).
+
+1. `uv run thytrader-operator health` (stop on `failed`; `degraded` is incomplete evidence), then
+   `configuration` (YOLO tiers, `yaml_source_of_truth`; tier changes need no restart).
+2. Account snapshot: `uv run thytrader-operator portfolio`; optional
+   `GET /api/v1/portfolio/history?range=7d` (gaps stay visible).
 3. If deployments exist: `uv run thytrader-operator runtime` (`books[]`), then
    `uv run thytrader-runtime show UUID` when quantities or capital are needed.
-4. `uv run thytrader-operator data-catalog` — require `watch_complete` for the research clock (and
-   every HTF / per-indicator extra clock referenced by the strategy).
-5. Gap-fill through `thytrader-data` with `--confirm` when `watch_complete` is false.
+4. `uv run thytrader-operator data-catalog` and `products` — require `watch_complete` for the
+   research clock and every HTF / per-indicator extra clock the strategy references.
+5. When `watch_complete` is false: `thytrader-data inspect-gaps` (a `truncated` report is partial),
+   then gap-fill with `--confirm` only for a durable hole. Never interpolate.
 6. Strategy: `create-strategy` for templates, then `save-strategy --strategy-id UUID --file document.json
    --revision N --confirm` (or `import-strategy --file …`) for HTF / multi-instrument /
-   per-indicator TF fields `create-strategy` does not emit. Check `validation.valid` is true.
-7. Build `request.json` with `strategy_id` plus dataset fingerprints copied from `data-catalog` (primary
-   `dataset_fingerprint`, optional `htf_filter`, `indicator_dataset_fingerprints`,
-   `additional_instrument_datasets`), `initial_quote_balance`, maker/taker fee rates (copy
+   per-indicator TF fields `create-strategy` does not emit. Check `validation.valid` is true with
+   `show-strategy`; an invalid saved definition fails the backtest with HTTP 422 `strategy_invalid`.
+7. Build `request.json` with `strategy_id`, `initial_quote_balance`, maker/taker fee rates (copy
    `suggested_maker_fee_rate` / `suggested_taker_fee_rate` from `thytrader-operator fees` — the
    account's reported Coinbase rates; `schedule_*` is context only, ADR 0090),
    `fixed_slippage_bps`, and optional `spread_bps` → `submit-backtest --file request.json --confirm`.
-   There is one backtest model; never add an engine field (`engine_contract_version` is rejected).
-8. Read results with `uv run thytrader-operator performance --result-fingerprint sha256:…`.
+   Dataset fingerprints are optional: omitted ones bind the newest complete catalog dataset for each
+   clock and the response echoes `bound_datasets`
+   ([ADR 0089](../../docs/decisions/0089-agent-research-ergonomics.md)). There is one backtest
+   model; never add an engine field (`engine_contract_version` is rejected).
+8. Read `validity_limits` on the summary before claiming paper/live parity
+   ([ADR 0062](../../docs/decisions/0062-research-paper-semantics-audit-stage-4.md)), then
+   `uv run thytrader-operator performance --result-fingerprint sha256:…` and, for studies,
+   `uv run thytrader-operator studies` (catalog rows only).
 
-Composed studies (OOS, walk-forward, cross-market, sweep, WFO) stay in
-[`skills/thytrader-research/SKILL.md`](../../skills/thytrader-research/SKILL.md); this playbook does
-not sequence them. Optional paper after backtest still uses `run --paper-cash … --confirm` or
+Composed studies (OOS, walk-forward, cross-market, sweep, WFO) stay in the
+[research skill](../thytrader-research/SKILL.md); this playbook does not sequence them. Optional
+paper after backtest still uses `run --paper-cash … --confirm` or
 `thytrader-runtime start --mode paper … --confirm` — never live.

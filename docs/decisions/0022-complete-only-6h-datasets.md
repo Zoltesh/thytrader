@@ -1,6 +1,6 @@
 # 0022: Complete-only 6h historical datasets
 
-- Status: Accepted
+- Status: Accepted; superseded in part by [0040](0040-venue-strategy-paper-live-htf-clocks.md) (every ingested clock is now a strategy/paper/live clock)
 - Date: 2026-09-14
 - Relates to: [0014](0014-watchlist-and-5m-research.md), [0016](0016-longer-complete-5m-datasets.md),
   [0019](0019-ops-contract-identity.md), [0020](0020-complete-only-15m-datasets.md),

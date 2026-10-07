@@ -5,7 +5,7 @@ description: >-
   confirmation-gated thytrader-data CLI. Use when the user asks what data exists,
   to add a product or timeframe, inspect gaps, or fill gaps. Requires --confirm
   on every mutation. Never deploys, paper-trades, live-trades, arms, or cancels
-  orders. Never interpolates missing candles.
+  orders. Never interpolates prices; intervals without trades are flat no-trade bars.
 ---
 
 # ThyTrader data (Cursor pointer)
