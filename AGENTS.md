@@ -47,7 +47,7 @@ Open work, one line each (no roadmap file; history is in the ADRs and git log):
 
 - Portfolio backtests simulate sleeves independently; portfolio caps and cross-sleeve netting are not simulated.
 - No in-app portfolio manager loop: the manager is an external agent driving `thytrader-portfolio`.
-- The risk policy has no consecutive error/rejection breaker or pre-trade min-liquidity / max-spread check.
+- The risk policy has no pre-trade min-liquidity / max-spread check (repeated cycle failures do fence entries via safety supervision, ADR 0115).
 - Backtests do not model latency, venue rejections, partial fills, or queue position.
 - Open-book PnL excludes estimated future exit fees (ADR 0100).
 - Alerts do not fire on per-bar decision outcomes; there is no ThyTrader WebSocket (the UI polls).
