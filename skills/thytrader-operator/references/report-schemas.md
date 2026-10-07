@@ -298,12 +298,13 @@ This report does not change canonical result bytes and is null for paper/live.
 neither is the fleet) is advisory. `payload.account.enforcement` is `advisory_only`.
 `capital_base` is venue available quote in the policy quote currency plus managed long
 inventory cost and working buy-entry reservations. Caps are `null` when that balance is
-unknown. `ALLOCATION_OVERCOMMITMENT` is advisory (sizing limits, not reserved funds).
+unknown. `ALLOCATION_OVERCOMMITMENT` is advisory (sizing limits, not reserved funds) and sums
+only running and paused live books; stopped books never size another entry.
 `ACCOUNT_EXPOSURE_CAP_EXCEEDED`, `PRODUCT_EXPOSURE_CAP_EXCEEDED`,
 `PORTFOLIO_EXPOSURE_CAP_EXCEEDED`, and `PORTFOLIO_ASSET_EXPOSURE_CAP_EXCEEDED` are
 violations of recorded position cost plus working entry remainders, not live marks. `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC` means a
-paper book assumes cheaper maker/taker rates than account evidence (for example older
-`0.001`/`0.002` versus account `0.005`/`0.009`). `FEE_EVIDENCE_UNAVAILABLE` means no
+running or paused paper book assumes cheaper maker/taker rates than account evidence (for example
+older `0.001`/`0.002` versus account `0.005`/`0.009`); stopped books are not compared. `FEE_EVIDENCE_UNAVAILABLE` means no
 comparison was invented. Quote currencies are never summed; `QUOTE_CURRENCY_MISMATCH`
 excludes other quotes using actual product books (including mixed-product snapshots),
 not only the primary deployment product. Mixed deployments have `quote_exposures[]`
