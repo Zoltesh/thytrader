@@ -30,6 +30,7 @@ from thytrader.execution.models import (
     ExecutionStoreError,
     RuntimePhase,
 )
+from thytrader.execution.paper_fees import PaperFeesUnavailableError, paper_fee_rates
 from thytrader.execution.service import (
     PortfolioSleeveStart,
     ReferenceWatchlist,
@@ -81,6 +82,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+    from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.execution.store import ExecutionStore
     from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
@@ -207,12 +209,15 @@ class PortfolioRuntimeService:
         live_acknowledged: bool = False,
         sleeve_id: UUID | None = None,
         fees: FeeAssumptions | None = None,
+        paper_fee_source: PaperFeeSource | None = None,
     ) -> PortfolioActionResult:
         """Start (or attach) a book for every sleeve, or for one sleeve.
 
         Every target sleeve is planned first (issues, a strategy busy elsewhere, the
         snapshot, the clock, and the risk policy with every planned book counted), so a
-        refused sleeve starts nothing (:class:`PortfolioStartRejectedError`).
+        refused sleeve starts nothing (:class:`PortfolioStartRejectedError`). New paper
+        books that omit fee rates take the account's rates from ``paper_fee_source``; an
+        unreadable account refuses the start before any book is created.
         """
         aggregate = await self._portfolios.get(portfolio_id)
         require_revision(aggregate.portfolio, revision)
@@ -233,6 +238,8 @@ class PortfolioRuntimeService:
         deployments = await self._execution.list_deployments()
         tagged = members(deployments, portfolio_id)
         attached, planned = await self._plan_start(aggregate, targets, deployments, tagged, mode)
+        if planned and mode is DeploymentMode.PAPER:
+            fee_rates = await _account_fee_rates(fee_rates, paper_fee_source)
         context = _millisecond(context)
         if planned and not occupied_members(tagged):
             await self._begin_run(aggregate, runtime, now=context.occurred_at)
@@ -694,6 +701,16 @@ def _fee_rates(mode: DeploymentMode, fees: FeeAssumptions) -> tuple[Decimal | No
     except ValueError as error:
         raise PortfolioValidationError("portfolio_fee_rates_invalid", str(error)) from None
     return fees.maker_fee_rate, fees.taker_fee_rate
+
+
+async def _account_fee_rates(
+    fees: tuple[Decimal | None, Decimal | None], source: PaperFeeSource | None
+) -> tuple[Decimal | None, Decimal | None]:
+    """Fill omitted paper rates from the account; unknown account rates refuse the start."""
+    try:
+        return await paper_fee_rates(maker_fee_rate=fees[0], taker_fee_rate=fees[1], source=source)
+    except PaperFeesUnavailableError as error:
+        raise PortfolioConflictError("paper_fees_unavailable", str(error)) from None
 
 
 def _sleeve_capital(aggregate: PortfolioAggregate, view: SleeveView) -> Decimal:

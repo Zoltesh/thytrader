@@ -159,9 +159,9 @@ def _parser() -> argparse.ArgumentParser:
         "--maker-fee-rate",
         default=None,
         help=(
-            "Paper maker fee assumption as a decimal string. Optional with "
-            "--taker-fee-rate; omitted paper uses documented 0.001 / 0.002. "
-            "Not observed Coinbase fees. Live rejects these flags."
+            "Paper maker fee rate as a decimal string, with --taker-fee-rate. "
+            "Omitted, paper uses the Coinbase account's own rates and is refused "
+            "when they cannot be read. Live rejects these flags."
         ),
     )
     start.add_argument(

@@ -13,7 +13,13 @@ export const RESEARCH_FEE_ENGINE_NOTE =
 export const PAPER_DEFAULT_MAKER_FEE_RATE = '0.001';
 export const PAPER_DEFAULT_TAKER_FEE_RATE = '0.002';
 export const PAPER_FEE_ENGINE_NOTE =
-	'These are documented paper fill assumptions, not observed Coinbase fees. Live Coinbase fees stay venue-recorded.';
+	"Blank rates use your Coinbase account's fee rates; the start is refused when those cannot be read. Paper fills are modeled, so these are not observed Coinbase fees.";
+
+/** A blank paper fee field is omitted so the server applies the account's own rates. */
+export function optionalFeeRate(value: string): string | undefined {
+	const trimmed = value.trim();
+	return trimmed === '' ? undefined : trimmed;
+}
 
 export interface FeeProfile {
 	taker_fee_rate: string;

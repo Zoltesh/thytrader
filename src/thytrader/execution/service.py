@@ -20,6 +20,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.watchlist import MarketDataWatchlistUnavailableError
@@ -36,6 +37,7 @@ from thytrader.strategies.snapshots import (
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.risk.store import RiskPolicyStore
@@ -55,6 +57,7 @@ async def create_deployment(
     paper_taker_fee_rate: Decimal | None = None,
     portfolio_sleeve: PortfolioSleeveStart | None = None,
     reference_watches: ReferenceWatchlist | None = None,
+    paper_fee_source: PaperFeeSource | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -66,9 +69,17 @@ async def create_deployment(
     allocation counts as risk-policy allocation membership (ADR 0091). A strategy that
     reads reference instruments (ADR 0096) starts only when every reference series is on
     the enabled market-data watchlist (``reference_watches``); otherwise the start is
-    refused with the ``thytrader-data watch-add`` command for each missing series.
+    refused with the ``thytrader-data watch-add`` command for each missing series. A
+    paper start that omits both fee rates takes the account's rates from
+    ``paper_fee_source`` and is refused when they cannot be read.
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
+    if mode is DeploymentMode.PAPER:
+        paper_maker_fee_rate, paper_taker_fee_rate = await paper_fee_rates(
+            maker_fee_rate=paper_maker_fee_rate,
+            taker_fee_rate=paper_taker_fee_rate,
+            source=paper_fee_source,
+        )
     maker_fee_rate, taker_fee_rate = _paper_fee_schedule(
         mode, paper_maker_fee_rate, paper_taker_fee_rate
     )

@@ -21,6 +21,7 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.live_ack import require_live_acknowledgement
+from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.strategy_http import snapshot_for_start
 from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.book_marks import (
@@ -51,6 +52,7 @@ from thytrader.execution.models import (
     snapshot_positions,
     visible_instrument_runtimes,
 )
+from thytrader.execution.paper_fees import PaperFeeSource
 from thytrader.execution.protection import (
     PositionState,
     ProtectionEvidenceResponse,
@@ -428,8 +430,12 @@ async def post_deployment(
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
+    paper_fee_source: Annotated[PaperFeeSource, Depends(get_paper_fee_source)],
 ) -> DeploymentResponse:
     """Snapshot the strategy's current rules and start a running paper or live book.
+
+    A paper start that omits both fee rates uses the Coinbase account's rates, and is
+    refused (409) when those cannot be read.
 
     A strategy that reads reference instruments (ADR 0096) starts only when every
     reference series is on the enabled market-data watchlist (409 otherwise, naming
@@ -451,6 +457,7 @@ async def post_deployment(
             reference_watches=ReferenceWatchlist(
                 store=watchlist, provider=ingestion_provider(runtime.settings)
             ),
+            paper_fee_source=paper_fee_source,
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

@@ -31,6 +31,7 @@ from thytrader.api.dependencies import (
     get_strategy_snapshot_store,
     get_strategy_store,
 )
+from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.portfolios import mutation_context, portfolio_http_error
 from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.book_marks import marks_by_deployment
@@ -480,6 +481,7 @@ async def _start(
             live_acknowledged=body.i_understand_live,
             sleeve_id=sleeve_id,
             fees=fees,
+            paper_fee_source=get_paper_fee_source(request),
         )
         snapshot = await service.snapshot(portfolio_id)
         pending = await _pending_count(storage, portfolio_id)

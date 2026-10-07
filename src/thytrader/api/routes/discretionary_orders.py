@@ -19,6 +19,7 @@ from thytrader.api.dependencies import (
     get_runtime_state,
 )
 from thytrader.api.live_ack import require_live_acknowledgement
+from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployments import DeploymentResponse, _snapshot_response
 from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
@@ -26,6 +27,7 @@ from thytrader.execution.broker import Broker
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.geometry import base_currency
 from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
+from thytrader.execution.paper_fees import PaperFeeSource
 from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.products import (
     SPOT_PRODUCT_ID_PATTERN,
@@ -92,6 +94,7 @@ async def post_discretionary_order(
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    paper_fee_source: Annotated[PaperFeeSource, Depends(get_paper_fee_source)],
 ) -> DeploymentResponse:
     """Persist a discretionary intent, submit once, and never retry an ambiguous timeout."""
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
@@ -125,6 +128,7 @@ async def post_discretionary_order(
                 risk_store=risk_store,
                 quote_reader=quote_reader,
                 memory_store=memory_store,
+                paper_fee_source=paper_fee_source,
             )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
@@ -161,6 +165,7 @@ async def _place(
     risk_store: RiskPolicyStore,
     quote_reader: ExchangeAccount | None,
     memory_store: ExperientialMemoryStore,
+    paper_fee_source: PaperFeeSource,
 ) -> DeploymentSnapshot:
     """Run the shared discretionary order path with live venue balances attached."""
     return await place_discretionary_order(
@@ -179,6 +184,7 @@ async def _place(
             currency=base_currency(request.product_id),
         ),
         memory_store=memory_store,
+        paper_fee_source=paper_fee_source,
     )
 
 

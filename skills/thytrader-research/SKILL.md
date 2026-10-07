@@ -534,17 +534,18 @@ Intro tier) — what live fills are billed at
 ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
 `schedule_maker_fee_rate` / `schedule_taker_fee_rate` with `suggestion_schedule_tier_id` and
 `suggestion_schedule_version` are the pinned public band for the same volume, **context only**:
-never copy them as defaults. Copy `suggested_*` into `submit-backtest` / `submit-study` JSON (and
-pass them as `--maker-fee-rate` / `--taker-fee-rate` on paper starts) unless the operator supplied
-custom rates.
+never copy them as defaults. Copy `suggested_*` into `submit-backtest` / `submit-study` JSON unless
+the operator supplied custom rates. Paper starts that omit rates take the same account rates
+automatically ([ADR 0122](../../docs/decisions/0122-paper-fees-default-to-account-rates.md)).
 Demo or missing credentials set `suggestion_source=unavailable` — do **not** use dashboard demo
 `maker_fee_rate` / `taker_fee_rate` as research defaults, and do not invent a tier. The request must
 still include explicit rates; submitted runs fingerprint those values. They are modeled
 `CostAssumptions`, not observed Coinbase fills. Resting entries and take-profits use the **maker**
 rate; stop, time, and end-of-window exits use the **taker** rate. Paper deploy accepts optional `maker_fee_rate` / `taker_fee_rate`
 through `thytrader-runtime` ([ADR 0048](../../docs/decisions/0048-paper-deploy-fee-fields.md));
-omitted paper rates keep the documented `0.001` maker / `0.002` taker schedule. Those paper rates
-are also modeled assumptions, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.
+omitted rates store the account's own rates, or the start is refused when they cannot be read
+([ADR 0122](../../docs/decisions/0122-paper-fees-default-to-account-rates.md)). Paper fills
+remain modeled, not observed Coinbase fills. Live Coinbase fees stay venue-recorded.
 
 ## Where research runs (research worker queue)
 

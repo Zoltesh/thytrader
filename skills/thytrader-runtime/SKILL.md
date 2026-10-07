@@ -456,7 +456,7 @@ single bots; `--i-understand-live` is never skipped.
 | Per-bar decisions of one bot (read-only) | `uv run thytrader-runtime decisions UUID [--outcome no_signal] [--limit 50] [--cursor C]` |
 | Decisions across a strategy's bots | `uv run thytrader-runtime decisions --strategy-id UUID [DEPLOYMENT_UUID] [--outcome entry_signal --outcome exit]` |
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
-| Start paper with fee assumptions | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
+| Start paper with operator-chosen fee rates (omit them to use the account's rates) | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-id UUID --mode live --confirm --i-understand-live` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume paper | `uv run thytrader-runtime resume UUID --confirm` |
@@ -580,11 +580,14 @@ through it — the same offset as a bracket's stop leg. Trailing ratchets replac
 signal exits, and flatten cancel it first. A stop-limit can rest unfilled if price gaps through its limit, exactly
 like a bracket stop leg ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)). `--timeframe` defaults to `5m`; pass `1m`, `15m`, `30m`, `1h`, `2h`, `4h`, `6h`, or `1d` for
 another book clock. Paper `start` and paper `place-order` accept optional `--maker-fee-rate` and
-`--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted paper rates
-use the documented `0.001` / `0.002` assumptions. They are **not** observed Coinbase fees. To model
-what the account actually pays, pass `suggested_maker_fee_rate` / `suggested_taker_fee_rate` from
-`thytrader-operator fees` (the account's reported Coinbase rates, `suggestion_source:
-coinbase_account`); the `schedule_*` rates there are context only. Live
+`--taker-fee-rate` together (Decimal strings in `[0, 0.1]`, maker ≤ taker). Omitted, a **new**
+paper book (start, each new `portfolio-start` sleeve, or a ticket that creates a book) stores the
+account's own Coinbase rates (`suggested_*` from `thytrader-operator fees`, `suggestion_source:
+coinbase_account`). If those cannot be read (demo, missing credentials, Coinbase read failure) the
+start is refused with a 409 (`paper_fees_unavailable` for portfolios) and nothing is created; do not
+retry with invented rates. Pass explicit rates only when the operator chose them
+([ADR 0122](../../docs/decisions/0122-paper-fees-default-to-account-rates.md)). A reused ticket book
+keeps its stored rates. Paper fills stay modeled, not observed Coinbase fills. Live
 rejects those flags; live fills stay venue-recorded through cursor-terminated List Fills
 ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md)). Incomplete or
 unparseable Coinbase fill pages fail closed (`BrokerError`); do not treat them as a complete

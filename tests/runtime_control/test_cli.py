@@ -656,14 +656,15 @@ def test_place_order_forwards_short_side() -> None:
 
 
 def test_start_help_lists_paper_fee_flags(capsys: pytest.CaptureFixture[str]) -> None:
-    """Operators can discover paper maker/taker assumptions without an API."""
+    """Operators can discover paper fee rates and the account-rate default without an API."""
     with pytest.raises(SystemExit) as raised:
         main(["start", "--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out
     assert "--maker-fee-rate" in output
     assert "--taker-fee-rate" in output
-    assert "0.001" in output
+    assert "account's own rates" in output
+    assert "refused" in output
     assert "Live rejects" in output or "live rejects" in output.lower()
 
 

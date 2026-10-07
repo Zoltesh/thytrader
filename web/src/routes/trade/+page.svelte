@@ -15,11 +15,7 @@
 	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { marketLabel } from '$lib/deployment-detail';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
-	import {
-		PAPER_DEFAULT_MAKER_FEE_RATE,
-		PAPER_DEFAULT_TAKER_FEE_RATE,
-		PAPER_FEE_ENGINE_NOTE
-	} from '$lib/fees';
+	import { PAPER_FEE_ENGINE_NOTE, optionalFeeRate } from '$lib/fees';
 	import { declareLiveContext } from '$lib/live-context.svelte';
 	import { fetchTradeReasons, type TradeReasonRecord } from '$lib/memory';
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
@@ -38,8 +34,8 @@
 	let stopPrice = $state('');
 	let takeProfitPrice = $state('');
 	let paperCash = $state('10000');
-	let paperMakerFee = $state(PAPER_DEFAULT_MAKER_FEE_RATE);
-	let paperTakerFee = $state(PAPER_DEFAULT_TAKER_FEE_RATE);
+	let paperMakerFee = $state('');
+	let paperTakerFee = $state('');
 	let note = $state('');
 	let submitting = $state(false);
 	let error = $state<string | null>(null);
@@ -176,8 +172,8 @@
 				quote_notional: quoteNotional === '' ? undefined : quoteNotional,
 				limit_price: limitPrice === '' ? undefined : limitPrice,
 				paper_starting_cash: mode === 'paper' ? paperCash : undefined,
-				maker_fee_rate: mode === 'paper' ? paperMakerFee : undefined,
-				taker_fee_rate: mode === 'paper' ? paperTakerFee : undefined,
+				maker_fee_rate: mode === 'paper' ? optionalFeeRate(paperMakerFee) : undefined,
+				taker_fee_rate: mode === 'paper' ? optionalFeeRate(paperTakerFee) : undefined,
 				note: trimmedNote === '' ? undefined : trimmedNote,
 				// Reached for live only after the dialog's ticked "real orders" checkbox.
 				i_understand_live: mode === 'live' && liveConfirmed ? true : undefined
@@ -321,11 +317,11 @@
 						</label>
 						<label>
 							Maker fee rate
-							<input bind:value={paperMakerFee} required inputmode="decimal" />
+							<input bind:value={paperMakerFee} placeholder="Account rate" inputmode="decimal" />
 						</label>
 						<label>
 							Taker fee rate
-							<input bind:value={paperTakerFee} required inputmode="decimal" />
+							<input bind:value={paperTakerFee} placeholder="Account rate" inputmode="decimal" />
 						</label>
 					</div>
 					<p class="hint">{PAPER_FEE_ENGINE_NOTE}</p>
