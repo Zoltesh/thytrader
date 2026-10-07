@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
-from thytrader.strategies.models import StrategyDefinition, timeframe_seconds
+from thytrader.strategies.models import timeframe_seconds
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -161,11 +161,6 @@ def mapped_htf_start(ltf_close: datetime, htf_timeframe: str) -> datetime:
 def ltf_close(candle_starts_at: datetime, ltf_timeframe: str) -> datetime:
     """Return the exclusive close of one LTF decision bar."""
     return candle_starts_at + timedelta(seconds=timeframe_seconds(ltf_timeframe))
-
-
-def strategy_requires_htf(definition: StrategyDefinition) -> bool:
-    """Return whether the published strategy declares an HTF filter."""
-    return definition.htf_filter is not None
 
 
 def index_candles_by_start(candles: Sequence[Candle]) -> dict[datetime, Candle]:

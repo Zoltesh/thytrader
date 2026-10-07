@@ -12,7 +12,12 @@ import sys
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_http import (
+    AgentHttpError,
+    base_url_options,
+    require_matching_ops_contract,
+    resolve_api_base_url,
+)
 from thytrader.agent_orchestration.confirmation import (
     require_mutation_confirmation,
     require_paper_runtime_confirmation,
@@ -84,20 +89,9 @@ _ALLOCATION_HELP = (
 )
 
 
-def _shared_options() -> argparse.ArgumentParser:
-    """Global flags that may appear before or after the subcommand."""
-    shared = argparse.ArgumentParser(add_help=False)
-    shared.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
-    )
-    return shared
-
-
 def _parser() -> argparse.ArgumentParser:
     """Build the confirmation-gated runtime-control argument parser."""
-    shared = _shared_options()
+    shared = base_url_options()
     trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-runtime",

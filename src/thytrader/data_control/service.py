@@ -484,26 +484,6 @@ def _exchange_presence(
     return cursor in exchange_starts
 
 
-def _observation_for(
-    *,
-    start: datetime,
-    local_starts: set[datetime],
-    exchange_starts: set[datetime] | None,
-    state: MarketDataWorkerState | None,
-) -> GapObservation | None:
-    """Classify one expected bar or omit it when local coverage already has it."""
-    present_on_exchange = None if exchange_starts is None else start in exchange_starts
-    cause = classify_gap(
-        present_locally=start in local_starts,
-        present_on_exchange=present_on_exchange,
-        worker_attempted=state is not None,
-        worker_complete=bool(state is not None and state.complete),
-    )
-    if cause is None:
-        return None
-    return GapObservation(starts_at=start, cause=cause)
-
-
 async def _audit(
     audit: AuditEventStore,
     *,

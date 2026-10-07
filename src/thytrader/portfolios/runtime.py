@@ -57,7 +57,6 @@ from thytrader.portfolios.deployment import (
 )
 from thytrader.portfolios.models import (
     JournalDetail,
-    JournalEntry,
     JournalKind,
     JournalReason,
     MutationContext,
@@ -852,23 +851,4 @@ def _millisecond(context: MutationContext) -> MutationContext:
         actor=context.actor,
         channel=context.channel,
         occurred_at=utc_millisecond(context.occurred_at),
-    )
-
-
-def runtime_journal_entry(
-    aggregate: PortfolioAggregate,
-    *,
-    kind: JournalKind,
-    context: MutationContext,
-    summary: str,
-    detail: JournalDetail,
-) -> JournalEntry:
-    """A runtime journal entry stamped with the portfolio's current revision."""
-    return journal_entry(
-        aggregate.portfolio.portfolio_id,
-        kind=kind,
-        context=_millisecond(context),
-        summary=summary,
-        revision=aggregate.portfolio.revision,
-        detail=detail,
     )

@@ -20,7 +20,12 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from thytrader.agent_http import AgentHttpError, require_matching_ops_contract, resolve_api_base_url
+from thytrader.agent_http import (
+    AgentHttpError,
+    base_url_options,
+    require_matching_ops_contract,
+    resolve_api_base_url,
+)
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
@@ -93,20 +98,9 @@ class PortfolioCliError(RuntimeError):
     """A safe operator-facing portfolio command failure."""
 
 
-def _shared_options() -> argparse.ArgumentParser:
-    """Global flags that may appear before or after the subcommand."""
-    shared = argparse.ArgumentParser(add_help=False)
-    shared.add_argument(
-        "--base-url",
-        default=None,
-        help="Loopback API origin. Defaults to THYTRADER_API_BASE_URL or settings.",
-    )
-    return shared
-
-
 def _parser() -> argparse.ArgumentParser:
     """Build the portfolio argument parser."""
-    shared = _shared_options()
+    shared = base_url_options()
     trailing = trailing_options(shared)
     parser = argparse.ArgumentParser(
         prog="thytrader-portfolio",

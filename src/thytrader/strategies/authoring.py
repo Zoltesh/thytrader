@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-import secrets
-from uuid import UUID
+from typing import TYPE_CHECKING
 
+from thytrader.execution.ids import uuid7
 from thytrader.market_data.models import (
     EXECUTION_TIMEFRAMES,
     as_dataset_timeframe,
@@ -15,12 +15,15 @@ from thytrader.market_data.products import parse_spot_product_id
 from thytrader.strategies.models import Instrument, StrategyDefinition
 from thytrader.strategies.templates import build_template_definition, parse_template_id
 
+if TYPE_CHECKING:
+    from uuid import UUID
+
 
 def new_strategy_identity(now: datetime | None = None) -> tuple[UUID, datetime]:
     """Mint one UUIDv7 strategy id and its millisecond-truncated UTC creation instant."""
     created_at = (now or datetime.now(UTC)).astimezone(UTC)
     created_at = created_at.replace(microsecond=(created_at.microsecond // 1_000) * 1_000)
-    return _uuid7(created_at), created_at
+    return uuid7(created_at), created_at
 
 
 def create_template_strategy(
@@ -54,16 +57,3 @@ def _instrument_for_product(product_id: str) -> Instrument:
     base, quote = parse_spot_product_id(product_id)
     normalized = f"{base}-{quote}"
     return Instrument(product_id=normalized, base_currency=base, quote_currency=quote)
-
-
-def _uuid7(created_at: datetime) -> UUID:
-    """Create a UUIDv7 whose timestamp equals the supplied UTC millisecond."""
-    milliseconds = int(created_at.timestamp() * 1_000)
-    value = (
-        (milliseconds << 80)
-        | (0x7 << 76)
-        | (secrets.randbits(12) << 64)
-        | (0b10 << 62)
-        | secrets.randbits(62)
-    )
-    return UUID(int=value)

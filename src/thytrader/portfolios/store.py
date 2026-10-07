@@ -1200,11 +1200,6 @@ def _auto_moved_since(rows: Sequence[Proposal], now: datetime) -> Decimal:
     )
 
 
-def system_context(now: datetime | None = None) -> MutationContext:
-    """Context for automatic consequences (strategy deletion, job completion)."""
-    return MutationContext(actor="system", channel="system", occurred_at=now or datetime.now(UTC))
-
-
 def backtest_journal_entry(
     *,
     portfolio_id: UUID,

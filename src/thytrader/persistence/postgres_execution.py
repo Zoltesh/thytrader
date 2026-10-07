@@ -60,7 +60,6 @@ from thytrader.execution.pagination import (
 from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
 from thytrader.fleet_control.admission import refuse_postgres_entry
 from thytrader.fleet_control.commands import confirmed_command
-from thytrader.fleet_control.inventory import InventoryPage, page_deployments
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -452,23 +451,6 @@ class PostgresExecutionStore:
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
         return tuple(_deployment_from_row(row) for row in rows)
-
-    async def list_stable_inventory(
-        self,
-        *,
-        limit: int,
-        offset: int,
-        strategy_id: UUID | None,
-        as_of: datetime,
-    ) -> InventoryPage:
-        """Read a legacy offset page; complete consumers use the fenced cursor API."""
-        return page_deployments(
-            await self.list_deployments(),
-            limit=limit,
-            offset=offset,
-            strategy_id=strategy_id,
-            as_of=as_of,
-        )
 
     async def get_position_entry_fees(
         self, position: Position, *, product_id: str

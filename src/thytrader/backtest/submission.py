@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
-import secrets
 from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
 from uuid import UUID
 
@@ -14,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from thytrader.backtest.models import backtest_result_fingerprint
 from thytrader.backtest.service import evaluate_and_publish_backtest
+from thytrader.execution.ids import uuid7
 from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
@@ -311,7 +311,7 @@ class PostgresBacktestSubmitter:
         evaluation_start, evaluation_end = _filled_window(request)
         specification = ResearchRunSpecification(
             schema_version="1.0",
-            run_id=_uuid7(now),
+            run_id=uuid7(now),
             created_at=now,
             strategy_fingerprint=request.strategy_fingerprint,
             dataset_fingerprint=request.dataset_fingerprint,
@@ -1320,16 +1320,3 @@ def _require_additional_extra_tf_window(
 def _utc_millisecond(value: datetime) -> datetime:
     """Normalize a server timestamp to the UUIDv7-representable UTC millisecond."""
     return value.astimezone(UTC).replace(microsecond=(value.microsecond // 1_000) * 1_000)
-
-
-def _uuid7(created_at: datetime) -> UUID:
-    """Create one UUIDv7 whose encoded timestamp matches a UTC millisecond."""
-    milliseconds = int(created_at.timestamp() * 1_000)
-    value = (
-        (milliseconds << 80)
-        | (0x7 << 76)
-        | (secrets.randbits(12) << 64)
-        | (0b10 << 62)
-        | secrets.randbits(62)
-    )
-    return UUID(int=value)

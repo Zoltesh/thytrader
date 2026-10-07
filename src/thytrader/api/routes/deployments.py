@@ -50,6 +50,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
+    summary_as_snapshot,
     visible_instrument_runtimes,
 )
 from thytrader.execution.paper_fees import PaperFeeSource
@@ -595,7 +596,7 @@ async def get_deployment(
         publication_store,
         extra_product_ids=extra,
     )
-    return await _with_book_marks(response, _summary_as_snapshot(summary), journal, store)
+    return await _with_book_marks(response, summary_as_snapshot(summary), journal, store)
 
 
 async def _with_book_marks(
@@ -1071,7 +1072,7 @@ async def _summary_response(
     extra_product_ids: tuple[str, ...] = (),
 ) -> DeploymentResponse:
     """Serialize one deployment summary without historical orders or fills."""
-    snapshot = _summary_as_snapshot(summary)
+    snapshot = summary_as_snapshot(summary)
     if publication_store is None:
         timeframe = summary.deployment.timeframe
     else:
@@ -1103,18 +1104,6 @@ async def _summary_response(
             "orders": (),
             "fills": (),
         }
-    )
-
-
-def _summary_as_snapshot(summary: DeploymentSummarySnapshot) -> DeploymentSnapshot:
-    """Project a summary row into a snapshot shape for ledger and protection helpers."""
-    return DeploymentSnapshot(
-        deployment=summary.deployment,
-        position=summary.position,
-        positions=summary.positions,
-        instrument_runtimes=summary.instrument_runtimes,
-        orders=summary.open_orders,
-        accounting_complete=False,
     )
 
 

@@ -29,13 +29,6 @@ def entry_inhibited_detail(mode: str, *, action: str) -> str:
     )
 
 
-def is_entry_inhibited_error(error: BaseException) -> bool:
-    """True when a conflict is the fleet latch rather than another revision race."""
-    return isinstance(error, ExecutionConflictError) and str(error).startswith(
-        f"{ENTRY_INHIBITED_PREFIX}:"
-    )
-
-
 async def refuse_postgres_entry(connection: AsyncConnection, *, mode: str, action: str) -> None:
     """Lock one latch row and refuse when that mode is inhibited.
 
