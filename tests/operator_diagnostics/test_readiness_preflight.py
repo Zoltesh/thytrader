@@ -259,6 +259,70 @@ def test_allocation_overcommitment_is_advisory_not_an_exposure_violation() -> No
     asyncio.run(scenario())
 
 
+def test_stopped_live_books_do_not_count_toward_allocation_overcommitment() -> None:
+    """Stopped books never size another entry, so only running and paused allocations count."""
+
+    async def scenario() -> None:
+        store = InMemoryExecutionStore()
+        for status in (DeploymentStatus.RUNNING, DeploymentStatus.PAUSED):
+            await _seed(store, _deployment(allocated="40", status=status))
+        for _index in range(5):
+            await _seed(store, _deployment(allocated="40", status=DeploymentStatus.STOPPED))
+        policies = InMemoryRiskPolicyStore()
+        await policies.publish(_policy(max_portfolio_exposure_quote="80"))
+        report = await build_readiness_report(
+            portfolio=PortfolioService(ScriptedExchange((_balance("USDC", "320"),)), demo=False),
+            execution=store,
+            risk_policies=policies,
+            portfolios=None,
+        )
+        assert "ALLOCATION_OVERCOMMITMENT" not in _codes(report)
+        await _seed(store, _deployment(allocated="40"))
+        report = await build_readiness_report(
+            portfolio=PortfolioService(ScriptedExchange((_balance("USDC", "320"),)), demo=False),
+            execution=store,
+            risk_policies=policies,
+            portfolios=None,
+        )
+        finding = next(
+            item
+            for item in report.payload.findings
+            if item.reason_code == "ALLOCATION_OVERCOMMITMENT"
+        )
+        assert finding.detail.startswith("3 live book(s) commit 120 USDC")
+
+    asyncio.run(scenario())
+
+
+def test_stopped_paper_books_are_not_compared_with_account_fees() -> None:
+    """Cheap rates on a stopped paper book cannot distort results; paused books still count."""
+
+    async def scenario() -> None:
+        store = InMemoryExecutionStore()
+        for status in (DeploymentStatus.STOPPED, DeploymentStatus.PAUSED):
+            await _seed(
+                store,
+                _deployment(
+                    mode=DeploymentMode.PAPER,
+                    paper_cash="100",
+                    maker="0.001",
+                    taker="0.002",
+                    status=status,
+                ),
+            )
+        report = await build_readiness_report(
+            portfolio=PortfolioService(ScriptedExchange(), demo=False),
+            execution=store,
+            risk_policies=InMemoryRiskPolicyStore(),
+            portfolios=None,
+        )
+        evidence = report.payload.fee_evidence
+        assert evidence.paper_books_compared == 1
+        assert len(evidence.optimistic_books) == 1
+
+    asyncio.run(scenario())
+
+
 def test_actual_exposure_above_the_cap_is_a_violation() -> None:
     """Marked inventory above the effective cap is not merely advisory."""
 

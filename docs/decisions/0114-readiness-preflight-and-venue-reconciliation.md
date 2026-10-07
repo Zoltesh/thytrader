@@ -33,11 +33,12 @@ orders, and they do not publish or tighten risk policy.
    policy quote currency, plus same-quote managed long inventory cost and working
    buy-entry reservations. Scope follows actual position/order products, not a book's
    primary product. Other quotes are disclosed and never converted. Mixed books have
-   per-quote rows and null cross-quote totals. Allocation above the effective cap is
-   `ALLOCATION_OVERCOMMITMENT` (advisory). Position cost plus working entry remainders
+   per-quote rows and null cross-quote totals. Allocation of running and paused live books
+   above the effective cap is `ALLOCATION_OVERCOMMITMENT` (advisory); stopped books are
+   excluded (amended 2026-10-07). Position cost plus working entry remainders
    above a cap is a violation of that cost-basis metric, not a claim about live marked
    exposure. Missing venue, managed inventory, notional, or fee evidence stays unknown.
-   Paper assumptions cheaper than account evidence are
+   Running or paused paper assumptions cheaper than account evidence are
    `PAPER_FEE_ASSUMPTION_MORE_OPTIMISTIC`. Portfolio and account daily-loss stops
    are shown side by side; only live portfolios in the policy quote can compare with
    the live account daily allowance. Paper/other-quote stops are `not_comparable`.

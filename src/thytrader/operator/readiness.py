@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from thytrader import __version__
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
 from thytrader.execution.ledger import effective_paper_fee_rates
+from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.execution.models import (
     Deployment,
     DeploymentMode,
@@ -89,6 +90,7 @@ FEE_COMPARISON_NOTE = (
     "fees. Backtest and paper suggestions prefill from the account's reported rates; older "
     "runs may assume cheaper fees. Compare with `thytrader-operator fees`."
 )
+_ACTIVE_STATUSES = frozenset({"running", "paused"})
 _ZERO = Decimal("0")
 _PORTFOLIO_REPORT_LIMIT = 100
 
@@ -1419,17 +1421,23 @@ async def _fee_evidence(
     snapshots: Mapping[UUID, DeploymentSnapshot],
     findings: list[ReadinessFinding],
 ) -> ReadinessFeeEvidence:
-    """Compare scoped paper fee assumptions with the account's reported rates."""
+    """Compare running and paused paper fee assumptions with the account's reported rates.
+
+    A stopped book never fills again, so its stored rates cannot distort paper results.
+    """
     profile, failure = await _account_fee_profile(portfolio)
+    active = tuple(
+        snapshot for snapshot in snapshots.values() if occupies_running_slot(snapshot.deployment)
+    )
     gaps = tuple(
         row
-        for snapshot in snapshots.values()
+        for snapshot in active
         if (row := _paper_fee_gap(snapshot.deployment, profile, demo=portfolio.demo)) is not None
     )
     optimistic = tuple(row for row in gaps if row.more_optimistic)
     defaulting = sum(
         1
-        for snapshot in snapshots.values()
+        for snapshot in active
         if snapshot.deployment.mode is DeploymentMode.PAPER
         and (
             snapshot.deployment.paper_maker_fee_rate is None
@@ -1533,12 +1541,18 @@ def _allocation_findings(
     account: ReadinessAccountCaps,
     findings: list[ReadinessFinding],
 ) -> None:
-    """Advisory allocation overcommitment and quote-mismatch disclosures."""
+    """Advisory allocation overcommitment and quote-mismatch disclosures.
+
+    Only running and paused books count: a stopped book never sizes another entry.
+    """
     quote = account.quote_currency
     matching = [
         row
         for row in rows
-        if row.mode == "live" and row.quote_currency == quote and row.allocated_capital
+        if row.mode == "live"
+        and row.status in _ACTIVE_STATUSES
+        and row.quote_currency == quote
+        and row.allocated_capital
     ]
     mismatched = [
         row for row in rows if row.mode == "live" and row.quote_currency not in {quote, None}
