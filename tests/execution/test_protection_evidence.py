@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from tests.execution.protection_support import settled_snapshot
-from thytrader.api.routes.deployments import _position_response
+from thytrader.api.routes.deployment_serializers import position_response
 from thytrader.execution import protection
 from thytrader.execution.attached import attached_entry_covers
 from thytrader.execution.models import (
@@ -636,7 +636,7 @@ def test_position_and_sleeve_payloads_carry_the_same_evidence() -> None:
     snapshot = DeploymentSnapshot(
         deployment=deployment, position=position, positions=(position,), orders=(bracket,)
     )
-    body = _position_response(position, snapshot, compatibility_focus=False)
+    body = position_response(position, snapshot, compatibility_focus=False)
     assert body.protection_status == "covered"
     assert body.protection.mechanism == "venue"
     assert body.protection.required_quantity == "20"

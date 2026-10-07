@@ -13,7 +13,7 @@ import pytest
 from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_protection_evidence import _NOW, _deployment, _order, _position
 from tests.execution.test_reconcile import _LookupBroker, _snapshot_with_order
-from thytrader.api.routes.deployments import _position_response
+from thytrader.api.routes.deployment_serializers import position_response
 from thytrader.execution import protection
 from thytrader.execution.broker import BrokerError, SubmitResult
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -39,7 +39,7 @@ def test_stale_receipt_and_fresh_local_write_serialize_as_unverified() -> None:
     receipt = _NOW - LOCAL_EVIDENCE_MAX_AGE - timedelta(seconds=1)
     stop = _order(deployment, position, stop="3200", price="2700", venue_observed_at=receipt)
     snapshot = DeploymentSnapshot(deployment=deployment, positions=(position,), orders=(stop,))
-    body = _position_response(position, snapshot, compatibility_focus=False)
+    body = position_response(position, snapshot, compatibility_focus=False)
     payload = body.model_dump(mode="json")["protection"]
     assert body.protection_status == "unknown"
     assert body.position_state == "open_unverified"
@@ -89,7 +89,7 @@ def test_oldest_contributing_receipt_bounds_full_quantity_verification() -> None
     assert evidence.freshness == "recent_venue"
     assert evidence.geometry_basis == "working_target"
     assert "observation_time_future" not in evidence.reasons
-    body = _position_response(position, snapshot, compatibility_focus=False)
+    body = position_response(position, snapshot, compatibility_focus=False)
     assert body.protection.verified_at == oldest.isoformat()
 
 

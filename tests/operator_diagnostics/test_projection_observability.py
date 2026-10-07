@@ -19,7 +19,7 @@ from thytrader.alerts.models import AlertCheck, AlertCode, AlertSeverity
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
-from thytrader.api.routes.deployments import _snapshot_response, _summary_response
+from thytrader.api.routes.deployment_serializers import snapshot_response, summary_response
 from thytrader.exchanges.models import ExchangeOpenOrder
 from thytrader.execution.fill_ledger import (
     ingest_fill,
@@ -254,7 +254,7 @@ async def test_durable_unresolved_books_never_report_flat_or_complete(
     assert ledger.marked_exposure is ledger.base_quantity is None
     assert ledger.maximum_drawdown is ledger.maximum_drawdown_fraction is None
     assert ledger.realized_net_pnl == Decimal("500")  # exact known recorded population
-    response = await _snapshot_response(snapshot)
+    response = await snapshot_response(snapshot)
     assert response.position_state == "open_unverified" and not response.positions
     assert response.ledger is not None and not response.ledger.mark_complete
     assert response.ledger.total_net_pnl is None
@@ -262,7 +262,7 @@ async def test_durable_unresolved_books_never_report_flat_or_complete(
     assert response.capital.reserved_buying_power is None
     assert response.capital.initial_equity == "10000"
     assert response.capital.performance_capital_quote == "1000000"
-    summary = await _summary_response(await store.get_deployment_summary(snapshot.deployment.id))
+    summary = await summary_response(await store.get_deployment_summary(snapshot.deployment.id))
     assert summary.position_state == "open_unverified"
     assert summary.ledger is not None and summary.ledger.total_net_pnl is None
     diagnostics = _diagnostics(execution=store)
