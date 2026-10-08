@@ -10,46 +10,40 @@
 	 * Each running bot lists its open books compactly (state, unrealized PnL at
 	 * the last evaluated bar, time held, entry/stop/target; ADR 0098), and the
 	 * "Paper vs live" panel below compares entry fills of sleeves with a twin.
+	 *
+	 * The table, allocation aside, and dialogs are `SleevesTable`,
+	 * `AllocationAside`, `AddSleeveDialog`, and `RemoveSleeveDialog`; pure row
+	 * helpers live in `sleeves.ts`. This tab owns the drafts and every change.
 	 */
 	import { onDestroy } from 'svelte';
-	import { resolve } from '$app/paths';
-	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
-	import { marketLabel } from '$lib/deployment-detail';
 	import type { Deployment } from '$lib/deployments';
 	import { compareDecimalStrings } from '$lib/portfolio';
 	import {
 		CONFLICT_RELOADED,
 		addSleeve,
-		allocationAriaLabel,
 		allocationBars,
 		checkAllocation,
 		errorText,
 		fractionToPercentInput,
 		isRevisionConflict,
-		largestAssetText,
 		percentInputToFraction,
-		pickerOptions,
 		quoteText,
 		remainingWeight,
-		botStatusText,
-		pausedByBreaker,
 		removeSleeve,
 		setWeights,
-		signedQuote,
-		sleeveBots,
-		sleeveIssueText,
-		sleevePositionText,
 		weightPercent,
 		type Portfolio,
 		type PortfolioDeployment,
 		type PortfolioDialogAction,
-		type PortfolioSleeve,
-		type SleeveDeployment
+		type PortfolioSleeve
 	} from '$lib/portfolios';
 	import type { StrategyLibraryEntry } from '$lib/strategies';
 	import type { PaperLiveFillComparison } from '$lib/fill-comparison';
-	import OpenBookSummary from '$lib/OpenBookSummary.svelte';
+	import AddSleeveDialog from './AddSleeveDialog.svelte';
+	import AllocationAside from './AllocationAside.svelte';
 	import PaperLiveFills from './PaperLiveFills.svelte';
+	import RemoveSleeveDialog from './RemoveSleeveDialog.svelte';
+	import SleevesTable from './SleevesTable.svelte';
 
 	let {
 		portfolio,
@@ -83,24 +77,6 @@
 	const clock = setInterval(() => (now = Date.now()), 60_000);
 	onDestroy(() => clearInterval(clock));
 
-	/** The twin side opposite this sleeve bot, if a paper/live twin exists. */
-	function twinOf(deploymentId: string): 'paper' | 'live' | null {
-		for (const row of fills) {
-			if (row.paper.deployment_id === deploymentId) return 'live';
-			if (row.live.deployment_id === deploymentId) return 'paper';
-		}
-		return null;
-	}
-
-	/** The sleeve's portfolio bot (running, paused, or its last stopped one). */
-	function sleeveBot(sleeveId: string): SleeveDeployment | null {
-		return deployment?.sleeves.find((book) => book.sleeve_id === sleeveId)?.deployment ?? null;
-	}
-
-	function occupied(bot: SleeveDeployment | null): boolean {
-		return bot !== null && (bot.status === 'running' || bot.status === 'paused');
-	}
-
 	let notice = $state<string | null>(null);
 
 	let pickerOpen = $state(false);
@@ -122,8 +98,6 @@
 	let removeError = $state<string | null>(null);
 
 	const bars = $derived(allocationBars(portfolio));
-	const largest = $derived(largestAssetText(portfolio));
-	const options = $derived(strategies === null ? [] : pickerOptions(strategies, portfolio, query));
 	const fits = $derived(remainingWeight(portfolio));
 	const weightFraction = $derived(percentInputToFraction(weight));
 	const pickerProblem = $derived.by((): string | null => {
@@ -255,11 +229,6 @@
 			removing = false;
 		}
 	}
-
-	function botLabel(deployment: Deployment): string {
-		const status = deployment.status;
-		return `${status.charAt(0).toUpperCase()}${status.slice(1)} bot`;
-	}
 </script>
 
 <div class="layout">
@@ -274,181 +243,22 @@
 					</p>
 				</div>
 			{:else}
-				<div class="table-wrap">
-					<table>
-						<thead>
-							<tr>
-								<th scope="col">Sleeve</th>
-								<th scope="col" class="left">Weight</th>
-								<th scope="col" class="left">Market</th>
-								<th scope="col">Capital</th>
-								<th scope="col" class="left"
-									>Bot ({portfolio.mode === 'live' ? 'live' : 'paper'})</th
-								>
-								<th scope="col" class="left">Status</th>
-								<th scope="col"><span class="sr-only">Actions</span></th>
-							</tr>
-						</thead>
-						<tbody>
-							{#each portfolio.sleeves as sleeve, index (sleeve.sleeve_id)}
-								{@const bots = sleeveBots(inventory, sleeve.strategy_id, portfolio.mode)}
-								{@const bot = sleeveBot(sleeve.sleeve_id)}
-								{@const others = bots.filter((item) => item.id !== bot?.deployment_id)}
-								<tr data-testid="sleeve-row">
-									<td>
-										<a
-											class="name"
-											href={resolve(`/strategies/${encodeURIComponent(sleeve.strategy_id)}`)}
-											>{sleeve.strategy_name}</a
-										>
-										{#if sleeve.note}<div class="faint small">{sleeve.note}</div>{/if}
-									</td>
-									<td class="left">
-										{#if editing}
-											<label class="weight-input">
-												<span class="sr-only">Weight for {sleeve.strategy_name} (%)</span>
-												<input
-													type="text"
-													inputmode="decimal"
-													bind:value={draft[sleeve.sleeve_id]}
-													aria-invalid={draftFractions[index] === null}
-												/>
-												<span class="faint">%</span>
-											</label>
-										{:else}
-											<div class="weight">{weightPercent(sleeve.weight_fraction)}</div>
-											<div class="mini" aria-hidden="true">
-												<div class="mini-fill" style:width={bars[index]?.width ?? '0%'}></div>
-											</div>
-										{/if}
-									</td>
-									<td class="left">
-										{sleeve.product_id === null ? 'Unknown market' : marketLabel(sleeve.product_id)}
-										<span class="faint">· {sleeve.timeframe ?? '—'}</span>
-										{#if sleeve.covered_product_ids.length > 1}
-											<div class="faint small">
-												+{sleeve.covered_product_ids.length - 1} more product{sleeve
-													.covered_product_ids.length === 2
-													? ''
-													: 's'}
-											</div>
-										{/if}
-									</td>
-									<td>{quoteText(sleeve.capital_quote, portfolio.quote_currency)}</td>
-									<td class="left" data-testid="sleeve-bot">
-										{#if bot !== null}
-											<a
-												class="bot-link"
-												class:breaker={pausedByBreaker(bot)}
-												href={resolve(`/deployments/${encodeURIComponent(bot.deployment_id)}`)}
-												title={bot.mismatch_detail ?? undefined}>{botStatusText(bot)}</a
-											>
-											{@const positionState = sleevePositionText(bot)}
-											{@const books = bot.books ?? []}
-											{@const twin = twinOf(bot.deployment_id)}
-											{#if twin !== null}
-												<a class="twin" href="#paper-live-fills" data-testid="sleeve-twin"
-													>{twin === 'live' ? 'Live twin' : 'Paper twin'} · fills</a
-												>
-											{/if}
-											{#if books.length > 0}
-												<span class="sr-only" data-testid="sleeve-position-state"
-													>{positionState}</span
-												>
-												{#each books as book (book.product_id)}
-													<OpenBookSummary
-														{book}
-														quote={portfolio.quote_currency}
-														{now}
-														showProduct={books.length > 1}
-													/>
-												{/each}
-											{:else if positionState !== null}
-												<div class="faint small" data-testid="sleeve-position-state">
-													{positionState}
-												</div>
-											{/if}
-											{#if occupied(bot)}
-												<div class="faint small">
-													PnL {signedQuote(bot.net_pnl, portfolio.quote_currency)} · {quoteText(
-														bot.allocated_capital ?? sleeve.capital_quote,
-														portfolio.quote_currency
-													)}
-												</div>
-											{/if}
-										{:else if deployment !== null}
-											<span class="faint">Not started</span>
-										{/if}
-										{#each others as other (other.id)}
-											<a
-												class="bot-link other"
-												href={resolve(`/deployments/${encodeURIComponent(other.id)}`)}
-												>{botLabel(other)} (outside this portfolio)</a
-											>
-										{/each}
-										{#if bot === null && deployment === null && inventory !== null && bots.length === 0}
-											<span class="faint">No bot</span>
-										{/if}
-									</td>
-									<td class="left">
-										{#if sleeve.issues.length === 0}
-											<span class="muted">Ready to backtest</span>
-										{:else}
-											{#each sleeve.issues as issue, index (index)}
-												<div class="issue" data-testid="sleeve-issue">{sleeveIssueText(issue)}</div>
-											{/each}
-										{/if}
-									</td>
-									<td class="row-actions">
-										{#if bot !== null && bot.status === 'running'}
-											<button
-												type="button"
-												class="btn ghost compact"
-												aria-label="Pause sleeve {sleeve.strategy_name}"
-												onclick={() => onaction('pause', sleeve.sleeve_id)}>Pause</button
-											>
-										{:else if bot !== null && bot.status === 'paused'}
-											<button
-												type="button"
-												class="btn ghost compact"
-												aria-label="Resume sleeve {sleeve.strategy_name}"
-												disabled={deployment?.breaker.latched === true}
-												onclick={() => onaction('resume', sleeve.sleeve_id)}>Resume…</button
-											>
-										{:else if deployment !== null && sleeve.issues.length === 0}
-											<button
-												type="button"
-												class="btn ghost compact"
-												aria-label="Start sleeve {sleeve.strategy_name}"
-												disabled={deployment.breaker.latched}
-												onclick={() => onaction('start', sleeve.sleeve_id)}>Start…</button
-											>
-										{/if}
-										{#if occupied(bot)}
-											<button
-												type="button"
-												class="btn ghost compact"
-												aria-label="Stop sleeve {sleeve.strategy_name}"
-												onclick={() => onaction('stop', sleeve.sleeve_id)}>Stop…</button
-											>
-										{:else}
-											<button
-												type="button"
-												class="btn ghost compact"
-												aria-label="Remove sleeve {sleeve.strategy_name}"
-												disabled={editing}
-												onclick={() => {
-													removeError = null;
-													removeTarget = sleeve;
-												}}>Remove…</button
-											>
-										{/if}
-									</td>
-								</tr>
-							{/each}
-						</tbody>
-					</table>
-				</div>
+				<SleevesTable
+					{portfolio}
+					{deployment}
+					{inventory}
+					{editing}
+					bind:draft
+					{draftFractions}
+					{bars}
+					{now}
+					{fills}
+					{onaction}
+					onremove={(sleeve) => {
+						removeError = null;
+						removeTarget = sleeve;
+					}}
+				/>
 			{/if}
 			<div class="foot">
 				{#if editing}
@@ -505,131 +315,34 @@
 		{/if}
 	</div>
 
-	<aside class="card aside" aria-label="Allocation">
-		<h2>Allocation</h2>
-		<div
-			class="bars"
-			role="img"
-			aria-label={allocationAriaLabel(bars)}
-			data-testid="allocation-bars"
-		>
-			{#each bars as bar (bar.key)}
-				<div class="bar">
-					<div class="bar-label">
-						<span class="muted">{bar.label}</span><span class="pct">{bar.percent}</span>
-					</div>
-					<div class="track">
-						<div class="fill {bar.tone}" style:width={bar.width}></div>
-					</div>
-				</div>
-			{/each}
-		</div>
-		<div class="check">
-			<span class="muted">Largest single asset</span>
-			<span data-testid="largest-asset" class:warn={largest.over}>{largest.text}</span>
-		</div>
-		<div class="check">
-			<span class="muted">Allocated to sleeves</span>
-			<span
-				>{quoteText(portfolio.allocation.allocated_quote, portfolio.quote_currency)} ({weightPercent(
-					portfolio.allocation.allocated_fraction
-				)})</span
-			>
-		</div>
-		{#if largest.over}
-			<p class="warn small">
-				The largest asset is above this portfolio's per-asset limit. Limits bind orders only once
-				portfolio deployment arrives.
-			</p>
-		{/if}
-	</aside>
+	<AllocationAside {portfolio} {bars} />
 </div>
 
-<ConfirmDialog
+<AddSleeveDialog
 	open={pickerOpen}
-	title="Add a sleeve"
-	confirmLabel="Add sleeve"
-	pendingLabel="Adding…"
+	{portfolio}
+	{strategies}
+	{strategiesError}
+	{fits}
+	bind:query
+	bind:selected
+	bind:weight
+	bind:note
 	pending={pickerPending}
-	confirmDisabled={pickerProblem !== null}
-	confirmDisabledReason={pickerProblem}
-	error={pickerError}
-	testId="sleeve-picker"
+	{pickerProblem}
+	{pickerError}
 	oncancel={() => (pickerOpen = false)}
 	onconfirm={() => void confirmAdd()}
->
-	<p>
-		Pick a strategy quoted in {portfolio.quote_currency}. A strategy appears at most once per
-		portfolio. Up to {weightPercent(fits)} of capital is free.
-	</p>
-	<label class="field">
-		<span>Search strategies</span>
-		<input type="search" bind:value={query} placeholder="Name or market" autocomplete="off" />
-	</label>
-	{#if strategies === null}
-		<p class="faint">{strategiesError ?? 'Loading your strategy library…'}</p>
-	{:else if options.length === 0}
-		<p class="faint">No strategies match.</p>
-	{:else}
-		<div class="options" role="radiogroup" aria-label="Strategies">
-			{#each options as option (option.entry.strategy_id)}
-				<label class="option" class:disabled={option.disabledReason !== null}>
-					<input
-						type="radio"
-						name="sleeve-strategy"
-						value={option.entry.strategy_id}
-						disabled={option.disabledReason !== null}
-						checked={selected === option.entry.strategy_id}
-						onchange={() => (selected = option.entry.strategy_id)}
-					/>
-					<span class="option-text">
-						<span class="option-name">{option.entry.name}</span>
-						<span class="faint small"
-							>{option.entry.product_id === null
-								? 'Unknown market'
-								: marketLabel(option.entry.product_id)} · {option.entry.timeframe ?? '—'}</span
-						>
-						{#if option.disabledReason}
-							<span class="faint small">{option.disabledReason}</span>
-						{:else if option.warning}
-							<span class="warn small">{option.warning}</span>
-						{/if}
-					</span>
-				</label>
-			{/each}
-		</div>
-	{/if}
-	<div class="row-fields">
-		<label class="field">
-			<span>Weight (% of capital)</span>
-			<input type="text" inputmode="decimal" bind:value={weight} placeholder="25" />
-		</label>
-		<label class="field">
-			<span>Note (optional)</span>
-			<input type="text" bind:value={note} maxlength="280" placeholder="Why this sleeve" />
-		</label>
-	</div>
-</ConfirmDialog>
+/>
 
-<ConfirmDialog
-	open={removeTarget !== null}
-	title="Remove sleeve?"
-	tone="danger"
-	confirmLabel="Remove sleeve"
-	pendingLabel="Removing…"
+<RemoveSleeveDialog
+	{portfolio}
+	{removeTarget}
 	pending={removing}
 	error={removeError}
-	testId="remove-sleeve-dialog"
 	oncancel={() => (removeTarget = null)}
 	onconfirm={() => void confirmRemove()}
->
-	{#if removeTarget !== null}
-		<p>
-			Removes “{removeTarget.strategy_name}” ({weightPercent(removeTarget.weight_fraction)}) from {portfolio.name}.
-			The strategy and its backtests stay in your library; the journal records the removal.
-		</p>
-	{/if}
-</ConfirmDialog>
+/>
 
 <style>
 	.layout {
@@ -643,49 +356,8 @@
 		gap: 16px;
 		min-width: 0;
 	}
-	.twin {
-		display: inline-block;
-		margin-top: 2px;
-		color: var(--muted);
-		font-size: var(--fs-xs);
-		text-decoration: none;
-	}
-	.twin:hover {
-		color: var(--text);
-		text-decoration: underline;
-	}
 	.sleeves {
 		overflow: hidden;
-	}
-	th.left,
-	td.left {
-		text-align: left;
-	}
-	th {
-		white-space: nowrap;
-	}
-	.name {
-		color: var(--text);
-		font-weight: 500;
-		text-decoration: none;
-	}
-	.name:hover {
-		text-decoration: underline;
-	}
-	.weight {
-		font-weight: 500;
-	}
-	.mini {
-		width: 64px;
-		height: 4px;
-		margin-top: 6px;
-		border-radius: 2px;
-		background: var(--line);
-	}
-	.mini-fill {
-		height: 4px;
-		border-radius: 2px;
-		background: var(--accent);
 	}
 	.weight-input {
 		display: inline-flex;
@@ -706,32 +378,6 @@
 	}
 	.weight-input input[aria-invalid='true'] {
 		border-color: var(--danger-line);
-	}
-	.bot-link {
-		display: block;
-		color: var(--accent);
-		text-decoration: none;
-	}
-	.bot-link.breaker {
-		color: var(--neg);
-	}
-	.bot-link.other {
-		color: var(--muted);
-		font-size: var(--fs-sm);
-	}
-	.row-actions {
-		white-space: nowrap;
-	}
-	.row-actions .btn + .btn {
-		margin-left: 4px;
-	}
-	.issue {
-		color: var(--warn);
-		font-size: var(--fs-sm);
-	}
-	.compact {
-		min-height: 28px;
-		padding: 0 8px;
 	}
 	.foot {
 		display: flex;
@@ -768,111 +414,8 @@
 		margin: 0;
 		max-width: 60ch;
 	}
-	.aside {
-		padding: 16px 18px;
-	}
-	.bars {
-		display: flex;
-		flex-direction: column;
-		gap: 12px;
-		margin: 14px 0 10px;
-	}
-	.bar-label {
-		display: flex;
-		gap: 8px;
-		font-size: var(--fs-sm);
-	}
-	.pct {
-		margin-left: auto;
-		font-weight: 500;
-	}
-	.track {
-		height: 6px;
-		margin-top: 5px;
-		border-radius: 3px;
-		background: var(--surface-2);
-	}
-	.fill {
-		height: 6px;
-		border-radius: 3px;
-	}
-	.fill.sleeve {
-		background: var(--accent);
-	}
-	.fill.reserve {
-		background: var(--line-strong);
-	}
-	.fill.unallocated {
-		background: var(--line-2);
-	}
-	.check {
-		display: flex;
-		gap: 10px;
-		padding: 8px 0;
-		border-top: 1px solid var(--line);
-		font-size: var(--fs-sm);
-	}
-	.check > span:first-child {
-		flex: 1;
-	}
-	.field {
-		display: grid;
-		gap: 6px;
-		color: var(--muted);
-		font-size: var(--fs-sm);
-	}
-	.field input {
-		min-height: 34px;
-		padding: 0 10px;
-		border: 1px solid var(--line-2);
-		border-radius: var(--radius-md);
-		background: var(--surface-2);
-		color: var(--text);
-	}
-	.options {
-		display: grid;
-		gap: 6px;
-		max-height: 240px;
-		overflow-y: auto;
-		padding-right: 4px;
-	}
-	.option {
-		display: flex;
-		align-items: flex-start;
-		gap: 10px;
-		padding: 8px 10px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-		color: var(--text);
-		cursor: pointer;
-	}
-	.option.disabled {
-		cursor: not-allowed;
-		opacity: 0.6;
-	}
-	.option-text {
-		display: grid;
-		gap: 2px;
-	}
-	.option-name {
-		font-weight: 500;
-	}
-	.row-fields {
-		display: grid;
-		grid-template-columns: 1fr 2fr;
-		gap: 10px;
-	}
 	.faint {
 		color: var(--faint);
-	}
-	.muted {
-		color: var(--muted);
-	}
-	.small {
-		font-size: var(--fs-sm);
-	}
-	.warn {
-		color: var(--warn);
 	}
 	@media (max-width: 1000px) {
 		.layout {
