@@ -10,11 +10,8 @@ from thytrader.agent_orchestration.confirmation import (
     require_mutation_confirmation,
     require_paper_runtime_confirmation,
 )
-from thytrader.agent_orchestration.models import (
-    AgentOrchestrationStatus,
-    ConfirmationMode,
-    YoloTier,
-)
+from thytrader.agent_orchestration.models import AgentOrchestrationStatus, ConfirmationMode
+from thytrader.config import YoloTier
 
 
 def test_confirmed_mutations_do_not_probe_yolo() -> None:

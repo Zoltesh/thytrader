@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 import pytest
 import yaml
 
-from thytrader.agent_orchestration.models import YoloTier
 from thytrader.agent_orchestration.service import orchestration_status
+from thytrader.config import YoloTier
 from thytrader.settings_yaml import (
     SettingsStore,
     YamlSettingsError,

@@ -10,11 +10,7 @@ from typing import Annotated, Literal, Self
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-from thytrader.agent_orchestration.models import YoloTier
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.memory.models import (
-    NotifyProvider,
-)
 
 
 class Environment(StrEnum):
@@ -23,6 +19,28 @@ class Environment(StrEnum):
     DEVELOPMENT = "development"
     TEST = "test"
     PRODUCTION = "production"
+
+
+class YoloTier(StrEnum):
+    """Surfaces that may skip `--confirm` when YOLO is explicitly enabled.
+
+    Live YOLO never skips ``--i-understand-live``. Risk-policy publication,
+    live place-order, ``--local`` research, and memory stay hard-gated.
+    Paper YOLO never covers a live deployment.
+    """
+
+    DATA = "data"
+    RESEARCH = "research"
+    PAPER = "paper"
+    LIVE = "live"
+
+
+class NotifyProvider(StrEnum):
+    """Configured delivery backend. Default is no external send."""
+
+    NONE = "none"
+    LOG = "log"
+    WEBHOOK = "webhook"
 
 
 _COMPOSE_ANY_INTERFACE = IPv4Address("0.0.0.0")  # noqa: S104 - restricted to the Docker network.
@@ -211,3 +229,9 @@ class Settings(BaseSettings):
                 "THYTRADER_NOTIFY_WEBHOOK_URL requires THYTRADER_NOTIFY_PROVIDER=webhook."
             )
         return self
+
+
+def default_api_base_url(settings: Settings) -> str:
+    """Build the loopback API origin from process settings."""
+    host = "127.0.0.1" if not settings.api_host.is_loopback else str(settings.api_host)
+    return f"http://{host}:{settings.api_port}"

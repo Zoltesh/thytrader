@@ -7,7 +7,7 @@ exit live books. Disarm never records a flatten.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -30,10 +30,12 @@ from thytrader.fleet_control.models import (
     FleetOperation,
     FleetPreview,
     FleetTarget,
-    InhibitionSnapshot,
 )
 from thytrader.fleet_control.service import execute_fleet, preview_fleet
 from thytrader.fleet_control.store import FleetControlStore
+
+if TYPE_CHECKING:
+    from thytrader.execution.entry_latch import InhibitionSnapshot
 
 router = APIRouter(prefix="/api/v1/fleet-control", tags=["fleet-control"])
 

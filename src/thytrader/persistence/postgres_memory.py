@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import Table, desc, func, insert, select, update
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
+from thytrader.config import NotifyProvider
 from thytrader.memory.models import (
     ActorOrigin,
     DeliveryStatus,
@@ -17,7 +18,6 @@ from thytrader.memory.models import (
     LessonOutcome,
     MemoryCounts,
     NotificationRecord,
-    NotifyProvider,
     NotifySeverity,
     PatternObservation,
     PatternStatus,

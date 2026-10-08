@@ -9,7 +9,7 @@ from thytrader.agent_orchestration.client import (
     fetch_orchestration_status,
     record_skipped_confirmation,
 )
-from thytrader.agent_orchestration.models import YoloTier
+from thytrader.config import YoloTier
 
 if TYPE_CHECKING:
     from collections.abc import Callable

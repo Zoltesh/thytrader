@@ -9,9 +9,13 @@ Once a snapshot is remembered, a missing mode fails closed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+    from datetime import datetime
+
     from thytrader.execution.models import DeploymentMode
 
 
@@ -51,3 +55,30 @@ def remember_entry_inhibition(snapshot: dict[str, bool] | None) -> None:
 def clear_entry_inhibition_cache() -> None:
     """Drop the process snapshot so a test cannot leak inhibition."""
     remember_entry_inhibition(None)
+
+
+class EntryGate(Protocol):
+    """Latch lock shared with an in-memory execution store."""
+
+    def hold(self) -> AbstractAsyncContextManager[None]:
+        """Hold the latch across a check and insert."""
+        ...
+
+    def raise_if_inhibited(self, mode: str, *, action: str) -> None:
+        """Refuse a start or entry when the mode is inhibited."""
+        ...
+
+    async def read_inhibition(self) -> InhibitionSnapshot:
+        """Return the current latch."""
+        ...
+
+
+@dataclass(frozen=True, slots=True)
+class InhibitionSnapshot:
+    """Durable per-mode entry latch. Missing modes are not implied clear."""
+
+    paper_inhibited: bool
+    live_inhibited: bool
+    paper_revision: int
+    live_revision: int
+    updated_at: datetime | None

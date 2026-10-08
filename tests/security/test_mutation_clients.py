@@ -10,8 +10,7 @@ from pydantic import SecretStr
 
 from thytrader.agent_http import request_mutation_json
 from thytrader.agent_orchestration.client import record_skipped_confirmation
-from thytrader.agent_orchestration.models import YoloTier
-from thytrader.config import Environment, Settings
+from thytrader.config import Environment, Settings, YoloTier
 from thytrader.data_control.client import add_watch, fill_gaps
 from thytrader.memory.client import add_journal
 from thytrader.research.http import create_strategy, delete_strategy

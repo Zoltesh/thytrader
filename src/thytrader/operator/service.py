@@ -8,13 +8,13 @@ from decimal import Decimal  # noqa: TC003 - runtime marks map uses Decimal at r
 from typing import TYPE_CHECKING, Literal
 
 from thytrader import __version__
-from thytrader.alerts.report import AlertsReport, build_alerts_report
 from thytrader.config import Settings
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
+from thytrader.operator.alerts_report import AlertsReport, build_alerts_report
 from thytrader.operator.decisions import decisions_report
 from thytrader.operator.diagnostics.findings import (
     build_monitor_report,

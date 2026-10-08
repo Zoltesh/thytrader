@@ -2,8 +2,7 @@
 
 from pydantic import SecretStr
 
-from thytrader.config import Settings
-from thytrader.memory.models import NotifyProvider
+from thytrader.config import NotifyProvider, Settings
 from thytrader.operator.redaction import REDACTION, configured_secrets, dumps_redacted, redact_text
 
 

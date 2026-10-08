@@ -15,6 +15,7 @@ from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import run_execution_worker
 from thytrader.execution_worker.venue import ExecutionVenueRuntime
 from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
+from thytrader.memory.notify import ReloadingNotificationSender
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
@@ -27,7 +28,7 @@ from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
-from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
+from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 

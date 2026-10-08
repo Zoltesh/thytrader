@@ -11,7 +11,6 @@ from thytrader.agent_orchestration.models import (
     ConfirmationMode,
     SkippedConfirmationRequest,
     SkippedConfirmationResponse,
-    YoloTier,
 )
 from thytrader.audit_events import (
     AuditEvent,
@@ -20,6 +19,7 @@ from thytrader.audit_events import (
     AuditEventUnavailableError,
     DisabledAuditEventStore,
 )
+from thytrader.config import YoloTier
 
 if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore

@@ -13,10 +13,9 @@ from thytrader.agent_http import (
     resolve_api_base_url,
 )
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
-from thytrader.agent_orchestration.models import YoloTier
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
-from thytrader.config import Settings
+from thytrader.config import Settings, YoloTier
 from thytrader.data_control.client import (
     add_watch,
     fill_gaps,

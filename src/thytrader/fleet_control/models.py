@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
+    from thytrader.execution.entry_latch import InhibitionSnapshot
+
 
 class FleetAction(StrEnum):
     """Operator-facing fleet action. Disarm never implies stop or flatten."""
@@ -91,17 +93,6 @@ class ExpectedTarget:
 
     deployment_id: UUID
     revision: int
-
-
-@dataclass(frozen=True, slots=True)
-class InhibitionSnapshot:
-    """Durable per-mode entry latch. Missing modes are not implied clear."""
-
-    paper_inhibited: bool
-    live_inhibited: bool
-    paper_revision: int
-    live_revision: int
-    updated_at: datetime | None
 
 
 @dataclass(frozen=True, slots=True)

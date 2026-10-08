@@ -13,20 +13,13 @@ import logging
 import os
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
 
-from thytrader.agent_orchestration.models import YoloTier
-from thytrader.config import Settings, parse_yolo_tiers_value
+from thytrader.config import NotifyProvider, Settings, YoloTier, parse_yolo_tiers_value
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.memory.models import NotifyProvider
-from thytrader.memory.notify import notification_sender_from_settings
-
-if TYPE_CHECKING:
-    from thytrader.memory.models import NotificationRecord
-    from thytrader.memory.notify import DeliveryResult, NotificationSender
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_SETTINGS_FILENAME = "thytrader.yaml"
@@ -409,29 +402,3 @@ def _settings_from_overlay(
     except ValidationError as error:
         message = "YAML settings are invalid against process secrets and bind knobs."
         raise YamlSettingsError(message) from error
-
-
-class ReloadingNotificationSender:
-    """Rebuild the inner sender when YAML ``notify_provider`` changes."""
-
-    def __init__(self, store: SettingsStore) -> None:
-        """Bind one settings store. Webhook URLs stay inside the inner sender."""
-        self._store = store
-        self._inner: NotificationSender = notification_sender_from_settings(store.current())
-        self._provider = self._inner.provider()
-
-    def provider(self) -> NotifyProvider:
-        """Return the current provider after a possible YAML reload."""
-        return self._refresh().provider()
-
-    async def deliver(self, record: NotificationRecord) -> DeliveryResult:
-        """Deliver through the latest configured backend."""
-        return await self._refresh().deliver(record)
-
-    def _refresh(self) -> NotificationSender:
-        """Swap the inner sender when the YAML notify provider changes."""
-        settings = self._store.current()
-        if settings.notify_provider is not self._provider:
-            self._inner = notification_sender_from_settings(settings)
-            self._provider = settings.notify_provider
-        return self._inner

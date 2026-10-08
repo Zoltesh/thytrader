@@ -21,12 +21,11 @@ from tests.execution.test_decision_store import make_decision
 from tests.http_fakes import json_urlopen_response
 from thytrader.agent_http import (
     AgentHttpError,
-    default_api_base_url,
     request_json,
     require_loopback_base_url,
     require_matching_ops_contract,
 )
-from thytrader.config import Settings
+from thytrader.config import Settings, default_api_base_url
 from thytrader.execution.decisions import (
     ConditionComparisonTrace,
     ConditionResult,

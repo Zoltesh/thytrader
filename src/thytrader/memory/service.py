@@ -11,6 +11,7 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.config import NotifyProvider
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import DeploymentStatus, ExecutionStoreError
 from thytrader.memory.models import (
@@ -26,7 +27,6 @@ from thytrader.memory.models import (
     MonitorSnapshot,
     NotificationRecord,
     NotificationWrite,
-    NotifyProvider,
     PatternObservation,
     PatternWrite,
     SentimentSnapshot,

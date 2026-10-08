@@ -10,8 +10,7 @@ from urllib.request import urlopen
 from sqlalchemy import text
 
 from thytrader import __version__
-from thytrader.agent_http import default_api_base_url
-from thytrader.config import Settings
+from thytrader.config import Settings, default_api_base_url
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
 from thytrader.operator.models import (

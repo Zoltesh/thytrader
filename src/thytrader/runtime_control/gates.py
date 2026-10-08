@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
-from thytrader.agent_orchestration.models import YoloTier
+from thytrader.config import YoloTier
 from thytrader.runtime_control.client import RuntimeControlError
 
 _RUNTIME_CONFIRM_MESSAGE = (

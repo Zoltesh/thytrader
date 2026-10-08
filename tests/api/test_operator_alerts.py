@@ -16,8 +16,7 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.api.app import create_app
-from thytrader.config import Settings
-from thytrader.memory.models import NotifyProvider
+from thytrader.config import NotifyProvider, Settings
 
 
 def test_alerts_route_is_read_only_and_warns_when_delivery_is_disabled() -> None:

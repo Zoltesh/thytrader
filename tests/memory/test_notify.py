@@ -9,14 +9,8 @@ from urllib.error import URLError
 
 from pydantic import SecretStr
 
-from thytrader.config import Settings
-from thytrader.memory.models import (
-    ActorOrigin,
-    DeliveryStatus,
-    NotificationRecord,
-    NotifyProvider,
-    NotifySeverity,
-)
+from thytrader.config import NotifyProvider, Settings
+from thytrader.memory.models import ActorOrigin, DeliveryStatus, NotificationRecord, NotifySeverity
 from thytrader.memory.notify import (
     RecordingNotificationSender,
     WebhookNotificationSender,

@@ -11,7 +11,7 @@ from uuid import UUID
 
 from thytrader.agent_http import require_matching_ops_contract
 from thytrader.agent_orchestration.confirmation import require_paper_runtime_confirmation
-from thytrader.agent_orchestration.models import YoloTier
+from thytrader.config import YoloTier
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT
 from thytrader.runtime_control.client import (
     RuntimeControlError,

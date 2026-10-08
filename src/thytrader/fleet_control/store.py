@@ -13,17 +13,11 @@ from dataclasses import replace
 import hashlib
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.execution.entry_latch import InhibitionSnapshot
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.fleet_control.admission import entry_inhibited_detail
 from thytrader.fleet_control.commands import confirmed_command
-from thytrader.fleet_control.models import (
-    ExpectedInhibition,
-    ExpectedTarget,
-    FleetExecuteRequest,
-    FleetOperation,
-    InhibitionSnapshot,
-)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -31,22 +25,12 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from thytrader.execution.store import ExecutionStore
-
-
-class EntryGate(Protocol):
-    """Latch lock shared with an in-memory execution store."""
-
-    def hold(self) -> AbstractAsyncContextManager[None]:
-        """Hold the latch across a check and insert."""
-        ...
-
-    def raise_if_inhibited(self, mode: str, *, action: str) -> None:
-        """Refuse a start or entry when the mode is inhibited."""
-        ...
-
-    async def read_inhibition(self) -> InhibitionSnapshot:
-        """Return the current latch."""
-        ...
+    from thytrader.fleet_control.models import (
+        ExpectedInhibition,
+        ExpectedTarget,
+        FleetExecuteRequest,
+        FleetOperation,
+    )
 
 
 class FleetControlStore(Protocol):

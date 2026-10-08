@@ -8,7 +8,6 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002
 
-from thytrader.alerts.report import AlertsReport
 from thytrader.alerts.store import AlertStore  # noqa: TC001 - FastAPI evaluates hints at runtime.
 from thytrader.api.dependencies import (
     get_alert_store,
@@ -46,6 +45,7 @@ from thytrader.market_data.service import MarketDataService  # noqa: TC001
 from thytrader.market_data.watchlist import MarketDataWatchlistStore  # noqa: TC001
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noqa: TC001
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
+from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport, data_health_report
 from thytrader.operator.models import (
     ConfigurationReport,

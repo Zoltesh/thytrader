@@ -5,6 +5,7 @@
       "cli_errors",
       "agent_orchestration.cli",
       "agent_orchestration.client",
+      "agent_orchestration.confirmation",
       "backtest.cli",
       "data_control.cli",
       "data_control.client",
@@ -27,6 +28,9 @@
       "runtime_control",
       "runtime_control.*",
       "security.client"
+    ],
+    "venue_adapters": [
+      "exchanges.coinbase_broker"
     ]
   },
   "layers": [
@@ -35,7 +39,6 @@
       "components": [
         "api",
         "execution_worker",
-        "market_data_worker",
         "research_worker",
         "web_catalog",
         "worker"
@@ -53,14 +56,16 @@
       "components": [
         "agent_orchestration",
         "data_control",
+        "market_data_worker",
         "operator",
         "ops_contract"
       ]
     },
     {
-      "name": "persistence",
+      "name": "adapters",
       "components": [
-        "persistence"
+        "persistence",
+        "venue_adapters"
       ]
     },
     {
@@ -141,18 +146,7 @@
     "backtest -> persistence": 3,
     "execution -> memory": 3,
     "fleet_control -> persistence": 3,
-    "agent_orchestration -> agent_cli": 2,
-    "alerts -> operator": 2,
-    "exchanges -> execution": 2,
-    "settings_yaml -> memory": 2,
-    "config -> agent_orchestration": 1,
-    "config -> memory": 1,
-    "data_control -> market_data_worker": 1,
-    "execution -> fleet_control": 1,
     "memory -> persistence": 1,
-    "operator -> agent_cli": 1,
-    "operator_chat -> api": 1,
-    "portfolios -> persistence": 1,
-    "settings_yaml -> agent_orchestration": 1
+    "portfolios -> persistence": 1
   }
 }

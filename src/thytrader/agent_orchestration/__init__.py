@@ -5,8 +5,8 @@ from thytrader.agent_orchestration.models import (
     AgentOrchestrationStatus,
     ConfirmationMode,
     PlaybookRun,
-    YoloTier,
 )
+from thytrader.config import YoloTier
 
 __all__ = [
     "ORCHESTRATION_SCHEMA_VERSION",
