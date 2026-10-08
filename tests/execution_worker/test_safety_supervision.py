@@ -163,6 +163,45 @@ async def test_consecutive_failures_pause_entries_and_keep_processing_the_book(
     assert still.status is DeploymentStatus.PAUSED
 
 
+async def test_a_failure_pause_keeps_the_error_type_after_later_supervision_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The error type that tripped the pause survives on the book and its open alert.
+
+    Exception messages stay redacted; only the type is durable evidence once the worker
+    log is gone (for example after a container is recreated).
+    """
+
+    async def _boom(**kwargs: object) -> None:
+        del kwargs
+        raise OSError("venue said something with a secret path")
+
+    monkeypatch.setattr(worker_service, "_process_one", _boom)
+    execution = InMemoryExecutionStore()
+    book = _deployment()
+    await execution.create_deployment(book)
+    feed, alerts = _alerts()
+    for _ in range(3):
+        await _cycle(execution, alerts)
+    paused = (await execution.get_deployment(book.id)).deployment
+    assert paused.mismatch_detail is not None
+    assert "last error: OSError" in paused.mismatch_detail
+    assert "secret" not in paused.mismatch_detail
+    monkeypatch.setattr(worker_service, "_process_one", _noop_process)
+    await _cycle(execution, alerts)
+    (alert,) = [
+        row
+        for row in await feed.list_open_alerts()
+        if row.code is AlertCode.WORKER_BOOK_FAILURES and row.subject == str(book.id)
+    ]
+    assert "last error: OSError" in alert.detail
+    assert "secret" not in alert.detail
+
+
+async def _noop_process(**kwargs: object) -> None:
+    del kwargs
+
+
 async def test_supervision_does_not_resume_a_user_pause_or_overwrite_its_mismatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

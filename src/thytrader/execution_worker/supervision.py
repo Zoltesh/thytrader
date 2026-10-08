@@ -12,7 +12,11 @@ from uuid import UUID
 
 from thytrader.alerts.models import AlertCheck, AlertCode, SupervisionFinding
 from thytrader.alerts.store import AlertStoreError
-from thytrader.alerts.supervision import gather_safety_findings, verified_worker_recovery
+from thytrader.alerts.supervision import (
+    failure_error_type,
+    gather_safety_findings,
+    verified_worker_recovery,
+)
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.decision_journal import record_gate_skip
@@ -183,10 +187,12 @@ async def _pause_repeatedly_failing_books(
             continue
         if not _may_pause_for_failures(deployment, alert.occurrences, consecutive_failure_cycles):
             continue
+        error_type = failure_error_type(alert.detail)
+        last_error = "" if error_type is None else f" (last error: {error_type})"
         detail = (
             f"WORKER_CONSECUTIVE_FAILURES: entries paused after {alert.occurrences} failed "
-            "supervision cycles; exits and reconciliation continue. Operator review required; "
-            "resume is manual."
+            f"supervision cycles{last_error}; exits and reconciliation continue. Operator "
+            "review required; resume is manual."
         )
         try:
             leased = await acquire_worker_lease(store, deployment.id)

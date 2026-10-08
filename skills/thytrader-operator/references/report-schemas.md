@@ -345,7 +345,9 @@ snapshots/inventories and cold/warming caches are not recovery. Applied-but-unpr
 fills and unsettled canceled/filled executions likewise cannot clear protection/trigger incidents
 on missing positions or terminal status; independent authoritative checks may still recover. Implausibly future lease
 expiries indicate unknown age/possible clock skew, not verified freshness. Worker error counts persist across
-restart; observing a held supervision pause does not fabricate additional errors.
+restart; observing a held supervision pause does not fabricate additional errors. A
+`WORKER_BOOK_FAILURES` alert and the `WORKER_CONSECUTIVE_FAILURES` pause note record the last
+exception type (`last error: <Type>`), never its message.
 
 Delivery timestamps never refresh safety evidence. Notification attempts use durable claims
 and stable alert IDs; recipients must dedupe those IDs to prevent duplicate handling across
