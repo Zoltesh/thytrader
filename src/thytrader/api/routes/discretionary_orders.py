@@ -31,7 +31,8 @@ from thytrader.audit_events import (
 from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker
-from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
+from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.discretionary_request import parse_discretionary_request
 from thytrader.execution.paper_fees import PaperFeeSource
 from thytrader.market_data.products import (
     SPOT_PRODUCT_ID_PATTERN,
@@ -49,7 +50,7 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.exchanges.models import ExchangeBalance
-    from thytrader.execution.discretionary import DiscretionaryOrderRequest
+    from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.trading.models import DeploymentSnapshot
 
 router = APIRouter(prefix="/api/v1/discretionary-orders", tags=["discretionary-orders"])

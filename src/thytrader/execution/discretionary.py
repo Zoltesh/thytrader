@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
-from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal, InvalidOperation
-import re
+from dataclasses import dataclass
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.breaker_pause import _pause_mode_running
+from thytrader.execution.discretionary_book import _book_for_entry
 from thytrader.execution.freshness import entry_prerequisites, marketable_quote_mark
 from thytrader.execution.live_protection import (
     _ensure_exit_protection,
@@ -15,7 +14,6 @@ from thytrader.execution.live_protection import (
     _ensure_take_profit,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
-from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.runtime_ops import (
     _active_entry,
@@ -28,18 +26,10 @@ from thytrader.execution.runtime_ops import (
     apply_fill,
 )
 from thytrader.execution.submit import submit_intent
-from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.memory.trade_reason_scope import (
-    discretionary_trade_reason_scope,
-    trade_reason_scope,
-)
-from thytrader.risk.accounting_evidence import accounting_snapshot
-from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
-from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
+from thytrader.market_data.models import parse_candle_interval
+from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
+from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
-from thytrader.trading.exposure import counts_for_daily_loss
 from thytrader.trading.geometry import (
     bracket_error_detail,
     bracket_is_valid,
@@ -47,20 +37,15 @@ from thytrader.trading.geometry import (
     exit_order_side,
     paper_stop_fill_price,
     paper_stop_hit,
-    parse_position_side,
 )
-from thytrader.trading.ids import utc_now, uuid7
-from thytrader.trading.ledger import resolve_paper_fee_schedule
+from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
-    Deployment,
-    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     ExecutionConflictError,
     IntentOrigin,
     IntentPurpose,
-    LifecycleCommand,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -71,9 +56,8 @@ from thytrader.trading.models import (
 from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from thytrader.execution.broker import Broker
+    from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
@@ -81,98 +65,7 @@ if TYPE_CHECKING:
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.trading.store import ExecutionStore
 
-_PRODUCT = re.compile(SPOT_PRODUCT_ID_PATTERN)
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
-_OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
-
-
-@dataclass(frozen=True, slots=True)
-class DiscretionaryOrderRequest:
-    """One validated on-demand long or short the API or CLI wants to rest."""
-
-    mode: DeploymentMode
-    product_id: str
-    entry_kind: OrderKind
-    stop_price: Decimal
-    take_profit_price: Decimal
-    origin: IntentOrigin
-    idempotency_key: str
-    timeframe: str
-    side: PositionSide
-    quantity: Decimal | None
-    quote_notional: Decimal | None
-    limit_price: Decimal | None
-    paper_starting_cash: Decimal | None
-    paper_maker_fee_rate: Decimal | None
-    paper_taker_fee_rate: Decimal | None
-    note: str | None = None
-
-
-def parse_discretionary_request(
-    *,
-    mode: str,
-    product_id: str,
-    entry_kind: str,
-    stop_price: str,
-    take_profit_price: str,
-    origin: str,
-    idempotency_key: str,
-    timeframe: str = "5m",
-    side: str = "long",
-    quantity: str | None = None,
-    quote_notional: str | None = None,
-    limit_price: str | None = None,
-    paper_starting_cash: str | None = None,
-    paper_maker_fee_rate: str | None = None,
-    paper_taker_fee_rate: str | None = None,
-    note: str | None = None,
-) -> DiscretionaryOrderRequest:
-    """Parse decimal strings and reject illegal combinations before risk or persist."""
-    parsed_mode = _parse_mode(mode)
-    parsed_kind = _parse_entry_kind(entry_kind)
-    parsed_origin = _parse_origin(origin)
-    parsed_timeframe = _parse_timeframe(timeframe)
-    try:
-        parsed_side = parse_position_side(side)
-    except ValueError as error:
-        raise ExecutionConflictError(str(error)) from error
-    if not _PRODUCT.match(product_id):
-        raise ExecutionConflictError("product_id must be a BASE-USD or BASE-USDC spot id.")
-    if not idempotency_key or len(idempotency_key) > 128:
-        raise ExecutionConflictError("idempotency_key must be 1-128 characters.")
-    qty = _optional_positive_decimal(quantity, field="quantity")
-    notional = _optional_positive_decimal(quote_notional, field="quote_notional")
-    if (qty is None) == (notional is None):
-        raise ExecutionConflictError("Provide exactly one of quantity or quote_notional.")
-    limit = _optional_positive_decimal(limit_price, field="limit_price")
-    if parsed_kind is OrderKind.POST_ONLY_LIMIT and limit is None:
-        raise ExecutionConflictError("Post-only entries require limit_price.")
-    cash = _optional_positive_decimal(paper_starting_cash, field="paper_starting_cash")
-    if parsed_mode is DeploymentMode.LIVE and cash is not None:
-        raise ExecutionConflictError("Live orders do not accept paper_starting_cash.")
-    maker, taker = _parse_paper_fee_rates(
-        mode=parsed_mode,
-        maker_fee_rate=paper_maker_fee_rate,
-        taker_fee_rate=paper_taker_fee_rate,
-    )
-    return DiscretionaryOrderRequest(
-        mode=parsed_mode,
-        product_id=product_id,
-        entry_kind=parsed_kind,
-        stop_price=_require_positive_decimal(stop_price, field="stop_price"),
-        take_profit_price=_require_positive_decimal(take_profit_price, field="take_profit_price"),
-        origin=parsed_origin,
-        idempotency_key=idempotency_key,
-        timeframe=parsed_timeframe,
-        side=parsed_side,
-        quantity=qty,
-        quote_notional=notional,
-        limit_price=limit,
-        paper_starting_cash=cash,
-        paper_maker_fee_rate=maker,
-        paper_taker_fee_rate=taker,
-        note=_optional_note(note),
-    )
 
 
 async def place_discretionary_order(
@@ -428,294 +321,6 @@ def _quantity_from_request(
     return quantity
 
 
-async def _book_for_entry(
-    store: ExecutionStore,
-    *,
-    request: DiscretionaryOrderRequest,
-    risk_store: RiskPolicyStore | None,
-    notional: Decimal,
-    quantity: Decimal,
-    live_quote_cash: Decimal | None,
-    entry_price: Decimal,
-    reference_price: Decimal,
-    paper_fee_source: PaperFeeSource | None = None,
-) -> DeploymentSnapshot:
-    """Reuse a flat running book or create one after the risk gate admits it."""
-    existing = await store.list_deployments()
-    reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
-    if reusable is not None:
-        snapshot = await accounting_snapshot(store, reusable.id, as_of=utc_now())
-        fresh = snapshot.deployment
-        if (
-            _reusable_book((fresh,), product_id=request.product_id, mode=request.mode) is None
-            or snapshot.positions
-            or snapshot.position is not None
-            or fresh.lifecycle_command is not LifecycleCommand.NONE
-            or any(
-                order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
-                for order in snapshot.orders
-            )
-        ):
-            raise ExecutionConflictError(
-                "Discretionary candidate changed; read fresh state before retrying."
-            )
-        _require_matching_paper_fees(fresh, request)
-        await _require_entry_admission(
-            risk_store,
-            store=store,
-            request=request,
-            snapshot=snapshot,
-            notional=notional,
-            quantity=quantity,
-            live_quote_cash=live_quote_cash,
-            deployments=existing,
-            entry_price=entry_price,
-            reference_price=reference_price,
-        )
-        return snapshot
-    _reject_occupied_book(existing, product_id=request.product_id, mode=request.mode)
-    await _require_book_admission(
-        risk_store,
-        request=request,
-        deployments=existing,
-    )
-    if request.mode is DeploymentMode.PAPER:
-        maker, taker = await paper_fee_rates(
-            maker_fee_rate=request.paper_maker_fee_rate,
-            taker_fee_rate=request.paper_taker_fee_rate,
-            source=paper_fee_source,
-        )
-        request = replace(request, paper_maker_fee_rate=maker, paper_taker_fee_rate=taker)
-    candidate = _new_discretionary_book(request, live_quote_cash=live_quote_cash)
-    await _require_entry_admission(
-        risk_store,
-        store=store,
-        request=request,
-        snapshot=DeploymentSnapshot(deployment=candidate),
-        notional=notional,
-        quantity=quantity,
-        live_quote_cash=live_quote_cash,
-        deployments=existing,
-        entry_price=entry_price,
-        reference_price=reference_price,
-    )
-    created = await store.create_deployment(candidate)
-    return await store.get_deployment(created.id)
-
-
-def _new_discretionary_book(
-    request: DiscretionaryOrderRequest, *, live_quote_cash: Decimal | None
-) -> Deployment:
-    """Build a flat discretionary book that has not been persisted yet."""
-    now = utc_now()
-    try:
-        maker_fee_rate, taker_fee_rate = resolve_paper_fee_schedule(
-            live=request.mode is DeploymentMode.LIVE,
-            maker_fee_rate=request.paper_maker_fee_rate,
-            taker_fee_rate=request.paper_taker_fee_rate,
-        )
-    except ValueError as error:
-        raise ExecutionConflictError(str(error)) from error
-    cash = _initial_cash(request, live_quote_cash=live_quote_cash)
-    initial = cash if cash > 0 else live_quote_cash
-    return Deployment(
-        id=uuid7(now),
-        strategy_fingerprint=None,
-        strategy_id=None,
-        product_id=request.product_id,
-        mode=request.mode,
-        status=DeploymentStatus.RUNNING,
-        paper_starting_cash=request.paper_starting_cash,
-        paper_maker_fee_rate=maker_fee_rate,
-        paper_taker_fee_rate=taker_fee_rate,
-        cash=cash,
-        phase=RuntimePhase.FLAT,
-        created_at=now,
-        updated_at=now,
-        kind=DeploymentKind.DISCRETIONARY,
-        timeframe=request.timeframe,
-        venue_available_quote=live_quote_cash,
-        initial_equity=initial,
-        baseline_equity=initial,
-        high_water_mark_equity=initial,
-        utc_day_open_equity=initial,
-        utc_day_open_at=now if initial is not None else None,
-    )
-
-
-def _initial_cash(
-    request: DiscretionaryOrderRequest, *, live_quote_cash: Decimal | None
-) -> Decimal:
-    """Paper uses starting cash; live uses remaining quote when known."""
-    if request.mode is DeploymentMode.PAPER:
-        cash = request.paper_starting_cash
-        if cash is None or cash <= 0:
-            raise ExecutionConflictError(
-                "Paper discretionary orders require positive starting cash."
-            )
-        return cash
-    if live_quote_cash is None:
-        return Decimal("0")
-    return live_quote_cash
-
-
-def _reusable_book(
-    deployments: tuple[Deployment, ...],
-    *,
-    product_id: str,
-    mode: DeploymentMode,
-) -> Deployment | None:
-    """Return a flat running discretionary book that can accept a new entry."""
-    matches = [
-        item
-        for item in deployments
-        if item.kind is DeploymentKind.DISCRETIONARY
-        and item.product_id == product_id
-        and item.mode is mode
-        and item.status is DeploymentStatus.RUNNING
-        and item.phase is RuntimePhase.FLAT
-    ]
-    return matches[0] if matches else None
-
-
-def _reject_occupied_book(
-    deployments: tuple[Deployment, ...],
-    *,
-    product_id: str,
-    mode: DeploymentMode,
-) -> None:
-    """Conflict when another occupied discretionary book already owns this product."""
-    occupied = [
-        item
-        for item in deployments
-        if item.kind is DeploymentKind.DISCRETIONARY
-        and item.product_id == product_id
-        and item.mode is mode
-        and item.status in _OCCUPIED
-    ]
-    if occupied:
-        raise ExecutionConflictError(
-            "An occupied discretionary book already exists for this product and mode."
-        )
-
-
-async def _require_book_admission(
-    risk_store: RiskPolicyStore | None,
-    *,
-    request: DiscretionaryOrderRequest,
-    deployments: tuple[Deployment, ...],
-) -> None:
-    """Fail closed when the registry rejects a new discretionary book."""
-    if request.mode is DeploymentMode.PAPER and (
-        request.paper_starting_cash is None or request.paper_starting_cash <= 0
-    ):
-        raise ExecutionConflictError("Paper discretionary orders require positive starting cash.")
-    active = await load_effective_policy(risk_store)
-    verdict = evaluate_new_deployment(
-        active.definition,
-        mode=request.mode,
-        product_id=request.product_id,
-        strategy_id=None,
-        paper_starting_cash=request.paper_starting_cash,
-        deployments=deployments,
-        policy_source=active.source,
-    )
-    if verdict.decision is RiskDecision.DENY:
-        raise ExecutionConflictError(verdict.detail)
-
-
-async def _require_entry_admission(
-    risk_store: RiskPolicyStore | None,
-    *,
-    store: ExecutionStore,
-    request: DiscretionaryOrderRequest,
-    snapshot: DeploymentSnapshot,
-    notional: Decimal,
-    quantity: Decimal,
-    live_quote_cash: Decimal | None,
-    deployments: tuple[Deployment, ...],
-    entry_price: Decimal,
-    reference_price: Decimal,
-) -> None:
-    """Fail closed when the registry rejects this sized entry."""
-    active = await load_effective_policy(risk_store)
-    peers = await _accounting_snapshots(
-        store, deployments=deployments, exclude_id=snapshot.deployment.id
-    )
-    live_cash = live_quote_cash if request.mode is DeploymentMode.LIVE else None
-    verdict = evaluate_new_entry(
-        active.definition,
-        mode=request.mode,
-        proposed=ProposedEntry(
-            product_id=request.product_id,
-            strategy_id=None,
-            notional=notional,
-            quantity=quantity,
-        ),
-        snapshots=(*peers, snapshot),
-        live_quote_cash=live_cash,
-        observation=EntryObservation(
-            as_of=utc_now(),
-            proposed_price=entry_price,
-            reference_price=reference_price,
-            marks={request.product_id: reference_price},
-        ),
-    )
-    if verdict.decision is RiskDecision.ALLOW:
-        return
-    await _pause_on_breaker(
-        store=store,
-        request=request,
-        snapshot=snapshot,
-        deployments=deployments,
-        peers=peers,
-        verdict=verdict,
-    )
-    raise ExecutionConflictError(verdict.detail)
-
-
-async def _pause_on_breaker(
-    *,
-    store: ExecutionStore,
-    request: DiscretionaryOrderRequest,
-    snapshot: DeploymentSnapshot,
-    deployments: tuple[Deployment, ...],
-    peers: tuple[DeploymentSnapshot, ...],
-    verdict: RiskVerdict,
-) -> None:
-    """Pause this book, or persisted same-quote mode peers on daily loss, with a latch."""
-    if not pauses_risk_increasing(verdict.reason_code):
-        return
-    detail = f"{verdict.reason_code.value}: {verdict.detail}"
-    if verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT:
-        persisted = {item.id for item in deployments}
-        await _pause_mode_running(
-            store=store,
-            mode=request.mode,
-            product_id=request.product_id,
-            portfolio=tuple(item for item in (*peers, snapshot) if item.deployment.id in persisted),
-            detail=detail,
-        )
-        return
-    if any(item.id == snapshot.deployment.id for item in deployments):
-        await _pause(snapshot, store=store, detail=detail)
-
-
-async def _accounting_snapshots(
-    store: ExecutionStore,
-    *,
-    deployments: tuple[Deployment, ...],
-    exclude_id: UUID,
-) -> tuple[DeploymentSnapshot, ...]:
-    """Load peer books that can still evidence UTC-day loss, including stopped flat rows."""
-    peers: list[DeploymentSnapshot] = []
-    for item in deployments:
-        if item.id == exclude_id or not counts_for_daily_loss(item.status):
-            continue
-        peers.append(await accounting_snapshot(store, item.id, as_of=utc_now()))
-    return tuple(peers)
-
-
 async def _after_entry_submit(
     snapshot: DeploymentSnapshot,
     *,
@@ -863,144 +468,3 @@ async def _marketable_discretionary_exit(
         store=store,
         detail="Marketable exit was not confirmed filled.",
     )
-
-
-def _parse_mode(value: str) -> DeploymentMode:
-    """Parse paper or live."""
-    try:
-        return DeploymentMode(value)
-    except ValueError as error:
-        raise ExecutionConflictError("mode must be paper or live.") from error
-
-
-def _parse_entry_kind(value: str) -> OrderKind:
-    """Parse maker or marketable entry style."""
-    try:
-        kind = OrderKind(value)
-    except ValueError as error:
-        raise ExecutionConflictError("entry_kind must be post_only_limit or marketable.") from error
-    if kind not in {OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE}:
-        raise ExecutionConflictError("entry_kind must be post_only_limit or marketable.")
-    return kind
-
-
-def _parse_origin(value: str) -> IntentOrigin:
-    """Parse human or agent origin."""
-    try:
-        origin = IntentOrigin(value)
-    except ValueError as error:
-        raise ExecutionConflictError("origin must be human or agent.") from error
-    if origin is IntentOrigin.RUNTIME:
-        raise ExecutionConflictError("origin must be human or agent.")
-    return origin
-
-
-def _parse_timeframe(value: str) -> str:
-    """Allow only ingested venue execution clocks."""
-    allowed = ", ".join(EXECUTION_TIMEFRAMES)
-    try:
-        interval = parse_candle_interval(value)
-    except ValueError as error:
-        raise ExecutionConflictError(
-            f"Discretionary orders require an ingested venue timeframe: {allowed}."
-        ) from error
-    if not interval.execution_supported:
-        raise ExecutionConflictError(
-            f"Discretionary orders require an ingested venue timeframe: {allowed}."
-        )
-    return interval.value
-
-
-def _require_positive_decimal(value: str, *, field: str) -> Decimal:
-    """Parse a required positive finite decimal string."""
-    parsed = _parse_decimal(value, field=field)
-    if parsed <= 0:
-        raise ExecutionConflictError(f"{field} must be a positive decimal string.")
-    return parsed
-
-
-def _require_matching_paper_fees(book: Deployment, request: DiscretionaryOrderRequest) -> None:
-    """Refuse a second paper ticket that would silently change the book's fee assumptions."""
-    if request.mode is not DeploymentMode.PAPER:
-        return
-    if request.paper_maker_fee_rate is None and request.paper_taker_fee_rate is None:
-        return
-    if (
-        book.paper_maker_fee_rate != request.paper_maker_fee_rate
-        or book.paper_taker_fee_rate != request.paper_taker_fee_rate
-    ):
-        raise ExecutionConflictError(
-            "Paper fee rates are fixed on the existing discretionary book."
-        )
-
-
-def _parse_paper_fee_rates(
-    *,
-    mode: DeploymentMode,
-    maker_fee_rate: str | None,
-    taker_fee_rate: str | None,
-) -> tuple[Decimal | None, Decimal | None]:
-    """Parse optional paper fee strings without inventing live venue rates.
-
-    Omitted paper rates stay unset so a new book can default and a reused book
-    can keep its stored assumptions.
-    """
-    maker = _optional_non_negative_decimal(maker_fee_rate, field="maker_fee_rate")
-    taker = _optional_non_negative_decimal(taker_fee_rate, field="taker_fee_rate")
-    live = mode is DeploymentMode.LIVE
-    if not live and (maker is None) != (taker is None):
-        raise ExecutionConflictError(
-            "Paper fee rates require both maker_fee_rate and taker_fee_rate."
-        )
-    if not live and (maker is None or taker is None):
-        return None, None
-    try:
-        resolve_paper_fee_schedule(live=live, maker_fee_rate=maker, taker_fee_rate=taker)
-    except ValueError as error:
-        raise ExecutionConflictError(str(error)) from error
-    if live:
-        return None, None
-    return maker, taker
-
-
-def _optional_non_negative_decimal(value: str | None, *, field: str) -> Decimal | None:
-    """Parse an optional non-negative finite decimal string."""
-    if value is None or value == "":
-        return None
-    parsed = _parse_decimal(value, field=field)
-    if parsed < 0:
-        raise ExecutionConflictError(f"{field} must be a non-negative decimal string.")
-    return parsed
-
-
-def _optional_note(value: str | None) -> str | None:
-    """Keep an optional place-order why-note, or omit blank text."""
-    if value is None:
-        return None
-    stripped = value.strip()
-    if not stripped:
-        return None
-    if len(stripped) > 4000:
-        raise ExecutionConflictError("note must be at most 4000 characters.")
-    return stripped
-
-
-def _optional_positive_decimal(value: str | None, *, field: str) -> Decimal | None:
-    """Parse an optional positive finite decimal string."""
-    if value is None or value == "":
-        return None
-    parsed = _parse_decimal(value, field=field)
-    if parsed <= 0:
-        raise ExecutionConflictError(f"{field} must be a positive decimal string.")
-    return parsed
-
-
-def _parse_decimal(value: str, *, field: str) -> Decimal:
-    """Parse one finite decimal string."""
-    try:
-        parsed = Decimal(value)
-    except InvalidOperation as error:
-        raise ExecutionConflictError(f"{field} must be a finite decimal string.") from error
-    if not parsed.is_finite():
-        raise ExecutionConflictError(f"{field} must be a finite decimal string.")
-    return parsed

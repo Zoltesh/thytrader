@@ -29,7 +29,8 @@ from tests.persistence.test_postgres_fill_transaction import (
 )
 from tests.risk.test_loss_scope import _TODAY, _policy
 from tests.risk.test_safety_evidence import sibling_loss
-from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
+from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.discretionary_request import parse_discretionary_request
 from thytrader.execution.leases import RevisionFencedStore
 from thytrader.execution.loop import (
     _apply_circuit_breakers,
@@ -482,6 +483,7 @@ async def test_actual_pg_reuse_read_boundary_and_pending_cas(
 
     monkeypatch.setattr(postgres_execution, "_snapshot", late_fill_between_selects)
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     broker = _QuantityVenue()
     request = parse_discretionary_request(
         mode="live",

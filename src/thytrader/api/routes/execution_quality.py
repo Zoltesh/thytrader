@@ -34,9 +34,9 @@ from thytrader.execution.execution_quality import (
     JournaledCloseEvidence,
     JournaledDecisionClose,
     build_execution_quality_report,
-    build_execution_twin_comparison,
-    load_journaled_close_evidence,
 )
+from thytrader.execution.execution_quality_journal import load_journaled_close_evidence
+from thytrader.execution.execution_quality_twin import build_execution_twin_comparison
 from thytrader.strategies.snapshots import StrategySnapshotError, StrategySnapshotStore
 from thytrader.trading.models import DeploymentSnapshot, ExecutionStoreError
 from thytrader.trading.store import ExecutionStore

@@ -20,7 +20,8 @@ from tests.risk.test_loss_scope import (
     _round_trip,
     _verdict,
 )
-from thytrader.execution.discretionary import _pause_on_breaker, parse_discretionary_request
+from thytrader.execution.discretionary_book import _pause_on_breaker
+from thytrader.execution.discretionary_request import parse_discretionary_request
 from thytrader.execution.loop import _pause_for_breaker
 from thytrader.risk.breakers import _daily_pnl
 from thytrader.risk.daily_accounting import flat_day_fill_pnl

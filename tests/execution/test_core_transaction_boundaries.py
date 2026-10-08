@@ -28,7 +28,8 @@ from tests.loop_patching import patch_loop_global
 from tests.risk.test_loss_scope import _TODAY, _deployment, _policy, _round_trip
 from tests.risk.test_safety_evidence import _MIDNIGHT, overnight_long, seed_accounting, sibling_loss
 from tests.worker_patching import patch_worker_global
-from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
+from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.discretionary_request import parse_discretionary_request
 from thytrader.execution.leases import RevisionFencedStore
 from thytrader.execution.loop import (
     _apply_circuit_breakers,
@@ -493,6 +494,7 @@ async def test_actual_discretionary_reuse_fences_pending_after_authoritative_sel
     )
     broker = _QuantityVenue()
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     with pytest.raises(ExecutionConflictError, match="revision"):
         await place_discretionary_order(
             store=store,
@@ -539,6 +541,7 @@ async def test_actual_reuse_denies_authoritative_recorded_loss(
     await risk_store.publish(_policy())
     broker = _QuantityVenue()
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     request = parse_discretionary_request(
         mode="live",
         product_id="BTC-USD",
