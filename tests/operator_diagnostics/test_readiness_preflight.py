@@ -26,11 +26,11 @@ from thytrader.operator.readiness import (
     ReadinessSeverity,
     build_readiness_report,
 )
-from thytrader.operator.venue_reconciliation import (
+from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
+from thytrader.operator.venue_reconciliation_models import (
     VenueReconciliationPayload,
     VenueReconciliationReport,
     VenueSeverity,
-    build_venue_reconciliation_report,
 )
 from thytrader.portfolio.service import PortfolioService
 from thytrader.portfolios.models import (

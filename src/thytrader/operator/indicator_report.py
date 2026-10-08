@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from thytrader.operator.models import IndicatorCatalogEntry, IndicatorParameterEntry
+from thytrader.operator.market_models import IndicatorCatalogEntry, IndicatorParameterEntry
 from thytrader.strategies.indicator_catalog import (
     INDICATOR_KIND_SPECS,
     default_indicator_definition,

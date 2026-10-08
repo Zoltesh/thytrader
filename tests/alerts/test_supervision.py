@@ -9,11 +9,9 @@ from uuid import uuid4
 import pytest
 
 from thytrader.alerts.models import AlertCode
-from thytrader.alerts.supervision import (
-    SETTLING_GRACE_SECONDS,
-    AlertThresholds,
-    gather_safety_findings,
-)
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_deadlines import SETTLING_GRACE_SECONDS
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.market_data.models import Candle
 from thytrader.trading.models import (
     Deployment,

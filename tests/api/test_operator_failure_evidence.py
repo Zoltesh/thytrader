@@ -22,7 +22,8 @@ from thytrader.audit_events import (
 )
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
-from thytrader.operator.models import ExchangeReport, ReconciliationReport
+from thytrader.operator.health_models import ExchangeReport
+from thytrader.operator.runtime_models import ReconciliationReport
 from thytrader.portfolio.service import PortfolioService
 from thytrader.trading.memory import InMemoryExecutionStore
 

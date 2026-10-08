@@ -18,7 +18,7 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL, InMemoryAlertStore
-from thytrader.alerts.supervision import AlertThresholds
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.config import NotifyProvider
 from thytrader.memory.models import DeliveryStatus
 from thytrader.memory.notify import (

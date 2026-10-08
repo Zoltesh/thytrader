@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.alerts.supervision import failure_error_type, worker_book_failure_finding
+from thytrader.alerts.supervision_rows import failure_error_type, worker_book_failure_finding
 from thytrader.trading.models import (
     Deployment,
     DeploymentKind,

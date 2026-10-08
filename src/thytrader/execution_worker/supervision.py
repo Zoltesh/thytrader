@@ -12,11 +12,8 @@ from uuid import UUID
 
 from thytrader.alerts.models import AlertCheck, AlertCode, SupervisionFinding
 from thytrader.alerts.store import AlertStoreError
-from thytrader.alerts.supervision import (
-    failure_error_type,
-    gather_safety_findings,
-    verified_worker_recovery,
-)
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_rows import failure_error_type, verified_worker_recovery
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import record_execution_audit
@@ -44,7 +41,7 @@ if TYPE_CHECKING:
     from thytrader.alerts.models import OperatorAlert
     from thytrader.alerts.service import AlertService
     from thytrader.alerts.store import AlertApplication
-    from thytrader.alerts.supervision import ClosedCandleReader
+    from thytrader.alerts.supervision_inputs import ClosedCandleReader
     from thytrader.execution.broker import Broker
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.models import Candle, MarketProduct

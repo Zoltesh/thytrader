@@ -33,7 +33,7 @@ from thytrader.audit_events import (
     AuditEventStore,
 )
 from thytrader.market_data.datasets import DatasetStore
-from thytrader.operator.models import PaperLiveFillComparison
+from thytrader.operator.portfolio_models import PaperLiveFillComparison
 from thytrader.operator.portfolios_report import paper_live_fill_comparisons
 from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.portfolios.backtest import (

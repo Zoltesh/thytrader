@@ -22,8 +22,8 @@ from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.operator.data_health import data_health_report
+from thytrader.operator.health_models import HealthReport
 from thytrader.operator.http import fetch_operator_report
-from thytrader.operator.models import HealthReport
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
 from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics

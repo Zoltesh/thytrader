@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from thytrader.exchanges.read_errors import ExchangeReadFailure
-from thytrader.operator.models import AuditFailureEvidence
+from thytrader.operator.runtime_models import AuditFailureEvidence
 
 _ROOT = Path(__file__).resolve().parents[2]
 

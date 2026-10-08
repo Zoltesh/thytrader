@@ -10,13 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, Protocol
 
-from thytrader.operator.models import (
-    ComponentReport,
-    ReportStatus,
+from thytrader.operator.health_models import (
     ResearchQueueReport,
     ResearchWorkerReport,
     ResearchWorkersPayload,
 )
+from thytrader.operator.models import ComponentReport, ReportStatus
 
 if TYPE_CHECKING:
     from datetime import datetime

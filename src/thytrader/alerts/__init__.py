@@ -11,7 +11,8 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import AlertApplication, AlertStoreError
-from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_inputs import AlertThresholds
 
 __all__ = (
     "AlertApplication",

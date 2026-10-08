@@ -7,7 +7,7 @@ import contextlib
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from thytrader.alerts.supervision import worker_book_failure_finding
+from thytrader.alerts.supervision_rows import worker_book_failure_finding
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import (
     PRUNE_INTERVAL,

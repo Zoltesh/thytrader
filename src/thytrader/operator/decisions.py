@@ -17,13 +17,8 @@ from thytrader.execution.decisions import (
     DECISION_RETENTION_MAX_ROWS_PER_DEPLOYMENT,
     DecisionPage,
 )
-from thytrader.operator.models import (
-    STANDARD_REDACTION,
-    ComponentReport,
-    DecisionsPayload,
-    DecisionsReport,
-    ReportStatus,
-)
+from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
+from thytrader.operator.runtime_models import DecisionsPayload, DecisionsReport
 from thytrader.operator.status import aggregate_status, recommend_next_action
 
 if TYPE_CHECKING:

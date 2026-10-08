@@ -17,7 +17,6 @@ from thytrader.operator_chat.models import (
     PendingConfirmation,
 )
 from thytrader.operator_chat.tools import (
-    ChatTool,
     openai_tool_schemas,
     split_request,
     tool_by_name,
@@ -32,6 +31,7 @@ if TYPE_CHECKING:
     from thytrader.operator_chat.credentials import StoredLlmCredentials
     from thytrader.operator_chat.llm import LlmClient
     from thytrader.operator_chat.session import OperatorChatSessionStore
+    from thytrader.operator_chat.tool_spec import ChatTool
 
 SYSTEM_PROMPT = """You are a ThyTrader operator chat. You use the same skill lanes as ops/:
 operator (read-only diagnostics), data, research, runtime, playbook status, and memory.

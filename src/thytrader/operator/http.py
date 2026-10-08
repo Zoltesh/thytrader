@@ -9,32 +9,29 @@ from urllib.parse import urlencode
 from thytrader.agent_http import request_json
 from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport
-from thytrader.operator.models import (
-    OPERATOR_API_PREFIX,
-    ConfigurationReport,
+from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
+from thytrader.operator.market_models import (
     DataCatalogReport,
-    DecisionsReport,
-    ExchangeReport,
-    FeesReport,
-    HealthReport,
     IndicatorsReport,
     MarketDataReport,
-    MonitorReport,
-    OperatorEnvelope,
-    PerformanceReport,
-    PortfolioReport,
-    PortfoliosReport,
     ProductsReport,
+)
+from thytrader.operator.models import OPERATOR_API_PREFIX, OperatorEnvelope
+from thytrader.operator.portfolio_models import FeesReport, PortfolioReport, PortfoliosReport
+from thytrader.operator.readiness import ReadinessReport
+from thytrader.operator.runtime_models import (
+    DecisionsReport,
+    MonitorReport,
+    PerformanceReport,
     ReconciliationReport,
     RiskReport,
     RuntimeReport,
     StrategiesReport,
     StudiesReport,
-    SupportBundleReport,
     TradeReasonsReport,
 )
-from thytrader.operator.readiness import ReadinessReport
-from thytrader.operator.venue_reconciliation import VenueReconciliationReport
+from thytrader.operator.support_bundle_models import SupportBundleReport
+from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

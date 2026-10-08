@@ -18,7 +18,8 @@ from tests.operator_diagnostics.test_readiness_preflight import ScriptedExchange
 from thytrader.alerts.models import AlertCheck, AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
-from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.api.routes.deployment_serializers import snapshot_response
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.operator.readiness import build_readiness_report
