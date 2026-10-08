@@ -24,12 +24,14 @@ scraping logs or inventing commands.
 
 ## Cohesion (summary of AGENTS.md §3a)
 
-One concern per module; aim for GitNexus community cohesion near 1.0. CI enforces line
-budgets (Python 800, TS/Svelte 600) with a shrink-only allowlist in
-`tests/module_size_allowlist.json`: never raise a ceiling, split instead. Before adding code
-to a file, check which communities its symbols span and put the code where its community
-lives. Splits are move-only PRs with re-exports and retargeted patches; delete dead code as
-you go.
+One concern per module, one layer per package. CI enforces the layers declared in
+`tests/package_layers.json` (imports point down; recorded upward imports may only shrink) and
+line budgets (Python 800, TS/Svelte 600) with a shrink-only allowlist in
+`tests/module_size_allowlist.json`: never raise a ceiling, move or split instead. Judge
+GitNexus cohesion per 10+ symbol community (keep at or above 0.8), not by the repo mean.
+Before adding code to a file, check which communities its symbols span and put the code where
+its community lives. Splits are move-only PRs with re-exports and retargeted patches; delete
+dead code as you go.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
