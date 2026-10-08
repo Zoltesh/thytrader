@@ -7,7 +7,10 @@
  * here invents state: absent values render as explicit unknowns.
  */
 import { canonicalPositions, type Deployment, type DeploymentOrder } from './deployments';
+import { productIdQuote } from './product-id';
 import { workspaceHref } from './strategy-workspace';
+
+export { productIdQuote };
 
 export const LIFECYCLE_INSTRUCTION_LABELS: Record<string, string> = {
 	none: 'Entries enabled',
@@ -191,13 +194,6 @@ export function marketLabel(productId: string): string {
 	const quote = productIdQuote(productId);
 	if (quote === null) return productId;
 	return `${productId.slice(0, productId.length - quote.length - 1)} / ${quote}`;
-}
-
-/** Quote currency of a `BASE-QUOTE` product id, or null when there is no dash. */
-export function productIdQuote(productId: string): string | null {
-	const separator = productId.indexOf('-');
-	if (separator === -1) return null;
-	return productId.slice(separator + 1);
 }
 
 /** Label a quote-denominated amount with the product's actual quote currency. */

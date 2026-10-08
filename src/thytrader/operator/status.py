@@ -4,15 +4,21 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.exit_codes import EXIT_DEGRADED, EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE
 from thytrader.operator.models import ComponentReport, ReportStatus
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-EXIT_HEALTHY = 0
-EXIT_DEGRADED = 1
-EXIT_FAILED = 2
-EXIT_USAGE = 3
+__all__ = [
+    "EXIT_DEGRADED",
+    "EXIT_FAILED",
+    "EXIT_HEALTHY",
+    "EXIT_USAGE",
+    "aggregate_status",
+    "exit_code_for",
+    "recommend_next_action",
+]
 
 _RECOMMENDATIONS: dict[str, str] = {
     "DATABASE_UNCONFIGURED": "Set THYTRADER_DATABASE_URL and apply migrations, then re-run health.",

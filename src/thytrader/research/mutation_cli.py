@@ -22,7 +22,7 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
 )
 from thytrader.cli_errors import describe_unexpected_failure
-from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
+from thytrader.exit_codes import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.research.catalog import (
     StudyCatalogIntegrityError,

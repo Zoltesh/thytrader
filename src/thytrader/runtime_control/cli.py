@@ -16,8 +16,8 @@ from thytrader.agent_http import (
 )
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.config import Settings
+from thytrader.exit_codes import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
-from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     set_risk_policy,

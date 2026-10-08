@@ -27,7 +27,7 @@ from statistics import median
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.models import BacktestPerformanceMetrics, backtest_result_fingerprint
-from thytrader.research.indicators import canonical_decimal
+from thytrader.decimal_text import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

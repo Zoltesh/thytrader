@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.strategies.models import (
     AwesomeOscillatorIndicatorParameters,
     BollingerIndicatorParameters,
@@ -47,6 +48,8 @@ if TYPE_CHECKING:
 
     from thytrader.market_data.models import Candle
     from thytrader.strategies.models import IndicatorDefinition, IndicatorOperand
+
+__all__ = ["IndicatorCalculationError", "calculate_indicator_rows", "canonical_decimal"]
 
 _ENGINE_CONTEXT = Context(
     prec=64,
@@ -86,16 +89,6 @@ def calculate_indicator_rows(
         for index, row in enumerate(rows):
             row[key] = None if index < offset else rows[index - offset].get(base_key)
     return tuple(rows)
-
-
-def canonical_decimal(value: Decimal) -> str:
-    """Render one finite engine Decimal without exponent notation or trailing zeros."""
-    text = format(value, "f")
-    whole, separator, fraction = text.partition(".")
-    canonical_fraction = fraction.rstrip("0") if separator else ""
-    decimal_places = f".{canonical_fraction}" if canonical_fraction else ""
-    result = f"{whole}{decimal_places}"
-    return "0" if Decimal(result).is_zero() else result
 
 
 def _keyed_indicator_values(

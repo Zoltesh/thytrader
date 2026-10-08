@@ -1,38 +1,28 @@
 """Exact prospective order economics shared by research and runtime entry gates."""
 
 from decimal import Context, Decimal, localcontext
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
+
+from thytrader.strategies.economic_guard import (
+    EconomicDecimal,
+    EconomicEntryGuard,
+    _decimal_text,
+)
 
 if TYPE_CHECKING:
     from thytrader.execution.models import PositionSide
 
-
-def _decimal_text(value: Decimal) -> str:
-    """Render exact finite values without exponent notation or trailing zeroes."""
-    text = format(value, "f")
-    return text.rstrip("0").rstrip(".") if "." in text else text
-
-
-EconomicDecimal = Annotated[
-    str, Field(strict=True, pattern=r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$", max_length=80)
+__all__ = [
+    "EconomicDecimal",
+    "EconomicEntryGuard",
+    "EconomicPreflight",
+    "EconomicPreflightRequest",
+    "economic_preflight",
+    "net_target_return",
+    "target_guard_allows",
 ]
-
-
-class EconomicEntryGuard(BaseModel):
-    """Require a declared maker target to clear this net return on entry notional."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    minimum_net_target_return_fraction: EconomicDecimal
-
-    @field_validator("minimum_net_target_return_fraction")
-    @classmethod
-    def bound_return(cls, value: str) -> str:
-        """Bound the requested net hurdle and normalize fingerprinted decimals."""
-        if Decimal(value) > 1:
-            raise ValueError("minimum_net_target_return_fraction must be at most 1")
-        return _decimal_text(Decimal(value))
 
 
 class EconomicPreflightRequest(BaseModel):

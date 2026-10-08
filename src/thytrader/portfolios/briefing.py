@@ -16,6 +16,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.book_marks import marks_by_deployment
 from thytrader.execution.decision_store import DecisionStoreError
 from thytrader.portfolios.backtest import portfolio_backtest_fingerprint
@@ -39,7 +40,6 @@ from thytrader.portfolios.runtime_views import (
     SleeveDeploymentResponse,
     deployment_response,
 )
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

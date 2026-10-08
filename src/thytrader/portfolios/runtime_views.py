@@ -13,6 +13,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.book_marks import recorded_position_entry_fees, unrealized_pnl
 from thytrader.execution.ledger import ledger_from_snapshot
 from thytrader.execution.lifecycle import occupies_running_slot
@@ -47,7 +48,6 @@ from thytrader.portfolios.models import (
     utc_text,
 )
 from thytrader.portfolios.proposals import Proposal
-from thytrader.research.indicators import canonical_decimal
 from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.gate import product_exposure
 

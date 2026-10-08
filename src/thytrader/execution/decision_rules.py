@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.decisions import (
     ConditionComparisonTrace,
     ConditionGroupTrace,
@@ -22,7 +23,6 @@ from thytrader.execution.decisions import (
     ExitRuleTrace,
     HtfFilterTrace,
 )
-from thytrader.research.indicators import canonical_decimal
 from thytrader.research.signal_evaluator import entry_condition_outcome
 from thytrader.research.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
 from thytrader.strategies.indicator_catalog import indicator_kind_spec

@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.decision_rules import (
     count_unmet_leaves,
     display_decimal,
@@ -46,7 +47,6 @@ from thytrader.execution.models import (
     snapshot_positions,
 )
 from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
-from thytrader.research.indicators import canonical_decimal
 from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.models import RiskDecision
 from thytrader.strategies.models import atr_trailing_stop

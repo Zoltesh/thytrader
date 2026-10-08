@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import uuid7
+from thytrader.ids import uuid7
 from thytrader.market_data.models import (
     EXECUTION_TIMEFRAMES,
     as_dataset_timeframe,

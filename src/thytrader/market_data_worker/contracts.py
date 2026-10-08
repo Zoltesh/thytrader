@@ -15,6 +15,7 @@ from enum import StrEnum
 import logging
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from thytrader.market_data.hole_settlement import settle_cutoff
 from thytrader.market_data.models import CandleInterval, CandleRangeReport
 from thytrader.market_data.worker_state import (
     MarketDataWorkerAttempt,
@@ -22,7 +23,6 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerStateStore,
 )
-from thytrader.market_data_worker.pages import settle_cutoff
 
 if TYPE_CHECKING:
     from collections.abc import Callable

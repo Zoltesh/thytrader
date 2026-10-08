@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
 from thytrader.execution.models import ExecutionStoreError
 from thytrader.operator.models import (
@@ -38,7 +39,6 @@ from thytrader.portfolios.models import (
     sleeve_issues,
 )
 from thytrader.portfolios.rules import allocation_summary
-from thytrader.research.indicators import canonical_decimal
 from thytrader.research.jobs import ResearchJobStatus
 
 if TYPE_CHECKING:

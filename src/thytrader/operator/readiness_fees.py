@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
 from thytrader.execution.ledger import effective_paper_fee_rates
 from thytrader.execution.lifecycle import occupies_running_slot
@@ -17,7 +18,6 @@ from thytrader.operator.readiness_models import (
     ReadinessPaperSection,
     ReadinessSeverity,
 )
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

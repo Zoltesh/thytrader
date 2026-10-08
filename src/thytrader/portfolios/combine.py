@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.backtest.broker import FillModel
 from thytrader.backtest.metrics import series_ratio_metrics
+from thytrader.decimal_text import canonical_decimal
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.portfolios.backtest import (
     BASKET_DISCLOSURE,
@@ -63,7 +64,6 @@ from thytrader.portfolios.backtest import (
     PortfolioSleeveResult,
 )
 from thytrader.portfolios.models import asset_of
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

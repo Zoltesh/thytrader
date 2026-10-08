@@ -13,9 +13,9 @@
  * not be read). No item is combined into a verdict.
  */
 import type { CoinbaseCredentialsStatus } from './credentials';
-import { productIdQuote } from './deployment-detail';
 import type { Deployment } from './deployments';
 import type { Portfolio } from './portfolio';
+import { productIdQuote } from './product-id';
 import type { StrategyLibraryEntry } from './strategies';
 
 export type WorkspaceStage = 'build' | 'test' | 'run' | 'why';

@@ -30,8 +30,8 @@ from thytrader.agent_orchestration.confirmation import require_mutation_confirma
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.exit_codes import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
-from thytrader.operator.status import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.portfolios import client
 from thytrader.portfolios.backtest import PortfolioBacktestJob, PortfolioBacktestRequest
 from thytrader.portfolios.manager_cli import (

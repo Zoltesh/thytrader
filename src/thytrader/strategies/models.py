@@ -22,7 +22,6 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.execution.economics import EconomicEntryGuard
 from thytrader.market_data.models import (
     EXECUTION_TIMEFRAMES,
     DatasetTimeframe,
@@ -33,6 +32,7 @@ from thytrader.market_data.products import (
     SpotQuoteCurrency,
     parse_spot_product_id,
 )
+from thytrader.strategies.economic_guard import EconomicEntryGuard
 
 if TYPE_CHECKING:
     from collections.abc import Callable
