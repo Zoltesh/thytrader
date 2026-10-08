@@ -30,7 +30,6 @@ from thytrader.execution.decisions import DecisionOutcome, DecisionSkipReason
 from thytrader.execution.loop import _runtime_for_admitted_entry, process_closed_bar
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.sizing import SizedEntry
 from thytrader.market_data.models import Candle
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -53,6 +52,7 @@ from thytrader.trading.protection import (
     book_protection_evidence,
     book_protection_status,
 )
+from thytrader.trading.sizing import SizedEntry
 
 if TYPE_CHECKING:
     from thytrader.trading.models import DeploymentSnapshot

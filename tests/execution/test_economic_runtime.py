@@ -7,19 +7,19 @@ from decimal import Context, Decimal, localcontext
 import pytest
 
 from tests.execution.test_loop import _running_snapshot
-from tests.execution.test_sizing import _product
+from tests.trading.test_sizing import _product
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.execution.economics import (
+from thytrader.execution.loop import _size_entry_or_add
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.trading.economics import (
     EconomicEntryGuard,
     EconomicPreflightRequest,
     economic_preflight,
 )
-from thytrader.execution.loop import _size_entry_or_add
-from thytrader.execution.sizing import SizedEntry, size_entry_or_skip
-from thytrader.strategies.authoring import create_template_strategy
 from thytrader.trading.geometry import EntrySkipReason
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, PositionSide
+from thytrader.trading.sizing import SizedEntry, size_entry_or_skip
 
 
 @pytest.mark.parametrize("side", [PositionSide.LONG, PositionSide.SHORT])

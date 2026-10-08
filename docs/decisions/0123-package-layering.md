@@ -20,22 +20,34 @@ settings imported domain enums.
 ## Decision
 
 1. `tests/package_layers.json` declares the layers, highest first: processes, interfaces,
-   services, adapters, coordination, research, simulation, execution, risk, trading,
-   evaluation, contracts, platform, market, foundation. A module belongs to its top-level package unless a
-   `components` pattern claims it. Agent CLIs and their loopback clients are an `agent_cli`
-   component at the interface layer. The Coinbase broker is a `venue_adapters` component
-   beside persistence.
-2. A module may import its own layer or a lower one. `tests/test_package_layers.py` fails on
-   a new upward import, on growth past a recorded ceiling, on a ceiling above the current
-   count, and on same-layer cycles. Imports under `TYPE_CHECKING` and inside functions count.
-3. The run specification, indicators, closed-candle multi-timeframe alignment, signal
-   evaluation, traces, stresses and publication eligibility form the `evaluation` package. It
-   sits below backtest, research and execution, so every mode consumes the same semantics
-   without importing research orchestration.
-4. The broker-neutral trading model forms the `trading` package below risk: deployments,
-   intents, orders, fills and positions, ledgers, protection and exposure state, lifecycle
-   predicates, and the execution store contract with its in-memory store. `risk` reads it,
-   and the `execution` engine above both places orders.
+   services, adapters, coordination, research, execution, memory, simulation, risk,
+   trading, evaluation, contracts, platform, market, foundation.
+   - A module belongs to its top-level package unless a `components` pattern claims it.
+   - Agent CLIs and their loopback clients are an `agent_cli` component at the interface
+     layer.
+   - The Coinbase broker is a `venue_adapters` component beside persistence.
+2. A module may import its own layer or a lower one. `tests/test_package_layers.py` fails on:
+   - a new upward import;
+   - growth past a recorded ceiling;
+   - a ceiling above the current count;
+   - same-layer cycles.
+
+   Imports under `TYPE_CHECKING` and inside functions count. The 110 upward import pairs
+   recorded when this ADR was accepted reached zero on 2026-10-08, and the allowlist stays
+   empty.
+3. The `evaluation` package holds the run specification, indicators, closed-candle
+   multi-timeframe alignment, signal evaluation, traces, stresses and publication
+   eligibility. It sits below backtest, research and execution, so every mode consumes the
+   same semantics without importing research orchestration.
+4. The `trading` package holds the broker-neutral trading model and sits below risk. It
+   contains:
+   - deployments, intents, orders, fills and positions;
+   - ledgers, protection and exposure state, and lifecycle predicates;
+   - the sizing, economics and trailing-stop math that backtest, paper and live share;
+   - the execution store contract and its in-memory store.
+
+   `risk` reads it, and the `execution` engine above both places orders. The memory journal
+   sits below the engine that writes trade reasons to it.
 5. GitNexus cohesion is judged per production community of 10+ symbols (at or above 0.8),
    not by the repo mean.
 

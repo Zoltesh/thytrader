@@ -11,8 +11,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.kernel_state import BacktestSimulationError, _Position
-from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.strategies.models import StrategyDefinition, atr_trailing_stop
+from thytrader.trading.trailing import ratcheted_long_stop, ratcheted_short_stop
 
 if TYPE_CHECKING:
     from thytrader.evaluation.trace import SignalTraceRecord

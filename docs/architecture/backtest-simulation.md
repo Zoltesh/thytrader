@@ -96,7 +96,7 @@ simulator runs this fixed sequence:
    If the stop did not trigger and this bar touches the target (`high >= target`, `low <= target`
    for shorts), it fills at the target with the maker fee.
 4. **Trailing.** Enabled ATR trailing ratchets after the stop check, sharing the paper/live
-   ratchet (`thytrader.execution.trailing`); the fill bar records the trail extreme without
+   ratchet (`thytrader.trading.trailing`); the fill bar records the trail extreme without
    raising the stop. Disabled trailing is a no-op.
 5. **Signal exit.** When the strategy declares `exits.signal_exit`
    ([ADR 0093](../decisions/0093-signal-based-exits.md)) and its rule matched at this bar's close,

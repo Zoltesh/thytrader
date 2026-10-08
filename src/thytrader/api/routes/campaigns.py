@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
 from thytrader.api.dependencies import get_campaign_service as campaign_service
-from thytrader.execution.economics import (
+from thytrader.research.campaign_export import campaign_csv
+from thytrader.research.campaign_service import CampaignService
+from thytrader.research.campaigns import CampaignRecord, CampaignStart
+from thytrader.trading.economics import (
     EconomicPreflight,
     EconomicPreflightRequest,
     economic_preflight,
 )
-from thytrader.research.campaign_export import campaign_csv
-from thytrader.research.campaign_service import CampaignService
-from thytrader.research.campaigns import CampaignRecord, CampaignStart
 
 router = APIRouter(prefix="/api/v1/research", tags=["research campaigns"])
 

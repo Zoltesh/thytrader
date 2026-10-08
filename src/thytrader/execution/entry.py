@@ -41,10 +41,9 @@ from thytrader.execution.runtime_ops import (
     _pause,
 )
 from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr
-from thytrader.execution.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
 from thytrader.execution.submit import submit_intent
-from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.memory.trade_reason_scope import current_trade_reason_scope
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
 from thytrader.risk.models import (
@@ -78,6 +77,7 @@ from thytrader.trading.models import (
     snapshot_positions,
     with_runtime,
 )
+from thytrader.trading.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
