@@ -1,9 +1,11 @@
 """PostgreSQL repository for paper and live execution records.
 
 Row mappers and column-value builders live in
-:mod:`thytrader.persistence.postgres_execution_rows` and snapshot assembly in
-:mod:`thytrader.persistence.postgres_execution_snapshots`; names other modules import or
-patch from here are re-exported (``__all__``).
+:mod:`thytrader.persistence.postgres_execution_rows`, snapshot assembly in
+:mod:`thytrader.persistence.postgres_execution_snapshots`, and the statements the store's
+methods execute in :mod:`thytrader.persistence.postgres_execution_statements`; this module
+owns every connection and transaction. Names other modules import or patch from here are
+re-exported (``__all__``).
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import and_, case, delete, func, or_, select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -27,10 +29,24 @@ from thytrader.persistence.postgres_execution_rows import (
     _order_from_row,
     _order_values,
     _primary_runtime_mirror,
-    _text,
     _twin_link_from_row,
 )
 from thytrader.persistence.postgres_execution_snapshots import _snapshot, _summary_snapshot
+from thytrader.persistence.postgres_execution_statements import (
+    _applied_order_upsert,
+    _breaker_pause_update,
+    _deployment_select,
+    _fill_insert,
+    _fills_page_select,
+    _intent_insert,
+    _locked_deployment_select,
+    _order_upsert,
+    _orders_page_select,
+    _position_fee_fills_select,
+    _position_insert,
+    _twin_link_select,
+    _worker_lease_update,
+)
 from thytrader.persistence.postgres_fleet_admission import refuse_postgres_entry
 from thytrader.persistence.schema import (
     deployment_twin_links,
@@ -48,14 +64,12 @@ from thytrader.trading.fill_ledger import (
 )
 from thytrader.trading.ids import utc_now
 from thytrader.trading.ledger import (
-    MAX_POSITION_FEE_FILLS,
     LedgerFill,
     remaining_position_entry_fees,
 )
 from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
-    DeploymentStatus,
     DeploymentSummarySnapshot,
     ExecutionConflictError,
     ExecutionStoreError,
@@ -71,8 +85,6 @@ from thytrader.trading.models import (
     Position,
 )
 from thytrader.trading.pagination import (
-    decode_cursor,
-    decode_order_cursor,
     encode_cursor,
     encode_order_cursor,
 )
@@ -109,16 +121,7 @@ class PostgresExecutionStore:
         try:
             async with self._engine.connect() as conn:
                 row = (
-                    (
-                        await conn.execute(
-                            select(deployment_twin_links).where(
-                                or_(
-                                    deployment_twin_links.c.paper_deployment_id == deployment_id,
-                                    deployment_twin_links.c.live_deployment_id == deployment_id,
-                                )
-                            )
-                        )
-                    )
+                    (await conn.execute(_twin_link_select(deployment_id, deployment_id)))
                     .mappings()
                     .first()
                 )
@@ -160,20 +163,7 @@ class PostgresExecutionStore:
                 paper, live = comparable_twins(
                     books[deployment_id], books[counterpart_id], snapshots=snapshots
                 )
-                rows = (
-                    (
-                        await conn.execute(
-                            select(deployment_twin_links).where(
-                                or_(
-                                    deployment_twin_links.c.paper_deployment_id == paper.id,
-                                    deployment_twin_links.c.live_deployment_id == live.id,
-                                )
-                            )
-                        )
-                    )
-                    .mappings()
-                    .all()
-                )
+                rows = (await conn.execute(_twin_link_select(paper.id, live.id))).mappings().all()
                 for row in rows:
                     current = _twin_link_from_row(row)
                     if (
@@ -204,16 +194,7 @@ class PostgresExecutionStore:
             async with self._engine.begin() as conn:
                 await _lock_twin_books(conn, deployment_id, counterpart_id)
                 row = (
-                    (
-                        await conn.execute(
-                            select(deployment_twin_links).where(
-                                or_(
-                                    deployment_twin_links.c.paper_deployment_id == deployment_id,
-                                    deployment_twin_links.c.live_deployment_id == deployment_id,
-                                )
-                            )
-                        )
-                    )
+                    (await conn.execute(_twin_link_select(deployment_id, deployment_id)))
                     .mappings()
                     .first()
                 )
@@ -248,13 +229,7 @@ class PostgresExecutionStore:
     ) -> TargetResult:
         """Lock, check the confirmed revision, and save within the receipt transaction."""
         row = (
-            (
-                await connection.execute(
-                    select(deployments)
-                    .where(deployments.c.id == expected.deployment_id)
-                    .with_for_update()
-                )
-            )
+            (await connection.execute(_locked_deployment_select(expected.deployment_id)))
             .mappings()
             .one_or_none()
         )
@@ -309,11 +284,7 @@ class PostgresExecutionStore:
         try:
             async with self._engine.connect() as connection:
                 row = (
-                    (
-                        await connection.execute(
-                            select(deployments).where(deployments.c.id == deployment_id)
-                        )
-                    )
+                    (await connection.execute(_deployment_select(deployment_id)))
                     .mappings()
                     .one_or_none()
                 )
@@ -330,11 +301,7 @@ class PostgresExecutionStore:
                 await connection.execution_options(isolation_level="REPEATABLE READ")
                 async with connection.begin():
                     row = (
-                        (
-                            await connection.execute(
-                                select(deployments).where(deployments.c.id == deployment_id)
-                            )
-                        )
+                        (await connection.execute(_deployment_select(deployment_id)))
                         .mappings()
                         .one_or_none()
                     )
@@ -349,11 +316,7 @@ class PostgresExecutionStore:
         try:
             async with self._engine.connect() as connection:
                 row = (
-                    (
-                        await connection.execute(
-                            select(deployments).where(deployments.c.id == deployment_id)
-                        )
-                    )
+                    (await connection.execute(_deployment_select(deployment_id)))
                     .mappings()
                     .one_or_none()
                 )
@@ -382,23 +345,7 @@ class PostgresExecutionStore:
         self, position: Position, *, product_id: str
     ) -> Decimal | None:
         """Replay bounded applied fills since entry for one product's remaining entry fees."""
-        statement = (
-            select(execution_fills, execution_orders.c.side)
-            .join(execution_orders, execution_fills.c.order_id == execution_orders.c.id)
-            .join(deployments, execution_fills.c.deployment_id == deployments.c.id)
-            .where(
-                execution_fills.c.deployment_id == position.deployment_id,
-                execution_orders.c.deployment_id == position.deployment_id,
-                execution_fills.c.filled_at >= position.entered_bar,
-                execution_fills.c.economics_applied_at.is_not(None),
-                func.coalesce(
-                    func.nullif(execution_orders.c.product_id, ""), deployments.c.product_id
-                )
-                == product_id,
-            )
-            .order_by(execution_fills.c.filled_at.asc(), execution_fills.c.venue_fill_id.asc())
-            .limit(MAX_POSITION_FEE_FILLS + 1)
-        )
+        statement = _position_fee_fills_select(position, product_id=product_id)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -422,27 +369,7 @@ class PostgresExecutionStore:
         """Return one descending page of fills for one deployment."""
         if limit < 1:
             raise ExecutionStoreError("Fill page limit must be positive.")
-        statement = (
-            select(execution_fills, execution_orders.c.product_id)
-            .join(execution_orders, execution_fills.c.order_id == execution_orders.c.id)
-            .where(execution_fills.c.deployment_id == deployment_id)
-            .order_by(execution_fills.c.filled_at.desc(), execution_fills.c.id.desc())
-            .limit(limit + 1)
-        )
-        if cursor is not None:
-            try:
-                filled_at, row_id = decode_cursor(cursor)
-            except ValueError as error:
-                raise ExecutionStoreError("Invalid pagination cursor.") from error
-            statement = statement.where(
-                or_(
-                    execution_fills.c.filled_at < filled_at,
-                    and_(
-                        execution_fills.c.filled_at == filled_at,
-                        execution_fills.c.id < row_id,
-                    ),
-                )
-            )
+        statement = _fills_page_select(deployment_id, limit=limit, cursor=cursor)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -470,26 +397,7 @@ class PostgresExecutionStore:
         """Return one descending page of orders for one deployment."""
         if limit < 1:
             raise ExecutionStoreError("Order page limit must be positive.")
-        statement = (
-            select(execution_orders)
-            .where(execution_orders.c.deployment_id == deployment_id)
-            .order_by(execution_orders.c.created_at.desc(), execution_orders.c.id.desc())
-            .limit(limit + 1)
-        )
-        if cursor is not None:
-            try:
-                created_at, row_id = decode_order_cursor(cursor)
-            except ValueError as error:
-                raise ExecutionStoreError("Invalid pagination cursor.") from error
-            statement = statement.where(
-                or_(
-                    execution_orders.c.created_at < created_at,
-                    and_(
-                        execution_orders.c.created_at == created_at,
-                        execution_orders.c.id < row_id,
-                    ),
-                )
-            )
+        statement = _orders_page_select(deployment_id, limit=limit, cursor=cursor)
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).mappings().all()
@@ -580,18 +488,11 @@ class PostgresExecutionStore:
         daily_loss_latched: bool = False,
     ) -> Deployment:
         """CAS only breaker-owned metadata; preserve economics, lifecycle and runtime rows."""
-        running = deployments.c.status == DeploymentStatus.RUNNING.value
-        statement = (
-            deployments.update()
-            .where(deployments.c.id == deployment_id, deployments.c.revision == expected_revision)
-            .values(
-                status=case((running, DeploymentStatus.PAUSED.value), else_=deployments.c.status),
-                mismatch_detail=case((running, detail), else_=deployments.c.mismatch_detail),
-                daily_loss_latched=True if daily_loss_latched else deployments.c.daily_loss_latched,
-                updated_at=utc_now(),
-                revision=deployments.c.revision + 1,
-            )
-            .returning(deployments)
+        statement = _breaker_pause_update(
+            deployment_id,
+            expected_revision=expected_revision,
+            detail=detail,
+            daily_loss_latched=daily_loss_latched,
         )
         try:
             async with self._engine.begin() as connection:
@@ -611,25 +512,7 @@ class PostgresExecutionStore:
         ttl: timedelta,
     ) -> Deployment | None:
         """Acquire or renew a fenced worker lease in a short UPDATE."""
-        expires_at = now + ttl
-        statement = (
-            deployments.update()
-            .where(deployments.c.id == deployment_id)
-            .where(
-                or_(
-                    deployments.c.worker_lease_holder.is_(None),
-                    deployments.c.worker_lease_expires_at.is_(None),
-                    deployments.c.worker_lease_expires_at <= now,
-                    deployments.c.worker_lease_holder == holder,
-                )
-            )
-            .values(
-                worker_lease_holder=holder,
-                worker_lease_expires_at=expires_at,
-                revision=deployments.c.revision + 1,
-            )
-            .returning(deployments)
-        )
+        statement = _worker_lease_update(deployment_id, holder=holder, now=now, ttl=ttl)
         try:
             async with self._engine.begin() as connection:
                 row = (await connection.execute(statement)).mappings().one_or_none()
@@ -641,24 +524,7 @@ class PostgresExecutionStore:
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission."""
-        statement = insert(order_intents).values(
-            id=intent.id,
-            deployment_id=intent.deployment_id,
-            client_order_id=intent.client_order_id,
-            purpose=intent.purpose.value,
-            side=intent.side.value,
-            kind=intent.kind.value,
-            price=_text(intent.price),
-            stop_trigger_price=_text(intent.stop_trigger_price),
-            take_profit_price=_text(intent.take_profit_price),
-            quantity=format(intent.quantity, "f"),
-            candle_starts_at=intent.candle_starts_at,
-            status=intent.status.value,
-            origin=intent.origin.value,
-            idempotency_key=intent.idempotency_key,
-            product_id=intent.product_id,
-            created_at=intent.created_at,
-        )
+        statement = _intent_insert(intent)
         try:
             async with self._engine.begin() as connection:
                 if intent.purpose is IntentPurpose.ENTRY:
@@ -679,26 +545,7 @@ class PostgresExecutionStore:
 
     async def save_order(self, order: Order) -> Order:
         """Insert or replace one venue-visible order snapshot."""
-        values = _order_values(order)
-        statement = insert(execution_orders).values(values)
-        statement = statement.on_conflict_do_update(
-            index_elements=[execution_orders.c.client_order_id],
-            set_={
-                "venue_order_id": statement.excluded.venue_order_id,
-                "status": statement.excluded.status,
-                "filled_quantity": statement.excluded.filled_quantity,
-                "reject_reason": statement.excluded.reject_reason,
-                "updated_at": statement.excluded.updated_at,
-                "price": statement.excluded.price,
-                "stop_trigger_price": statement.excluded.stop_trigger_price,
-                "take_profit_price": statement.excluded.take_profit_price,
-                "quantity": statement.excluded.quantity,
-                "parent_order_id": statement.excluded.parent_order_id,
-                "attached_child_venue_order_id": statement.excluded.attached_child_venue_order_id,
-                "venue_observed_at": statement.excluded.venue_observed_at,
-                "pyramid_add": statement.excluded.pyramid_add,
-            },
-        )
+        statement = _order_upsert(order)
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
@@ -708,21 +555,7 @@ class PostgresExecutionStore:
 
     async def save_fill(self, fill: Fill) -> Fill:
         """Insert one fill, ignoring exact venue-fill duplicates."""
-        statement = (
-            insert(execution_fills)
-            .values(
-                id=fill.id,
-                deployment_id=fill.deployment_id,
-                order_id=fill.order_id,
-                venue_fill_id=fill.venue_fill_id,
-                price=format(fill.price, "f"),
-                quantity=format(fill.quantity, "f"),
-                fee=format(fill.fee, "f"),
-                filled_at=fill.filled_at,
-                economics_applied_at=fill.economics_applied_at,
-            )
-            .on_conflict_do_nothing(constraint="ux_execution_fills_venue")
-        )
+        statement = _fill_insert(fill, economics_applied_at=fill.economics_applied_at)
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
@@ -745,13 +578,7 @@ class PostgresExecutionStore:
                 # Lock before child reads/projection. UPDATE-only locking is too late:
                 # independent writers would otherwise compute from the same old cash.
                 row = (
-                    (
-                        await connection.execute(
-                            select(deployments)
-                            .where(deployments.c.id == deployment_id)
-                            .with_for_update()
-                        )
-                    )
+                    (await connection.execute(_locked_deployment_select(deployment_id)))
                     .mappings()
                     .one_or_none()
                 )
@@ -770,22 +597,7 @@ class PostgresExecutionStore:
                 )
                 if existing is not None and existing.economics_applied_at is not None:
                     return False, snapshot
-                insert_statement = (
-                    insert(execution_fills)
-                    .values(
-                        id=fill.id,
-                        deployment_id=fill.deployment_id,
-                        order_id=fill.order_id,
-                        venue_fill_id=fill.venue_fill_id,
-                        price=format(fill.price, "f"),
-                        quantity=format(fill.quantity, "f"),
-                        fee=format(fill.fee, "f"),
-                        filled_at=fill.filled_at,
-                        economics_applied_at=None,
-                    )
-                    .on_conflict_do_nothing(constraint="ux_execution_fills_venue")
-                )
-                await connection.execute(insert_statement)
+                await connection.execute(_fill_insert(fill, economics_applied_at=None))
                 snapshot = await _snapshot(connection, deployment)
                 existing = next(
                     (item for item in snapshot.fills if item.venue_fill_id == fill.venue_fill_id),
@@ -815,18 +627,7 @@ class PostgresExecutionStore:
                     updated_at=utc_now(),
                 )
                 order_values = _order_values(applied_fill)
-                await connection.execute(
-                    insert(execution_orders)
-                    .values(order_values)
-                    .on_conflict_do_update(
-                        index_elements=[execution_orders.c.client_order_id],
-                        set_={
-                            "status": order_values["status"],
-                            "filled_quantity": order_values["filled_quantity"],
-                            "updated_at": order_values["updated_at"],
-                        },
-                    )
-                )
+                await connection.execute(_applied_order_upsert(order_values))
                 await connection.execute(
                     execution_fills.update()
                     .where(
@@ -857,20 +658,7 @@ class PostgresExecutionStore:
                     position = projected.position
                     stamped_product = position.product_id or product_id
                     await connection.execute(
-                        insert(execution_positions).values(
-                            deployment_id=position.deployment_id,
-                            product_id=stamped_product,
-                            quantity=format(position.quantity, "f"),
-                            entry_price=format(position.entry_price, "f"),
-                            stop_price=format(position.stop_price, "f"),
-                            target_price=_text(position.target_price),
-                            entered_bar=position.entered_bar,
-                            trail_extreme=_text(position.trail_extreme),
-                            side=position.side.value,
-                            add_count=position.add_count,
-                            updated_at=position.updated_at,
-                            signal_exit_bar=position.signal_exit_bar,
-                        )
+                        _position_insert(position, stamped_product=stamped_product)
                     )
                 refreshed = await _snapshot(connection, replace(parent, revision=next_revision))
                 return True, refreshed
@@ -904,20 +692,7 @@ class PostgresExecutionStore:
                 if position is not None:
                     stamped_product = position.product_id or key_product
                     await connection.execute(
-                        insert(execution_positions).values(
-                            deployment_id=position.deployment_id,
-                            product_id=stamped_product,
-                            quantity=format(position.quantity, "f"),
-                            entry_price=format(position.entry_price, "f"),
-                            stop_price=format(position.stop_price, "f"),
-                            target_price=_text(position.target_price),
-                            entered_bar=position.entered_bar,
-                            trail_extreme=_text(position.trail_extreme),
-                            side=position.side.value,
-                            add_count=position.add_count,
-                            updated_at=position.updated_at,
-                            signal_exit_bar=position.signal_exit_bar,
-                        )
+                        _position_insert(position, stamped_product=stamped_product)
                     )
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error

@@ -4,7 +4,9 @@ Every mutation runs in one transaction: lock the strategy row first when the cha
 a strategy, then the portfolio row; re-read the aggregate; check the caller's revision;
 plan the change with :mod:`thytrader.portfolios.rules`; write the portfolio row with a
 revision guard, the sleeve diff, and the journal entries. Backtest results are stored as
-canonical JSON and re-verified against their fingerprint on every load.
+canonical JSON and re-verified against their fingerprint on every load. The shared
+in-transaction steps live in :mod:`thytrader.persistence.postgres_portfolio_steps` and the
+backtest job and result rows in :mod:`thytrader.persistence.postgres_portfolio_jobs`.
 """
 
 from __future__ import annotations
@@ -14,16 +16,24 @@ from hashlib import sha256
 import os
 import socket
 from typing import TYPE_CHECKING, cast
-from uuid import UUID
 
-from sqlalchemy import Table, Update, func, select, update
+from sqlalchemy import Update, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
+from thytrader.persistence.postgres_portfolio_jobs import (
+    _expire_jobs_update,
+    _job,
+    _job_completion_update,
+    _job_from_row,
+    _job_values,
+    _locked_job_row,
+    _result_insert,
+    _results_page_select,
+)
 from thytrader.persistence.postgres_portfolio_rows import (
     aggregates_for,
     apply_plan,
-    covered_products,
     insert_journal,
     journal_from_row,
     load_aggregate,
@@ -38,6 +48,13 @@ from thytrader.persistence.postgres_portfolio_runtime import (
     runtime_rows,
     update_proposal,
 )
+from thytrader.persistence.postgres_portfolio_steps import (
+    _count,
+    _millisecond_context,
+    _require_portfolio,
+    _shared_strategy,
+    _write_settlement,
+)
 from thytrader.persistence.postgres_research_queue import (
     PostgresResearchQueue,
     ResearchQueueUnavailableError,
@@ -48,7 +65,6 @@ from thytrader.persistence.schema import (
     portfolio_proposals,
     portfolios,
     published_portfolio_backtests,
-    strategies,
 )
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
@@ -56,7 +72,6 @@ from thytrader.portfolios.backtest import (
     PortfolioBacktestPlan,
     PortfolioBacktestResult,
     canonical_portfolio_backtest_bytes,
-    job_expiry,
     portfolio_backtest_fingerprint,
     portfolio_backtest_listing,
 )
@@ -69,15 +84,11 @@ from thytrader.portfolios.models import (
     PortfolioAggregate,
     PortfolioConflictError,
     PortfolioDeletion,
-    PortfolioError,
-    PortfolioNotFoundError,
     PortfolioPage,
     PortfolioProposalNotFoundError,
     PortfolioRuntimeState,
     PortfolioRuntimeView,
     PortfolioStorageUnavailableError,
-    PortfolioStrategyNotFoundError,
-    SleeveStrategy,
     utc_millisecond,
 )
 from thytrader.portfolios.proposals import Proposal, ProposalPage
@@ -103,9 +114,9 @@ from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from uuid import UUID
 
-    from sqlalchemy.engine import RowMapping
-    from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
+    from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.portfolios.models import (
         PortfolioCreateRequest,
@@ -115,11 +126,10 @@ if TYPE_CHECKING:
         SleevesAddRequest,
         SleeveUpdateRequest,
     )
-    from thytrader.portfolios.proposals import ProposalSettlement, ProposalStatus
+    from thytrader.portfolios.proposals import ProposalStatus
     from thytrader.portfolios.store import ProposalBuilder, ProposalSettler
 
 _UNAVAILABLE = "Portfolio storage is unavailable."
-_ACTIVE = (ResearchJobStatus.QUEUED.value, ResearchJobStatus.RUNNING.value)
 _HARNESS_LEASE_SECONDS = 3_600.0
 _HARNESS_MAX_ATTEMPTS = 3
 
@@ -347,23 +357,7 @@ class PostgresPortfolioStore:
         """Queue one resolved plan for the background runner."""
         now = utc_millisecond(context.occurred_at)
         job_id = uuid7(now)
-        values = {
-            "job_id": job_id,
-            "portfolio_id": str(plan.portfolio_id),
-            "portfolio_revision": plan.portfolio_revision,
-            "status": ResearchJobStatus.QUEUED.value,
-            "payload": plan.model_dump_json(),
-            "actor": context.actor,
-            "channel": context.channel,
-            "evaluation_start": plan.evaluation_start,
-            "evaluation_end": plan.evaluation_end,
-            "sleeve_count": len(plan.sleeves),
-            "progress_current": 0,
-            "progress_total": len(plan.sleeves) + 1,
-            "created_at": now,
-            "updated_at": now,
-            "expires_at": job_expiry(now),
-        }
+        values = _job_values(plan, job_id=job_id, now=now, context=context)
         try:
             async with self._engine.begin() as connection:
                 await _require_portfolio(connection, str(plan.portfolio_id), lock=True)
@@ -447,18 +441,13 @@ class PostgresPortfolioStore:
             async with self._engine.begin() as connection:
                 job = await _locked_job_row(connection, job_id)
                 await connection.execute(
-                    insert(published_portfolio_backtests)
-                    .values(
-                        result_fingerprint=fingerprint,
-                        portfolio_id=str(result.portfolio_id),
-                        portfolio_revision=result.portfolio_revision,
-                        evaluation_start=result.evaluation_start,
-                        evaluation_end=result.evaluation_end,
-                        listing=listing.model_dump_json(),
-                        canonical_result=canonical.decode("utf-8"),
-                        published_at=now,
+                    _result_insert(
+                        result,
+                        fingerprint=fingerprint,
+                        listing=listing,
+                        canonical=canonical,
+                        now=now,
                     )
-                    .on_conflict_do_nothing(index_elements=["result_fingerprint"])
                 )
                 context = MutationContext(
                     actor=cast("JournalActor", job["actor"]),
@@ -478,14 +467,7 @@ class PostgresPortfolioStore:
                     ),
                 )
                 await connection.execute(
-                    update(portfolio_backtest_jobs)
-                    .where(portfolio_backtest_jobs.c.job_id == job_id)
-                    .values(
-                        status=ResearchJobStatus.COMPLETED.value,
-                        result_fingerprint=fingerprint,
-                        progress_current=portfolio_backtest_jobs.c.progress_total,
-                        updated_at=now,
-                    )
+                    _job_completion_update(job_id, fingerprint=fingerprint, now=now)
                 )
                 return await _job(connection, job_id)
         except SQLAlchemyError as error:
@@ -503,18 +485,7 @@ class PostgresPortfolioStore:
     async def expire_stale(self) -> int:
         """Expire overdue queued or running jobs."""
         now = datetime.now(UTC)
-        statement = (
-            update(portfolio_backtest_jobs)
-            .where(
-                portfolio_backtest_jobs.c.expires_at <= now,
-                portfolio_backtest_jobs.c.status.in_(_ACTIVE),
-            )
-            .values(
-                status=ResearchJobStatus.EXPIRED.value,
-                error_message="Portfolio backtest expired.",
-                updated_at=now,
-            )
-        )
+        statement = _expire_jobs_update(now)
         return await self._bulk(statement)
 
     async def recover_interrupted(self) -> int:
@@ -531,16 +502,7 @@ class PostgresPortfolioStore:
         self, portfolio_id: UUID, *, limit: int, offset: int
     ) -> tuple[PortfolioBacktestListing, ...]:
         """Return stored results newest first (list rows only, no curves)."""
-        statement = (
-            select(published_portfolio_backtests.c.listing)
-            .where(published_portfolio_backtests.c.portfolio_id == str(portfolio_id))
-            .order_by(
-                published_portfolio_backtests.c.published_at.desc(),
-                published_portfolio_backtests.c.result_fingerprint.asc(),
-            )
-            .limit(limit)
-            .offset(offset)
-        )
+        statement = _results_page_select(portfolio_id, limit=limit, offset=offset)
         try:
             async with self._engine.connect() as connection:
                 await _require_portfolio(connection, str(portfolio_id))
@@ -796,112 +758,3 @@ class PostgresPortfolioStore:
         except SQLAlchemyError as error:
             raise PortfolioStorageUnavailableError(_UNAVAILABLE) from error
         return int(result.rowcount or 0)
-
-
-async def _write_settlement(
-    connection: AsyncConnection, current: PortfolioAggregate, settlement: ProposalSettlement
-) -> None:
-    """Append the proposal's journal entries, then apply its portfolio plan (if any).
-
-    The proposal event (submitted / approved) therefore precedes the change it made.
-    """
-    await insert_journal(connection, settlement.journal)
-    if settlement.plan is not None:
-        await apply_plan(connection, settlement.plan, previous=current)
-
-
-def _millisecond_context(context: MutationContext) -> MutationContext:
-    """Truncate the mutation instant to what a UUIDv7 encodes and PostgreSQL round-trips."""
-    return MutationContext(
-        actor=context.actor,
-        channel=context.channel,
-        occurred_at=utc_millisecond(context.occurred_at),
-    )
-
-
-async def _shared_strategy(connection: AsyncConnection, strategy_id: UUID) -> SleeveStrategy:
-    """Read (FOR SHARE) the facts of the strategy a sleeve will hold."""
-    statement = (
-        select(
-            strategies.c.strategy_id,
-            strategies.c.name,
-            strategies.c.product_id,
-            strategies.c.timeframe,
-            strategies.c.is_valid,
-            strategies.c.current_fingerprint,
-            strategies.c.document,
-        )
-        .where(strategies.c.strategy_id == str(strategy_id))
-        .with_for_update(read=True)
-    )
-    row = (await connection.execute(statement)).mappings().one_or_none()
-    if row is None:
-        raise PortfolioStrategyNotFoundError("Strategy was not found.")
-    product_id = cast("str | None", row["product_id"])
-    return SleeveStrategy(
-        strategy_id=strategy_id,
-        name=cast("str", row["name"]),
-        product_id=product_id,
-        covered_product_ids=covered_products(cast("str", row["document"]), product_id),
-        timeframe=cast("str | None", row["timeframe"]),
-        valid=bool(row["is_valid"]),
-        current_fingerprint=cast("str | None", row["current_fingerprint"]),
-    )
-
-
-async def _require_portfolio(
-    connection: AsyncConnection, portfolio_id: str, *, lock: bool = False
-) -> None:
-    """Raise :class:`PortfolioNotFoundError` unless the portfolio exists."""
-    statement = select(portfolios.c.portfolio_id).where(portfolios.c.portfolio_id == portfolio_id)
-    if lock:
-        statement = statement.with_for_update(read=True)
-    if (await connection.execute(statement)).scalar_one_or_none() is None:
-        raise PortfolioNotFoundError("Portfolio was not found.")
-
-
-async def _count(connection: AsyncConnection, table: Table, portfolio_id: str) -> int:
-    """Count one child table's rows for a portfolio."""
-    statement = select(func.count()).select_from(table).where(table.c.portfolio_id == portfolio_id)
-    return int((await connection.execute(statement)).scalar_one())
-
-
-async def _locked_job_row(connection: AsyncConnection, job_id: UUID) -> RowMapping:
-    """Lock one job row or raise when it no longer exists (portfolio deleted)."""
-    statement = (
-        select(portfolio_backtest_jobs)
-        .where(portfolio_backtest_jobs.c.job_id == job_id)
-        .with_for_update()
-    )
-    row = (await connection.execute(statement)).mappings().one_or_none()
-    if row is None:
-        raise PortfolioError("Portfolio backtest job no longer exists.")
-    return row
-
-
-async def _job(connection: AsyncConnection, job_id: UUID) -> PortfolioBacktestJob:
-    """Read one job row as its record."""
-    statement = select(portfolio_backtest_jobs).where(portfolio_backtest_jobs.c.job_id == job_id)
-    row = (await connection.execute(statement)).mappings().one()
-    return _job_from_row(row)
-
-
-def _job_from_row(row: RowMapping) -> PortfolioBacktestJob:
-    """Map one job row into its record."""
-    return PortfolioBacktestJob(
-        job_id=cast("UUID", row["job_id"]),
-        portfolio_id=UUID(cast("str", row["portfolio_id"])),
-        portfolio_revision=int(cast("int", row["portfolio_revision"])),
-        status=ResearchJobStatus(cast("str", row["status"])),
-        created_at=cast("datetime", row["created_at"]),
-        updated_at=cast("datetime", row["updated_at"]),
-        expires_at=cast("datetime", row["expires_at"]),
-        evaluation_start=cast("datetime", row["evaluation_start"]),
-        evaluation_end=cast("datetime", row["evaluation_end"]),
-        sleeve_count=int(cast("int", row["sleeve_count"])),
-        progress_current=int(cast("int", row["progress_current"])),
-        progress_total=int(cast("int", row["progress_total"])),
-        error_message=cast("str | None", row["error_message"]),
-        failed_detail=cast("str | None", row["failed_detail"]),
-        result_fingerprint=cast("str | None", row["result_fingerprint"]),
-    )

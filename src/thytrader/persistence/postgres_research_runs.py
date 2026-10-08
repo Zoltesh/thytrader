@@ -23,7 +23,8 @@ from thytrader.evaluation.publication import (
     verify_research_run_eligibility,
 )
 from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.persistence.postgres_strategies import PostgresStrategyStore, snapshot_owner
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
+from thytrader.persistence.postgres_strategy_snapshots import snapshot_owner
 from thytrader.persistence.schema import published_research_run_specs
 from thytrader.strategies.snapshots import StrategySnapshotError
 

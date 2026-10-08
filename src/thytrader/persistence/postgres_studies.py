@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
 from thytrader.market_data.models import DatasetTimeframe  # noqa: TC001 - cast target
-from thytrader.persistence.postgres_strategies import snapshot_owner
+from thytrader.persistence.postgres_strategy_snapshots import snapshot_owner
 from thytrader.persistence.schema import (
     published_research_studies,
     research_study_strategies,

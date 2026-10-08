@@ -3,59 +3,62 @@
 Rows in ``strategies`` are the root object (ADR 0082). Snapshots are verified on
 every load: stored bytes must be canonical, hash to their fingerprint, and name the
 owning strategy. Deletion runs in one transaction that locks the strategy row, so
-no snapshot (backtest/study/deploy start) can race it.
+no snapshot (backtest/study/deploy start) can race it. Snapshot rows and dataset checks
+live in :mod:`thytrader.persistence.postgres_strategy_snapshots` and the deletion steps in
+:mod:`thytrader.persistence.postgres_strategy_deletion`.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-import re
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import (
     ColumnElement,
-    ScalarSelect,
     Select,
-    Table,
     cast as sql_cast,
     delete,
     func,
     literal_column,
     not_,
-    or_,
     select,
     update,
 )
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.postgres_portfolio_rows import (
-    count_strategy_sleeves,
     remove_strategy_sleeves_in,
 )
-from thytrader.persistence.postgres_risk import load_active_policy_in, publish_policy_in
+from thytrader.persistence.postgres_strategy_deletion import (
+    _blocking_deployments,
+    _delete_research,
+    _delete_unreferenced_snapshots,
+    _deletion_counts,
+    _journal_instant,
+    _remove_allocation,
+    _strategy_row,
+)
+from thytrader.persistence.postgres_strategy_snapshots import (
+    _FINGERPRINT_PATTERN,
+    _snapshot_from_row,
+    _store_snapshot,
+    _validate_fingerprint,
+    _verify_compatible_dataset,
+)
 from thytrader.persistence.schema import (
-    deployments,
-    published_backtest_results,
-    published_research_run_specs,
-    published_research_studies,
-    research_jobs,
-    research_study_strategies,
     strategies,
     strategy_dataset_bindings,
     strategy_snapshots,
 )
-from thytrader.risk.store import RiskPolicyStoreError, successor_without_allocation
+from thytrader.risk.store import RiskPolicyStoreError
 from thytrader.strategies.library import (
     RESEARCH_TAG,
     RESEARCH_TAG_PREFIX,
     SnapshotLookup,
     StrategyDeletionBlockedError,
-    StrategyDeletionCounts,
     StrategyDeletionPreview,
     StrategyDeletionResult,
     StrategyDocument,
@@ -79,14 +82,10 @@ from thytrader.strategies.library import (
 from thytrader.strategies.models import (
     StrategyDefinition,
     canonical_strategy_bytes,
-    covered_product_ids,
-    expanded_data_requirements,
-    reference_series,
     strategy_fingerprint,
 )
 from thytrader.strategies.snapshots import (
     StrategyDatasetBinding,
-    StrategyDatasetMismatchError,
     StrategySnapshot,
     StrategySnapshotError,
 )
@@ -97,19 +96,9 @@ if TYPE_CHECKING:
 
     from thytrader.market_data.datasets import DatasetStore
 
-_FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
-_ACTIVE_STATUSES = ("running", "paused")
 _UNAVAILABLE = "Strategy storage is unavailable."
 _SNAPSHOT_UNAVAILABLE = "Strategy snapshot storage is unavailable."
 _BINDING_UNAVAILABLE = "Strategy dataset binding storage is unavailable."
-
-
-@dataclass(frozen=True, slots=True)
-class _LockedStrategy:
-    """The strategy row fields that deletion needs."""
-
-    strategy_id: str
-    name: str
 
 
 class PostgresStrategyStore:
@@ -542,263 +531,10 @@ def _verified_definition(canonical: str, fingerprint: str | None) -> StrategyDef
     return definition
 
 
-async def _store_snapshot(
-    connection: AsyncConnection, definition: StrategyDefinition
-) -> StrategySnapshot:
-    """Insert (or reuse) one snapshot row and verify the stored bytes."""
-    canonical = canonical_strategy_bytes(definition).decode("utf-8")
-    fingerprint = strategy_fingerprint(definition)
-    await connection.execute(
-        insert(strategy_snapshots)
-        .values(
-            strategy_fingerprint=fingerprint,
-            strategy_id=str(definition.strategy_id),
-            canonical_definition=canonical,
-            created_at=datetime.now(UTC),
-        )
-        .on_conflict_do_nothing(index_elements=["strategy_fingerprint"])
-    )
-    result = await connection.execute(
-        select(
-            strategy_snapshots.c.strategy_id,
-            strategy_snapshots.c.canonical_definition,
-        ).where(strategy_snapshots.c.strategy_fingerprint == fingerprint)
-    )
-    return _snapshot_from_row(result.mappings().one(), fingerprint)
-
-
-def _snapshot_from_row(row: RowMapping, strategy_fingerprint_value: str) -> StrategySnapshot:
-    """Validate one snapshot row against its canonical identity and owner."""
-    canonical = cast("str", row["canonical_definition"])
-    try:
-        definition = StrategyDefinition.model_validate_json(canonical)
-    except ValidationError as error:
-        raise StrategySnapshotError("Strategy snapshot content failed validation.") from error
-    if canonical_strategy_bytes(definition).decode("utf-8") != canonical:
-        raise StrategySnapshotError("Strategy snapshot bytes are not canonical.")
-    if strategy_fingerprint(definition) != strategy_fingerprint_value:
-        raise StrategySnapshotError("Strategy snapshot fingerprint verification failed.")
-    owner = cast("str | None", row["strategy_id"])
-    if owner is not None and owner != str(definition.strategy_id):
-        raise StrategySnapshotError("Strategy snapshot owner does not match its document.")
-    return StrategySnapshot(strategy_fingerprint=strategy_fingerprint_value, definition=definition)
-
-
-async def _strategy_row(
-    connection: AsyncConnection, strategy_id: UUID, *, lock: bool
-) -> _LockedStrategy:
-    """Read (and optionally row-lock) the strategy being deleted."""
-    statement = select(strategies.c.strategy_id, strategies.c.name).where(
-        strategies.c.strategy_id == str(strategy_id)
-    )
-    if lock:
-        statement = statement.with_for_update()
-    row = (await connection.execute(statement)).mappings().one_or_none()
-    if row is None:
-        raise StrategyNotFoundError("Strategy was not found.")
-    return _LockedStrategy(
-        strategy_id=cast("str", row["strategy_id"]), name=cast("str", row["name"])
-    )
-
-
-async def _blocking_deployments(
-    connection: AsyncConnection, strategy_id: str, *, lock: bool = False
-) -> tuple[UUID, ...]:
-    """Return running or paused deployments of the strategy (row-locked when deleting)."""
-    statement = (
-        select(deployments.c.id)
-        .where(
-            deployments.c.strategy_id == strategy_id,
-            deployments.c.status.in_(_ACTIVE_STATUSES),
-        )
-        .order_by(deployments.c.id)
-    )
-    if lock:
-        statement = statement.with_for_update()
-    return tuple(cast("UUID", value) for value in (await connection.execute(statement)).scalars())
-
-
-async def _count(connection: AsyncConnection, statement: Select[tuple[int]]) -> int:
-    """Execute one COUNT query."""
-    return int((await connection.execute(statement)).scalar_one())
-
-
-def _studies_condition(strategy_id: str) -> ColumnElement[bool]:
-    """Select every study the strategy owns or takes part in."""
-    members = select(research_study_strategies.c.study_fingerprint).where(
-        research_study_strategies.c.strategy_id == strategy_id
-    )
-    return or_(
-        published_research_studies.c.strategy_id == strategy_id,
-        published_research_studies.c.study_fingerprint.in_(members),
-    )
-
-
-def _kept_snapshot_condition(strategy_id: str) -> ColumnElement[bool]:
-    """The strategy's snapshots that no retained paper or live deployment references."""
-    referenced = select(deployments.c.strategy_fingerprint).where(
-        deployments.c.strategy_fingerprint.is_not(None),
-    )
-    return (strategy_snapshots.c.strategy_id == strategy_id) & (
-        strategy_snapshots.c.strategy_fingerprint.not_in(referenced)
-    )
-
-
-async def _deletion_counts(connection: AsyncConnection, strategy_id: str) -> StrategyDeletionCounts:
-    """Count every row a deletion removes or detaches."""
-
-    def by_strategy(table: Table) -> Select[tuple[int]]:
-        """Count one research table's rows for the strategy."""
-        return select(func.count()).select_from(table).where(table.c.strategy_id == strategy_id)
-
-    def books(mode: str) -> Select[tuple[int]]:
-        """Count the strategy's deployments in one mode."""
-        return (
-            select(func.count())
-            .select_from(deployments)
-            .where(deployments.c.strategy_id == strategy_id, deployments.c.mode == mode)
-        )
-
-    return StrategyDeletionCounts(
-        snapshots=await _count(
-            connection,
-            select(func.count())
-            .select_from(strategy_snapshots)
-            .where(_kept_snapshot_condition(strategy_id)),
-        ),
-        backtests=await _count(connection, by_strategy(published_backtest_results)),
-        research_runs=await _count(connection, by_strategy(published_research_run_specs)),
-        studies=await _count(
-            connection,
-            select(func.count())
-            .select_from(published_research_studies)
-            .where(_studies_condition(strategy_id)),
-        ),
-        research_jobs=await _count(connection, by_strategy(research_jobs)),
-        dataset_bindings=await _count(connection, by_strategy(strategy_dataset_bindings)),
-        # This existing payload field counts removals, not retained evidence (ADR 0111).
-        paper_deployments=0,
-        live_deployments_kept=await _count(connection, books("live")),
-        allocations_removed=await _allocation_count(connection, UUID(strategy_id)),
-        portfolio_sleeves=await count_strategy_sleeves(connection, strategy_id),
-    )
-
-
-async def _allocation_count(connection: AsyncConnection, strategy_id: UUID) -> int:
-    """Return how many active risk-policy allocations reserve capital for the strategy."""
-    active = await load_active_policy_in(connection)
-    return sum(1 for item in active.definition.allocations if item.strategy_id == strategy_id)
-
-
-async def _delete_research(connection: AsyncConnection, strategy_id: str) -> None:
-    """Delete jobs, studies, results, run specs, and bindings in dependency order."""
-    await connection.execute(
-        delete(research_jobs).where(research_jobs.c.strategy_id == strategy_id)
-    )
-    await connection.execute(
-        delete(published_research_studies).where(_studies_condition(strategy_id))
-    )
-    await connection.execute(
-        delete(published_backtest_results).where(
-            published_backtest_results.c.strategy_id == strategy_id
-        )
-    )
-    await connection.execute(
-        delete(published_research_run_specs).where(
-            published_research_run_specs.c.strategy_id == strategy_id
-        )
-    )
-    await connection.execute(
-        delete(strategy_dataset_bindings).where(
-            strategy_dataset_bindings.c.strategy_id == strategy_id
-        )
-    )
-
-
-async def _delete_unreferenced_snapshots(connection: AsyncConnection, strategy_id: str) -> None:
-    """Delete snapshots except those a retained paper or live deployment ran."""
-    await connection.execute(
-        delete(strategy_snapshots).where(_kept_snapshot_condition(strategy_id))
-    )
-
-
-async def _remove_allocation(connection: AsyncConnection, strategy_id: UUID) -> bool:
-    """Publish the next risk-policy version without the deleted strategy's allocation."""
-    active = await load_active_policy_in(connection, for_update=True)
-    successor = successor_without_allocation(active, strategy_id)
-    if successor is None:
-        return False
-    await publish_policy_in(connection, successor)
-    return True
-
-
-def _verify_compatible_dataset(
-    snapshot: StrategySnapshot,
-    dataset_fingerprint: str,
-    dataset_store: DatasetStore,
-) -> None:
-    """Verify immutable dataset availability and strategy identity compatibility.
-
-    A multi-instrument document (ADR 0056) runs the same timeframes on every covered
-    product, so a dataset matches when its product is any covered product and its
-    timeframe is one the document reads. A declared reference instrument (ADR 0096)
-    also matches its exact product and timeframe.
-    """
-    try:
-        manifest = dataset_store.load_manifest(dataset_fingerprint)
-    except (DatasetStoreError, OSError, ValueError) as error:
-        raise StrategySnapshotError(
-            "Immutable dataset could not be verified for strategy binding."
-        ) from error
-    definition = snapshot.definition
-    allowed_products = covered_product_ids(definition)
-    allowed_timeframes = {
-        requirement.timeframe for requirement in expanded_data_requirements(definition)
-    }
-    covered = manifest.product_id in allowed_products and manifest.timeframe in allowed_timeframes
-    referenced = (manifest.product_id, manifest.timeframe) in reference_series(definition)
-    if manifest.provider != "coinbase" or not (covered or referenced):
-        references = "".join(
-            f"; reference {product_id} {timeframe}"
-            for product_id, timeframe in sorted(reference_series(definition))
-        )
-        raise StrategyDatasetMismatchError(
-            f"Dataset {manifest.product_id} {manifest.timeframe} ({manifest.provider}) does not "
-            f"match the strategy: it covers {', '.join(allowed_products)} on "
-            f"{', '.join(sorted(allowed_timeframes))}{references} (coinbase)."
-        )
-
-
-def _validate_fingerprint(value: str, *, label: str) -> None:
-    """Reject malformed content identities before filesystem or SQL lookup."""
-    if _FINGERPRINT_PATTERN.fullmatch(value) is None:
-        raise StrategySnapshotError(f"Invalid {label} fingerprint.")
-
-
-def _journal_instant() -> datetime:
-    """The UTC millisecond the portfolio journal records for a deletion's sleeve removals."""
-    now = datetime.now(UTC)
-    return now.replace(microsecond=(now.microsecond // 1_000) * 1_000)
-
-
 def _require_utc(value: datetime) -> None:
     """Require timezone-aware UTC timestamps."""
     if value.tzinfo is None or value.utcoffset() != timedelta(0):
         raise StrategyLibraryError("Strategy timestamps must be UTC.")
-
-
-def snapshot_owner(strategy_fingerprint_value: str) -> ScalarSelect[str | None]:
-    """Scalar subquery resolving a snapshot fingerprint to its owning strategy_id.
-
-    Research and runtime rows copy their ``strategy_id`` from the snapshot they
-    reference, so a row can never claim a strategy its rules did not come from.
-    A detached snapshot (owner deleted) yields NULL and the NOT NULL insert fails.
-    """
-    return (
-        select(strategy_snapshots.c.strategy_id)
-        .where(strategy_snapshots.c.strategy_fingerprint == strategy_fingerprint_value)
-        .scalar_subquery()
-    )
 
 
 _RESEARCH_TAG_PATH = (
