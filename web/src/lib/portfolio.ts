@@ -25,13 +25,6 @@ export type Portfolio = {
 	unvalued_assets: string[];
 };
 
-export type ApiError = {
-	detail?: {
-		code?: string;
-		message?: string;
-	};
-};
-
 export type HistoryEntry = {
 	as_of: string;
 	total_value: Money;

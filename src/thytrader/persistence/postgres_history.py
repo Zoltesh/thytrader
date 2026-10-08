@@ -116,7 +116,7 @@ def _range_sample_statement(
 def _portfolio_to_snapshot(portfolio: Portfolio) -> dict[str, object]:
     """Convert a complete domain snapshot into a JSON-safe dictionary.
 
-    Every ``Decimal`` is rendered as a fixed decimal string so the JSONB
+    Every ``Decimal`` is rendered as a fixed decimal string so the JSON
     payload preserves the exact domain representation without binary
     floating-point loss.
     """

@@ -174,11 +174,6 @@ def get_research_job_store(request: Request) -> ResearchJobStore:
     return store
 
 
-def get_backtest_job_store(request: Request) -> ResearchJobStore:
-    """Return the async backtest job tracker (alias of the research job store)."""
-    return get_research_job_store(request)
-
-
 def get_backtest_benchmark_reader(request: Request) -> BacktestBenchmarkReader:
     """Return the read-only derived benchmark boundary attached during app startup."""
     reader = getattr(request.app.state, "backtest_benchmark_reader", None)

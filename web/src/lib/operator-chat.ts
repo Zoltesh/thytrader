@@ -84,13 +84,6 @@ async function errorMessage(response: Response, fallback: string): Promise<strin
 	return fallback;
 }
 
-export async function fetchOperatorChatStatus(): Promise<OperatorChatStatus> {
-	return readJson<OperatorChatStatus>(
-		'/api/v1/operator-chat/status',
-		'Operator chat status is unavailable.'
-	);
-}
-
 export async function fetchOperatorChatTranscript(): Promise<ChatTranscript> {
 	return readJson<ChatTranscript>(
 		'/api/v1/operator-chat/transcript',

@@ -24,33 +24,28 @@ operator_alert_checks = Table(
     Column("subject", String(128), primary_key=True),
     Column("observed_at", DateTime(timezone=True), nullable=False),
     Column("failed", Boolean(), nullable=False),
-    comment="Persistent monotone check watermarks, including verified healthy observations.",
+    # Persistent monotone check watermarks, including verified healthy observations.
+    # (No table comment: the creating migration set none and ``alembic check`` compares.)
 )
 
 operator_alerts = Table(
     "operator_alerts",
     metadata,
     Column("id", UUID(), primary_key=True),
-    Column("code", String(48), nullable=False, comment="Stable alert reason code (ADR 0115)."),
-    Column("scope", String(16), nullable=False, comment="deployment or worker scope."),
-    Column("subject", String(128), nullable=False, comment="Deployment id or worker identity."),
-    Column(
-        "deployment_id",
-        UUID(),
-        nullable=True,
-        comment="Owning book when the alert is deployment-scoped.",
-    ),
+    # Column comments live here, not in the database: the creating migration set none,
+    # and ``alembic check`` (CI) requires metadata to match the migrated schema.
+    Column("code", String(48), nullable=False),  # Stable alert reason code (ADR 0115).
+    Column("scope", String(16), nullable=False),  # deployment or worker scope.
+    Column("subject", String(128), nullable=False),  # Deployment id or worker identity.
+    # Owning book when the alert is deployment-scoped.
+    Column("deployment_id", UUID(), nullable=True),
     Column("product_id", String(32), nullable=True),
     Column("severity", String(12), nullable=False),
-    Column("detail", String(500), nullable=False, comment="Redacted operator-facing summary."),
+    Column("detail", String(500), nullable=False),  # Redacted operator-facing summary.
     Column("first_seen_at", DateTime(timezone=True), nullable=False),
     Column("last_seen_at", DateTime(timezone=True), nullable=False),
-    Column(
-        "occurrences",
-        Integer(),
-        nullable=False,
-        comment="Consecutive supervision cycles that re-observed this open alert.",
-    ),
+    # Consecutive supervision cycles that re-observed this open alert.
+    Column("occurrences", Integer(), nullable=False),
     Column("resolved_at", DateTime(timezone=True), nullable=True),
     Column("resolution_detail", String(500), nullable=False, server_default=""),
     Column("delivery_provider", String(16), nullable=False, server_default="none"),

@@ -30,6 +30,10 @@ published_risk_policies = Table(
         "policy_fingerprint ~ '^sha256:[0-9a-f]{64}$'",
         name="ck_published_risk_policy_fingerprint_format",
     ),
+    comment=(
+        "thytrader-risk-policy-v1; omitted breaker keys overlay compiled defaults at load "
+        "(ADR 0050). Stored canonical JSON and fingerprints stay unchanged."
+    ),
 )
 
 active_risk_policy = Table(

@@ -78,14 +78,6 @@ def remaining_quantity(order: Order) -> Decimal:
     return remaining if remaining > 0 else Decimal("0")
 
 
-def _is_entry_order(snapshot: DeploymentSnapshot, order: Order) -> bool:
-    """True when the order's intent is ENTRY, or no intents exist and it is not a bracket."""
-    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
-    if entry_ids:
-        return order.intent_id in entry_ids
-    return order.kind in _ENTRY_KINDS
-
-
 def _fill_opened_position(fill: Fill, position: Position) -> bool:
     """True when this fill is the entry that opened the current position."""
     tzinfo = position.entered_bar.tzinfo

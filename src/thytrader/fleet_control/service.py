@@ -265,15 +265,6 @@ def _already_applied(row: Deployment, action: FleetAction) -> bool:
     return row.lifecycle_command is LifecycleCommand.MANAGED_SHUTDOWN
 
 
-def _venue_effect(action: FleetAction) -> VenueEffect:
-    """Map an action onto the asynchronous worker effect label."""
-    if action is FleetAction.FLATTEN:
-        return VenueEffect.ASYNC_FLATTEN
-    if action is FleetAction.MANAGED_STOP:
-        return VenueEffect.ASYNC_MANAGED_SHUTDOWN
-    return VenueEffect.NONE
-
-
 def _not_confirmed(row: Deployment) -> TargetResult:
     """Report a scoped book the operator did not confirm. It is not commanded."""
     return TargetResult(

@@ -23,7 +23,6 @@ from thytrader.backtest.submission_bindings import (
 )
 from thytrader.backtest.submission_coverage import _filled_window
 from thytrader.backtest.submission_models import (
-    BacktestAssumptions,
     BacktestStartRequest,
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
@@ -62,7 +61,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "SIMULATION_SEMANTICS",
-    "BacktestAssumptions",
     "BacktestStartRequest",
     "BacktestSubmissionError",
     "BacktestSubmissionRejectedError",

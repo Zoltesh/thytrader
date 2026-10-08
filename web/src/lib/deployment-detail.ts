@@ -6,7 +6,7 @@
  * detail page and unit tests share one interpretation of the contract. Nothing
  * here invents state: absent values render as explicit unknowns.
  */
-import { canonicalPositions, type Deployment, type DeploymentOrder } from './deployments';
+import { canonicalPositions, type Deployment } from './deployments';
 import { productIdQuote } from './product-id';
 import { workspaceHref } from './strategy-workspace';
 
@@ -280,12 +280,6 @@ export function otherVersionDeployments(
 	);
 }
 
-/** Newest-first pagination state for orders/fills cursor pages. */
-export type LedgerPaging<T> = {
-	rows: T[];
-	nextCursor: string | null;
-};
-
 /** Run stage of this deployment's strategy workspace, plus the snapshot it runs. */
 export function strategyVersionLink(
 	deployment: Deployment
@@ -301,11 +295,6 @@ export function strategyVersionLink(
 export function strategyIdentityLink(deployment: Deployment): string | null {
 	if (deployment.strategy_id === null) return null;
 	return workspaceHref(deployment.strategy_id, 'run');
-}
-
-/** Order display row collapsing the API product fallback into one value. */
-export function orderRowLabel(deployment: Deployment, order: DeploymentOrder): string {
-	return order.product_id || deployment.product_id;
 }
 
 /** Currency suffix for a provenance-labeled performance amount, or '' when unknown. */

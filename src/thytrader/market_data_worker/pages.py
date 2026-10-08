@@ -13,7 +13,7 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from thytrader.market_data.hole_settlement import HOLE_SETTLE_MINIMUM, settle_cutoff
+from thytrader.market_data.hole_settlement import settle_cutoff
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 
 __all__ = [
-    "HOLE_SETTLE_MINIMUM",
     "CandlePage",
     "CandleRun",
     "merge_confirmed_pages",

@@ -304,12 +304,9 @@ execution_positions = Table(
     Column("quantity", String(64), nullable=False),
     Column("entry_price", String(64), nullable=False),
     Column("stop_price", String(64), nullable=False),
-    Column(
-        "target_price",
-        String(64),
-        nullable=True,
-        comment="Take-profit price; NULL when the strategy declares no take-profit (ADR 0090).",
-    ),
+    # Take-profit price; NULL when the strategy declares no take-profit (ADR 0090).
+    # (Kept as a Python comment: the migration set no column comment.)
+    Column("target_price", String(64), nullable=True),
     Column("entered_bar", DateTime(timezone=True), nullable=False),
     Column("trail_extreme", String(64), nullable=True),
     Column("side", String(8), nullable=False, server_default="long"),

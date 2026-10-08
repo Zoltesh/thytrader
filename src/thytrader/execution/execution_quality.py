@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime, timedelta
 from decimal import Context, Decimal, Inexact, InvalidOperation, Overflow, localcontext
 from typing import TYPE_CHECKING
 
@@ -31,8 +30,6 @@ from thytrader.execution.decision_store import (
 )
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT
 from thytrader.execution.execution_quality_models import (
-    EXECUTION_QUALITY_SCHEMA_VERSION,
-    EXECUTION_TWIN_SCHEMA_VERSION,
     CycleDirection,
     ExecutionFeeNormalization,
     ExecutionQualityBook,
@@ -72,6 +69,7 @@ from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
+    from datetime import datetime, timedelta
     from uuid import UUID
 
     from thytrader.execution.models import Deployment, Fill, Order, OrderIntent, Position
@@ -156,13 +154,6 @@ def _liquidity_evidence(order: Order) -> MakerTakerEvidence | None:
     if order.kind is OrderKind.MARKETABLE:
         return "taker"
     return None
-
-
-def _bar_start(instant: datetime, duration: timedelta) -> datetime:
-    """Floor one UTC instant to its decision-clock bar start."""
-    seconds = duration.total_seconds()
-    offset = instant.timestamp() % seconds
-    return (instant - timedelta(seconds=offset)).replace(tzinfo=UTC)
 
 
 def _signed_slippage_bps(fill: Fill, side: OrderSide, close: Decimal) -> Decimal | None:
@@ -1053,44 +1044,7 @@ def _iter_report_fills(book: ExecutionQualityBook) -> Iterable[ExecutionQualityF
     yield from book.recorded_fills
 
 
-def render_execution_quality_text(report: ExecutionQualityReport) -> str:
-    """Render one short human summary of an execution-quality report."""
-    lines = [
-        f"deployment={report.deployment_id}",
-        f"mode={report.mode.value} status={report.status}",
-        f"closed_trades={report.totals.closed_trade_count}",
-        f"net_pnl={report.totals.net_pnl}",
-        f"entry_fees={report.totals.entry_fees} exit_fees={report.totals.exit_fees}",
-        f"before_fees_pnl={report.totals.fill_price_pnl_before_fees}",
-        f"evidence={'complete' if report.evidence.complete else 'incomplete'}",
-    ]
-    if report.totals.weighted_slippage_bps is not None:
-        lines.append(f"weighted_slippage_bps={report.totals.weighted_slippage_bps}")
-    if report.evidence.reasons:
-        lines.append("reasons=" + ",".join(reason.value for reason in report.evidence.reasons))
-    return "\n".join(lines)
-
-
-def render_execution_twin_text(comparison: ExecutionTwinComparison) -> str:
-    """Render one short human summary of a twin execution comparison."""
-    lines = [
-        f"comparable={'yes' if comparison.comparable else 'no'}",
-        f"paper={comparison.paper.deployment_id} live={comparison.live.deployment_id}",
-        f"paper_net_pnl={comparison.paper.net_pnl} live_net_pnl={comparison.live.net_pnl}",
-    ]
-    if comparison.fee_normalization is not None:
-        lines.append(
-            "counterfactual_live_fees_at_paper_rates="
-            f"{comparison.fee_normalization.counterfactual_live_fees_at_paper_rates}"
-        )
-    if comparison.reasons:
-        lines.append("reasons=" + ",".join(reason.value for reason in comparison.reasons))
-    return "\n".join(lines)
-
-
 __all__ = [
-    "EXECUTION_QUALITY_SCHEMA_VERSION",
-    "EXECUTION_TWIN_SCHEMA_VERSION",
     "JOURNALED_CLOSE_PAGE_LIMIT",
     "ExecutionFeeNormalization",
     "ExecutionQualityBook",
@@ -1112,6 +1066,4 @@ __all__ = [
     "build_execution_twin_comparison",
     "load_journaled_close_evidence",
     "positions_by_product",
-    "render_execution_quality_text",
-    "render_execution_twin_text",
 ]

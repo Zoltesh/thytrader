@@ -133,7 +133,10 @@ test variables at the running application's database, and leave `THYTRADER_DATAB
 pytest so unconfigured-storage tests stay truthful.
 
 When adding a migration, update `ops_contract.EXPECTED_SCHEMA_REVISION` in the same change
-(`test_expected_schema_revision_matches_alembic_head` checks it against the Alembic head). After a
+(`test_expected_schema_revision_matches_alembic_head` checks it against the Alembic head).
+CI also runs `uv run alembic check` on the migrated database: the SQLAlchemy tables in
+`src/thytrader/persistence/tables/` must match what the migrations create, column and table
+comments included. Keep explanatory notes that no migration wrote as Python `#` comments. After a
 rebuild (`make run`), verify operator health as well as the tests.
 
 A change is complete only when relevant tests/checks pass, GitNexus impact is
