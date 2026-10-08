@@ -3,7 +3,7 @@
  * reading is not green when the evidence says the stop is synthetic, partial,
  * or not a confirmed venue order.
  */
-import { positionStateLabel } from '$lib/deployments';
+import { positionStateLabel } from '$lib/position-state';
 import { compareDecimalStrings } from '$lib/portfolio';
 
 /** Quantitative stop cover from a deployment position or sleeve book. */
