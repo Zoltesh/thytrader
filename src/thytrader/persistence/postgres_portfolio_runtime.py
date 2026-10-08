@@ -17,11 +17,7 @@ from pydantic import TypeAdapter
 from sqlalchemy import func, insert, select, update
 
 from thytrader.persistence.schema import deployments, portfolio_proposals, portfolio_runtime
-from thytrader.portfolios.models import (
-    BreakerReason,
-    JournalChannel,
-    PortfolioRuntimeState,
-)
+from thytrader.portfolios.models import PortfolioRuntimeState
 from thytrader.portfolios.proposals import (
     REBALANCE_BUDGET_WINDOW,
     DecidedBy,
@@ -37,6 +33,8 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection
+
+    from thytrader.portfolios.vocabulary import BreakerReason, JournalChannel
 
 _SUBMITTERS = Literal["manager", "operator"]
 

@@ -16,7 +16,8 @@ from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.runtime_ops import _pause
 from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.exposure import counts_for_daily_loss

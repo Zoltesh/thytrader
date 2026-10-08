@@ -16,7 +16,6 @@ from thytrader.portfolios.models import (
     MutationContext,
     PortfolioCreateRequest,
     PortfolioLimits,
-    PortfolioMode,
     SleeveAddRequest,
 )
 from thytrader.portfolios.runtime import PortfolioRuntimeService
@@ -33,6 +32,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.portfolios.models import PortfolioAggregate
+    from thytrader.portfolios.vocabulary import PortfolioMode
     from thytrader.strategies.library import StrategyRecord
     from thytrader.trading.models import Deployment
 

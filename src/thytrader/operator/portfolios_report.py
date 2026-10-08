@@ -28,14 +28,11 @@ from thytrader.operator.portfolio_models import (
     PortfoliosReport,
 )
 from thytrader.operator.status import recommend_next_action
+from thytrader.portfolios.allocation import allocation_summary
 from thytrader.portfolios.deployment import members, sleeve_books
-from thytrader.portfolios.models import (
-    PORTFOLIO_BACKTEST_CONTRACT,
-    PortfolioError,
-    PortfolioRuntimeState,
-    sleeve_issues,
-)
-from thytrader.portfolios.rules import allocation_summary
+from thytrader.portfolios.errors import PortfolioError
+from thytrader.portfolios.models import PortfolioRuntimeState, sleeve_issues
+from thytrader.portfolios.vocabulary import PORTFOLIO_BACKTEST_CONTRACT
 from thytrader.research.jobs import ResearchJobStatus
 from thytrader.trading.models import ExecutionStoreError
 

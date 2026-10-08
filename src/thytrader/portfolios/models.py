@@ -1,29 +1,24 @@
-"""Portfolio domain records, validated value types, commands, and errors (ADR 0088).
+"""Portfolio domain records, settings, journal entries, and commands (ADR 0088).
 
-Money and fractions travel as canonical plain decimal strings, exactly like the research
-contracts: weights and fractions allow at most four decimal places (0.01%), quote amounts
-at most eight. A portfolio's ``mode`` and ``quote_currency`` are fixed at creation. The
-manager settings bound what the manager agent's proposals may change without approval
-(ADR 0091); no field can grant order authority, because strategies place every trade.
+A portfolio's ``mode`` and ``quote_currency`` are fixed at creation. The manager settings
+bound what the manager agent's proposals may change without approval (ADR 0091); no field
+can grant order authority, because strategies place every trade. The validated value types
+live in ``portfolios.values``, the shared literals and bounds in ``portfolios.vocabulary``,
+and the failures in ``portfolios.errors``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-import re
-from typing import TYPE_CHECKING, Annotated, Final, Literal, Self
-import unicodedata
+from typing import TYPE_CHECKING, Self
 from uuid import UUID
 
 from pydantic import (
-    AfterValidator,
     BaseModel,
     ConfigDict,
     Field,
     StrictBool,
-    StrictInt,
     field_serializer,
     field_validator,
     model_validator,
@@ -35,259 +30,42 @@ from thytrader.market_data.products import (
     is_spot_product_id,
     quote_currency,
 )
+from thytrader.portfolios.errors import PortfolioSleeveNotFoundError
+from thytrader.portfolios.values import (
+    DrawdownFractionText,
+    LimitFractionText,
+    MandateText,
+    PortfolioNameText,
+    QuoteAmountText,
+    ReserveFractionText,
+    RevisionNumber,
+    SleeveNoteText,
+    WeeklyChangeFractionText,
+    WeightFractionText,
+)
+from thytrader.portfolios.vocabulary import (
+    MANAGER_PERMISSION_KEYS,
+    MAX_NAME_LENGTH,
+    MAX_RATIONALE_LENGTH,
+    MAX_SLEEVES,
+    MAX_SUMMARY_LENGTH,
+    BreakerReason,
+    JournalActor,
+    JournalChannel,
+    JournalKind,
+    JournalReason,
+    PortfolioMode,
+    SleeveIssueCode,
+)
 from thytrader.strategies.models import covered_product_ids
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from decimal import Decimal
 
     from pydantic import JsonValue
 
     from thytrader.strategies.library import StrategyRecord
-
-PortfolioMode = Literal["paper", "live"]
-PORTFOLIO_MODES: Final[tuple[PortfolioMode, ...]] = ("paper", "live")
-
-JournalKind = Literal[
-    "created",
-    "settings_changed",
-    "sleeve_added",
-    "sleeve_updated",
-    "sleeve_removed",
-    "weights_changed",
-    "limits_changed",
-    "manager_changed",
-    "backtest_run",
-    "deployment_started",
-    "deployment_paused",
-    "deployment_resumed",
-    "deployment_stopped",
-    "breaker_tripped",
-    "breaker_reset",
-    "proposal_submitted",
-    "proposal_approved",
-    "proposal_declined",
-    "proposal_failed",
-]
-JOURNAL_KINDS: Final[tuple[JournalKind, ...]] = (
-    "created",
-    "settings_changed",
-    "sleeve_added",
-    "sleeve_updated",
-    "sleeve_removed",
-    "weights_changed",
-    "limits_changed",
-    "manager_changed",
-    "backtest_run",
-    "deployment_started",
-    "deployment_paused",
-    "deployment_resumed",
-    "deployment_stopped",
-    "breaker_tripped",
-    "breaker_reset",
-    "proposal_submitted",
-    "proposal_approved",
-    "proposal_declined",
-    "proposal_failed",
-)
-JournalActor = Literal["operator", "system", "manager"]
-"""Who changed the portfolio. ``manager`` is the manager agent acting on a proposal."""
-JournalReason = Literal["operator", "strategy_deleted", "manager_proposal", "breaker"]
-BreakerReason = Literal["PORTFOLIO_DAILY_LOSS_STOP", "PORTFOLIO_DRAWDOWN_STOP"]
-BREAKER_REASONS: Final[tuple[BreakerReason, ...]] = (
-    "PORTFOLIO_DAILY_LOSS_STOP",
-    "PORTFOLIO_DRAWDOWN_STOP",
-)
-JOURNAL_ACTORS: Final[tuple[JournalActor, ...]] = ("operator", "system", "manager")
-JournalChannel = Literal["browser", "api", "system"]
-JOURNAL_CHANNELS: Final[tuple[JournalChannel, ...]] = ("browser", "api", "system")
-SleeveIssueCode = Literal["strategy_invalid", "quote_currency_mismatch", "product_unknown"]
-
-PORTFOLIO_BACKTEST_CONTRACT: Final = "thytrader-portfolio-backtest-v1"
-PORTFOLIO_BRIEFING_CONTRACT: Final = "thytrader-portfolio-briefing-v1"
-MAX_SLEEVES: Final = 32
-MAX_NAME_LENGTH: Final = 120
-MAX_NOTE_LENGTH: Final = 280
-MAX_MANDATE_LENGTH: Final = 2000
-MAX_SUMMARY_LENGTH: Final = 500
-MAX_RATIONALE_LENGTH: Final = 2000
-FRACTION_PLACES: Final = 4
-QUOTE_PLACES: Final = 8
-MAX_CAPITAL_QUOTE: Final = Decimal("1000000000000000")
-MANAGER_PERMISSION_KEYS: Final[frozenset[str]] = frozenset(
-    {"may_rebalance", "may_pause_sleeves", "may_propose_sleeves"}
-)
-
-_DECIMAL_TEXT = re.compile(r"^(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
-_MAX_DECIMAL_TEXT_LENGTH = 40
-_ZERO = Decimal(0)
-_ONE = Decimal(1)
-_ALLOWED_MANDATE_CONTROLS = frozenset({"\n", "\t"})
-
-
-def canonical_decimal_text(value: str, *, places: int, label: str) -> str:
-    """Validate one non-negative plain decimal string and return its canonical spelling."""
-    if len(value) > _MAX_DECIMAL_TEXT_LENGTH or _DECIMAL_TEXT.fullmatch(value) is None:
-        raise ValueError(f"{label} must be a non-negative plain decimal string such as '0.25'")
-    whole, _separator, fraction = value.partition(".")
-    fraction = fraction.rstrip("0")
-    if len(fraction) > places:
-        raise ValueError(f"{label} allows at most {places} decimal places")
-    whole = whole.lstrip("0") or "0"
-    return f"{whole}.{fraction}" if fraction else whole
-
-
-def _ranged(
-    value: str,
-    *,
-    label: str,
-    places: int,
-    minimum: Decimal,
-    maximum: Decimal,
-    minimum_inclusive: bool,
-    maximum_inclusive: bool,
-) -> str:
-    """Canonicalize one decimal and require it inside a documented interval."""
-    text = canonical_decimal_text(value, places=places, label=label)
-    amount = Decimal(text)
-    above = amount >= minimum if minimum_inclusive else amount > minimum
-    below = amount <= maximum if maximum_inclusive else amount < maximum
-    if not (above and below):
-        left = "[" if minimum_inclusive else "("
-        right = "]" if maximum_inclusive else ")"
-        raise ValueError(f"{label} must be in {left}{minimum}, {maximum}{right}")
-    return text
-
-
-def _weight_fraction(value: str) -> str:
-    """A sleeve weight: more than 0 and at most 1."""
-    return _ranged(
-        value,
-        label="weight_fraction",
-        places=FRACTION_PLACES,
-        minimum=_ZERO,
-        maximum=_ONE,
-        minimum_inclusive=False,
-        maximum_inclusive=True,
-    )
-
-
-def _reserve_fraction(value: str) -> str:
-    """The cash reserve: at least 0 and below 1."""
-    return _ranged(
-        value,
-        label="cash_reserve_fraction",
-        places=FRACTION_PLACES,
-        minimum=_ZERO,
-        maximum=_ONE,
-        minimum_inclusive=True,
-        maximum_inclusive=False,
-    )
-
-
-def _limit_fraction(value: str) -> str:
-    """An exposure cap: more than 0 and at most 1 of portfolio capital."""
-    return _ranged(
-        value,
-        label="exposure limit",
-        places=FRACTION_PLACES,
-        minimum=_ZERO,
-        maximum=_ONE,
-        minimum_inclusive=False,
-        maximum_inclusive=True,
-    )
-
-
-def _drawdown_fraction(value: str) -> str:
-    """A drawdown stop: more than 0 and below 1."""
-    return _ranged(
-        value,
-        label="max_drawdown_fraction",
-        places=FRACTION_PLACES,
-        minimum=_ZERO,
-        maximum=_ONE,
-        minimum_inclusive=False,
-        maximum_inclusive=False,
-    )
-
-
-def _weekly_change_fraction(value: str) -> str:
-    """The manager's weekly weight-change budget: more than 0 and at most 1."""
-    return _ranged(
-        value,
-        label="max_weight_change_per_week",
-        places=FRACTION_PLACES,
-        minimum=_ZERO,
-        maximum=_ONE,
-        minimum_inclusive=False,
-        maximum_inclusive=True,
-    )
-
-
-def _quote_amount(value: str) -> str:
-    """A positive quote amount up to 1e15 with at most eight decimal places."""
-    return _ranged(
-        value,
-        label="quote amount",
-        places=QUOTE_PLACES,
-        minimum=_ZERO,
-        maximum=MAX_CAPITAL_QUOTE,
-        minimum_inclusive=False,
-        maximum_inclusive=True,
-    )
-
-
-def _has_disallowed_controls(value: str, *, allowed: frozenset[str] = frozenset()) -> bool:
-    """True when text contains control or format characters outside ``allowed``."""
-    return any(
-        unicodedata.category(character).startswith("C") and character not in allowed
-        for character in value
-    )
-
-
-def _portfolio_name(value: str) -> str:
-    """Trim a portfolio name and require 1-120 visible characters."""
-    stripped = value.strip()
-    if not stripped:
-        raise ValueError("name must not be blank")
-    if len(stripped) > MAX_NAME_LENGTH:
-        raise ValueError(f"name allows at most {MAX_NAME_LENGTH} characters")
-    if _has_disallowed_controls(stripped):
-        raise ValueError("name must not contain control characters")
-    return stripped
-
-
-def _sleeve_note(value: str) -> str:
-    """Trim a sleeve note; an empty note means "no note"."""
-    stripped = value.strip()
-    if len(stripped) > MAX_NOTE_LENGTH:
-        raise ValueError(f"note allows at most {MAX_NOTE_LENGTH} characters")
-    if _has_disallowed_controls(stripped):
-        raise ValueError("note must be one line without control characters")
-    return stripped
-
-
-def _mandate(value: str) -> str:
-    """Trim a manager mandate (multi-line plain text, at most 2000 characters)."""
-    stripped = value.strip()
-    if len(stripped) > MAX_MANDATE_LENGTH:
-        raise ValueError(f"mandate allows at most {MAX_MANDATE_LENGTH} characters")
-    if _has_disallowed_controls(stripped, allowed=_ALLOWED_MANDATE_CONTROLS):
-        raise ValueError("mandate must be plain text")
-    return stripped
-
-
-WeightFractionText = Annotated[str, Field(strict=True), AfterValidator(_weight_fraction)]
-ReserveFractionText = Annotated[str, Field(strict=True), AfterValidator(_reserve_fraction)]
-LimitFractionText = Annotated[str, Field(strict=True), AfterValidator(_limit_fraction)]
-DrawdownFractionText = Annotated[str, Field(strict=True), AfterValidator(_drawdown_fraction)]
-WeeklyChangeFractionText = Annotated[
-    str, Field(strict=True), AfterValidator(_weekly_change_fraction)
-]
-QuoteAmountText = Annotated[str, Field(strict=True), AfterValidator(_quote_amount)]
-PortfolioNameText = Annotated[str, Field(strict=True), AfterValidator(_portfolio_name)]
-SleeveNoteText = Annotated[str, Field(strict=True), AfterValidator(_sleeve_note)]
-MandateText = Annotated[str, Field(strict=True), AfterValidator(_mandate)]
-RevisionNumber = Annotated[StrictInt, Field(ge=1)]
 
 
 class _FrozenModel(BaseModel):
@@ -656,77 +434,6 @@ class PortfolioDeletion:
     backtest_jobs: int
 
 
-class PortfolioError(RuntimeError):
-    """Base class for redacted portfolio failures."""
-
-
-class PortfolioStorageUnavailableError(PortfolioError):
-    """Durable portfolio storage could not complete the request."""
-
-
-class PortfolioNotFoundError(PortfolioError):
-    """No portfolio exists for the requested identity."""
-
-
-class PortfolioSleeveNotFoundError(PortfolioError):
-    """No sleeve with the requested identity exists in the portfolio."""
-
-
-class PortfolioStrategyNotFoundError(PortfolioError):
-    """A sleeve names a strategy that does not exist."""
-
-
-class PortfolioRevisionConflictError(PortfolioError):
-    """A mutation named a revision that is no longer current."""
-
-    def __init__(self, current_revision: int) -> None:
-        """Record the durable revision the caller must reload."""
-        super().__init__("Portfolio was changed by another update; reload it and try again.")
-        self.current_revision = current_revision
-
-
-class PortfolioValidationError(PortfolioError):
-    """A mutation would break a portfolio rule; nothing was changed."""
-
-    def __init__(self, code: str, message: str) -> None:
-        """Keep a stable machine code beside the human message."""
-        super().__init__(message)
-        self.code = code
-
-
-class PortfolioConflictError(PortfolioValidationError):
-    """The portfolio's deployment or proposal state refuses this action (HTTP 409)."""
-
-
-class PortfolioLiveAcknowledgementError(PortfolioError):
-    """A live start, resume, or approval arrived without ``i_understand_live`` (HTTP 428)."""
-
-
-@dataclass(frozen=True, slots=True)
-class StartProblem:
-    """One sleeve problem that blocked a portfolio start (nothing was started)."""
-
-    code: str
-    message: str
-    sleeve_id: UUID | None = None
-    strategy_id: UUID | None = None
-    strategy_name: str | None = None
-
-
-class PortfolioStartRejectedError(PortfolioValidationError):
-    """Every problem that blocked starting a portfolio, so nothing started (HTTP 422)."""
-
-    def __init__(self, problems: tuple[StartProblem, ...]) -> None:
-        """Keep each sleeve problem for the response body."""
-        count = len(problems)
-        noun = "problem" if count == 1 else "problems"
-        super().__init__(
-            "portfolio_start_rejected",
-            f"The portfolio was not started: {count} sleeve {noun}. Nothing was started.",
-        )
-        self.problems = problems
-
-
 @dataclass(frozen=True, slots=True)
 class PortfolioRuntimeState:
     """Durable runtime state of one deployed portfolio (ADR 0091).
@@ -762,22 +469,6 @@ class PortfolioRuntimeView:
 
     aggregate: PortfolioAggregate
     runtime: PortfolioRuntimeState
-
-
-class PortfolioProposalNotFoundError(PortfolioError):
-    """No proposal with the requested identity exists for this portfolio."""
-
-
-class PortfolioSleeveExistsError(PortfolioValidationError):
-    """The strategy is already a sleeve of this portfolio."""
-
-    def __init__(self, sleeve_id: UUID) -> None:
-        """Name the existing sleeve."""
-        super().__init__(
-            "portfolio_sleeve_exists",
-            "This strategy is already a sleeve of the portfolio; change its weight instead.",
-        )
-        self.sleeve_id = sleeve_id
 
 
 def require_utc(value: datetime) -> datetime:

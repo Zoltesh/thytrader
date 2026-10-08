@@ -26,6 +26,7 @@ from decimal import Decimal
 import logging
 from typing import TYPE_CHECKING
 
+from thytrader.portfolios.allocation import sleeve_capital
 from thytrader.portfolios.deployment import (
     BreakerTrip,
     members,
@@ -36,15 +37,15 @@ from thytrader.portfolios.deployment import (
     run_members,
     tripped_breaker,
 )
+from thytrader.portfolios.errors import PortfolioError
+from thytrader.portfolios.journal_changes import journal_entry
 from thytrader.portfolios.models import (
     JournalDetail,
     JournalEntry,
     MutationContext,
-    PortfolioError,
     PortfolioRuntimeState,
     utc_millisecond,
 )
-from thytrader.portfolios.rules import journal_entry, sleeve_capital
 from thytrader.trading.ledger import ledger_from_snapshot
 from thytrader.trading.models import (
     DeploymentStatus,
@@ -61,7 +62,7 @@ if TYPE_CHECKING:
 
     from thytrader.portfolios.models import PortfolioAggregate, PortfolioRuntimeView
     from thytrader.portfolios.store import PortfolioRuntimeStore
-    from thytrader.risk.gate import PortfolioRiskBook
+    from thytrader.risk.portfolio_limits import PortfolioRiskBook
     from thytrader.trading.models import Deployment
     from thytrader.trading.store import ExecutionStore
 

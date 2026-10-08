@@ -75,20 +75,21 @@ from thytrader.portfolios.backtest import (
     portfolio_backtest_fingerprint,
     portfolio_backtest_listing,
 )
+from thytrader.portfolios.errors import (
+    PortfolioConflictError,
+    PortfolioProposalNotFoundError,
+    PortfolioStorageUnavailableError,
+)
 from thytrader.portfolios.models import (
-    JournalActor,
-    JournalChannel,
     JournalEntry,
     JournalPage,
     MutationContext,
     PortfolioAggregate,
-    PortfolioConflictError,
+    PortfolioCreateRequest,
     PortfolioDeletion,
     PortfolioPage,
-    PortfolioProposalNotFoundError,
     PortfolioRuntimeState,
     PortfolioRuntimeView,
-    PortfolioStorageUnavailableError,
     utc_millisecond,
 )
 from thytrader.portfolios.proposals import Proposal, ProposalPage
@@ -128,6 +129,7 @@ if TYPE_CHECKING:
     )
     from thytrader.portfolios.proposals import ProposalStatus
     from thytrader.portfolios.store import ProposalBuilder, ProposalSettler
+    from thytrader.portfolios.vocabulary import JournalActor, JournalChannel
 
 _UNAVAILABLE = "Portfolio storage is unavailable."
 _HARNESS_LEASE_SECONDS = 3_600.0

@@ -41,14 +41,9 @@ from thytrader.evaluation.models import (
 )
 from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency
-from thytrader.portfolios.models import (
-    MAX_SLEEVES,
-    PORTFOLIO_BACKTEST_CONTRACT,
-    PortfolioMode,
-    RevisionNumber,
-    require_utc,
-    utc_text,
-)
+from thytrader.portfolios.models import require_utc, utc_text
+from thytrader.portfolios.values import RevisionNumber
+from thytrader.portfolios.vocabulary import MAX_SLEEVES, PORTFOLIO_BACKTEST_CONTRACT, PortfolioMode
 from thytrader.research.jobs import ResearchJobStatus
 
 PortfolioBacktestContract = Literal["thytrader-portfolio-backtest-v1"]

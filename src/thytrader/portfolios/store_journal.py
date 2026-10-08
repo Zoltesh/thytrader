@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.portfolios.backtest import PortfolioBacktestResult, backtest_journal_summary
+from thytrader.portfolios.journal_changes import journal_entry
 from thytrader.portfolios.models import JournalDetail, JournalEntry, MutationContext
-from thytrader.portfolios.rules import journal_entry
 
 if TYPE_CHECKING:
     from uuid import UUID

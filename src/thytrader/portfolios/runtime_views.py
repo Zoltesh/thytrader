@@ -24,15 +24,10 @@ from thytrader.portfolios.deployment import (
     roll_baselines,
     run_members,
 )
-from thytrader.portfolios.models import (
-    PortfolioMode,
-    SleeveIssueCode,
-    sleeve_issues,
-    utc_text,
-)
+from thytrader.portfolios.models import sleeve_issues, utc_text
 from thytrader.portfolios.proposals import Proposal
-from thytrader.risk.gate import product_exposure
-from thytrader.trading.exposure import risk_bearing_snapshots
+from thytrader.portfolios.vocabulary import PortfolioMode, SleeveIssueCode
+from thytrader.trading.exposure import product_exposure, risk_bearing_snapshots
 from thytrader.trading.ledger import ledger_from_snapshot
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import (
@@ -57,7 +52,8 @@ if TYPE_CHECKING:
     from thytrader.execution.book_marks import BookMark
     from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.portfolios.deployment import SleeveBook
-    from thytrader.portfolios.runtime import PortfolioActionResult, PortfolioDeploymentSnapshot
+    from thytrader.portfolios.runtime import PortfolioDeploymentSnapshot
+    from thytrader.portfolios.runtime_outcomes import PortfolioActionResult
     from thytrader.trading.models import Deployment, DeploymentSnapshot
 
 _ZERO = Decimal(0)

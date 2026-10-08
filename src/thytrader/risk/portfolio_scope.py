@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from typing import TYPE_CHECKING
 
-from thytrader.risk.gate import PortfolioRiskBook
+from thytrader.risk.portfolio_limits import PortfolioRiskBook
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

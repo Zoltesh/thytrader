@@ -17,7 +17,8 @@ from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.config import Environment, Settings
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER

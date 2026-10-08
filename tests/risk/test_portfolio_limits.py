@@ -8,13 +8,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.risk.gate import (
-    PortfolioRiskBook,
-    ProposedEntry,
-    evaluate_new_deployment,
-    evaluate_new_entry,
-    portfolio_exposure,
-)
+from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import (
     CapitalAllocation,
     RiskDecision,
@@ -22,6 +17,7 @@ from thytrader.risk.models import (
     RiskReasonCode,
     compiled_default_risk_policy,
 )
+from thytrader.risk.portfolio_limits import PortfolioRiskBook, portfolio_exposure
 from thytrader.risk.portfolio_scope import portfolio_risk_for, portfolio_risk_scope
 from thytrader.trading.models import (
     Deployment,

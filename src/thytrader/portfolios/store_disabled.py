@@ -4,17 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.portfolios.models import (
-    JournalEntry,
-    JournalPage,
-    MutationContext,
-    PortfolioAggregate,
-    PortfolioDeletion,
-    PortfolioPage,
-    PortfolioRuntimeState,
-    PortfolioRuntimeView,
-    PortfolioStorageUnavailableError,
-)
+from thytrader.portfolios.errors import PortfolioStorageUnavailableError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -28,7 +18,15 @@ if TYPE_CHECKING:
         PortfolioBacktestResult,
     )
     from thytrader.portfolios.models import (
+        JournalEntry,
+        JournalPage,
+        MutationContext,
+        PortfolioAggregate,
         PortfolioCreateRequest,
+        PortfolioDeletion,
+        PortfolioPage,
+        PortfolioRuntimeState,
+        PortfolioRuntimeView,
         PortfolioUpdateRequest,
         SetWeightsRequest,
         SleeveAddRequest,

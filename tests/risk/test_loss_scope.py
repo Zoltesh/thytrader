@@ -9,7 +9,8 @@ from uuid import UUID, uuid4
 from thytrader.execution.service import reset_breaker_latches
 from thytrader.execution_worker.service import _risk_snapshots
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import (
     RiskDecision,
     RiskPolicyDefinition,

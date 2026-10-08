@@ -6,7 +6,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import (
     RiskDecision,
     RiskReasonCode,

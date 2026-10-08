@@ -16,14 +16,13 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
 )
-from thytrader.execution.paper_fees import PaperFeesUnavailableError, paper_fee_rates
 from thytrader.execution.service import (
     PortfolioSleeveStart,
     ReferenceWatchlist,
@@ -31,9 +30,9 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.portfolios.allocation import quote_text
 from thytrader.portfolios.deployment import (
     PortfolioBooks,
-    SleeveBook,
     begin_run,
     deployment_mode,
     members,
@@ -43,29 +42,51 @@ from thytrader.portfolios.deployment import (
     sleeve_books,
     utc_day_start,
 )
-from thytrader.portfolios.models import (
-    JournalDetail,
-    JournalKind,
-    JournalReason,
-    MutationContext,
+from thytrader.portfolios.errors import (
     PortfolioConflictError,
-    PortfolioLiveAcknowledgementError,
-    PortfolioRuntimeState,
-    PortfolioSleeveNotFoundError,
     PortfolioStartRejectedError,
     PortfolioValidationError,
     StartProblem,
-    sleeve_issues,
-    utc_millisecond,
 )
-from thytrader.portfolios.rules import journal_entry, quote_text, require_revision
+from thytrader.portfolios.journal_changes import journal_entry
+from thytrader.portfolios.models import (
+    JournalDetail,
+    MutationContext,
+    PortfolioRuntimeState,
+    sleeve_issues,
+)
+from thytrader.portfolios.rules import require_revision
+from thytrader.portfolios.runtime_guards import (
+    _breaker_label,
+    _require_breaker_clear,
+    _require_deployed,
+    _require_live_acknowledgement,
+    _targets,
+)
+from thytrader.portfolios.runtime_outcomes import (
+    _AUDIT_ACTIONS,
+    PortfolioActionResult,
+    SleeveOutcome,
+    SleeveOutcomeKind,
+    _action_summary,
+    _deployment_audit,
+    _millisecond,
+    _outcome,
+)
+from thytrader.portfolios.runtime_start import (
+    FeeAssumptions,
+    _account_fee_rates,
+    _fee_rates,
+    _hypothetical,
+    _PlannedSleeve,
+    _problem,
+    _sleeve_capital,
+)
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.library import StrategyLibraryError
 from thytrader.strategies.models import covered_product_ids
-from thytrader.trading.ids import utc_now, uuid7
-from thytrader.trading.ledger import resolve_paper_fee_schedule
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import (
     Deployment,
@@ -74,7 +95,6 @@ from thytrader.trading.models import (
     DeploymentStatus,
     ExecutionConflictError,
     ExecutionStoreError,
-    RuntimePhase,
 )
 
 if TYPE_CHECKING:
@@ -85,38 +105,13 @@ if TYPE_CHECKING:
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
     from thytrader.portfolios.store import PortfolioStorage
+    from thytrader.portfolios.vocabulary import JournalKind, JournalReason
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.library import StrategyStore
-    from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotReader
+    from thytrader.strategies.snapshots import StrategySnapshotReader
     from thytrader.trading.store import ExecutionStore
 
 _logger = logging.getLogger(__name__)
-
-SleeveOutcomeKind = Literal[
-    "started", "attached", "paused", "resumed", "stopped", "unchanged", "failed"
-]
-PortfolioAction = Literal["start", "pause", "resume", "stop"]
-NOT_DEPLOYED_MESSAGE = "No sleeve of this portfolio is running or paused."
-
-
-@dataclass(frozen=True, slots=True)
-class SleeveOutcome:
-    """What one portfolio action did to one sleeve's book."""
-
-    sleeve_id: UUID | None
-    strategy_id: UUID | None
-    strategy_name: str
-    outcome: SleeveOutcomeKind
-    deployment_id: UUID | None = None
-    message: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PortfolioActionResult:
-    """One start, pause, resume, or stop and its per-sleeve outcomes."""
-
-    action: PortfolioAction
-    outcomes: tuple[SleeveOutcome, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,23 +124,6 @@ class PortfolioDeploymentSnapshot:
     tagged: tuple[Deployment, ...]
     snapshots: tuple[DeploymentSnapshot, ...]
     equity: Decimal
-
-
-@dataclass(frozen=True, slots=True)
-class FeeAssumptions:
-    """Optional paper maker/taker rates applied to every paper sleeve."""
-
-    maker_fee_rate: Decimal | None = None
-    taker_fee_rate: Decimal | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class _PlannedSleeve:
-    """One sleeve the start will create a book for."""
-
-    view: SleeveView
-    capital: Decimal
-    snapshot: StrategySnapshot
 
 
 class PortfolioRuntimeService:
@@ -656,199 +634,3 @@ class PortfolioRuntimeService:
             await self._audit.append(event)
         except Exception as error:  # noqa: BLE001 - the runtime change already committed.
             _logger.warning("portfolio_runtime_audit_failed error=%s", type(error).__name__)
-
-
-def _require_live_acknowledgement(mode: DeploymentMode, *, acknowledged: bool) -> None:
-    """Refuse a live start, resume, or approval without ``i_understand_live``."""
-    if mode is DeploymentMode.LIVE and not acknowledged:
-        raise PortfolioLiveAcknowledgementError(
-            "Live trading spends real money: send i_understand_live=true only after the "
-            "operator explicitly acknowledged live trading."
-        )
-
-
-def require_live_acknowledgement(mode: DeploymentMode, *, acknowledged: bool) -> None:
-    """Public form of the live acknowledgement check (proposal approvals use it)."""
-    _require_live_acknowledgement(mode, acknowledged=acknowledged)
-
-
-def _require_breaker_clear(runtime: PortfolioRuntimeState) -> None:
-    """Refuse starting or resuming while a portfolio breaker is latched."""
-    if runtime.breaker_latched:
-        raise PortfolioConflictError(
-            "portfolio_breaker_latched",
-            f"The portfolio's {_breaker_label(runtime)} breaker is latched; reset it "
-            "before starting or resuming sleeves.",
-        )
-
-
-def _breaker_label(runtime: PortfolioRuntimeState) -> str:
-    """Human name of the latched breaker."""
-    if runtime.breaker_reason == "PORTFOLIO_DAILY_LOSS_STOP":
-        return "daily loss"
-    return "drawdown"
-
-
-def _fee_rates(mode: DeploymentMode, fees: FeeAssumptions) -> tuple[Decimal | None, Decimal | None]:
-    """Validate paper fee assumptions once for every sleeve (live takes none)."""
-    try:
-        resolve_paper_fee_schedule(
-            live=mode is DeploymentMode.LIVE,
-            maker_fee_rate=fees.maker_fee_rate,
-            taker_fee_rate=fees.taker_fee_rate,
-        )
-    except ValueError as error:
-        raise PortfolioValidationError("portfolio_fee_rates_invalid", str(error)) from None
-    return fees.maker_fee_rate, fees.taker_fee_rate
-
-
-async def _account_fee_rates(
-    fees: tuple[Decimal | None, Decimal | None], source: PaperFeeSource | None
-) -> tuple[Decimal | None, Decimal | None]:
-    """Fill omitted paper rates from the account; unknown account rates refuse the start."""
-    try:
-        return await paper_fee_rates(maker_fee_rate=fees[0], taker_fee_rate=fees[1], source=source)
-    except PaperFeesUnavailableError as error:
-        raise PortfolioConflictError("paper_fees_unavailable", str(error)) from None
-
-
-def _sleeve_capital(aggregate: PortfolioAggregate, view: SleeveView) -> Decimal:
-    """Exact sleeve capital: weight times the portfolio's capital."""
-    return Decimal(aggregate.portfolio.capital_quote) * Decimal(view.sleeve.weight_fraction)
-
-
-def _hypothetical(item: _PlannedSleeve, mode: DeploymentMode) -> Deployment:
-    """A planned book standing in for admission checks of the sleeves after it."""
-    now = utc_now()
-    definition = item.snapshot.definition
-    return Deployment(
-        id=uuid7(now),
-        strategy_fingerprint=item.snapshot.strategy_fingerprint,
-        strategy_id=definition.strategy_id,
-        product_id=definition.instrument.product_id,
-        mode=mode,
-        status=DeploymentStatus.RUNNING,
-        cash=item.capital if mode is DeploymentMode.PAPER else Decimal(0),
-        phase=RuntimePhase.FLAT,
-        created_at=now,
-        updated_at=now,
-        paper_starting_cash=item.capital if mode is DeploymentMode.PAPER else None,
-    )
-
-
-def _problem(view: SleeveView, code: str, message: str) -> StartProblem:
-    """One sleeve problem naming the sleeve and its strategy."""
-    return StartProblem(
-        code=code,
-        message=message,
-        sleeve_id=view.sleeve.sleeve_id,
-        strategy_id=view.sleeve.strategy_id,
-        strategy_name=view.strategy.name,
-    )
-
-
-def _targets(
-    books: PortfolioBooks, sleeve_id: UUID | None, *, include_detached: bool
-) -> tuple[tuple[str, SleeveView | None, Deployment | None], ...]:
-    """The books an action applies to: one sleeve's, or every sleeve's (plus detached)."""
-    if sleeve_id is not None:
-        book = _sleeve_book(books, sleeve_id)
-        return ((book.view.strategy.name, book.view, book.deployment),)
-    targets: list[tuple[str, SleeveView | None, Deployment | None]] = [
-        (book.view.strategy.name, book.view, book.deployment) for book in books.sleeves
-    ]
-    if include_detached:
-        targets.extend(
-            (item.strategy_name or "removed sleeve", None, item) for item in books.detached
-        )
-    return tuple(targets)
-
-
-def _sleeve_book(books: PortfolioBooks, sleeve_id: UUID) -> SleeveBook:
-    """One sleeve's book or the sleeve-not-found error."""
-    for book in books.sleeves:
-        if book.view.sleeve.sleeve_id == sleeve_id:
-            return book
-    raise PortfolioSleeveNotFoundError("Sleeve was not found in this portfolio.")
-
-
-def _require_deployed(
-    targets: Sequence[tuple[str, SleeveView | None, Deployment | None]],
-    *,
-    sleeve_id: UUID | None,
-) -> None:
-    """Refuse an action on a portfolio (or sleeve) with no running or paused book."""
-    if any(item is not None and occupies_running_slot(item) for _name, _view, item in targets):
-        return
-    if sleeve_id is not None:
-        raise PortfolioConflictError(
-            "portfolio_sleeve_not_deployed", "This sleeve has no running or paused bot."
-        )
-    raise PortfolioConflictError("portfolio_not_deployed", NOT_DEPLOYED_MESSAGE)
-
-
-def _outcome(
-    name: str,
-    view: SleeveView | None,
-    deployment: Deployment | None,
-    outcome: SleeveOutcomeKind,
-    message: str | None,
-) -> SleeveOutcome:
-    """One sleeve outcome."""
-    return SleeveOutcome(
-        sleeve_id=None if view is None else view.sleeve.sleeve_id,
-        strategy_id=(
-            view.sleeve.strategy_id
-            if view is not None
-            else (None if deployment is None else deployment.strategy_id)
-        ),
-        strategy_name=name,
-        outcome=outcome,
-        deployment_id=None if deployment is None else deployment.id,
-        message=message,
-    )
-
-
-_AUDIT_ACTIONS: dict[DeploymentStatus, str] = {
-    DeploymentStatus.PAUSED: "portfolio_pause",
-    DeploymentStatus.RUNNING: "portfolio_resume",
-    DeploymentStatus.STOPPED: "portfolio_stop",
-}
-_VERBS: dict[PortfolioAction, str] = {
-    "start": "Started",
-    "pause": "Paused",
-    "resume": "Resumed",
-    "stop": "Stopped",
-}
-
-
-def _action_summary(
-    aggregate: PortfolioAggregate, result: PortfolioActionResult, *, sleeve_id: UUID | None
-) -> str:
-    """One journal line for a portfolio or sleeve action."""
-    verb = _VERBS[result.action]
-    counts: dict[str, int] = {}
-    for item in result.outcomes:
-        counts[item.outcome] = counts.get(item.outcome, 0) + 1
-    tally = ", ".join(f"{count} {name}" for name, count in sorted(counts.items()))
-    mode = aggregate.portfolio.mode
-    if sleeve_id is not None and result.outcomes:
-        return f"{verb} {mode} sleeve “{result.outcomes[0].strategy_name}” ({tally})."
-    return f"{verb} {mode} portfolio “{aggregate.portfolio.name}” ({tally})."
-
-
-def _deployment_audit(deployment: Deployment) -> str:
-    """Audit detail without cash, quantities, or secrets."""
-    return (
-        f"deployment_id={deployment.id} mode={deployment.mode.value} "
-        f"status={deployment.status.value} fingerprint={deployment.strategy_fingerprint}"
-    )
-
-
-def _millisecond(context: MutationContext) -> MutationContext:
-    """Journal instants at the millisecond a UUIDv7 encodes and PostgreSQL round-trips."""
-    return MutationContext(
-        actor=context.actor,
-        channel=context.channel,
-        occurred_at=utc_millisecond(context.occurred_at),
-    )
