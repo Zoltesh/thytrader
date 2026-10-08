@@ -38,11 +38,11 @@ from thytrader.strategies.snapshots import StrategySnapshot
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.backtest_results import (
+    from thytrader.backtest.results import (
         BacktestResultReader,
         BacktestResultSummaryView,
     )
+    from thytrader.market_data.datasets import DatasetStore
     from thytrader.strategies.snapshots import StrategySnapshotStore
 
 

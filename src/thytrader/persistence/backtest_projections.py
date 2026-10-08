@@ -21,12 +21,12 @@ from thytrader.backtest.models import (
     backtest_evaluation_window,
 )
 from thytrader.backtest.projections import BacktestProjection
-from thytrader.evaluation.models import FingerprintText, ResearchRunSpecification
-from thytrader.persistence.backtest_results import (
+from thytrader.backtest.results import (
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
     BacktestResultUnavailableError,
 )
+from thytrader.evaluation.models import FingerprintText, ResearchRunSpecification
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
 
 if TYPE_CHECKING:

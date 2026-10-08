@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from thytrader.persistence.backtest_results import BacktestResultSummaryView
+    from thytrader.backtest.results import BacktestResultSummaryView
 
 _STARTS_AT = "2026-01-01T00:00:00Z"
 _ENDS_AT = "2026-03-01T00:00:00Z"

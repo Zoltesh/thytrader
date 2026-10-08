@@ -14,6 +14,11 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_evaluation_window,
 )
+from thytrader.backtest.results import (
+    BacktestResultNotFoundError,
+    BacktestResultUnavailableError,
+    BacktestSourceSpecificationReader,
+)
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.products import SpotQuoteCurrency, quote_currency
 from thytrader.operator.diagnostics.common import (
@@ -31,11 +36,6 @@ from thytrader.operator.models import (
     SupportedTimeframe,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
-from thytrader.persistence.backtest_results import (
-    BacktestResultNotFoundError,
-    BacktestResultUnavailableError,
-    BacktestSourceSpecificationReader,
-)
 from thytrader.trading.ledger import effective_paper_fee_rates, ledger_from_snapshot
 from thytrader.trading.models import (
     Deployment,

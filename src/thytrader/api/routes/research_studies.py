@@ -35,9 +35,9 @@ from thytrader.api.research_execution import (
     wait_for_job,
 )
 from thytrader.api.strategy_http import strategy_http_error
+from thytrader.backtest.results import BacktestResultReader
 from thytrader.backtest.submission import BacktestSubmitter  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.datasets import DatasetStore
-from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.postgres_research_jobs import ResearchJobUnavailableError
 from thytrader.research.backtest_model import BacktestModelDescription, backtest_model_description
 from thytrader.research.catalog import (

@@ -8,12 +8,12 @@ from thytrader.backtest.benchmark import (
     BacktestBenchmarkError,
     calculate_buy_and_hold_benchmark,
 )
-from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.persistence.backtest_results import (
+from thytrader.backtest.results import (
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
     BacktestResultUnavailableError,
 )
+from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.postgres_backtests import BacktestPublicationError
 
 if TYPE_CHECKING:

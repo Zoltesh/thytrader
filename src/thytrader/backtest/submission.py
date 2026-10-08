@@ -46,18 +46,14 @@ from thytrader.evaluation.publication import (
     ResearchRunPublicationError,
 )
 from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
-from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError
 from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncEngine
-
+    from thytrader.backtest.service import BacktestResultWriter
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.products import SpotQuoteCurrency
-    from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.strategies.snapshots import StrategyDatasetBinding, StrategySnapshot
 
 __all__ = [
     "SIMULATION_SEMANTICS",
@@ -68,7 +64,9 @@ __all__ = [
     "BacktestSubmissionResult",
     "BacktestSubmitter",
     "DisabledBacktestSubmitter",
-    "PostgresBacktestSubmitter",
+    "StoreBacktestSubmitter",
+    "SubmissionRunStore",
+    "SubmissionStrategyStore",
     "_cost_assumptions",
     "_execution_fingerprint",
     "_with_evaluation_window",
@@ -94,19 +92,77 @@ class DisabledBacktestSubmitter:
         raise BacktestSubmissionError("Backtest submission is unavailable.")
 
 
-class PostgresBacktestSubmitter:
-    """Publish/reuse immutable sources and invoke the existing authoritative simulation service."""
+class SubmissionStrategyStore(Protocol):
+    """Strategy publications a submission reads and binds its datasets to."""
 
-    def __init__(self, engine: AsyncEngine, dataset_store: DatasetStore) -> None:
-        """Use one application-managed engine and immutable dataset root."""
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
+        """Load one exact published strategy or fail closed."""
+        ...
+
+    async def bind_dataset(
+        self,
+        strategy_fingerprint_value: str,
+        dataset_fingerprint: str,
+        *,
+        dataset_store: DatasetStore,
+        bound_at: datetime,
+    ) -> StrategyDatasetBinding:
+        """Idempotently bind exact verified snapshot and dataset identities."""
+        ...
+
+
+class SubmissionRunStore(Protocol):
+    """Immutable research-run publications a submission reuses or appends."""
+
+    async def load(
+        self,
+        run_fingerprint_value: str,
+        *,
+        dataset_store: DatasetStore,
+    ) -> PublishedResearchRunSpecification:
+        """Load one exact published run or fail closed."""
+        ...
+
+    async def load_by_execution_fingerprint(
+        self,
+        execution_fingerprint: str,
+        *,
+        dataset_store: DatasetStore,
+    ) -> PublishedResearchRunSpecification | None:
+        """Return the one previously published run for exact executable semantics, if any."""
+        ...
+
+    async def publish(
+        self,
+        specification: ResearchRunSpecification,
+        *,
+        dataset_store: DatasetStore,
+        execution_fingerprint: str | None = None,
+    ) -> PublishedResearchRunSpecification:
+        """Idempotently publish one canonical specification after artifact verification."""
+        ...
+
+
+class StoreBacktestSubmitter:
+    """Publish/reuse immutable sources and invoke the existing authoritative simulation service.
+
+    Processes wire the stores; :class:`thytrader.persistence.postgres_backtest_submitter.
+    PostgresBacktestSubmitter` binds the PostgreSQL ones.
+    """
+
+    def __init__(
+        self,
+        *,
+        strategy_store: SubmissionStrategyStore,
+        run_store: SubmissionRunStore,
+        result_store: BacktestResultWriter,
+        dataset_store: DatasetStore,
+    ) -> None:
+        """Use the given publication stores and immutable dataset root."""
         self._dataset_store = dataset_store
-        self._strategy_store = PostgresStrategyStore(engine)
-        self._run_store = PostgresResearchRunStore(engine)
-        self._result_store = PostgresBacktestResultStore(
-            engine,
-            research_run_store=self._run_store,
-            dataset_store=dataset_store,
-        )
+        self._strategy_store = strategy_store
+        self._run_store = run_store
+        self._result_store = result_store
 
     async def submit(self, request: BacktestSubmissionRequest) -> BacktestSubmissionResult:
         """Create/reuse exact research inputs, simulate, and return immutable identities."""

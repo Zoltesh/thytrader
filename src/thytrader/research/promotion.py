@@ -14,7 +14,7 @@ from thytrader.research.studies import WindowRole
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from thytrader.persistence.backtest_results import BacktestResultSummaryView
+    from thytrader.backtest.results import BacktestResultSummaryView
     from thytrader.research.studies import ResearchStudy
     from thytrader.trading.models import Deployment
 

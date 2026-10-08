@@ -29,12 +29,12 @@ from thytrader.audit_events import (
     AuditEventStore,
 )
 from thytrader.backtest.models import BacktestSummary
-from thytrader.market_data.models import DatasetTimeframe
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.persistence.backtest_results import (
+from thytrader.backtest.results import (
     BacktestResultReader,
     BacktestResultSummaryView,
 )
+from thytrader.market_data.models import DatasetTimeframe
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.strategies.advisories import strategy_warnings
 from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity

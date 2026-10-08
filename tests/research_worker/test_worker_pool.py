@@ -34,10 +34,10 @@ from tests.research_worker.support import (
     worker_log,
 )
 from thytrader.api.app import create_app
-from thytrader.backtest.submission import PostgresBacktestSubmitter
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_backtest_submitter import PostgresBacktestSubmitter
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore

@@ -14,13 +14,13 @@ from thytrader.backtest.submission import (
     BacktestSubmissionError,
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
-    PostgresBacktestSubmitter,
     _cost_assumptions,
     _execution_fingerprint,
 )
 from thytrader.evaluation.models import IndicatorTimeframeDataset
 from thytrader.evaluation.publication import ResearchRunPublicationError
 from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.persistence.postgres_backtest_submitter import PostgresBacktestSubmitter
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError
 
 

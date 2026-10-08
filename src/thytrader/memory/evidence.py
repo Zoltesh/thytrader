@@ -9,18 +9,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import UUID
 
-from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.memory.models import EvidenceKind
-from thytrader.persistence.backtest_results import (
+from thytrader.backtest.results import (
     BacktestResultNotFoundError,
     BacktestResultUnavailableError,
 )
+from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.memory.models import EvidenceKind
 from thytrader.trading.models import DeploymentMode
 from thytrader.trading.store import ExecutionStoreError
 
 if TYPE_CHECKING:
+    from thytrader.backtest.results import BacktestResultReader
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.trading.store import ExecutionStore
 
 

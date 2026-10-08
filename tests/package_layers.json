@@ -151,11 +151,6 @@
     }
   ],
   "allowed_upward_imports": {
-    "research -> persistence": 7,
-    "backtest -> persistence": 3,
-    "execution -> memory": 3,
-    "fleet_control -> persistence": 3,
-    "memory -> persistence": 1,
-    "portfolios -> persistence": 1
+    "execution -> memory": 3
   }
 }

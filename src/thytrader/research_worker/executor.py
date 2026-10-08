@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from thytrader.backtest.submission import PostgresBacktestSubmitter
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.persistence.postgres_backtest_submitter import PostgresBacktestSubmitter
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore

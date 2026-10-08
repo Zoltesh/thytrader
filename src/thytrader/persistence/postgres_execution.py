@@ -16,7 +16,6 @@ from sqlalchemy import and_, case, delete, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from thytrader.fleet_control.admission import refuse_postgres_entry
 from thytrader.fleet_control.commands import confirmed_command
 from thytrader.persistence.postgres_execution_rows import (
     _deployment_from_row,
@@ -32,6 +31,7 @@ from thytrader.persistence.postgres_execution_rows import (
     _twin_link_from_row,
 )
 from thytrader.persistence.postgres_execution_snapshots import _snapshot, _summary_snapshot
+from thytrader.persistence.postgres_fleet_admission import refuse_postgres_entry
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
