@@ -89,7 +89,8 @@ from thytrader.strategies.snapshots import (
     StrategySnapshotError,
     StrategySnapshotStore,
 )
-from thytrader.strategies.templates import parse_template_id, template_blueprint, template_catalog
+from thytrader.strategies.template_blueprints import template_blueprint
+from thytrader.strategies.template_ids import parse_template_id, template_catalog
 from thytrader.trading.models import ExecutionStoreError
 from thytrader.trading.store import ExecutionStore
 

@@ -50,7 +50,7 @@ from thytrader.research.studies import (
 from thytrader.research.study_start import BoundStudyStart, ResearchStudyStartRequest
 from thytrader.strategies.advisories import strategy_warnings
 from thytrader.strategies.snapshots import StrategySnapshotError
-from thytrader.strategies.templates import template_catalog
+from thytrader.strategies.template_ids import template_catalog
 
 if TYPE_CHECKING:
     import argparse

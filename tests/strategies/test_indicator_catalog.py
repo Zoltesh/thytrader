@@ -18,12 +18,14 @@ from thytrader.operator.indicator_report import (
 )
 from thytrader.strategies.indicator_catalog import (
     INDICATOR_KIND_SPECS,
-    OHLCV_FIELDS,
-    IndicatorKindSpec,
-    IndicatorParameterSpec,
     default_indicator_definition,
     default_parameters,
     indicator_kind_spec,
+)
+from thytrader.strategies.indicator_spec_model import (
+    OHLCV_FIELDS,
+    IndicatorKindSpec,
+    IndicatorParameterSpec,
 )
 from thytrader.strategies.models import (
     IndicatorDefinition,

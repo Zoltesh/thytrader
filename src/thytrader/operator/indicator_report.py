@@ -23,7 +23,7 @@ from thytrader.strategies.indicator_catalog import (
 from thytrader.strategies.models import IndicatorDefinition, IndicatorKind, indicator_min_warmup
 
 if TYPE_CHECKING:
-    from thytrader.strategies.indicator_catalog import IndicatorKindSpec
+    from thytrader.strategies.indicator_spec_model import IndicatorKindSpec
 
 WebCatalogSchema = Literal["thytrader-indicator-catalog-v1"]
 WEB_CATALOG_SCHEMA: WebCatalogSchema = "thytrader-indicator-catalog-v1"
