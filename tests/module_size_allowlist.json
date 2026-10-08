@@ -1,12 +1,7 @@
 {
-  "web/src/lib/BacktestDetail.svelte": 804,
   "web/src/lib/backtests.ts": 603,
-  "web/src/lib/deployments.ts": 672,
-  "web/src/lib/indicator-catalog.ts": 777,
-  "web/src/lib/portfolios/BacktestTab.svelte": 831,
   "web/src/lib/portfolios/ManagerTab.svelte": 658,
   "web/src/lib/strategy-insight.ts": 618,
-  "web/src/routes/+layout.svelte": 719,
   "web/src/routes/strategies/[id]/run/+page.svelte": 624,
   "web/src/routes/trade/+page.svelte": 628
 }
