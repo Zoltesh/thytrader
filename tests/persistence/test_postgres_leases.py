@@ -13,7 +13,10 @@ from pydantic import SecretStr
 import pytest
 from sqlalchemy import text
 
-from thytrader.execution.models import (
+from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.exposure import risk_bearing_snapshots, snapshot_has_residual_exposure
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -23,9 +26,6 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.persistence.database import create_engine, dispose
-from thytrader.persistence.postgres_execution import PostgresExecutionStore
-from thytrader.risk.exposure import risk_bearing_snapshots, snapshot_has_residual_exposure
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine

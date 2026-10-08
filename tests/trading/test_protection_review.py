@@ -10,10 +10,10 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
-from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_protection_evidence import _NOW, _deployment, _order, _position
-from thytrader.execution import protection
-from thytrader.execution.models import (
+from tests.trading.protection_support import settled_snapshot
+from thytrader.trading import protection
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     IntentPurpose,
@@ -23,7 +23,7 @@ from thytrader.execution.models import (
     OrderStatus,
     PositionSide,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     LOCAL_EVIDENCE_MAX_AGE,
     ProtectionStatus,
     book_protection_evidence,

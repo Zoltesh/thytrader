@@ -15,7 +15,6 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.execution.ids import utc_now
 from thytrader.risk.models import (
     ActiveRiskPolicy,
     CapitalAllocation,
@@ -23,6 +22,7 @@ from thytrader.risk.models import (
 )
 from thytrader.risk.service import publish_risk_policy
 from thytrader.risk.store import RiskPolicyStore, RiskPolicyStoreError, load_effective_policy
+from thytrader.trading.ids import utc_now
 
 router = APIRouter(prefix="/api/v1/risk-policy", tags=["risk-policy"])
 

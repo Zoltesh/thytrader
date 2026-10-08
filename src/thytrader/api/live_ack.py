@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
-from thytrader.execution.models import DeploymentMode
 from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL
+from thytrader.trading.models import DeploymentMode
 
 
 def require_live_acknowledgement(mode: DeploymentMode, *, acknowledged: bool) -> None:

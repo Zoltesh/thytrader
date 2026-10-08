@@ -7,11 +7,11 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
-from thytrader.execution.day_open import DailyOpeningEvidence
-from thytrader.execution.models import DeploymentMode
-from thytrader.execution.protection import ProtectionEvidenceResponse
-from thytrader.execution.twins import DeploymentTwinLink
 from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
+from thytrader.trading.day_open import DailyOpeningEvidence
+from thytrader.trading.models import DeploymentMode
+from thytrader.trading.protection import ProtectionEvidenceResponse
+from thytrader.trading.twins import DeploymentTwinLink
 
 
 class CreateDeploymentRequest(BaseModel):

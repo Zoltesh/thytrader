@@ -12,7 +12,7 @@ from thytrader.strategies.economic_guard import (
 )
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import PositionSide
+    from thytrader.trading.models import PositionSide
 
 __all__ = [
     "EconomicDecimal",

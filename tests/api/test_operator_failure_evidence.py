@@ -22,9 +22,9 @@ from thytrader.audit_events import (
 )
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.operator.models import ExchangeReport, ReconciliationReport
 from thytrader.portfolio.service import PortfolioService
+from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
     from thytrader.operator.service import OperatorDiagnostics

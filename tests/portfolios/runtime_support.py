@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.portfolios.manager import ProposalService
 from thytrader.portfolios.models import (
     ManagerPermissions,
@@ -27,14 +26,15 @@ from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
 from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from thytrader.execution.models import Deployment
     from thytrader.portfolios.models import PortfolioAggregate
     from thytrader.strategies.library import StrategyRecord
+    from thytrader.trading.models import Deployment
 
 NOW = datetime(2026, 10, 2, 12, tzinfo=UTC)
 

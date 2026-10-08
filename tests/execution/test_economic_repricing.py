@@ -12,9 +12,9 @@ from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.execution.economics import EconomicEntryGuard
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, OrderStatus
 from thytrader.execution.paper import PaperBroker
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, OrderStatus
 
 
 def test_simulated_reprice_expires_when_the_new_price_loses_its_net_margin() -> None:

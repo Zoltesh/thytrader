@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.memory.recording import maybe_record_submitted_intent
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
@@ -21,16 +23,14 @@ from thytrader.execution.models import (
     OrderSide,
     OrderStatus,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.memory.recording import maybe_record_submitted_intent
 
 if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
     from thytrader.execution.broker import Broker
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle
+    from thytrader.trading.store import ExecutionStore
 
 
 async def submit_intent(

@@ -11,10 +11,10 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.execution.entry_latch import remember_entry_inhibition
-from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.fleet_control import ENTRY_INHIBITED_PREFIX
 from thytrader.persistence.schema import fleet_entry_inhibition
+from thytrader.trading.entry_latch import remember_entry_inhibition
+from thytrader.trading.models import ExecutionConflictError, ExecutionStoreError
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection

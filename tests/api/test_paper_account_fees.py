@@ -13,10 +13,10 @@ from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api import paper_fees
 from thytrader.api.paper_fees import account_paper_fee_source as _account_source
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.paper_fees import PaperFeesUnavailableError
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
     from thytrader.portfolio.service import PortfolioService

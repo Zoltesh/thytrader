@@ -8,10 +8,14 @@ from typing import TYPE_CHECKING
 import pytest
 
 from thytrader.execution.broker import SubmitResult
-from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.loop import maintain_open_inventory, process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -25,13 +29,9 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.market_data.models import Candle, MarketProduct
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 
 def _product() -> MarketProduct:

@@ -8,7 +8,7 @@ import pytest
 
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.execution.broker import CANCEL_PENDING_REASON
-from thytrader.execution.models import OrderStatus
+from thytrader.trading.models import OrderStatus
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

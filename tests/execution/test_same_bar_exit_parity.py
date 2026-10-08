@@ -22,26 +22,26 @@ import pytest
 
 from tests.backtest.test_kernel import _WARMUP, _bars, _hour, _run, _strategy, _with
 from thytrader.backtest.kernel import simulate_backtest
-from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.market_data.models import MarketProduct
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
     IntentPurpose,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.market_data.models import MarketProduct
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.market_data.models import Candle
+    from thytrader.trading.models import DeploymentSnapshot
 
 _SIGNAL_BAR = ("14", "15", "12", "14")
 _FILL_BAR = ("14", "15", "12", "12")

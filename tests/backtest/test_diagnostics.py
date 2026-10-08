@@ -27,8 +27,8 @@ from thytrader.backtest.models import (
     canonical_backtest_diagnostics_bytes,
 )
 from thytrader.evaluation.models import CapitalAssumptions, CostAssumptions
-from thytrader.execution.geometry import EntrySkipReason
 from thytrader.strategies.models import strategy_fingerprint
+from thytrader.trading.geometry import EntrySkipReason
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import Candle

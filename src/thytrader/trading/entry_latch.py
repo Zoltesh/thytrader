@@ -1,6 +1,6 @@
 """Process-local view of the durable fleet entry-inhibition latch.
 
-The execution loop already asks :func:`thytrader.execution.lifecycle.entries_allowed`
+The execution loop already asks :func:`thytrader.trading.lifecycle.entries_allowed`
 before a new entry or a risk-increasing reprice. That function is synchronous, so
 this module holds the latest snapshot read by the execution worker. An empty cache
 means this process has not proven entry admission and therefore fails closed.
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from datetime import datetime
 
-    from thytrader.execution.models import DeploymentMode
+    from thytrader.trading.models import DeploymentMode
 
 
 class _LatchCache:

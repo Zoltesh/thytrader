@@ -16,11 +16,11 @@ from tests.strategies.reference_support import reference_strategy
 from tests.strategy_fakes import SeededStrategyStore
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore, MarketDataWatchTarget
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 def _client(

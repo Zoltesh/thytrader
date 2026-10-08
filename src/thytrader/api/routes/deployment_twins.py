@@ -21,10 +21,10 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
-from thytrader.execution.twins import TwinConflictError, TwinValidationError, load_twin_snapshots
 from thytrader.strategies.snapshots import StrategySnapshotError, StrategySnapshotStore
+from thytrader.trading.models import ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
+from thytrader.trading.twins import TwinConflictError, TwinValidationError, load_twin_snapshots
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 

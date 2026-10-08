@@ -12,7 +12,7 @@ import pytest
 
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.execution.broker import BrokerError
-from thytrader.execution.models import OrderKind, OrderSide, OrderStatus
+from thytrader.trading.models import OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

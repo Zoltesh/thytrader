@@ -24,13 +24,13 @@ from thytrader.evaluation.models import (
     removed_engine_selection_message,
     warmup_starts_at,
 )
-from thytrader.execution.ids import uuid7
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.strategies.models import reference_instruments, unbound_indicator_timeframes
+from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

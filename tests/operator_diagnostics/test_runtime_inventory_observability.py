@@ -20,10 +20,15 @@ from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
 from thytrader.api.routes.deployment_serializers import snapshot_response
-from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
-from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.memory.notify import DisabledNotificationSender
+from thytrader.operator.readiness import build_readiness_report
+from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
+from thytrader.portfolio.service import PortfolioService
+from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -35,18 +40,13 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     PositionState,
     ProtectionStatus,
     book_protection_evidence,
     deployment_position_state,
     missing_occupied_inventory_products,
 )
-from thytrader.memory.notify import DisabledNotificationSender
-from thytrader.operator.readiness import build_readiness_report
-from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
-from thytrader.portfolio.service import PortfolioService
-from thytrader.risk.store import InMemoryRiskPolicyStore
 
 pytestmark = pytest.mark.anyio
 

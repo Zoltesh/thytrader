@@ -7,19 +7,6 @@ from decimal import Decimal, InvalidOperation
 import math
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.ledger import resolve_paper_fee_schedule
-from thytrader.execution.lifecycle import command_for_status, occupies_running_slot
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    ExecutionConflictError,
-    ExecutionStoreError,
-    RuntimePhase,
-    with_runtime,
-)
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
@@ -33,15 +20,28 @@ from thytrader.strategies.snapshots import (
     StrategySnapshotError,
     StrategySnapshotReader,
 )
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.ledger import resolve_paper_fee_schedule
+from thytrader.trading.lifecycle import command_for_status, occupies_running_slot
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
+    RuntimePhase,
+    with_runtime,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.paper_fees import PaperFeeSource
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.models import ReferenceDataRequirement, StrategyDefinition
+    from thytrader.trading.store import ExecutionStore
 
 
 async def create_deployment(

@@ -18,8 +18,9 @@ from sqlalchemy import exists
 from sqlalchemy.dialects.postgresql import Insert, insert
 from sqlalchemy.orm import aliased
 
-from thytrader.execution.day_open import DailyOpeningEvidence
-from thytrader.execution.models import (
+from thytrader.persistence.schema import execution_instrument_state
+from thytrader.trading.day_open import DailyOpeningEvidence
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -39,8 +40,7 @@ from thytrader.execution.models import (
     RuntimePhase,
     runtime_from_deployment,
 )
-from thytrader.execution.twins import DeploymentTwinLink
-from thytrader.persistence.schema import execution_instrument_state
+from thytrader.trading.twins import DeploymentTwinLink
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping

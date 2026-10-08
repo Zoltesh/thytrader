@@ -16,13 +16,6 @@ from tests.portfolios.runtime_support import World, operator, portfolio, world
 from thytrader.exchanges.models import ExchangeBalance
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    DeploymentMode,
-    DeploymentStatus,
-    LifecycleCommand,
-    OrderStatus,
-)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import PortfolioSleeveStart, create_deployment
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
@@ -35,11 +28,18 @@ from thytrader.risk.gate import PortfolioRiskBook
 from thytrader.risk.models import RiskReasonCode
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.strategies.models import strategy_fingerprint
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentStatus,
+    LifecycleCommand,
+    OrderStatus,
+)
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.portfolios.models import PortfolioAggregate
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import DeploymentSnapshot
 
 pytestmark = pytest.mark.anyio
 _LOOP_PORTFOLIO = UUID("01978a3e-5f2c-7d10-b3a4-00000000f00a")

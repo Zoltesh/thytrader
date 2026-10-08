@@ -21,14 +21,23 @@ from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
 from thytrader.api.routes.deployment_serializers import snapshot_response, summary_response
 from thytrader.exchanges.models import ExchangeOpenOrder
-from thytrader.execution.fill_ledger import (
+from thytrader.memory.notify import DisabledNotificationSender
+from thytrader.operator.readiness import ReadinessReport, build_readiness_report
+from thytrader.operator.venue_reconciliation import (
+    VenueReconciliationReport,
+    build_venue_reconciliation_report,
+)
+from thytrader.portfolio.service import PortfolioService
+from thytrader.risk.opening_accounting import reconstruct_day_open
+from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.trading.fill_ledger import (
     ingest_fill,
     unprojected_inventory_products,
     unsettled_fill_evidence,
 )
-from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -44,8 +53,8 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution.overlay import InstrumentScopedStore
-from thytrader.execution.protection import (
+from thytrader.trading.overlay import InstrumentScopedStore
+from thytrader.trading.protection import (
     PositionState,
     ProtectionStatus,
     book_position_state,
@@ -53,15 +62,6 @@ from thytrader.execution.protection import (
     deployment_position_state,
     protection_evidence_response,
 )
-from thytrader.memory.notify import DisabledNotificationSender
-from thytrader.operator.readiness import ReadinessReport, build_readiness_report
-from thytrader.operator.venue_reconciliation import (
-    VenueReconciliationReport,
-    build_venue_reconciliation_report,
-)
-from thytrader.portfolio.service import PortfolioService
-from thytrader.risk.opening_accounting import reconstruct_day_open
-from thytrader.risk.store import InMemoryRiskPolicyStore
 
 if TYPE_CHECKING:
     from uuid import UUID

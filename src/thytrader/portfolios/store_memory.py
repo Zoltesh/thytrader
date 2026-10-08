@@ -13,8 +13,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import uuid7
-from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestListing,
@@ -67,12 +65,13 @@ from thytrader.portfolios.store_contracts import (
 from thytrader.portfolios.store_journal import backtest_journal_entry
 from thytrader.research.jobs import ResearchJobStatus
 from thytrader.strategies.library import StrategyLibraryError, StrategyNotFoundError
+from thytrader.trading.ids import uuid7
+from thytrader.trading.lifecycle import occupies_running_slot
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolios.models import (
         Portfolio,
         PortfolioCreateRequest,
@@ -86,6 +85,7 @@ if TYPE_CHECKING:
     from thytrader.portfolios.proposals import ProposalStatus
     from thytrader.portfolios.store_contracts import ProposalBuilder, ProposalSettler
     from thytrader.strategies.library import StrategyStore
+    from thytrader.trading.store import ExecutionStore
 
 
 _ACTIVE_JOB_STATUSES = (ResearchJobStatus.QUEUED, ResearchJobStatus.RUNNING)

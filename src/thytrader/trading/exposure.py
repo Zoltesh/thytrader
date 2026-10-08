@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
     IntentPurpose,
@@ -19,7 +19,7 @@ from thytrader.execution.models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _DAILY_LOSS = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED, DeploymentStatus.STOPPED}

@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 
 from tests.alerts.test_supervision import _NOW, _candle, _deployment, _no_candles, _position
-from tests.execution.protection_support import settled_snapshot
+from tests.trading.protection_support import settled_snapshot
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -27,7 +27,8 @@ from thytrader.alerts.supervision import (
     gather_safety_findings,
     verified_worker_recovery,
 )
-from thytrader.execution.models import (
+from thytrader.memory.notify import DisabledNotificationSender
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     Order,
@@ -36,7 +37,6 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.memory.notify import DisabledNotificationSender
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -44,8 +44,8 @@ if TYPE_CHECKING:
 
     from thytrader.alerts.models import SafetyEvidence
     from thytrader.alerts.supervision import ClosedCandleReader
-    from thytrader.execution.models import Deployment
     from thytrader.market_data.models import Candle
+    from thytrader.trading.models import Deployment
 
 pytestmark = pytest.mark.anyio
 

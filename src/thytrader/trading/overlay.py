@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
     DeploymentSummarySnapshot,
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
-    from thytrader.execution.twins import DeploymentTwinLink
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.store import ExecutionStore
+    from thytrader.trading.twins import DeploymentTwinLink
 
 
 def overlay_snapshot(snapshot: DeploymentSnapshot, product_id: str) -> DeploymentSnapshot:

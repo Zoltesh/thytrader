@@ -12,7 +12,7 @@ from tests.exchanges.test_coinbase_broker import FakeTransport
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.exchanges.rest_transport import CoinbaseHttpStatusError, RestClientTransport
 from thytrader.execution.broker import BrokerError, ClientOrderLookup, SubmitResult
-from thytrader.execution.models import OrderKind, OrderSide, OrderStatus
+from thytrader.trading.models import OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

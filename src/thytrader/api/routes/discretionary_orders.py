@@ -32,10 +32,7 @@ from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
-from thytrader.execution.geometry import base_currency
-from thytrader.execution.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.paper_fees import PaperFeeSource
-from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.products import (
     SPOT_PRODUCT_ID_PATTERN,
     quote_currency as spot_quote_currency,
@@ -44,13 +41,16 @@ from thytrader.market_data.service import MarketDataService
 from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
+from thytrader.trading.geometry import base_currency
+from thytrader.trading.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
 
 if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.discretionary import DiscretionaryOrderRequest
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 router = APIRouter(prefix="/api/v1/discretionary-orders", tags=["discretionary-orders"])
 

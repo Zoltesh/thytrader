@@ -9,20 +9,20 @@ from hashlib import sha256
 import json
 from typing import TYPE_CHECKING
 
-from thytrader.execution.day_open import DailyOpeningEvidence, MidnightMark
-from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
-from thytrader.execution.models import (
+from thytrader.trading.day_open import DailyOpeningEvidence, MidnightMark
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
+from thytrader.trading.models import (
     OrderSide,
     PositionSide,
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.execution.protection import missing_occupied_inventory_products
+from thytrader.trading.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.execution.models import DeploymentSnapshot, Fill, Order
+    from thytrader.trading.models import DeploymentSnapshot, Fill, Order
 
 _ZERO = Decimal("0")
 

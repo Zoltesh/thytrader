@@ -18,7 +18,6 @@ from thytrader.api.dependencies import (
     get_runtime_state,
 )
 from thytrader.audit_events import AuditEventStore
-from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.memory.evidence import LocalEvidenceResolver
 from thytrader.memory.models import (
@@ -62,6 +61,7 @@ from thytrader.persistence.backtest_results import (
     BacktestResultReader,
 )
 from thytrader.runtime import RuntimeState
+from thytrader.trading.store import ExecutionStore
 
 router = APIRouter(prefix="/api/v1/memory", tags=["memory"])
 

@@ -15,16 +15,7 @@ from thytrader.execution.decision_journal import observe_bar, record_bar_decisio
 from thytrader.execution.decision_scope import note_reference_gate
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.freshness import signal_still_valid
-from thytrader.execution.geometry import base_currency
-from thytrader.execution.ids import utc_now
 from thytrader.execution.loop import maintain_open_inventory, process_closed_bar
-from thytrader.execution.models import (
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    with_runtime,
-)
-from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.execution.stopped import stopped_product_ids, supervise_stopped_deployment
 from thytrader.execution.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
 from thytrader.execution_worker.live_sizing import _currency_available, _prepare_live
@@ -50,6 +41,15 @@ from thytrader.execution_worker.windows import (
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.strategies.models import lockstep_product_ids, signal_exit_condition
+from thytrader.trading.geometry import base_currency
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import (
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    with_runtime,
+)
+from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -59,9 +59,7 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.execution.references import ReferenceGate
-    from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.execution_worker.ports import QuoteBalanceReader
     from thytrader.market_data.models import Candle, MarketProduct
@@ -70,6 +68,8 @@ if TYPE_CHECKING:
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategySnapshotStore
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 
 def _latest_due_bar_may_enter(candle: Candle, *, timeframe: str, is_latest: bool) -> bool:

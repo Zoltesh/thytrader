@@ -11,9 +11,9 @@ from tests.api.test_deployments import (
     _published_strategy,
 )
 from tests.api.test_discretionary_orders import _body, _client as _order_client
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 def _stores() -> tuple[InMemoryPublicationStore, InMemoryExecutionStore, str]:

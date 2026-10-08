@@ -17,16 +17,16 @@ from fastapi.testclient import TestClient
 from thytrader.api.app import create_app
 from thytrader.backtest.models import BacktestSummary
 from thytrader.config import Settings
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.persistence.backtest_results import BacktestResultSummaryView
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
     RuntimePhase,
 )
-from thytrader.persistence.backtest_results import BacktestResultSummaryView
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

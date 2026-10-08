@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from thytrader.execution.ids import utc_now, uuid7
+from thytrader.trading.ids import utc_now, uuid7
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -18,8 +18,14 @@ from thytrader.execution.loop import (
     maintain_open_inventory,
     process_closed_bar,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -32,12 +38,6 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.market_data.models import Candle, MarketProduct
-from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.models import compiled_default_risk_policy
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 
 def _product() -> MarketProduct:

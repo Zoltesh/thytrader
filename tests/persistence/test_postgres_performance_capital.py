@@ -16,7 +16,6 @@ from sqlalchemy import text
 from tests.execution.test_performance_capital import _NOW, _live_snapshot
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
 from thytrader.execution.capital import refresh_performance
-from thytrader.execution.models import DeploymentSnapshot, DeploymentStatus, RuntimePhase
 from thytrader.execution.service import reset_breaker_latches
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
@@ -26,6 +25,7 @@ from thytrader.risk.gate import evaluate_runtime_breakers
 from thytrader.risk.models import RiskReasonCode, compiled_default_risk_policy
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.trading.models import DeploymentSnapshot, DeploymentStatus, RuntimePhase
 
 __all__ = ["scratch_database"]
 pytestmark = pytest.mark.skipif(

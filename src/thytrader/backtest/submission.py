@@ -45,12 +45,12 @@ from thytrader.evaluation.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
 )
-from thytrader.execution.ids import uuid7
 from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError
+from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine

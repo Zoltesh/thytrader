@@ -35,8 +35,6 @@ from thytrader.execution.decisions import (
     DecisionSkipReason,
 )
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, ExecutionConflictError
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.references import reference_gate
 from thytrader.execution.service import (
@@ -57,6 +55,8 @@ from thytrader.strategies.models import (
     reference_data_requirements,
     strategy_fingerprint,
 )
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, ExecutionConflictError
 
 _DECISION_CLOSE = datetime(2026, 7, 11, 3, tzinfo=UTC)
 _DAY = datetime(2026, 7, 8, tzinfo=UTC)

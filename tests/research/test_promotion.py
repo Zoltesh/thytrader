@@ -7,13 +7,6 @@ from decimal import Decimal
 from uuid import UUID
 
 from thytrader.backtest.models import BacktestSummary
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    RuntimePhase,
-)
 from thytrader.persistence.backtest_results import BacktestResultSummaryView
 from thytrader.research.promotion import assemble_promotion_evidence
 from thytrader.research.studies import (
@@ -22,6 +15,13 @@ from thytrader.research.studies import (
     StudyKind,
     StudyWindowResult,
     WindowRole,
+)
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    RuntimePhase,
 )
 
 

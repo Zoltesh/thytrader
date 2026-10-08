@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     DeploymentSnapshot,
     Fill,
     IntentPurpose,

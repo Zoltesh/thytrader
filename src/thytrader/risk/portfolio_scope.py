@@ -18,7 +18,7 @@ from thytrader.risk.gate import PortfolioRiskBook
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from thytrader.execution.models import Deployment
+    from thytrader.trading.models import Deployment
 
 _SCOPE: ContextVar[PortfolioRiskBook | None] = ContextVar("portfolio_risk_scope", default=None)
 

@@ -9,11 +9,12 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tests.execution.protection_support import settled_snapshot
+from tests.trading.protection_support import settled_snapshot
 from thytrader.api.routes.deployment_serializers import position_response
-from thytrader.execution import protection
 from thytrader.execution.attached import attached_entry_covers
-from thytrader.execution.models import (
+from thytrader.portfolios.runtime_views import open_books
+from thytrader.trading import protection
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -30,13 +31,12 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     ProtectionEvidence,
     ProtectionStatus,
     book_protection_evidence,
     book_protection_status,
 )
-from thytrader.portfolios.runtime_views import open_books
 
 _NOW = datetime(2026, 9, 16, 12, tzinfo=UTC)
 

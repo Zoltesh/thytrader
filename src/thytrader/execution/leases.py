@@ -6,8 +6,8 @@ from datetime import timedelta
 import os
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import utc_now
-from thytrader.execution.models import (
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
     DeploymentSummarySnapshot,
@@ -28,9 +28,9 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
-    from thytrader.execution.twins import DeploymentTwinLink
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.store import ExecutionStore
+    from thytrader.trading.twins import DeploymentTwinLink
 
 WORKER_LEASE_TTL_SECONDS = 45
 

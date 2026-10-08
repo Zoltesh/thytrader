@@ -14,7 +14,8 @@ from thytrader.alerts.supervision import (
     AlertThresholds,
     gather_safety_findings,
 )
-from thytrader.execution.models import (
+from thytrader.market_data.models import Candle
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -28,7 +29,6 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.market_data.models import Candle
 
 _NOW = datetime(2026, 3, 2, 6, 3, tzinfo=UTC)
 _THRESHOLDS = AlertThresholds()

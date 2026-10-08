@@ -15,7 +15,7 @@ from thytrader.exchanges.rest_transport import (
     json_object,
 )
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, SubmitResult
-from thytrader.execution.models import Fill, Order, OrderKind, OrderSide, OrderStatus
+from thytrader.trading.models import Fill, Order, OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

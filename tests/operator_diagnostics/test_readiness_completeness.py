@@ -18,17 +18,6 @@ from tests.operator_diagnostics.test_readiness_preflight import (
     _seed,
 )
 from thytrader.exchanges.models import ExchangeOpenOrder
-from thytrader.execution.ids import uuid7
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    DeploymentStatus,
-    Order,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
-    Position,
-)
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.operator.readiness import build_readiness_report
 from thytrader.operator.venue_reconciliation import (
     VenueReconciliationPayload,
@@ -44,11 +33,22 @@ from thytrader.portfolios.models import (
     PortfolioRuntimeState,
 )
 from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.trading.ids import uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    Position,
+)
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.execution.models import Deployment, DeploymentSnapshot
+    from thytrader.trading.models import Deployment, DeploymentSnapshot
 
 
 class _UnreadableStore(InMemoryExecutionStore):

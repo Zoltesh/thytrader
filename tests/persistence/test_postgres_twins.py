@@ -16,13 +16,13 @@ from sqlalchemy import text
 
 from tests.execution.test_fill_comparison import _deployment
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
-from thytrader.execution.models import DeploymentMode, DeploymentStatus
-from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, TwinValidationError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
 from thytrader.strategies.library import clone_strategy, create_strategy_from_definition
+from thytrader.trading.models import DeploymentMode, DeploymentStatus
+from thytrader.trading.twins import DeploymentTwinLink, TwinConflictError, TwinValidationError
 
 __all__ = ["scratch_database"]
 pytestmark = pytest.mark.skipif(

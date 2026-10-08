@@ -36,8 +36,11 @@ from thytrader.execution.decisions import (
     DecisionRisk,
     DecisionSkipReason,
 )
-from thytrader.execution.geometry import entry_skip_category, entry_skip_detail
-from thytrader.execution.models import (
+from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
+from thytrader.risk.models import RiskDecision
+from thytrader.strategies.models import atr_trailing_stop
+from thytrader.trading.geometry import entry_skip_category, entry_skip_detail
+from thytrader.trading.models import (
     DeploymentStatus,
     IntentPurpose,
     LifecycleCommand,
@@ -47,9 +50,6 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
-from thytrader.risk.models import RiskDecision
-from thytrader.strategies.models import atr_trailing_stop
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -57,7 +57,9 @@ if TYPE_CHECKING:
 
     from thytrader.execution.decision_scope import DecisionObservations
     from thytrader.execution.decisions import EntryRuleTrace, ExitRuleTrace
-    from thytrader.execution.models import (
+    from thytrader.risk.models import RiskVerdict
+    from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import (
         Deployment,
         DeploymentSnapshot,
         Fill,
@@ -65,8 +67,6 @@ if TYPE_CHECKING:
         OrderIntent,
         Position,
     )
-    from thytrader.risk.models import RiskVerdict
-    from thytrader.strategies.models import StrategyDefinition
 
 _EXIT_PURPOSES = frozenset(
     {

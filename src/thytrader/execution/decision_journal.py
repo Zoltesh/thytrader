@@ -28,8 +28,8 @@ from thytrader.execution.decisions import (
     DECISION_RETENTION_MAX_AGE,
     DECISION_RETENTION_MAX_ROWS_PER_DEPLOYMENT,
 )
-from thytrader.execution.ids import utc_now
 from thytrader.market_data.no_trade import is_no_trade_bar
+from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -39,9 +39,9 @@ if TYPE_CHECKING:
     from thytrader.execution.decision_scope import DecisionObservations
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionSkipReason
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.market_data.models import Candle
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import DeploymentSnapshot
 
 _logger = logging.getLogger(__name__)
 _JOURNAL: ContextVar[DecisionJournalStore | None] = ContextVar("decision_journal", default=None)

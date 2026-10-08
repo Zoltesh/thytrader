@@ -26,12 +26,12 @@ from uuid import UUID  # noqa: TC003 - intent maps are keyed at runtime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.execution.fill_ledger import (
+from thytrader.trading.fill_ledger import (
     unprojected_inventory_products,
     unsettled_fill_evidence,
 )
-from thytrader.execution.ids import utc_now
-from thytrader.execution.models import (
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     IntentPurpose,

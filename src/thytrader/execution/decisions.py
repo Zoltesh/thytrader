@@ -20,7 +20,10 @@ from thytrader.evaluation.trace import (
     EntryConditionOutcome,
     SignalTraceRecord,
 )
-from thytrader.execution.models import (
+from thytrader.market_data.models import DatasetTimeframe
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.strategies.models import ComparisonOperator
+from thytrader.trading.models import (
     DeploymentMode,
     IntentPurpose,
     OrderKind,
@@ -28,9 +31,6 @@ from thytrader.execution.models import (
     OrderStatus,
     PositionSide,
 )
-from thytrader.market_data.models import DatasetTimeframe
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.strategies.models import ComparisonOperator
 
 DECISION_SCHEMA_VERSION: Literal["thytrader-bar-decision-v1"] = "thytrader-bar-decision-v1"
 DECISION_RETENTION_MAX_ROWS_PER_DEPLOYMENT = 20_000

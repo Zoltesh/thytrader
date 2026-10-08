@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
     DeploymentSummarySnapshot,
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
-    from thytrader.execution.twins import DeploymentTwinLink
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.twins import DeploymentTwinLink
 
 
 @runtime_checkable

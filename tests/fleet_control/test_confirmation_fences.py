@@ -7,10 +7,10 @@ import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.runtime_control.cli import _parser
 from thytrader.runtime_control.client import RuntimeControlError
 from thytrader.runtime_control.fleet_commands import run_fleet_mutation
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 def test_http_latch_requires_exact_preview_revisions_and_both_live_gates() -> None:

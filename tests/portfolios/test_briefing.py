@@ -11,7 +11,6 @@ import pytest
 from tests.portfolios.fixtures import DATA_START, FakeChildBacktests, write_dataset
 from tests.portfolios.runtime_support import World, operator, portfolio, world
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
-from thytrader.execution.models import DeploymentMode
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.portfolios.backtest import PortfolioBacktestRequest
 from thytrader.portfolios.briefing import BRIEFING_CONTRACT, build_manager_briefing
@@ -19,6 +18,7 @@ from thytrader.portfolios.jobs import PortfolioBacktestRunner
 from thytrader.portfolios.models import ManagerPermissions
 from thytrader.portfolios.planning import plan_portfolio_backtest
 from thytrader.portfolios.proposals import ProposalSubmitRequest
+from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
     from pathlib import Path

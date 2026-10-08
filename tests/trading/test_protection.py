@@ -8,8 +8,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.execution import protection
-from thytrader.execution.models import (
+from thytrader.trading import protection
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -26,7 +26,7 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     PositionState,
     ProtectionStatus,
     book_position_state,

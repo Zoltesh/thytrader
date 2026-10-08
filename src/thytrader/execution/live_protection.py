@@ -22,25 +22,6 @@ from thytrader.execution.exit_guards import (
     rejection_latched,
 )
 from thytrader.execution.exits import _exit_economics_fault, _mark_pending_exit, _marketable_exit
-from thytrader.execution.geometry import (
-    exit_order_side,
-    paper_stop_fill_price,
-    paper_stop_hit,
-    protective_stop_limit_price,
-)
-from thytrader.execution.ids import utc_now
-from thytrader.execution.models import (
-    DeploymentMode,
-    DeploymentSnapshot,
-    IntentPurpose,
-    Order,
-    OrderKind,
-    OrderStatus,
-    Position,
-    PositionSide,
-    RuntimePhase,
-    with_runtime,
-)
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.runtime_ops import (
     _active_side,
@@ -55,14 +36,33 @@ from thytrader.execution.signals import named_atr
 from thytrader.execution.submit import submit_intent
 from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.strategies.models import atr_trailing_stop
+from thytrader.trading.geometry import (
+    exit_order_side,
+    paper_stop_fill_price,
+    paper_stop_hit,
+    protective_stop_limit_price,
+)
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentSnapshot,
+    IntentPurpose,
+    Order,
+    OrderKind,
+    OrderStatus,
+    Position,
+    PositionSide,
+    RuntimePhase,
+    with_runtime,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from thytrader.execution.broker import Broker
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.store import ExecutionStore
 
 
 STOP_LIMIT_PRICE_DETAIL = (

@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from thytrader.execution.models import OrderSide
+from thytrader.trading.models import OrderSide
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from thytrader.execution.models import Fill, Order, OrderKind, OrderStatus
     from thytrader.market_data.models import Candle
+    from thytrader.trading.models import Fill, Order, OrderKind, OrderStatus
 
 
 CANCEL_PENDING_REASON = "cancel_pending"

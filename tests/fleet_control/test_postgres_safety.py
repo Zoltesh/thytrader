@@ -23,24 +23,6 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from thytrader.execution.entry_latch import clear_entry_inhibition_cache
-from thytrader.execution.ids import uuid7
-from thytrader.execution.lifecycle import entries_allowed
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    ExecutionConflictError,
-    ExecutionStoreError,
-    IntentPurpose,
-    LifecycleCommand,
-    OrderIntent,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
-    RuntimePhase,
-)
 from thytrader.fleet_control import postgres as fleet_postgres, service as fleet_service
 from thytrader.fleet_control.admission import refresh_process_entry_inhibition
 from thytrader.fleet_control.inventory import read_stable_inventory
@@ -64,13 +46,31 @@ from thytrader.persistence.schema import (
     fleet_entry_inhibition,
     order_intents,
 )
+from thytrader.trading.entry_latch import clear_entry_inhibition_cache
+from thytrader.trading.ids import uuid7
+from thytrader.trading.lifecycle import entries_allowed
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
+    IntentPurpose,
+    LifecycleCommand,
+    OrderIntent,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    RuntimePhase,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Iterator
 
     from sqlalchemy.engine import Connection
 
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.store import ExecutionStore
 
 _URL = os.getenv("THYTRADER_TEST_DATABASE_URL")
 _NOW = datetime(2026, 10, 6, tzinfo=UTC)

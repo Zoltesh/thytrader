@@ -9,8 +9,16 @@ import pytest
 
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.loop import _entry_verdict
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.gate import ProposedEntry, evaluate_new_entry, evaluate_runtime_breakers
+from thytrader.risk.models import (
+    CapitalAllocation,
+    RiskDecision,
+    RiskReasonCode,
+    compiled_default_risk_policy,
+)
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -25,14 +33,6 @@ from thytrader.execution.models import (
     Position,
     PositionSide,
     RuntimePhase,
-)
-from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry, evaluate_runtime_breakers
-from thytrader.risk.models import (
-    CapitalAllocation,
-    RiskDecision,
-    RiskReasonCode,
-    compiled_default_risk_policy,
 )
 
 _NOW = datetime(2026, 1, 2, 12, tzinfo=UTC)

@@ -10,8 +10,6 @@ from tests.execution.decision_support import Catalog, strategy
 from tests.execution.test_discretionary import _request
 from tests.portfolios.runtime_support import operator, portfolio, world
 from thytrader.execution.discretionary import place_discretionary_order
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.paper_fees import (
     PaperFeesUnavailableError,
@@ -23,6 +21,8 @@ from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.portfolios.models import PortfolioConflictError
 from thytrader.strategies.models import strategy_fingerprint
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode
 
 pytestmark = pytest.mark.anyio
 _ACCOUNT = (Decimal("0.005"), Decimal("0.009"))

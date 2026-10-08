@@ -20,8 +20,8 @@ settings imported domain enums.
 ## Decision
 
 1. `tests/package_layers.json` declares the layers, highest first: processes, interfaces,
-   services, adapters, coordination, research, simulation, execution, risk, evaluation,
-   contracts, platform, market, foundation. A module belongs to its top-level package unless a
+   services, adapters, coordination, research, simulation, execution, risk, trading,
+   evaluation, contracts, platform, market, foundation. A module belongs to its top-level package unless a
    `components` pattern claims it. Agent CLIs and their loopback clients are an `agent_cli`
    component at the interface layer. The Coinbase broker is a `venue_adapters` component
    beside persistence.
@@ -32,13 +32,16 @@ settings imported domain enums.
    evaluation, traces, stresses and publication eligibility form the `evaluation` package. It
    sits below backtest, research and execution, so every mode consumes the same semantics
    without importing research orchestration.
-4. GitNexus cohesion is judged per production community of 10+ symbols (at or above 0.8),
+4. The broker-neutral trading model forms the `trading` package below risk: deployments,
+   intents, orders, fills and positions, ledgers, protection and exposure state, lifecycle
+   predicates, and the execution store contract with its in-memory store. `risk` reads it,
+   and the `execution` engine above both places orders.
+5. GitNexus cohesion is judged per production community of 10+ symbols (at or above 0.8),
    not by the repo mean.
 
 ## Consequences
 
-- The remaining upward imports are the decoupling work list. `risk -> execution` needs a
-  trading-model package below risk. Research, backtest and fleet control must reach
-  Postgres through protocols wired by processes.
+- The remaining upward imports are the decoupling work list. Research, backtest and fleet
+  control must reach Postgres through protocols wired by processes.
 - Moves keep definitions AST-identical and OpenAPI byte-identical. Old import paths are
   retargeted rather than kept as shims.

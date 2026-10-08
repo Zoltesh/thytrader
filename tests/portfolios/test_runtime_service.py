@@ -8,7 +8,6 @@ from decimal import Decimal
 import pytest
 
 from tests.portfolios.runtime_support import operator, portfolio, world
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 from thytrader.execution.service import create_deployment
 from thytrader.portfolios.models import (
     PortfolioConflictError,
@@ -18,6 +17,7 @@ from thytrader.portfolios.models import (
     SetWeightsRequest,
 )
 from thytrader.portfolios.runtime import FeeAssumptions
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 
 pytestmark = pytest.mark.anyio
 

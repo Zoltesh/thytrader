@@ -17,7 +17,7 @@ from thytrader.execution.execution_quality import (
     build_execution_twin_comparison,
     load_journaled_close_evidence,
 )
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -33,7 +33,7 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.execution.twins import DeploymentTwinLink
+from thytrader.trading.twins import DeploymentTwinLink
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 HOUR = timedelta(hours=1)

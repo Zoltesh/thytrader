@@ -14,7 +14,11 @@ from thytrader.evaluation.trace import (
     IndicatorTraceValue,
     SignalTraceRecord,
 )
-from thytrader.execution.geometry import (
+from thytrader.execution.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
+from thytrader.market_data.models import MarketProduct
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.geometry import (
     EntryLevels,
     EntrySkipReason,
     entry_levels,
@@ -22,11 +26,7 @@ from thytrader.execution.geometry import (
     entry_skip_detail,
     protective_stop_limit_price,
 )
-from thytrader.execution.models import OrderSide, PositionSide
-from thytrader.execution.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
-from thytrader.market_data.models import MarketProduct
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.models import OrderSide, PositionSide
 
 
 def _product(price_increment: str = "0.01") -> MarketProduct:

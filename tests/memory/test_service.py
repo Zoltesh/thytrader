@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.config import NotifyProvider, Settings
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.memory.models import (
     ActorOrigin,
     DeliveryStatus,
@@ -19,6 +18,7 @@ from thytrader.memory.models import (
 from thytrader.memory.notify import DisabledNotificationSender, RecordingNotificationSender
 from thytrader.memory.service import build_monitor, record_journal, submit_notification
 from thytrader.memory.store import InMemoryExperientialMemoryStore
+from thytrader.trading.store import DisabledExecutionStore
 
 
 def test_record_journal_persists_origin_and_audits() -> None:

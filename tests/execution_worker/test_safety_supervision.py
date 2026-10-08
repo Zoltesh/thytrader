@@ -13,15 +13,6 @@ from thytrader.alerts.models import AlertCode, SafetyEvidence
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    LifecycleCommand,
-    RuntimePhase,
-)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import service as worker_service
 from thytrader.execution_worker.service import _run_cycle
@@ -29,6 +20,15 @@ from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    LifecycleCommand,
+    RuntimePhase,
+)
 
 pytestmark = pytest.mark.anyio
 _NOW = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)

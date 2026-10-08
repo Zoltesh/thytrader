@@ -10,19 +10,6 @@ from uuid import UUID, uuid4
 
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    Order,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
-    RuntimePhase,
-)
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.models import SCHEMA_VERSION, ReportStatus
 from thytrader.operator.service import OperatorDiagnostics
@@ -38,6 +25,19 @@ from thytrader.research.catalog import InMemoryResearchStudyCatalog, StudyCatalo
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    RuntimePhase,
+)
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from uuid import UUID

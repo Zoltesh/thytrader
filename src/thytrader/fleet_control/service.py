@@ -17,13 +17,6 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventUnavailableError,
 )
-from thytrader.execution.ids import uuid7
-from thytrader.execution.models import (
-    DeploymentStatus,
-    ExecutionConflictError,
-    ExecutionStoreError,
-    LifecycleCommand,
-)
 from thytrader.fleet_control.admission import remember_snapshot
 from thytrader.fleet_control.effects import (
     cancels_entries,
@@ -47,12 +40,19 @@ from thytrader.fleet_control.models import (
     VenueEffect,
 )
 from thytrader.fleet_control.store import fingerprint_request, modes_for, sorted_expected
+from thytrader.trading.ids import uuid7
+from thytrader.trading.models import (
+    DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
+    LifecycleCommand,
+)
 
 if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore
-    from thytrader.execution.models import Deployment
-    from thytrader.execution.store import ExecutionStore
     from thytrader.fleet_control.store import FleetControlStore
+    from thytrader.trading.models import Deployment
+    from thytrader.trading.store import ExecutionStore
 
 _LIVE_ACK_REQUIRED = (
     "live_acknowledgement_required: This fleet action can re-enable or exit live "

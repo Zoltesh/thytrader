@@ -8,9 +8,9 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, ROUND_UP, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.execution.models import OrderSide, PositionSide
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.products import base_currency as spot_base_currency
+from thytrader.trading.models import OrderSide, PositionSide
 
 if TYPE_CHECKING:
     from datetime import datetime

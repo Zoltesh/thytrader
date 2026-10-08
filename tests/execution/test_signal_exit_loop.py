@@ -31,10 +31,12 @@ from thytrader.execution.decisions import (
     DecisionExitReason,
     DecisionOutcome,
 )
-from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.loop import maintain_open_inventory, process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -46,16 +48,14 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from thytrader.execution.broker import Broker
     from thytrader.execution.decisions import BarDecision
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.market_data.models import Candle
+    from thytrader.trading.models import DeploymentSnapshot
 
 _QTY = Decimal("0.5")
 _RSI_BELOW_50: dict[str, object] = {

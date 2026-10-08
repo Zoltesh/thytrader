@@ -8,14 +8,6 @@ from typing import TYPE_CHECKING
 from thytrader import __version__
 from thytrader.audit_events import AuditEventUnavailableError
 from thytrader.execution.entry import split_pending_entry
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    OrderStatus,
-    RuntimePhase,
-)
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore
@@ -35,6 +27,14 @@ from thytrader.operator.models import (
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import load_effective_policy
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    OrderStatus,
+    RuntimePhase,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID

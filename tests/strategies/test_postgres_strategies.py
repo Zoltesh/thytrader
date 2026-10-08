@@ -15,12 +15,6 @@ import pytest
 from sqlalchemy import func, select, text
 
 from thytrader.backtest.submission import BacktestStartRequest
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentStatus,
-    RuntimePhase,
-)
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_range
@@ -62,6 +56,12 @@ from thytrader.strategies.models import (
     strategy_fingerprint,
 )
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError, StrategySnapshotError
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentStatus,
+    RuntimePhase,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path

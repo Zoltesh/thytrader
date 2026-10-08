@@ -5,7 +5,7 @@ from dataclasses import replace
 from tests.execution.test_decision_builder import _context, _deployment, _intent, _order, _position
 from thytrader.execution.decision_builder import build_bar_decision
 from thytrader.execution.decisions import DecisionOutcome
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     DeploymentSnapshot,
     IntentPurpose,
     OrderKind,

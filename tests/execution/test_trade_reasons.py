@@ -9,7 +9,6 @@ import pytest
 from tests.execution.test_loop import _always_entry_strategy, _candles, _product, _running_snapshot
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.trade_reason_scope import (
     strategy_trade_reason_scope,
@@ -21,6 +20,7 @@ from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.store import InMemoryExperientialMemoryStore
 from thytrader.memory.trade_reasons import TradeReasonOrigin, TradeReasonSignalKind
 from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 @pytest.mark.anyio

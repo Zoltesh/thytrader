@@ -7,11 +7,11 @@ from decimal import Decimal
 from tests.api.test_deployments import _client, _published_strategy
 from tests.risk.test_safety_evidence import _TODAY, overnight_long, seed_accounting
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
-from thytrader.execution.day_open import MidnightMark
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.risk.opening_accounting import reconstruct_day_open
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.day_open import MidnightMark
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 def test_http_separates_verified_opening_from_legacy_observation() -> None:

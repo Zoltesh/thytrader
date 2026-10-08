@@ -38,7 +38,6 @@ from thytrader.alerts.supervision import (
     gather_safety_findings,
     worker_book_failure_finding,
 )
-from thytrader.execution.models import DeploymentStatus, LifecycleCommand
 from thytrader.execution_worker.service import _pause_repeatedly_failing_books
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.persistence import postgres_alerts as module
@@ -46,6 +45,7 @@ from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.schema import deployments
+from thytrader.trading.models import DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

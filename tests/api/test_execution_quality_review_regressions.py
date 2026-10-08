@@ -15,12 +15,12 @@ from thytrader.api.dependencies import get_strategy_snapshot_store
 from thytrader.config import Settings
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, DeploymentSnapshot, OrderKind
-from thytrader.execution.twins import DeploymentTwinLink
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, DeploymentSnapshot, OrderKind
+from thytrader.trading.twins import DeploymentTwinLink
 
 HOUR = timedelta(hours=1)
 

@@ -10,13 +10,13 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.execution.models import DeploymentMode
 from thytrader.research.studies import WindowRole
+from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import Deployment
     from thytrader.persistence.backtest_results import BacktestResultSummaryView
     from thytrader.research.studies import ResearchStudy
+    from thytrader.trading.models import Deployment
 
 PROMOTION_EVIDENCE_VERSION = "thytrader-promotion-evidence-v1"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"

@@ -22,7 +22,7 @@ from uuid import UUID
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, field_serializer, model_validator
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.execution.models import DeploymentMode, OrderSide
+from thytrader.trading.models import DeploymentMode, OrderSide
 
 EXECUTION_QUALITY_SCHEMA_VERSION: Literal["thytrader-execution-quality-v1"] = (
     "thytrader-execution-quality-v1"

@@ -8,14 +8,6 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    Position,
-    RuntimePhase,
-)
 from thytrader.risk.gate import (
     PortfolioRiskBook,
     ProposedEntry,
@@ -31,6 +23,14 @@ from thytrader.risk.models import (
     compiled_default_risk_policy,
 )
 from thytrader.risk.portfolio_scope import portfolio_risk_for, portfolio_risk_scope
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    Position,
+    RuntimePhase,
+)
 
 _PORTFOLIO = UUID("01978a3e-5f2c-7d10-b3a4-00000000f001")
 _OTHER_PORTFOLIO = UUID("01978a3e-5f2c-7d10-b3a4-00000000f002")

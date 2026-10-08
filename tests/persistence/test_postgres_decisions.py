@@ -29,13 +29,6 @@ from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import DecisionStoreError
 from thytrader.execution.decisions import DecisionOutcome
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    RuntimePhase,
-)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
 from thytrader.execution_worker.service import _run_cycle
@@ -49,6 +42,13 @@ from thytrader.persistence.schema import bar_decisions, deployments
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    RuntimePhase,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

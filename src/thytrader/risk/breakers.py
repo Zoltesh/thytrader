@@ -7,9 +7,13 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
-from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.models import (
+from thytrader.market_data.products import is_spot_product_id, quote_currency
+from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
+from thytrader.risk.opening_accounting import reconstruct_day_open
+from thytrader.trading.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.models import (
     DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
@@ -19,18 +23,14 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.execution.performance import current_drawdown
-from thytrader.execution.protection import missing_occupied_inventory_products
-from thytrader.market_data.products import is_spot_product_id, quote_currency
-from thytrader.risk.exposure import daily_loss_snapshots, snapshot_has_residual_exposure
-from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
-from thytrader.risk.opening_accounting import reconstruct_day_open
+from thytrader.trading.performance import current_drawdown
+from thytrader.trading.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from uuid import UUID
 
-    from thytrader.execution.models import OrderIntent
+    from thytrader.trading.models import OrderIntent
 
 _OCCUPIED = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 _RATE_WINDOW = timedelta(seconds=60)

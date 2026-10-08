@@ -22,8 +22,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from thytrader import __version__
-from thytrader.execution.models import Deployment, DeploymentMode, DeploymentSnapshot
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.operator.models import PORTFOLIO_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.readiness_account import (
     _account_section,
@@ -50,17 +48,19 @@ from thytrader.operator.readiness_portfolio import (
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.portfolios.deployment import members
-from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.store import load_effective_policy
+from thytrader.trading.exposure import risk_bearing_snapshots
+from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnapshot
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolio.service import PortfolioService
     from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
+    from thytrader.trading.store import ExecutionStore
 
 __all__ = [
     "ReadinessFeeEvidence",

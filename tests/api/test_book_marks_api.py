@@ -20,11 +20,17 @@ import pytest
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.execution import protection
 from thytrader.execution.decision_store import DecisionStoreError, InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.portfolios.store import InMemoryPortfolioStore
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.trading import protection
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     DeploymentMode,
     ExecutionStoreError,
     Fill,
@@ -37,12 +43,6 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.portfolios.store import InMemoryPortfolioStore
-from thytrader.risk.models import compiled_default_risk_policy
-from thytrader.risk.store import InMemoryRiskPolicyStore
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.library import create_strategy_from_definition
-from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

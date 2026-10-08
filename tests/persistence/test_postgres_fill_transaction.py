@@ -12,14 +12,16 @@ from uuid import uuid4
 from pydantic import SecretStr
 import pytest
 
-from thytrader.execution.fill_ledger import (
+from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.fill_ledger import (
     ingest_fill,
     unprojected_inventory_products,
     unsettled_fill_evidence,
 )
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -35,9 +37,7 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution.overlay import InstrumentScopedStore
-from thytrader.persistence.database import create_engine, dispose
-from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
     from uuid import UUID

@@ -12,7 +12,7 @@ from uuid import UUID  # noqa: TC003 - dataclass fields resolve at type-check an
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from thytrader.execution.day_open import DailyOpeningEvidence
+    from thytrader.trading.day_open import DailyOpeningEvidence
 
 
 class DeploymentMode(StrEnum):

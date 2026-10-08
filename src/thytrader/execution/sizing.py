@@ -12,9 +12,9 @@ from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.economics import target_guard_allows
-from thytrader.execution.geometry import EntryLevels, EntrySkipReason, entry_levels
-from thytrader.execution.models import PositionSide
 from thytrader.strategies.models import reward_risk_multiple
+from thytrader.trading.geometry import EntryLevels, EntrySkipReason, entry_levels
+from thytrader.trading.models import PositionSide
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import MarketProduct

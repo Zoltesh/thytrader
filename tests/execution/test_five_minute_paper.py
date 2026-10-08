@@ -6,8 +6,6 @@ from decimal import Decimal
 import pytest
 
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, RuntimePhase
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
 from thytrader.market_data.models import Candle, MarketProduct
@@ -16,6 +14,8 @@ from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, RuntimePhase
 
 
 class _Catalog:

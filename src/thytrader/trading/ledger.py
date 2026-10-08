@@ -7,11 +7,11 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.execution.fill_ledger import (
+from thytrader.trading.fill_ledger import (
     unprojected_inventory_products,
     unsettled_fill_evidence,
 )
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     OrderKind,
     OrderSide,
     Position,
@@ -19,12 +19,12 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.execution.performance import (
+from thytrader.trading.performance import (
     current_drawdown,
     ledger_starting_equity,
     performance_capital,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     book_inventory_reasons,
     missing_occupied_inventory_products,
 )
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.models import Deployment, DeploymentSnapshot, Fill, Order
+    from thytrader.trading.models import Deployment, DeploymentSnapshot, Fill, Order
 
 PAPER_MAKER_FEE_RATE = Decimal("0.001")
 PAPER_TAKER_FEE_RATE = Decimal("0.002")

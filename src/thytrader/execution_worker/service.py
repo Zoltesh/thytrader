@@ -14,9 +14,7 @@ from thytrader.execution.decision_journal import (
     decision_journal_scope,
     prune_decisions,
 )
-from thytrader.execution.ids import utc_now
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
-from thytrader.execution.models import DeploymentKind, DeploymentMode, DeploymentStatus
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
@@ -51,9 +49,11 @@ from thytrader.execution_worker.windows import (
 )
 from thytrader.fleet_control.admission import refresh_process_entry_inhibition
 from thytrader.risk.accounting_evidence import risk_market_data_scope
-from thytrader.risk.exposure import daily_loss_snapshots
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
+from thytrader.trading.exposure import daily_loss_snapshots
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import DeploymentKind, DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -64,8 +64,6 @@ if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore
     from thytrader.execution.broker import Broker
     from thytrader.execution.decision_store import DecisionJournalStore
-    from thytrader.execution.models import Deployment, DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.execution_worker.venue import ExecutionVenue
     from thytrader.market_data.service import MarketDataService
@@ -76,6 +74,8 @@ if TYPE_CHECKING:
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.settings_yaml import SettingsStore
     from thytrader.strategies.snapshots import StrategySnapshotStore
+    from thytrader.trading.models import Deployment, DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 __all__ = [
     "USER_FEED_PAUSE_DETAIL",

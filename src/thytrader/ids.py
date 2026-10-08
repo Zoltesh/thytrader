@@ -1,7 +1,7 @@
 """Time-sortable identifiers shared across packages.
 
 This module imports nothing from ThyTrader, so strategy authoring can mint ids
-without depending on execution. ``thytrader.execution.ids`` re-exports ``uuid7``.
+without depending on execution. ``thytrader.trading.ids`` re-exports ``uuid7``.
 """
 
 from __future__ import annotations

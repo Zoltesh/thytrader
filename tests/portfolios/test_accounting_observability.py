@@ -12,8 +12,10 @@ import pytest
 
 from tests.operator_diagnostics.test_projection_observability import _fill, _order
 from tests.portfolios.runtime_support import operator, portfolio, world
-from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.models import (
+from thytrader.portfolios.briefing import ManagerBriefing, build_manager_briefing
+from thytrader.portfolios.runtime_views import PortfolioDeploymentResponse, deployment_response
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
     Fill,
@@ -22,8 +24,6 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.portfolios.briefing import ManagerBriefing, build_manager_briefing
-from thytrader.portfolios.runtime_views import PortfolioDeploymentResponse, deployment_response
 
 if TYPE_CHECKING:
     from tests.portfolios.runtime_support import World

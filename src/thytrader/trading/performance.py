@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from thytrader.execution.models import Deployment, DeploymentMode
+from thytrader.trading.models import Deployment, DeploymentMode
 
 _ZERO = Decimal("0")
 
