@@ -1,91 +1,94 @@
-"""Immutable Parquet storage for validated historical candle ranges."""
+"""Immutable Parquet storage for validated historical candle ranges.
+
+:class:`DatasetStore` writes, lists, caches, and verifies datasets. The manifest model,
+error, and manifest codec live in :mod:`thytrader.market_data.dataset_manifest`; file
+identity and durability helpers in :mod:`thytrader.market_data.dataset_files`; input
+validation in :mod:`thytrader.market_data.dataset_validation`; row encoding and content
+fingerprints in :mod:`thytrader.market_data.dataset_content`. Names other modules import
+or patch from here are re-exported (``__all__``).
+"""
 
 from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
-from hashlib import file_digest, sha256
+from datetime import datetime, timedelta
+from decimal import InvalidOperation
 import json
 import os
-from pathlib import Path
 import re
-from stat import S_ISREG
 from threading import Lock, RLock
 from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import polars as pl
 
-from thytrader.decimal_text import canonical_decimal
-from thytrader.market_data.models import (
-    Candle,
-    CandleInterval,
-    CandleRangeReport,
-    interval_from_range,
-    parse_candle_interval,
+from thytrader.market_data.dataset_content import (
+    _candle_rows,
+    _fingerprint,
+    _fingerprint_from_manifest,
+    _fingerprint_rows,
+    _parquet_rows,
+    _parse_utc_text,
+    _partition_rows,
+    _rows_for_fingerprint,
+    _rows_to_candles,
+    _utc_text,
 )
+from thytrader.market_data.dataset_files import (
+    _dataset_identity,
+    _file_identity,
+    _FileIdentity,
+    _files_identity,
+    _fsync_directory,
+    _fsync_file,
+    _ListingStamp,
+    _parquet_envelope_intact,
+    _stamp_matches,
+    _stat_identity,
+    _StatIdentity,
+)
+from thytrader.market_data.dataset_manifest import (
+    _DATASET_SCHEMA_VERSION,
+    DatasetManifest,
+    DatasetStoreError,
+    _manifest_no_trade_count,
+    _manifest_payload,
+    _require_supported_schema_version,
+    _with_verified_no_trade_count,
+)
+from thytrader.market_data.dataset_validation import (
+    _require_timeframe,
+    _safe_dataset_path,
+    _validate_identifier,
+    _validate_report_for_publication,
+)
+from thytrader.market_data.models import Candle, CandleRangeReport, interval_from_range
 from thytrader.market_data.no_trade import count_no_trade_bars
-from thytrader.market_data.quality import (
-    CandleQualityError,
-    analyze_range,
-    validate_candle_values,
-)
+from thytrader.market_data.quality import CandleQualityError, analyze_range
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from pathlib import Path
+
+__all__ = [
+    "DEFAULT_VERIFIED_CANDLE_CACHE_BUDGET",
+    "DatasetManifest",
+    "DatasetStore",
+    "DatasetStoreError",
+    "_file_identity",
+    "_fingerprint",
+    "_parquet_rows",
+    "_safe_dataset_path",
+]
 
 
-type _FileIdentity = tuple[Path, int, int, int, str]
-# Device, inode, size, mtime_ns, ctime_ns of one regular file, captured without reading it.
-type _StatIdentity = tuple[int, int, int, int, int]
-type _ListingStamp = tuple[tuple[Path, _StatIdentity], ...]
-
-
-_DATASET_SCHEMA_VERSION = 2
 # Verified datasets kept per process. Each hit is re-checked against the stat identity and
 # SHA-256 digest of the manifest and every Parquet file, so a cached entry never serves
 # bytes that differ from the bytes that were verified.
 _VERIFIED_DATASET_CACHE_ENTRIES = 256
 DEFAULT_VERIFIED_CANDLE_CACHE_BUDGET = 120_000
-_PARQUET_MAGIC = b"PAR1"
-# Header magic, footer length, and footer magic: the smallest possible complete file.
-_PARQUET_MINIMUM_BYTES = 12
-_SUPPORTED_DATASET_SCHEMA_VERSIONS = frozenset({1, 2})
-_FINGERPRINT_OHLCV_FIELDS = ("open", "high", "low", "close", "volume")
-_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
 _FINGERPRINT = re.compile(r"^sha256:([0-9a-f]{64})$")
-
-
-class DatasetStoreError(ValueError):
-    """Raised when a candle range or on-disk dataset is not safe to use."""
-
-
-@dataclass(frozen=True, slots=True)
-class DatasetManifest:
-    """Facts identifying one immutable persisted candle range and its files.
-
-    ``synthetic_no_trade_intervals`` counts flat zero-volume bars the worker published for
-    confirmed no-trade intervals (ADR 0095). The manifest stores it only when it is
-    non-zero, so gap-free datasets keep their exact bytes, and it is not part of the
-    content fingerprint: deep verification recomputes it from the rows.
-    """
-
-    provider: str
-    product_id: str
-    timeframe: str
-    starts_at: str
-    ends_at: str
-    expected_candle_count: int
-    received_candle_count: int
-    gap_count: int
-    missing_intervals: int
-    complete: bool
-    content_fingerprint: str
-    files: tuple[Path, ...]
-    manifest_path: Path
-    synthetic_no_trade_intervals: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -897,440 +900,3 @@ class DatasetStore:
                 manifest_payload, received_candle_count
             ),
         )
-
-
-def _validate_identifier(value: str) -> None:
-    """Reject filesystem-unsafe provider and product identifier values."""
-    if not _IDENTIFIER.fullmatch(value):
-        message = "Dataset identifier contains unsafe filesystem characters."
-        raise DatasetStoreError(message)
-
-
-def _require_timeframe(timeframe: str) -> CandleInterval:
-    """Parse a supported dataset timeframe or fail closed."""
-    try:
-        return parse_candle_interval(timeframe)
-    except ValueError as error:
-        message = "Dataset verification failed because the timeframe is unsupported."
-        raise DatasetStoreError(message) from error
-
-
-def _validate_report_for_publication(report: CandleRangeReport) -> None:
-    """Recompute every durable range fact before a report can publish dataset files."""
-    if not report.complete:
-        message = "Only a complete historical range can be persisted as a dataset."
-        raise DatasetStoreError(message)
-    if not report.quality.candles:
-        message = "A complete dataset must contain at least one candle."
-        raise DatasetStoreError(message)
-    try:
-        interval = interval_from_range(report)
-        recomputed_report = analyze_range(
-            tuple(report.quality.candles),
-            interval,
-            report.starts_at,
-            report.ends_at,
-            report.ends_at + interval.duration,
-        )
-    except CandleQualityError as error:
-        raise DatasetStoreError(str(error)) from error
-    except (OverflowError, TypeError, ValueError) as error:
-        message = "Dataset range report facts are invalid and cannot be published."
-        raise DatasetStoreError(message) from error
-    if not _report_facts_match(report, recomputed_report):
-        message = "Dataset range report facts are invalid and cannot be published."
-        raise DatasetStoreError(message)
-
-
-def _safe_dataset_path(root: Path, relative: str) -> Path:
-    """Resolve a manifest-relative path only when it remains safely beneath the dataset root."""
-    if (
-        not relative
-        or relative.startswith(("/", "\\"))
-        or "\\" in relative
-        or ".." in relative.split("/")
-    ):
-        message = "Dataset verification failed because a manifest file path escapes its root."
-        raise DatasetStoreError(message)
-    candidate = root / relative
-    # Same check as ``candidate.resolve().relative_to(root.resolve())`` (realpath on both
-    # sides, then segment-wise containment) without pathlib's per-parent object churn,
-    # which dominated listings of tens of thousands of day partitions.
-    resolved_root = os.path.realpath(root)
-    resolved = os.path.realpath(candidate)
-    if os.path.commonpath((resolved, resolved_root)) != resolved_root:
-        message = "Dataset verification failed because a manifest file path escapes its root."
-        raise DatasetStoreError(message)
-    return candidate
-
-
-def _dataset_identity(
-    manifest: DatasetManifest,
-) -> tuple[_FileIdentity, ...] | None:
-    """Capture one coherent identity snapshot for a manifest and all of its files."""
-    identities: list[_FileIdentity] = []
-    for path in (manifest.manifest_path, *manifest.files):
-        identity = _file_identity(path)
-        if identity is None:
-            return None
-        identities.append(identity)
-    return tuple(identities)
-
-
-def _files_identity(files: tuple[Path, ...]) -> tuple[_FileIdentity, ...] | None:
-    """Capture content identities for a manifest's files, or miss when any is unreadable."""
-    identities: list[_FileIdentity] = []
-    for path in files:
-        identity = _file_identity(path)
-        if identity is None:
-            return None
-        identities.append(identity)
-    return tuple(identities)
-
-
-def _stat_identity(path: Path) -> _StatIdentity | None:
-    """Return a regular file's device, inode, size, and change stamps without reading it."""
-    try:
-        status = path.stat()
-    except OSError:
-        return None
-    if not S_ISREG(status.st_mode):
-        return None
-    return (
-        status.st_dev,
-        status.st_ino,
-        status.st_size,
-        int(status.st_mtime_ns),
-        int(status.st_ctime_ns),
-    )
-
-
-def _stamp_matches(stamp: _ListingStamp) -> bool:
-    """True while every file in a catalog stamp keeps its captured stat identity."""
-    return all(_stat_identity(path) == identity for path, identity in stamp)
-
-
-def _parquet_envelope_intact(path: Path, size: int) -> bool:
-    """True when a file starts and ends with the Parquet magic, so it is not truncated."""
-    if size < _PARQUET_MINIMUM_BYTES:
-        return False
-    try:
-        with path.open("rb") as file:
-            head = file.read(len(_PARQUET_MAGIC))
-            file.seek(-len(_PARQUET_MAGIC), os.SEEK_END)
-            tail = file.read(len(_PARQUET_MAGIC))
-    except OSError:
-        return False
-    return head == _PARQUET_MAGIC and tail == _PARQUET_MAGIC
-
-
-def _file_identity(path: Path) -> _FileIdentity | None:
-    """Capture one regular file's metadata and content digest, or miss when either fails.
-
-    Size, modification time, and change time are not sufficient: an in-place same-size
-    rewrite can restore mtime while ctime stays unchanged in the same timestamp tick.
-    The digest is what makes that replacement a cache miss.
-    """
-    try:
-        first = path.stat()
-    except OSError:
-        return None
-    if not S_ISREG(first.st_mode):
-        return None
-    digest = _file_content_digest(path)
-    if digest is None:
-        return None
-    try:
-        second = path.stat()
-    except OSError:
-        return None
-    if not _same_regular_file_metadata(first, second):
-        return None
-    return (path, second.st_size, int(second.st_mtime_ns), int(second.st_ctime_ns), digest)
-
-
-def _same_regular_file_metadata(first: os.stat_result, second: os.stat_result) -> bool:
-    """Return True when two stat snapshots describe the same regular file metadata."""
-    return (
-        S_ISREG(second.st_mode)
-        and first.st_dev == second.st_dev
-        and first.st_ino == second.st_ino
-        and first.st_size == second.st_size
-        and int(first.st_mtime_ns) == int(second.st_mtime_ns)
-        and int(first.st_ctime_ns) == int(second.st_ctime_ns)
-    )
-
-
-def _file_content_digest(path: Path) -> str | None:
-    """Return a SHA-256 hex digest of one file's bytes, or miss when the file cannot be read."""
-    try:
-        with path.open("rb") as file:
-            return file_digest(file, "sha256").hexdigest()
-    except OSError:
-        return None
-
-
-def _fsync_file(path: Path) -> None:
-    """Flush a completed temporary data file before its durable publication rename."""
-    with path.open("rb") as file:
-        os.fsync(file.fileno())
-
-
-def _fsync_directory(path: Path) -> None:
-    """Flush a directory entry after atomically publishing a data or manifest file."""
-    descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-
-
-def _report_facts_match(
-    supplied: CandleRangeReport,
-    recomputed: CandleRangeReport,
-) -> bool:
-    """Compare every range fact persisted in a dataset manifest."""
-    return (
-        supplied.starts_at == recomputed.starts_at
-        and supplied.ends_at == recomputed.ends_at
-        and supplied.requested_candle_count == recomputed.requested_candle_count
-        and supplied.quality.candles == recomputed.quality.candles
-        and supplied.quality.candle_count == recomputed.quality.candle_count
-        and supplied.quality.gap_count == recomputed.quality.gap_count
-        and supplied.quality.missing_intervals == recomputed.quality.missing_intervals
-        and supplied.quality.latest_completed_at == recomputed.quality.latest_completed_at
-        and supplied.complete == recomputed.complete
-    )
-
-
-def _candle_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
-    """Serialize exact candles into Parquet rows using each ``Decimal``'s source spelling.
-
-    Immutable dataset identity for schema v2 uses ``_fingerprint_rows`` instead, which
-    normalizes OHLCV through ``canonical_decimal`` while Parquet keeps these literals.
-    """
-    return tuple(
-        {
-            "starts_at": _utc_text(candle.starts_at),
-            "open": str(candle.open),
-            "high": str(candle.high),
-            "low": str(candle.low),
-            "close": str(candle.close),
-            "volume": str(candle.volume),
-        }
-        for candle in report.quality.candles
-    )
-
-
-def _fingerprint_rows(report: CandleRangeReport) -> tuple[dict[str, str], ...]:
-    """Serialize OHLCV with canonical decimals for schema-v2 content fingerprints."""
-    return tuple(
-        {
-            "starts_at": _utc_text(candle.starts_at),
-            "open": canonical_decimal(candle.open),
-            "high": canonical_decimal(candle.high),
-            "low": canonical_decimal(candle.low),
-            "close": canonical_decimal(candle.close),
-            "volume": canonical_decimal(candle.volume),
-        }
-        for candle in report.quality.candles
-    )
-
-
-def _rows_for_fingerprint(
-    rows: Sequence[dict[str, str]],
-    schema_version: int,
-) -> tuple[dict[str, str], ...]:
-    """Normalize persisted Parquet rows to the schema-specific fingerprint spelling."""
-    if schema_version == 1:
-        return tuple(rows)
-    return tuple(
-        {
-            **row,
-            **{
-                field: canonical_decimal(Decimal(row[field])) for field in _FINGERPRINT_OHLCV_FIELDS
-            },
-        }
-        for row in rows
-    )
-
-
-def _require_supported_schema_version(value: object) -> int:
-    """Reject manifests whose schema version is outside the supported immutable set."""
-    if not isinstance(value, int) or value not in _SUPPORTED_DATASET_SCHEMA_VERSIONS:
-        message = "Dataset verification failed because the manifest schema is unsupported."
-        raise DatasetStoreError(message)
-    return value
-
-
-def _parquet_rows(path: Path) -> tuple[dict[str, str], ...]:
-    """Read canonical string rows from one persisted Parquet file for fingerprint verification."""
-    frame = pl.read_parquet(path)
-    expected_columns = ["starts_at", "open", "high", "low", "close", "volume"]
-    if frame.columns != expected_columns:
-        message = "Dataset verification failed because Parquet columns differ from the schema."
-        raise DatasetStoreError(message)
-    rows = frame.to_dicts()
-    if any(not all(isinstance(value, str) for value in row.values()) for row in rows):
-        message = "Dataset verification failed because Parquet values differ from the schema."
-        raise DatasetStoreError(message)
-    return tuple(rows)
-
-
-def _rows_to_candles(rows: Sequence[dict[str, str]]) -> tuple[Candle, ...]:
-    """Reconstruct exact domain candles from verified canonical Parquet row values."""
-    try:
-        candles = tuple(
-            Candle(
-                starts_at=_parse_utc_text(row["starts_at"]),
-                open=Decimal(row["open"]),
-                high=Decimal(row["high"]),
-                low=Decimal(row["low"]),
-                close=Decimal(row["close"]),
-                volume=Decimal(row["volume"]),
-            )
-            for row in rows
-        )
-        for candle in candles:
-            validate_candle_values(candle)
-    except (InvalidOperation, KeyError, ValueError) as error:
-        message = "Dataset verification failed because Parquet rows are not valid candle values."
-        raise DatasetStoreError(message) from error
-    else:
-        return candles
-
-
-def _parse_utc_text(value: str) -> datetime:
-    """Parse only canonical UTC RFC3339 timestamps used by manifests and Parquet rows."""
-    try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
-        message = "Dataset verification failed because a timestamp is malformed."
-        raise DatasetStoreError(message) from error
-    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0) or _utc_text(parsed) != value:
-        message = "Dataset verification failed because a timestamp is not canonical UTC."
-        raise DatasetStoreError(message)
-    return parsed
-
-
-def _partition_rows(
-    rows: Sequence[dict[str, str]],
-) -> dict[tuple[int, int, int], list[dict[str, str]]]:
-    """Group canonical UTC candle rows into calendar-day Parquet partitions."""
-    partitions: dict[tuple[int, int, int], list[dict[str, str]]] = {}
-    for row in rows:
-        starts_at = datetime.fromisoformat(row["starts_at"].replace("Z", "+00:00"))
-        key = (starts_at.year, starts_at.month, starts_at.day)
-        partitions.setdefault(key, []).append(row)
-    return partitions
-
-
-def _fingerprint(
-    provider: str,
-    product_id: str,
-    timeframe: str,
-    report: CandleRangeReport,
-    rows: Sequence[dict[str, str]],
-    *,
-    schema_version: int,
-) -> str:
-    """Hash complete identity and canonical candle content for immutable dataset identity."""
-    identity = {
-        "schema_version": schema_version,
-        "provider": provider,
-        "product_id": product_id,
-        "timeframe": timeframe,
-        "starts_at": _utc_text(report.starts_at),
-        "ends_at": _utc_text(report.ends_at),
-        "expected_candle_count": report.requested_candle_count,
-        "received_candle_count": report.quality.candle_count,
-        "gap_count": report.quality.gap_count,
-        "missing_intervals": report.quality.missing_intervals,
-        "complete": report.complete,
-        "rows": rows,
-    }
-    return sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-def _fingerprint_from_manifest(
-    manifest: DatasetManifest,
-    rows: Sequence[dict[str, str]],
-    *,
-    schema_version: int,
-) -> str:
-    """Reconstruct the immutable fingerprint using persisted manifest facts and Parquet content."""
-    identity = {
-        "schema_version": schema_version,
-        "provider": manifest.provider,
-        "product_id": manifest.product_id,
-        "timeframe": manifest.timeframe,
-        "starts_at": manifest.starts_at,
-        "ends_at": manifest.ends_at,
-        "expected_candle_count": manifest.expected_candle_count,
-        "received_candle_count": manifest.received_candle_count,
-        "gap_count": manifest.gap_count,
-        "missing_intervals": manifest.missing_intervals,
-        "complete": manifest.complete,
-        "rows": rows,
-    }
-    return sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-def _manifest_payload(manifest: DatasetManifest) -> dict[str, object]:
-    """Serialize a manifest without host-specific absolute paths."""
-    payload: dict[str, object] = {
-        "schema_version": _DATASET_SCHEMA_VERSION,
-        "provider": manifest.provider,
-        "product_id": manifest.product_id,
-        "timeframe": manifest.timeframe,
-        "starts_at": manifest.starts_at,
-        "ends_at": manifest.ends_at,
-        "expected_candle_count": manifest.expected_candle_count,
-        "received_candle_count": manifest.received_candle_count,
-        "gap_count": manifest.gap_count,
-        "missing_intervals": manifest.missing_intervals,
-        "complete": manifest.complete,
-        "content_fingerprint": manifest.content_fingerprint,
-        "files": [
-            str(file.relative_to(manifest.manifest_path.parent.parent)) for file in manifest.files
-        ],
-    }
-    if manifest.synthetic_no_trade_intervals:
-        # Written only when non-zero, so gap-free manifests keep their exact bytes.
-        payload["synthetic_no_trade_intervals"] = manifest.synthetic_no_trade_intervals
-    return payload
-
-
-_NO_TRADE_COUNT_KEY = "synthetic_no_trade_intervals"
-
-
-def _manifest_no_trade_count(payload: dict[str, object], received_candle_count: int) -> int:
-    """Read the optional no-trade bar count; an absent key means zero (pre-ADR 0095)."""
-    value = payload.get(_NO_TRADE_COUNT_KEY, 0)
-    if (
-        not isinstance(value, int)
-        or isinstance(value, bool)
-        or value < 0
-        or value > received_candle_count
-    ):
-        message = "Dataset verification failed because manifest facts are malformed."
-        raise DatasetStoreError(message)
-    return value
-
-
-def _with_verified_no_trade_count(
-    manifest: DatasetManifest, payload: dict[str, object], verified_count: int
-) -> DatasetManifest:
-    """Bind the no-trade count recomputed from rows; a stored count must agree with it.
-
-    Manifests written before ADR 0095 carry no count; theirs is taken from the rows.
-    """
-    if _NO_TRADE_COUNT_KEY in payload and manifest.synthetic_no_trade_intervals != verified_count:
-        message = "Dataset verification failed because manifest facts do not match candle coverage."
-        raise DatasetStoreError(message)
-    return replace(manifest, synthetic_no_trade_intervals=verified_count)
-
-
-def _utc_text(value: datetime) -> str:
-    """Serialize an aware timestamp in canonical UTC RFC3339 form."""
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
