@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import Deployment
     from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.operator.models import SupportedTimeframe
     from thytrader.operator.service import OperatorDiagnostics
+    from thytrader.trading.models import Deployment
 
 
 async def _runtime_timeframe(

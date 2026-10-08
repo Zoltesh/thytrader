@@ -6,7 +6,7 @@ from dataclasses import replace
 from decimal import Decimal
 from uuid import uuid4
 
-from thytrader.execution.models import DeploymentSnapshot, Fill, OrderStatus
+from thytrader.trading.models import DeploymentSnapshot, Fill, OrderStatus
 
 
 def settled_snapshot(snapshot: DeploymentSnapshot) -> DeploymentSnapshot:

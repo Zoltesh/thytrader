@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
-from thytrader.execution.geometry import entry_bar_bucket
-from thytrader.execution.ids import utc_now
-from thytrader.execution.models import (
+from thytrader.trading.geometry import entry_bar_bucket
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -30,12 +30,12 @@ from thytrader.execution.models import (
     snapshot_positions,
     with_runtime,
 )
-from thytrader.execution.overlay import overlay_snapshot
+from thytrader.trading.overlay import overlay_snapshot
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.store import ExecutionStore
 
 
 def _cash_after_fill(cash: Decimal, *, fill: Fill, order_side: OrderSide) -> Decimal:

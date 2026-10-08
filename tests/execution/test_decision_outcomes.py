@@ -24,8 +24,8 @@ from thytrader.execution.decisions import (
     DecisionOutcome,
     DecisionSkipReason,
 )
-from thytrader.execution.models import DeploymentStatus, IntentPurpose, PositionSide
 from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.trading.models import DeploymentStatus, IntentPurpose, PositionSide
 
 
 @pytest.mark.anyio

@@ -14,21 +14,6 @@ from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.config import Settings
 from thytrader.evaluation.indicators import canonical_decimal
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    Fill,
-    Order,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
-    Position,
-    RuntimePhase,
-    with_runtime,
-)
 from thytrader.market_data.models import Candle, CandleInterval, MarketDataPreview, MarketProduct
 from thytrader.market_data.quality import analyze_candles
 from thytrader.market_data.service import MarketDataService
@@ -43,10 +28,25 @@ from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore, StrategySnapshot
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    Position,
+    RuntimePhase,
+    with_runtime,
+)
 
 if TYPE_CHECKING:
-    from thytrader.execution.store import ExecutionStore
     from thytrader.strategies.snapshots import StrategySnapshotStore
+    from thytrader.trading.store import ExecutionStore
 
 
 class _CloseProvider:

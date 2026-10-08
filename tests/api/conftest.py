@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from thytrader.api import paper_fees
-from thytrader.execution.ledger import PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE
+from thytrader.trading.ledger import PAPER_MAKER_FEE_RATE, PAPER_TAKER_FEE_RATE
 
 if TYPE_CHECKING:
     from decimal import Decimal

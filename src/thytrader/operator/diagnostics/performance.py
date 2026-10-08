@@ -14,15 +14,6 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_evaluation_window,
 )
-from thytrader.execution.ledger import effective_paper_fee_rates, ledger_from_snapshot
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    resolved_product_id,
-    snapshot_positions,
-)
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.products import SpotQuoteCurrency, quote_currency
 from thytrader.operator.diagnostics.common import (
@@ -45,12 +36,21 @@ from thytrader.persistence.backtest_results import (
     BacktestResultUnavailableError,
     BacktestSourceSpecificationReader,
 )
+from thytrader.trading.ledger import effective_paper_fee_rates, ledger_from_snapshot
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    resolved_product_id,
+    snapshot_positions,
+)
 
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.execution.ledger import DeploymentLedger
     from thytrader.operator.service import OperatorDiagnostics
+    from thytrader.trading.ledger import DeploymentLedger
 
 
 async def build_performance_report(

@@ -103,6 +103,12 @@
       ]
     },
     {
+      "name": "trading",
+      "components": [
+        "trading"
+      ]
+    },
+    {
       "name": "evaluation",
       "components": [
         "evaluation"
@@ -145,7 +151,6 @@
     }
   ],
   "allowed_upward_imports": {
-    "risk -> execution": 20,
     "research -> persistence": 7,
     "backtest -> persistence": 3,
     "execution -> memory": 3,

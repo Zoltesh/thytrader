@@ -6,14 +6,6 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from tests.risk.test_loss_scope import _round_trip
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    Position,
-    RuntimePhase,
-)
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.models import (
     CapitalAllocation,
@@ -21,6 +13,14 @@ from thytrader.risk.models import (
     RiskPolicySource,
     RiskReasonCode,
     compiled_default_risk_policy,
+)
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    Position,
+    RuntimePhase,
 )
 
 _STRATEGY_A = UUID("01978a3e-5f2c-7d10-b3a4-0000000000b1")

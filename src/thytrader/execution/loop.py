@@ -23,24 +23,11 @@ from thytrader.execution.entry import (
     _size_entry_or_add,
 )
 from thytrader.execution.exits import _evaluate_signal_exit, _mark_signal_exit
-from thytrader.execution.ids import utc_now
-from thytrader.execution.lifecycle import entries_allowed
 from thytrader.execution.live_protection import (
     _apply_trailing,
     _ensure_exit_protection,
     _paper_stop_exit_if_hit,
     _protect_open_position,
-)
-from thytrader.execution.models import (
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    ExecutionConflictError,
-    ExecutionStoreError,
-    IntentPurpose,
-    RuntimePhase,
-    is_venue_protection,
-    with_runtime,
 )
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.residual import (
@@ -59,8 +46,21 @@ from thytrader.execution.runtime_ops import (
     cancel_resting_orders,
 )
 from thytrader.risk.accounting_evidence import accounting_snapshot
-from thytrader.risk.exposure import snapshot_has_residual_exposure
 from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.trading.exposure import snapshot_has_residual_exposure
+from thytrader.trading.ids import utc_now
+from thytrader.trading.lifecycle import entries_allowed
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
+    IntentPurpose,
+    RuntimePhase,
+    is_venue_protection,
+    with_runtime,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -68,10 +68,10 @@ if TYPE_CHECKING:
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.store import ExecutionStore
 
 __all__ = [
     "FLATTEN_AWAITING_EXECUTABLE_CONTEXT",

@@ -16,7 +16,6 @@ from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.decision_store import DisabledDecisionJournalStore
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.execution.user_feed_state import DisabledUserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
@@ -53,6 +52,7 @@ from thytrader.research.catalog import DisabledResearchStudyCatalog
 from thytrader.risk.store import DisabledRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

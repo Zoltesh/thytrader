@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from thytrader.execution.ids import uuid7
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import (
     RETIRED_ENTRY_PREFERENCE_MESSAGE,
@@ -17,6 +16,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     strategy_fingerprint,
 )
+from thytrader.trading.ids import uuid7
 
 _NOW = datetime(2026, 10, 1, tzinfo=UTC)
 

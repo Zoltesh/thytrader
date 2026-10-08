@@ -5,7 +5,16 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from thytrader.execution.models import (
+from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.models import (
+    RiskDecision,
+    RiskReasonCode,
+    compiled_default_risk_policy,
+    definition_from_stored_json,
+    stored_canonical_fingerprint,
+)
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -19,15 +28,6 @@ from thytrader.execution.models import (
     OrderStatus,
     Position,
     RuntimePhase,
-)
-from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
-from thytrader.risk.models import (
-    RiskDecision,
-    RiskReasonCode,
-    compiled_default_risk_policy,
-    definition_from_stored_json,
-    stored_canonical_fingerprint,
 )
 
 _STRATEGY = UUID("01978a3e-5f2c-7d10-b3a4-0000000000b1")

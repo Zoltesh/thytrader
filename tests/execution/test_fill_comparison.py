@@ -17,8 +17,12 @@ import pytest
 
 from tests.portfolios.runtime_support import portfolio, world
 from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.operator.portfolios_report import (
+    build_portfolios_report,
+    paper_live_fill_comparisons,
+)
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -34,11 +38,7 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.twins import DeploymentTwinLink
-from thytrader.operator.portfolios_report import (
-    build_portfolios_report,
-    paper_live_fill_comparisons,
-)
+from thytrader.trading.twins import DeploymentTwinLink
 
 _REST = datetime(2026, 10, 1, 12, 0, 5, tzinfo=UTC)
 _FINGERPRINT = "sha256:" + ("c" * 64)

@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.execution.entry_latch import process_entry_inhibited
-from thytrader.execution.models import Deployment, DeploymentStatus, LifecycleCommand
-from thytrader.risk.exposure import snapshot_has_residual_exposure
+from thytrader.trading.entry_latch import process_entry_inhibited
+from thytrader.trading.exposure import snapshot_has_residual_exposure
+from thytrader.trading.models import Deployment, DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 _RUNNING_SLOT = {DeploymentStatus.RUNNING, DeploymentStatus.PAUSED}
 

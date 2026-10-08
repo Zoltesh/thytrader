@@ -15,8 +15,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.execution.ids import uuid7
-from thytrader.execution.models import DeploymentStatus
 from thytrader.portfolios.deployment import deployment_mode, members, sleeve_books
 from thytrader.portfolios.models import (
     JournalDetail,
@@ -51,16 +49,18 @@ from thytrader.portfolios.rules import (
     require_revision,
 )
 from thytrader.portfolios.runtime import require_live_acknowledgement
+from thytrader.trading.ids import uuid7
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolios.models import JournalChannel, PortfolioAggregate, SleeveStrategy
     from thytrader.portfolios.proposals import DecidedBy, ProposalPage, ProposalStatus
     from thytrader.portfolios.runtime import PortfolioRuntimeService
     from thytrader.portfolios.store import PortfolioStorage
+    from thytrader.trading.store import ExecutionStore
 
 MAX_PENDING_PROPOSALS = 20
 _Change = RebalanceChange | PauseSleeveChange | ResumeSleeveChange | AddSleeveChange

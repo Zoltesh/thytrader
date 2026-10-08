@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from thytrader.execution.geometry import (
+from thytrader.market_data.models import Candle
+from thytrader.trading.geometry import (
     bracket_is_valid,
     entry_bar_bucket,
     entry_order_side,
@@ -13,8 +14,7 @@ from thytrader.execution.geometry import (
     paper_stop_hit,
     parse_position_side,
 )
-from thytrader.execution.models import OrderSide, PositionSide
-from thytrader.market_data.models import Candle
+from thytrader.trading.models import OrderSide, PositionSide
 
 
 def test_parse_and_order_sides() -> None:

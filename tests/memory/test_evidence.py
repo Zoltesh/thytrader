@@ -8,7 +8,6 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.memory.evidence import (
     ExperientialEvidenceError,
@@ -17,6 +16,7 @@ from thytrader.memory.evidence import (
 )
 from thytrader.memory.models import EvidenceKind
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from pathlib import Path

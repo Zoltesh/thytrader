@@ -28,9 +28,7 @@ from tests.loop_patching import patch_loop_global
 from tests.risk.test_loss_scope import _TODAY, _deployment, _policy, _round_trip
 from tests.risk.test_safety_evidence import _MIDNIGHT, overnight_long, seed_accounting, sibling_loss
 from tests.worker_patching import patch_worker_global
-from thytrader.execution.day_open import MidnightMark
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
-from thytrader.execution.fill_ledger import ingest_fill, unsettled_fill_evidence
 from thytrader.execution.leases import RevisionFencedStore
 from thytrader.execution.loop import (
     _apply_circuit_breakers,
@@ -38,8 +36,15 @@ from thytrader.execution.loop import (
     maintain_open_inventory,
     process_closed_bar,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.execution.stopped import supervise_stopped_deployment
+from thytrader.execution_worker import service
+from thytrader.risk.opening_accounting import reconstruct_day_open
+from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.trading.day_open import MidnightMark
+from thytrader.trading.fill_ledger import ingest_fill, unsettled_fill_evidence
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
     ExecutionConflictError,
@@ -51,18 +56,13 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.overlay import InstrumentScopedStore
-from thytrader.execution.paper import PaperBroker
-from thytrader.execution.stopped import supervise_stopped_deployment
-from thytrader.execution_worker import service
-from thytrader.risk.opening_accounting import reconstruct_day_open
-from thytrader.risk.store import InMemoryRiskPolicyStore
+from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.broker import SubmitResult
-    from thytrader.execution.models import Deployment, DeploymentSnapshot, Order
+    from thytrader.trading.models import Deployment, DeploymentSnapshot, Order
 
 
 class _CancelRaceVenue(_QuantityVenue):

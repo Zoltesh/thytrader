@@ -14,11 +14,11 @@ from uuid import uuid4
 
 import pytest
 
-from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_loop import _always_entry_strategy, _filled_long
-from thytrader.execution import protection
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from tests.trading.protection_support import settled_snapshot
+from thytrader.trading import protection
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -32,7 +32,7 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     PositionState,
     book_exit_in_flight,
     book_position_state,

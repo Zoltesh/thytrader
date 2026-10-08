@@ -8,7 +8,13 @@ from uuid import uuid4
 import pytest
 
 from thytrader.execution.capital import refresh_performance
-from thytrader.execution.models import (
+from thytrader.trading.exposure import (
+    product_exposure,
+    risk_bearing_snapshots,
+    snapshot_has_residual_exposure,
+    working_entry_notional,
+)
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -21,12 +27,6 @@ from thytrader.execution.models import (
     OrderStatus,
     Position,
     RuntimePhase,
-)
-from thytrader.risk.exposure import (
-    product_exposure,
-    risk_bearing_snapshots,
-    snapshot_has_residual_exposure,
-    working_entry_notional,
 )
 
 _NOW = datetime(2026, 9, 16, 15, tzinfo=UTC)

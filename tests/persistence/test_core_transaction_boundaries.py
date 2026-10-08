@@ -30,14 +30,16 @@ from tests.persistence.test_postgres_fill_transaction import (
 from tests.risk.test_loss_scope import _TODAY, _policy
 from tests.risk.test_safety_evidence import sibling_loss
 from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
-from thytrader.execution.fill_ledger import ingest_fill
 from thytrader.execution.leases import RevisionFencedStore
 from thytrader.execution.loop import (
     _apply_circuit_breakers,
     _persist_performance,
     maintain_open_inventory,
 )
-from thytrader.execution.models import (
+from thytrader.persistence import postgres_execution
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.fill_ledger import ingest_fill
+from thytrader.trading.models import (
     DeploymentKind,
     DeploymentMode,
     DeploymentStatus,
@@ -52,9 +54,7 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.overlay import InstrumentScopedStore
-from thytrader.persistence import postgres_execution
-from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -62,7 +62,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from thytrader.execution.models import Deployment, DeploymentSnapshot, Order
+    from thytrader.trading.models import Deployment, DeploymentSnapshot, Order
 
 _TEST_URL = os.getenv("THYTRADER_TEST_DATABASE_URL")
 pytestmark = [

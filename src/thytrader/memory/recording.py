@@ -5,17 +5,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.models import (
-    DeploymentKind,
-    ExecutionStoreError,
-    Fill,
-    IntentPurpose,
-    Order,
-    OrderIntent,
-    OrderStatus,
-    resolved_product_id,
-)
 from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.memory.store import MemoryStoreError
 from thytrader.memory.trade_reasons import (
@@ -31,15 +20,26 @@ from thytrader.memory.trade_reasons import (
     TradeReasonSignalKind,
     TradeReasonStrategy,
 )
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.models import (
+    DeploymentKind,
+    ExecutionStoreError,
+    Fill,
+    IntentPurpose,
+    Order,
+    OrderIntent,
+    OrderStatus,
+    resolved_product_id,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.models import DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
     from thytrader.execution.trade_reason_scope import TradeReasonScope
     from thytrader.memory.store import ExperientialMemoryStore
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 
 def signal_kind_for(

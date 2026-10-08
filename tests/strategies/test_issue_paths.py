@@ -10,11 +10,11 @@ from typing import cast
 from pydantic import ValidationError
 import pytest
 
-from thytrader.execution.ids import uuid7
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.issue_paths import DocumentIssue, document_issues, render_path
 from thytrader.strategies.library import evaluate_document, parse_document
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.ids import uuid7
 
 _NOW = datetime(2026, 10, 2, tzinfo=UTC)
 

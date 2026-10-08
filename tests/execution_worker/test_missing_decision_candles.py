@@ -11,20 +11,6 @@ import pytest
 
 from tests.worker_patching import patch_worker_global
 from thytrader.execution.broker import SubmitResult
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentStatus,
-    Fill,
-    Order,
-    OrderKind,
-    OrderSide,
-    OrderStatus,
-    RuntimePhase,
-)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import service
 from thytrader.market_data.models import (
@@ -41,11 +27,25 @@ from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentStatus,
+    Fill,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+    RuntimePhase,
+)
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import Broker
-    from thytrader.execution.models import DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 _WHEN = datetime(2026, 1, 1, tzinfo=UTC)
 

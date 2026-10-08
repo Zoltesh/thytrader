@@ -23,9 +23,10 @@ from thytrader.alerts.models import (
     SafetyEvidence,
     SupervisionFinding,
 )
-from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.leases import WORKER_LEASE_TTL_SECONDS
-from thytrader.execution.models import (
+from thytrader.market_data.models import parse_candle_interval
+from thytrader.trading.geometry import entry_bar_bucket
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -36,14 +37,13 @@ from thytrader.execution.models import (
     resolved_product_id,
     snapshot_positions,
 )
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     ProtectionStatus,
     book_inventory_reasons,
     book_position_state,
     book_protection_evidence,
     live_stop_absent,
 )
-from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -51,12 +51,12 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.alerts.models import OperatorAlert
-    from thytrader.execution.models import (
+    from thytrader.market_data.models import Candle
+    from thytrader.trading.models import (
         DeploymentSnapshot,
         Order,
         Position,
     )
-    from thytrader.market_data.models import Candle
 
 _logger = logging.getLogger(__name__)
 

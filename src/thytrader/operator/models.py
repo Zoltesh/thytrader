@@ -21,7 +21,6 @@ from thytrader.execution.decisions import (
     BarDecision,
     DecisionOutcome,
 )
-from thytrader.execution.protection import ProtectionEvidenceResponse
 from thytrader.market_data.models import DATASET_TIMEFRAMES, DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
@@ -33,6 +32,7 @@ from thytrader.portfolios.models import (
 )
 from thytrader.research.catalog import StudyCatalogSummary
 from thytrader.strategies.indicator_catalog import ParameterKind
+from thytrader.trading.protection import ProtectionEvidenceResponse
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"
 OPERATOR_API_PREFIX = "/api/v1/operator"

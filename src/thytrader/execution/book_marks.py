@@ -16,12 +16,12 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 from thytrader.execution.decision_store import DecisionStoreError
-from thytrader.execution.ledger import (
+from thytrader.trading.ledger import (
     MAX_POSITION_FEE_FILLS,
     ledger_fills_for_product,
     remaining_position_entry_fees,
 )
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     ExecutionStoreError,
     PositionSide,
     resolved_product_id,
@@ -33,8 +33,8 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.decision_store import DecisionJournalStore
-    from thytrader.execution.models import DeploymentSnapshot, Position
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.models import DeploymentSnapshot, Position
+    from thytrader.trading.store import ExecutionStore
 
 _LOOKAHEAD = timedelta(days=1)
 

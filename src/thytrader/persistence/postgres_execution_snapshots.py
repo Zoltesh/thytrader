@@ -11,12 +11,6 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
 
-from thytrader.execution.models import (
-    DeploymentBookTotals,
-    DeploymentSnapshot,
-    DeploymentSummarySnapshot,
-    OrderStatus,
-)
 from thytrader.persistence.postgres_execution_rows import (
     _fill_from_row,
     _intent_from_row,
@@ -31,11 +25,17 @@ from thytrader.persistence.schema import (
     execution_positions,
     order_intents,
 )
+from thytrader.trading.models import (
+    DeploymentBookTotals,
+    DeploymentSnapshot,
+    DeploymentSummarySnapshot,
+    OrderStatus,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
 
-    from thytrader.execution.models import Deployment
+    from thytrader.trading.models import Deployment
 
 
 async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> DeploymentSnapshot:

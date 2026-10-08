@@ -15,11 +15,11 @@ from tests.operator_diagnostics.test_readiness_preflight import (
     _seed,
 )
 from thytrader.exchanges.models import ExchangeOpenOrder
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentStatus, OrderKind, OrderStatus
 from thytrader.operator.readiness import build_readiness_report
 from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
 from thytrader.portfolio.service import PortfolioService
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentStatus, OrderKind, OrderStatus
 
 
 def test_unpriced_ambiguous_entry_cannot_become_zero_exposure_or_free_capacity() -> None:

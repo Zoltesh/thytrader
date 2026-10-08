@@ -15,7 +15,7 @@ from thytrader.execution.book_marks import (
     unrealized_pnl,
 )
 from thytrader.execution.decision_store import DisabledDecisionJournalStore
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,

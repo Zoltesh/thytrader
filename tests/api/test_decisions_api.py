@@ -15,14 +15,14 @@ from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
     RuntimePhase,
 )
-from thytrader.strategies.authoring import create_template_strategy
 
 _NOW = datetime(2026, 3, 1, tzinfo=UTC)
 

@@ -10,7 +10,6 @@ from pydantic import ValidationError
 import pytest
 
 from tests.portfolios.runtime_support import World, operator, portfolio, world
-from thytrader.execution.models import DeploymentStatus
 from thytrader.portfolios.models import (
     ManagerPermissions,
     PortfolioConflictError,
@@ -26,6 +25,7 @@ from thytrader.portfolios.proposals import (
 )
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
     from uuid import UUID

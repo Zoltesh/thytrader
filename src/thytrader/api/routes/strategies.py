@@ -29,8 +29,6 @@ from thytrader.audit_events import (
     AuditEventStore,
 )
 from thytrader.backtest.models import BacktestSummary
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.persistence.backtest_results import (
@@ -57,11 +55,13 @@ from thytrader.strategies.library import (
 )
 from thytrader.strategies.models import StrategyDefinition
 from thytrader.strategies.summary import strategy_summary
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.execution.models import Deployment
+    from thytrader.trading.models import Deployment
 
 router = APIRouter(prefix="/api/v1/strategies", tags=["strategies"])
 _logger = logging.getLogger(__name__)

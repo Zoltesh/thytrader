@@ -13,10 +13,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from uuid import UUID
 
-    from thytrader.execution.models import Deployment
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import Deployment
 
 
 @dataclass(slots=True)

@@ -18,7 +18,6 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.execution.ids import uuid7
 from thytrader.portfolios.models import (
     MAX_SLEEVES,
     JournalChange,
@@ -43,6 +42,7 @@ from thytrader.portfolios.models import (
     SleeveView,
     asset_of,
 )
+from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence

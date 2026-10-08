@@ -19,7 +19,6 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.execution.ids import utc_now
 from thytrader.memory.evidence import ExperientialEvidenceError
 from thytrader.memory.models import (
     ADVISORY_SCHEMA_VERSION,
@@ -40,6 +39,7 @@ from thytrader.memory.models import (
     SentimentSnapshot,
 )
 from thytrader.memory.store import DisabledExperientialMemoryStore, MemoryStoreError
+from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

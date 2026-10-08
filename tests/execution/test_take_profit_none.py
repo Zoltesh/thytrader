@@ -27,10 +27,16 @@ from thytrader.backtest.kernel import simulate_backtest
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome, DecisionSkipReason
-from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.loop import _runtime_for_admitted_entry, process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker
+from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.sizing import SizedEntry
+from thytrader.market_data.models import Candle
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -42,20 +48,14 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker
-from thytrader.execution.protection import (
+from thytrader.trading.protection import (
     ProtectionStatus,
     book_protection_evidence,
     book_protection_status,
 )
-from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.sizing import SizedEntry
-from thytrader.market_data.models import Candle
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 
 def _no_tp(strategy: StrategyDefinition) -> StrategyDefinition:

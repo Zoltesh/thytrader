@@ -10,20 +10,20 @@ from uuid import uuid4
 
 import pytest
 
-from tests.execution.protection_support import settled_snapshot
 from tests.execution.test_protection_evidence import _NOW, _deployment, _order, _position
 from tests.execution.test_reconcile import _LookupBroker, _snapshot_with_order
+from tests.trading.protection_support import settled_snapshot
 from thytrader.api.routes.deployment_serializers import position_response
-from thytrader.execution import protection
 from thytrader.execution.broker import BrokerError, SubmitResult
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentSnapshot, OrderKind, OrderStatus, PositionSide
-from thytrader.execution.protection import (
+from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.trading import protection
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentSnapshot, OrderKind, OrderStatus, PositionSide
+from thytrader.trading.protection import (
     LOCAL_EVIDENCE_MAX_AGE,
     ProtectionStatus,
     book_protection_evidence,
 )
-from thytrader.execution.reconcile import reconcile_open_orders
 
 
 @pytest.fixture(autouse=True)

@@ -6,9 +6,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from tests.execution.protection_support import settled_snapshot
+from tests.trading.protection_support import settled_snapshot
 from thytrader.evaluation.indicators import canonical_decimal
-from thytrader.execution.ledger import (
+from thytrader.trading.ledger import (
     PAPER_MAKER_FEE_RATE,
     PAPER_TAKER_FEE_RATE,
     LedgerFill,
@@ -18,7 +18,7 @@ from thytrader.execution.ledger import (
     paper_fill_fee,
     resolve_paper_fee_schedule,
 )
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,

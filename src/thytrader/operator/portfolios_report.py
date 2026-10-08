@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING
 from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
-from thytrader.execution.models import ExecutionStoreError
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
@@ -40,15 +39,16 @@ from thytrader.portfolios.models import (
 )
 from thytrader.portfolios.rules import allocation_summary
 from thytrader.research.jobs import ResearchJobStatus
+from thytrader.trading.models import ExecutionStoreError
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.fill_comparison import EntryFillStats, PaperLiveTwin
-    from thytrader.execution.models import Deployment
-    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolios.models import PortfolioAggregate
     from thytrader.portfolios.store import PortfolioStorage
+    from thytrader.trading.models import Deployment
+    from thytrader.trading.store import ExecutionStore
 
 REPORT_LIMIT = 100
 TWIN_LIMIT = 10

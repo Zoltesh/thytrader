@@ -18,10 +18,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from thytrader.execution.decisions import DecisionSkipReason
-    from thytrader.execution.geometry import EntrySkipReason
     from thytrader.execution.references import ReferenceGate
     from thytrader.execution.signals import LatestEntryEvaluation, LatestExitEvaluation
     from thytrader.risk.models import RiskVerdict
+    from thytrader.trading.geometry import EntrySkipReason
 
 
 @dataclass(slots=True)

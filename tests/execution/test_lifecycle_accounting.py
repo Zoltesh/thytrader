@@ -14,14 +14,17 @@ from thytrader.execution.capital import (
     refresh_performance,
 )
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
-from thytrader.execution.lifecycle import (
+from thytrader.execution_worker.service import new_closed_bars
+from thytrader.market_data.models import Candle, MarketProduct
+from thytrader.risk.models import RiskDecision, RiskReasonCode
+from thytrader.trading.lifecycle import (
     can_reprice_risk_up,
     command_for_status,
     entries_allowed,
     occupies_risk,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -32,9 +35,6 @@ from thytrader.execution.models import (
     Position,
     RuntimePhase,
 )
-from thytrader.execution_worker.service import new_closed_bars
-from thytrader.market_data.models import Candle, MarketProduct
-from thytrader.risk.models import RiskDecision, RiskReasonCode
 
 _NOW = datetime(2026, 1, 2, 15, tzinfo=UTC)
 

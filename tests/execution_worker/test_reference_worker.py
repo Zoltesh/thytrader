@@ -25,8 +25,6 @@ from thytrader.execution.decisions import (
     ConditionGroupTrace,
     DecisionSkipReason,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, DeploymentStatus
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import ReferenceWatchlist, create_deployment
 from thytrader.execution_worker.service import _run_cycle
@@ -36,6 +34,8 @@ from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore, MarketDataWatchTarget
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
     from thytrader.execution.decisions import BarDecision

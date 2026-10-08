@@ -30,7 +30,7 @@ import pytest
 import requests
 
 from thytrader.config import Settings
-from thytrader.execution.entry_latch import clear_entry_inhibition_cache, remember_entry_inhibition
+from thytrader.trading.entry_latch import clear_entry_inhibition_cache, remember_entry_inhibition
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping

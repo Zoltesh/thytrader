@@ -34,16 +34,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
-from thytrader.execution.models import (
-    DeploymentMode,
-    DeploymentSnapshot,
-    OrderSide,
-    OrderStatus,
-    resolved_product_id,
-    snapshot_positions,
-)
-from thytrader.execution.protection import book_inventory_reasons
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
     SpotQuoteCurrency,
@@ -58,13 +48,23 @@ from thytrader.operator.models import (
     ReportStatus,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentSnapshot,
+    OrderSide,
+    OrderStatus,
+    resolved_product_id,
+    snapshot_positions,
+)
+from thytrader.trading.protection import book_inventory_reasons
+from thytrader.trading.store import DisabledExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.execution.models import Order
-    from thytrader.execution.store import ExecutionStore
     from thytrader.portfolio.service import PortfolioService
+    from thytrader.trading.models import Order
+    from thytrader.trading.store import ExecutionStore
 
 VENUE_RECONCILIATION_NOTE = (
     "A healthy local ledger is not venue reconciliation: managed inventory and working "

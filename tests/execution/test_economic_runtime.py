@@ -14,12 +14,12 @@ from thytrader.execution.economics import (
     EconomicPreflightRequest,
     economic_preflight,
 )
-from thytrader.execution.geometry import EntrySkipReason
 from thytrader.execution.loop import _size_entry_or_add
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, PositionSide
 from thytrader.execution.sizing import SizedEntry, size_entry_or_skip
 from thytrader.strategies.authoring import create_template_strategy
+from thytrader.trading.geometry import EntrySkipReason
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, PositionSide
 
 
 @pytest.mark.parametrize("side", [PositionSide.LONG, PositionSide.SHORT])

@@ -2,10 +2,10 @@
 
 from decimal import Decimal
 
-from thytrader.execution.models import PositionSide
 from thytrader.execution.sizing import size_entry, size_long_entry
 from thytrader.market_data.models import MarketProduct
 from thytrader.strategies.authoring import create_template_strategy
+from thytrader.trading.models import PositionSide
 
 
 def _product() -> MarketProduct:

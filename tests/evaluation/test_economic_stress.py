@@ -14,8 +14,8 @@ from thytrader.execution.economics import (
     EconomicPreflightRequest,
     economic_preflight,
 )
-from thytrader.execution.geometry import EntrySkipReason
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
+from thytrader.trading.geometry import EntrySkipReason
 
 
 @pytest.mark.parametrize(

@@ -11,7 +11,6 @@ from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.credentials.reload import CoinbaseCredentialReloadStore
 from thytrader.credentials.service import settings_with_coinbase
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.user_feed_state import (
     InMemoryUserOrderFeedStateStore,
@@ -28,6 +27,7 @@ from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
+from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable

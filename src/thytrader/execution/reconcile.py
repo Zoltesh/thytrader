@@ -8,15 +8,15 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError, ClientOrderLookup
-from thytrader.execution.fill_ledger import (
+from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
     fill_economics_complete,
     ingest_fill,
     replay_unapplied_fills,
     unprojected_inventory_products,
 )
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.models import (
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -27,12 +27,12 @@ from thytrader.execution.models import (
     OrderStatus,
     with_runtime,
 )
-from thytrader.execution.overlay import InstrumentScopedStore, overlay_snapshot
+from thytrader.trading.overlay import InstrumentScopedStore, overlay_snapshot
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import Broker, SubmitResult
-    from thytrader.execution.models import DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 UNCONFIRMED_SUBMIT_PREFIX = "Order submit is unconfirmed"
 FILLED_WITHOUT_REST_FILLS_DETAIL = "Filled order has no REST fills."

@@ -13,9 +13,9 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventUnavailableError,
 )
-from thytrader.execution.ids import utc_now
 from thytrader.execution_worker.user_feed import run_user_order_feed
 from thytrader.execution_worker.venue import venue_transition_detail
+from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
     from collections.abc import Callable

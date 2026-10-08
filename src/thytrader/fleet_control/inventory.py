@@ -18,12 +18,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.fleet_control.models import INVENTORY_ORDER
+from thytrader.trading.models import ExecutionConflictError, ExecutionStoreError
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import Deployment
-    from thytrader.execution.store import ExecutionStore
+    from thytrader.trading.models import Deployment
+    from thytrader.trading.store import ExecutionStore
 
 
 class InventoryCursor(BaseModel):

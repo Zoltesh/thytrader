@@ -19,7 +19,6 @@ from thytrader.execution.decision_store import (
     InMemoryDecisionJournalStore,
 )
 from thytrader.execution.decisions import DecisionOutcome, DecisionSkipReason
-from thytrader.execution.models import runtime_from_deployment
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import (
     _journaled_bar,
@@ -28,14 +27,15 @@ from thytrader.execution_worker.service import (
 )
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
+from thytrader.trading.models import runtime_from_deployment
 
 if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.decisions import BarDecision
-    from thytrader.execution.memory import InMemoryExecutionStore
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.memory import InMemoryExecutionStore
+    from thytrader.trading.models import DeploymentSnapshot
 
 
 class _FailingJournal(InMemoryDecisionJournalStore):

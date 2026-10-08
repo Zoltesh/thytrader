@@ -12,11 +12,11 @@ import pytest
 from tests.fleet_control.test_inventory_and_controls import _book
 from thytrader.api.app import create_app
 from thytrader.config import Settings
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentKind
 from thytrader.runtime_control.cli import _parser
 from thytrader.runtime_control.client import RuntimeControlError, list_deployments
 from thytrader.runtime_control.inventory_commands import run_inventory_read
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentKind
 
 
 @pytest.mark.parametrize("change", ["delete", "reclassify"])

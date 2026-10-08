@@ -6,15 +6,15 @@ from decimal import Decimal
 
 import pytest
 
-from thytrader.execution.ids import uuid7
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.ids import uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
     RuntimePhase,
 )
-from thytrader.execution.overlay import InstrumentScopedStore
+from thytrader.trading.overlay import InstrumentScopedStore
 
 
 @pytest.mark.anyio

@@ -7,9 +7,6 @@ from typing import TYPE_CHECKING
 
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
-from thytrader.execution.ledger import effective_paper_fee_rates
-from thytrader.execution.lifecycle import occupies_running_slot
-from thytrader.execution.models import Deployment, DeploymentMode, DeploymentSnapshot
 from thytrader.operator.readiness_account import _ZERO, _product_quote
 from thytrader.operator.readiness_models import (
     ReadinessFeeEvidence,
@@ -18,6 +15,9 @@ from thytrader.operator.readiness_models import (
     ReadinessPaperSection,
     ReadinessSeverity,
 )
+from thytrader.trading.ledger import effective_paper_fee_rates
+from thytrader.trading.lifecycle import occupies_running_slot
+from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnapshot
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

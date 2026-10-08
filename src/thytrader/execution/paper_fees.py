@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import ExecutionConflictError
+from thytrader.trading.models import ExecutionConflictError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

@@ -34,8 +34,8 @@ from thytrader.credentials.models import (
     CoinbaseCredentialsStatus,
 )
 from thytrader.credentials.service import coinbase_status, settings_with_coinbase
-from thytrader.execution.ids import utc_now
 from thytrader.runtime import RuntimeState
+from thytrader.trading.ids import utc_now
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])
 

@@ -13,7 +13,6 @@ from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
-from thytrader.execution.models import DeploymentStatus
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.signals import evaluate_latest_entry
 from thytrader.execution_worker import service
@@ -23,6 +22,7 @@ from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.models import DeploymentStatus
 
 pytestmark = pytest.mark.anyio
 _ANCHOR = datetime(2026, 10, 6, 0, 44, 25, tzinfo=UTC)

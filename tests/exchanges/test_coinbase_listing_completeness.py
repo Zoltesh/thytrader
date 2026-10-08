@@ -17,9 +17,9 @@ from thytrader.exchanges.read_errors import (
     ExchangeReadFailureKind,
     ExchangeReadOperation,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
 from thytrader.portfolio.service import PortfolioService
+from thytrader.trading.memory import InMemoryExecutionStore
 
 
 def _row(status: str = "OPEN", order_id: str = "venue-1") -> dict[str, Any]:

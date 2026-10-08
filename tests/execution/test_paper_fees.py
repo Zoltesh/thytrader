@@ -6,7 +6,9 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.execution.models import (
+from thytrader.execution.paper import PaperBroker, bind_paper_broker_fees
+from thytrader.market_data.models import Candle
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -16,8 +18,6 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.paper import PaperBroker, bind_paper_broker_fees
-from thytrader.market_data.models import Candle
 
 
 def _order(*, kind: OrderKind, side: OrderSide, price: Decimal) -> Order:

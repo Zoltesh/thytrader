@@ -19,13 +19,13 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.execution.entry_latch import InhibitionSnapshot
-from thytrader.execution.models import ExecutionStoreError
 from thytrader.fleet_control.models import FleetAction, FleetOperation
 from thytrader.fleet_control.serialization import operation_from_json, operation_to_json
 from thytrader.fleet_control.store import modes_for, require_inhibition_revisions
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.schema import fleet_control_operations, fleet_entry_inhibition
+from thytrader.trading.entry_latch import InhibitionSnapshot
+from thytrader.trading.models import ExecutionStoreError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -34,8 +34,8 @@ if TYPE_CHECKING:
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-    from thytrader.execution.store import ExecutionStore
     from thytrader.fleet_control.models import ExpectedTarget, FleetExecuteRequest
+    from thytrader.trading.store import ExecutionStore
 
 
 class PostgresFleetControlStore:

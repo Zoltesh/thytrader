@@ -10,15 +10,28 @@ from decimal import Decimal
 import pytest
 
 from thytrader.audit_events import InMemoryAuditEventStore
-from thytrader.execution.entry_latch import (
+from thytrader.fleet_control.admission import refresh_process_entry_inhibition
+from thytrader.fleet_control.inventory import page_deployments
+from thytrader.fleet_control.models import (
+    ExpectedInhibition,
+    ExpectedTarget,
+    FleetAction,
+    FleetExecuteRequest,
+    FleetModeScope,
+    FleetOperationStatus,
+    FleetTargetStatus,
+)
+from thytrader.fleet_control.service import execute_fleet, preview_fleet
+from thytrader.fleet_control.store import InMemoryFleetControlStore
+from thytrader.trading.entry_latch import (
     clear_entry_inhibition_cache,
     process_entry_inhibited,
     remember_entry_inhibition,
 )
-from thytrader.execution.ids import uuid7
-from thytrader.execution.lifecycle import entries_allowed
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.ids import uuid7
+from thytrader.trading.lifecycle import entries_allowed
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -34,19 +47,6 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.fleet_control.admission import refresh_process_entry_inhibition
-from thytrader.fleet_control.inventory import page_deployments
-from thytrader.fleet_control.models import (
-    ExpectedInhibition,
-    ExpectedTarget,
-    FleetAction,
-    FleetExecuteRequest,
-    FleetModeScope,
-    FleetOperationStatus,
-    FleetTargetStatus,
-)
-from thytrader.fleet_control.service import execute_fleet, preview_fleet
-from thytrader.fleet_control.store import InMemoryFleetControlStore
 
 
 def _book(index: int, *, mode: DeploymentMode = DeploymentMode.PAPER) -> Deployment:

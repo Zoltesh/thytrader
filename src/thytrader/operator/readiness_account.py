@@ -8,19 +8,6 @@ from typing import TYPE_CHECKING
 
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    IntentPurpose,
-    OrderSide,
-    OrderStatus,
-    PositionSide,
-    is_venue_protection,
-    resolved_product_id,
-    snapshot_positions,
-)
-from thytrader.execution.protection import book_inventory_reasons
 from thytrader.market_data.products import (
     SPOT_QUOTE_CURRENCIES,
     SpotQuoteCurrency,
@@ -36,7 +23,20 @@ from thytrader.operator.readiness_models import (
     ReadinessSeverity,
     ReadinessVenueQuote,
 )
-from thytrader.risk.exposure import product_exposure, working_entry_notional
+from thytrader.trading.exposure import product_exposure, working_entry_notional
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentMode,
+    DeploymentSnapshot,
+    IntentPurpose,
+    OrderSide,
+    OrderStatus,
+    PositionSide,
+    is_venue_protection,
+    resolved_product_id,
+    snapshot_positions,
+)
+from thytrader.trading.protection import book_inventory_reasons
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

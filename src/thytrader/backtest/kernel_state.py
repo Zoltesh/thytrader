@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from thytrader.backtest.broker import FillModel
     from thytrader.evaluation.stress import ExecutionStress
     from thytrader.evaluation.trace import SignalTraceRecord
-    from thytrader.execution.geometry import EntrySkipReason
     from thytrader.market_data.models import Candle
+    from thytrader.trading.geometry import EntrySkipReason
 
 
 ExitReason = BacktestExitReason

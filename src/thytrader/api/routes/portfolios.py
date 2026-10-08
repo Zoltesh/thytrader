@@ -32,8 +32,6 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
-from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.operator.models import PaperLiveFillComparison
 from thytrader.operator.portfolios_report import paper_live_fill_comparisons
@@ -84,6 +82,8 @@ from thytrader.portfolios.views import (
 )
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.strategies.library import StrategyLibraryError, StrategyStore
+from thytrader.trading.models import ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

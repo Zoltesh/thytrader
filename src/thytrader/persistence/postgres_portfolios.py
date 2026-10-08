@@ -20,7 +20,6 @@ from sqlalchemy import Table, Update, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.execution.ids import uuid7
 from thytrader.persistence.postgres_portfolio_rows import (
     aggregates_for,
     apply_plan,
@@ -100,6 +99,7 @@ from thytrader.portfolios.store import (
     backtest_journal_entry,
 )
 from thytrader.research.jobs import ResearchJobStatus
+from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

@@ -5,14 +5,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
-from thytrader.execution.models import OrderSide, resolved_product_id
-from thytrader.execution.protection import missing_occupied_inventory_products
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
+from thytrader.trading.models import OrderSide, resolved_product_id
+from thytrader.trading.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from thytrader.execution.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot
 
 
 def flat_day_fill_pnl(snapshot: DeploymentSnapshot, *, since: datetime) -> Decimal | None:

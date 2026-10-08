@@ -25,9 +25,9 @@ from thytrader.backtest.models import BacktestGateReason
 from thytrader.evaluation.stress import maker_touched
 from thytrader.evaluation.trace import EntryConditionOutcome, SignalTraceRecord
 from thytrader.execution.economics import target_guard_allows
-from thytrader.execution.geometry import EntrySkipReason, entry_levels
-from thytrader.execution.models import PositionSide as RuntimePositionSide
 from thytrader.strategies.models import StrategyDefinition, can_pyramid_add, reward_risk_multiple
+from thytrader.trading.geometry import EntrySkipReason, entry_levels
+from thytrader.trading.models import PositionSide as RuntimePositionSide
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import Candle

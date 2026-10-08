@@ -6,18 +6,18 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
-from thytrader.execution.fill_ledger import (
+from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
     fill_projection_deployment,
     project_fill_economics,
 )
-from thytrader.execution.ids import utc_now
-from thytrader.execution.ledger import (
+from thytrader.trading.ids import utc_now
+from thytrader.trading.ledger import (
     MAX_POSITION_FEE_FILLS,
     LedgerFill,
     remaining_position_entry_fees,
 )
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentBookTotals,
     DeploymentSnapshot,
@@ -38,22 +38,22 @@ from thytrader.execution.models import (
     resolved_product_id,
     runtime_from_deployment,
 )
-from thytrader.execution.pagination import (
+from thytrader.trading.pagination import (
     decode_cursor,
     decode_order_cursor,
     encode_cursor,
     encode_order_cursor,
 )
-from thytrader.execution.protection import working_order_count
-from thytrader.execution.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
+from thytrader.trading.protection import working_order_count
+from thytrader.trading.twins import DeploymentTwinLink, TwinConflictError, comparable_twins
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
     from decimal import Decimal
 
-    from thytrader.execution.entry_latch import EntryGate
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.entry_latch import EntryGate
 
 
 def _position_key(deployment_id: UUID, product_id: str) -> tuple[UUID, str]:

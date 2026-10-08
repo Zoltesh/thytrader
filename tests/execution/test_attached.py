@@ -7,7 +7,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from thytrader.execution.attached import attached_entry_covers, remaining_quantity
-from thytrader.execution.models import (
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,

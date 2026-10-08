@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.discretionary import process_discretionary_bar
-from thytrader.execution.ids import utc_now
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, with_runtime
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.trade_reason_scope import (
     discretionary_trade_reason_scope,
@@ -23,19 +21,21 @@ from thytrader.execution_worker.supervision import (
 from thytrader.execution_worker.windows import _closed_window_for, new_closed_bars
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
+from thytrader.trading.ids import utc_now
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, with_runtime
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from thytrader.execution.broker import Broker
-    from thytrader.execution.models import DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.execution_worker.ports import QuoteBalanceReader
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.models import RiskPolicyDefinition
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 
 async def _hold_discretionary_without_candles(

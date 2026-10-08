@@ -6,9 +6,29 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ledger import effective_paper_fee_rates
-from thytrader.execution.lifecycle import occupies_running_slot
-from thytrader.execution.models import (
+from thytrader.market_data.products import base_currency, is_spot_product_id, quote_currency
+from thytrader.risk.breakers import (
+    EntryObservation,
+    evaluate_circuit_breakers,
+    evaluate_rate_and_collar,
+    quote_scoped_snapshots,
+    unresolved_accounting_verdict,
+)
+from thytrader.risk.models import (
+    RiskDecision,
+    RiskPolicyDefinition,
+    RiskPolicySource,
+    RiskReasonCode,
+    RiskVerdict,
+)
+from thytrader.trading.exposure import (
+    product_exposure,
+    risk_bearing_snapshots,
+    working_entry_notional,
+)
+from thytrader.trading.ledger import effective_paper_fee_rates
+from thytrader.trading.lifecycle import occupies_running_slot
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,
@@ -18,26 +38,6 @@ from thytrader.execution.models import (
     RuntimePhase,
     resolved_product_id,
     snapshot_positions,
-)
-from thytrader.market_data.products import base_currency, is_spot_product_id, quote_currency
-from thytrader.risk.breakers import (
-    EntryObservation,
-    evaluate_circuit_breakers,
-    evaluate_rate_and_collar,
-    quote_scoped_snapshots,
-    unresolved_accounting_verdict,
-)
-from thytrader.risk.exposure import (
-    product_exposure,
-    risk_bearing_snapshots,
-    working_entry_notional,
-)
-from thytrader.risk.models import (
-    RiskDecision,
-    RiskPolicyDefinition,
-    RiskPolicySource,
-    RiskReasonCode,
-    RiskVerdict,
 )
 
 if TYPE_CHECKING:

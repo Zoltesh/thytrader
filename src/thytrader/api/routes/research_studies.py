@@ -36,8 +36,6 @@ from thytrader.api.research_execution import (
 )
 from thytrader.api.strategy_http import strategy_http_error
 from thytrader.backtest.submission import BacktestSubmitter  # noqa: TC001 - FastAPI Depends.
-from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.postgres_research_jobs import ResearchJobUnavailableError
@@ -92,6 +90,8 @@ from thytrader.strategies.snapshots import (
     StrategySnapshotStore,
 )
 from thytrader.strategies.templates import parse_template_id, template_blueprint, template_catalog
+from thytrader.trading.models import ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
 
 router = APIRouter(prefix="/api/v1/research", tags=["research"])
 _logger = logging.getLogger(__name__)

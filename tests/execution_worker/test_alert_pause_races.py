@@ -18,21 +18,21 @@ from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import AlertStoreError, InMemoryAlertStore
 from thytrader.alerts.supervision import AlertThresholds, worker_book_failure_finding
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentStatus, LifecycleCommand, OrderSide, RuntimePhase
 from thytrader.execution_worker import service as worker_service
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.service import MarketDataService
 from thytrader.memory.notify import DisabledNotificationSender
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentStatus, LifecycleCommand, OrderSide, RuntimePhase
 
 if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
     from thytrader.alerts.models import OperatorAlert
-    from thytrader.execution.models import Deployment, InstrumentRuntime
     from thytrader.market_data.models import Candle, MarketProduct
+    from thytrader.trading.models import Deployment, InstrumentRuntime
 
 pytestmark = pytest.mark.anyio
 Race = Literal["stop", "pause", "delete", "revision", "strategy", "mismatch", "lease"]

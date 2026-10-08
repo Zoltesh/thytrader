@@ -7,12 +7,12 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.execution.ledger import (
+from thytrader.trading.ledger import (
     MAX_POSITION_FEE_FILLS,
     LedgerFill,
     remaining_position_entry_fees,
 )
-from thytrader.execution.models import OrderSide, Position, PositionSide
+from thytrader.trading.models import OrderSide, Position, PositionSide
 
 _AT = datetime(2026, 10, 1, tzinfo=UTC)
 

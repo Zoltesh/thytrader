@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from thytrader.execution.lifecycle import command_for_status
-from thytrader.execution.models import DeploymentStatus, with_runtime
 from thytrader.fleet_control.models import (
     FleetAction,
     FleetModeScope,
@@ -13,12 +11,14 @@ from thytrader.fleet_control.models import (
     TargetResult,
     VenueEffect,
 )
+from thytrader.trading.lifecycle import command_for_status
+from thytrader.trading.models import DeploymentStatus, with_runtime
 
 if TYPE_CHECKING:
     from datetime import datetime
 
-    from thytrader.execution.models import Deployment
     from thytrader.fleet_control.models import ExpectedTarget
+    from thytrader.trading.models import Deployment
 
 
 def confirmed_command(

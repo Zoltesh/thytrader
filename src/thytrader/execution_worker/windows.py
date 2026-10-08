@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 from thytrader.evaluation.models import warmup_starts_at
 from thytrader.evaluation.multi_timeframe import closed_bar_required_coverage, ltf_close
 from thytrader.execution.candle_wait import newest_bar_settling
-from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.references import ReferenceGate, reference_gate
 from thytrader.execution_worker.ports import _logger
 from thytrader.market_data.models import parse_candle_interval
@@ -25,6 +24,7 @@ from thytrader.strategies.models import (
     signal_exit_condition,
     strategy_indicator_operands,
 )
+from thytrader.trading.geometry import entry_bar_bucket
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

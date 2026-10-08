@@ -7,8 +7,8 @@ from datetime import datetime  # noqa: TC003 - dataclass field type.
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003 - dataclass field type.
 
-from thytrader.execution.models import Deployment, DeploymentKind, DeploymentMode
 from thytrader.strategies.models import canonical_strategy_bytes, strategy_fingerprint
+from thytrader.trading.models import Deployment, DeploymentKind, DeploymentMode
 
 if TYPE_CHECKING:
     from thytrader.strategies.models import StrategyDefinition

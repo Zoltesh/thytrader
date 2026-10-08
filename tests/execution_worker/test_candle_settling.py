@@ -14,17 +14,17 @@ from thytrader.execution import candle_wait
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionSkipReason
-from thytrader.execution.models import DeploymentStatus
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import service
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import DeploymentSnapshot
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.models import Candle, MarketProduct
+    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
 
 pytestmark = pytest.mark.anyio
 _CLOSE = datetime(2026, 3, 2, 13, tzinfo=UTC)

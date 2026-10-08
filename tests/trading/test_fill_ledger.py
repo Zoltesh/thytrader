@@ -8,10 +8,10 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.execution.fill_ledger import ingest_fill, replay_unapplied_fills
-from thytrader.execution.ids import utc_now, uuid7
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.fill_ledger import ingest_fill, replay_unapplied_fills
+from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentSnapshot,

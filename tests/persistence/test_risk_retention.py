@@ -25,7 +25,6 @@ from tests.risk.test_loss_scope import (
     _round_trip,
     _verdict,
 )
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, IntentPurpose
 from thytrader.execution.service import reset_breaker_latches
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
@@ -33,13 +32,14 @@ from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.risk.models import RiskReasonCode
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import canonical_strategy_bytes, strategy_fingerprint
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, IntentPurpose
 
 if TYPE_CHECKING:
     from sqlalchemy.engine import Connection
     from sqlalchemy.ext.asyncio import AsyncConnection
 
-    from thytrader.execution.models import DeploymentSnapshot
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import DeploymentSnapshot
 
 __all__ = ["scratch_database"]
 _ROOT = Path(__file__).parents[2]

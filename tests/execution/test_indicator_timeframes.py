@@ -15,13 +15,13 @@ from tests.execution.test_htf_filter import (
 from thytrader.evaluation.signal_evaluator import SignalEvaluationError
 from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.loop import process_closed_bar
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, RuntimePhase
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
 from thytrader.execution.signals import evaluate_latest_entry
 from thytrader.market_data.models import MarketProduct
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, RuntimePhase
 
 
 def _product() -> MarketProduct:

@@ -7,18 +7,18 @@ from contextvars import ContextVar
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from thytrader.execution.day_open import MidnightMark
-from thytrader.execution.models import DeploymentSnapshot, ExecutionStoreError
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.opening_accounting import opening_replay, reconstruct_day_open, utc_day_start
+from thytrader.trading.day_open import MidnightMark
+from thytrader.trading.models import DeploymentSnapshot, ExecutionStoreError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.store import ExecutionStore
     from thytrader.market_data.service import MarketDataService
+    from thytrader.trading.store import ExecutionStore
 
 _MARKET_DATA: ContextVar[MarketDataService | None] = ContextVar("risk_market_data", default=None)
 

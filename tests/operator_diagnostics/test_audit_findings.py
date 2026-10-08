@@ -13,9 +13,9 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     InMemoryAuditEventStore,
 )
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.operator.audit_findings import audit_failure_findings
 from thytrader.operator.models import ReportStatus
+from thytrader.trading.memory import InMemoryExecutionStore
 
 _NOW = datetime(2026, 10, 4, tzinfo=UTC)
 

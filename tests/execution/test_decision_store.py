@@ -16,7 +16,7 @@ from thytrader.execution.decision_store import (
     encode_decision_cursor,
 )
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
-from thytrader.execution.models import DeploymentMode
+from thytrader.trading.models import DeploymentMode
 
 _START = datetime(2026, 3, 1, tzinfo=UTC)
 _STRATEGY = UUID("019b76da-a800-776d-8220-17de421ad3e1")

@@ -15,13 +15,13 @@ from thytrader.api.app import create_app
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.exchanges.models import ExchangeBalance
-from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.risk.models import CapitalAllocation, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore
+from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
     from thytrader.exchanges.fees import FeeProfile

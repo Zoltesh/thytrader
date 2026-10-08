@@ -11,8 +11,6 @@ import json
 from typing import cast
 from uuid import UUID
 
-from thytrader.execution.entry_latch import InhibitionSnapshot
-from thytrader.execution.models import ExecutionStoreError
 from thytrader.fleet_control.models import (
     FleetAction,
     FleetModeScope,
@@ -22,6 +20,8 @@ from thytrader.fleet_control.models import (
     TargetResult,
     VenueEffect,
 )
+from thytrader.trading.entry_latch import InhibitionSnapshot
+from thytrader.trading.models import ExecutionStoreError
 
 
 def operation_to_json(operation: FleetOperation) -> str:

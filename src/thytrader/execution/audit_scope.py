@@ -20,7 +20,7 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventUnavailableError,
 )
-from thytrader.execution.ids import utc_now
+from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

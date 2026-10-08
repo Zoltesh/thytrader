@@ -116,7 +116,9 @@ Every module holds one concern, and every package sits in one architectural laye
 
 - **Layering.** `tests/package_layers.json` declares the layers, highest first: processes,
   interfaces (agent CLIs and their loopback clients), services, adapters (persistence and the
-  Coinbase broker), coordination, research, simulation, execution, risk, evaluation (the
+  Coinbase broker), coordination, research, simulation, execution, risk, trading (the
+  broker-neutral deployment, order, fill, ledger and exposure model and the store contract),
+  evaluation (the
   deterministic run spec, indicators and signal evaluation every mode shares), contracts,
   platform, market, foundation. A module
   may import its own layer or lower ones. CI (`tests/test_package_layers.py`) fails on a new

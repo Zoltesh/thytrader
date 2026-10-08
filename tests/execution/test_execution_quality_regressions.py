@@ -19,7 +19,10 @@ from thytrader.execution.execution_quality import (
     build_execution_twin_comparison,
     load_journaled_close_evidence,
 )
-from thytrader.execution.models import (
+from thytrader.strategies.authoring import create_template_strategy
+from thytrader.strategies.models import strategy_fingerprint
+from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -29,10 +32,7 @@ from thytrader.execution.models import (
     OrderKind,
     OrderSide,
 )
-from thytrader.execution.twins import DeploymentTwinLink
-from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import strategy_fingerprint
-from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.trading.twins import DeploymentTwinLink
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 HOUR = timedelta(hours=1)

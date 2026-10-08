@@ -19,8 +19,6 @@ from thytrader.api.dependencies import (
     get_fleet_control_store,
 )
 from thytrader.audit_events import AuditEventStore
-from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
 from thytrader.fleet_control.models import (
     ExpectedInhibition,
     ExpectedTarget,
@@ -33,9 +31,11 @@ from thytrader.fleet_control.models import (
 )
 from thytrader.fleet_control.service import execute_fleet, preview_fleet
 from thytrader.fleet_control.store import FleetControlStore
+from thytrader.trading.models import ExecutionConflictError, ExecutionStoreError
+from thytrader.trading.store import ExecutionStore
 
 if TYPE_CHECKING:
-    from thytrader.execution.entry_latch import InhibitionSnapshot
+    from thytrader.trading.entry_latch import InhibitionSnapshot
 
 router = APIRouter(prefix="/api/v1/fleet-control", tags=["fleet-control"])
 

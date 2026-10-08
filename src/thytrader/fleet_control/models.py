@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.entry_latch import InhibitionSnapshot
+    from thytrader.trading.entry_latch import InhibitionSnapshot
 
 
 class FleetAction(StrEnum):

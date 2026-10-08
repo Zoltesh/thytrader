@@ -36,7 +36,6 @@ from thytrader.api.dependencies import (
 from thytrader.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC001
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
-from thytrader.execution.store import ExecutionStore  # noqa: TC001
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
@@ -85,6 +84,7 @@ from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
 from thytrader.runtime import RuntimeState  # noqa: TC001
 from thytrader.strategies.library import StrategyStore  # noqa: TC001
 from thytrader.strategies.snapshots import StrategySnapshotStore  # noqa: TC001
+from thytrader.trading.store import ExecutionStore  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/operator", tags=["operator"])
 

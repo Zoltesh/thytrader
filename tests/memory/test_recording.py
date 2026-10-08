@@ -7,19 +7,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from thytrader.execution.models import (
-    Deployment,
-    DeploymentKind,
-    DeploymentMode,
-    DeploymentSnapshot,
-    DeploymentStatus,
-    IntentPurpose,
-    OrderIntent,
-    OrderKind,
-    OrderSide,
-    RuntimePhase,
-)
-from thytrader.execution.store import DisabledExecutionStore
 from thytrader.execution.trade_reason_scope import TradeReasonScope
 from thytrader.memory.recording import (
     _record_from_submit,
@@ -39,6 +26,19 @@ from thytrader.memory.trade_reasons import (
     TradeReasonSignalKind,
     TradeReasonStrategy,
 )
+from thytrader.trading.models import (
+    Deployment,
+    DeploymentKind,
+    DeploymentMode,
+    DeploymentSnapshot,
+    DeploymentStatus,
+    IntentPurpose,
+    OrderIntent,
+    OrderKind,
+    OrderSide,
+    RuntimePhase,
+)
+from thytrader.trading.store import DisabledExecutionStore
 
 _FP = "sha256:" + ("b" * 64)
 _NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)

@@ -16,20 +16,20 @@ from decimal import Decimal
 from statistics import median
 from typing import TYPE_CHECKING
 
-from thytrader.execution.models import (
+from thytrader.market_data.models import parse_candle_interval
+from thytrader.trading.models import (
     DeploymentMode,
     IntentPurpose,
     OrderSide,
     OrderStatus,
 )
-from thytrader.market_data.models import parse_candle_interval
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from thytrader.execution.models import Deployment, DeploymentSnapshot, Fill, Order
-    from thytrader.execution.twins import DeploymentTwinLink
+    from thytrader.trading.models import Deployment, DeploymentSnapshot, Fill, Order
+    from thytrader.trading.twins import DeploymentTwinLink
 
 _BPS = Decimal(10000)
 _ACTIVE = frozenset({OrderStatus.PENDING, OrderStatus.OPEN, OrderStatus.UNKNOWN})

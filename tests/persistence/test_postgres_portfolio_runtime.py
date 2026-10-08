@@ -23,7 +23,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
 from tests.persistence.test_risk_retention import _migrate
-from thytrader.execution.models import DeploymentStatus
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
@@ -44,10 +43,11 @@ from thytrader.portfolios.proposals import ProposalDecisionRequest, ProposalSubm
 from thytrader.portfolios.runtime import PortfolioRuntimeService
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
-    from thytrader.execution.models import Deployment
     from thytrader.portfolios.models import PortfolioAggregate
+    from thytrader.trading.models import Deployment
 
 __all__ = ["scratch_database"]
 

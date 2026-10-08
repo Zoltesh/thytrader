@@ -22,7 +22,6 @@ from thytrader.evaluation.signal_evaluator import (
     calculate_htf_indicator_rows,
 )
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
-from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.references import reference_gate
 from thytrader.execution.signals import (
     evaluate_latest_entry_evidence,
@@ -44,6 +43,7 @@ from thytrader.strategies.models import (
     reference_data_requirements,
     signal_exit_condition,
 )
+from thytrader.trading.geometry import entry_bar_bucket
 
 pytestmark = pytest.mark.anyio
 _ANCHOR = datetime(2026, 10, 6, 0, 44, 25, tzinfo=UTC)

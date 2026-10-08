@@ -13,7 +13,9 @@ import pytest
 from alembic import command
 from tests.execution.test_venue_observation import observation_order
 from tests.persistence.test_migration_0048_strategy_root import _alembic, scratch_database
-from thytrader.execution.models import (
+from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -22,8 +24,6 @@ from thytrader.execution.models import (
     OrderIntent,
     RuntimePhase,
 )
-from thytrader.persistence.database import create_engine, dispose
-from thytrader.persistence.postgres_execution import PostgresExecutionStore
 
 __all__ = ["scratch_database"]
 pytestmark = pytest.mark.skipif(

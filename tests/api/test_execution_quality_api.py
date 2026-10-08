@@ -11,8 +11,8 @@ from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.execution.models import (
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -26,7 +26,7 @@ from thytrader.execution.models import (
     OrderStatus,
     RuntimePhase,
 )
-from thytrader.execution.store import DisabledExecutionStore
+from thytrader.trading.store import DisabledExecutionStore
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 HOUR = timedelta(hours=1)

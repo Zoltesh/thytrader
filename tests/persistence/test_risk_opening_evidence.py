@@ -18,8 +18,6 @@ from alembic import command
 from tests.persistence.test_migration_0048_strategy_root import scratch_database
 from tests.risk.test_safety_evidence import _MIDNIGHT, _TODAY, MidnightProvider, overnight_long
 from thytrader.execution.capital import refresh_performance
-from thytrader.execution.models import IntentPurpose, OrderIntent
-from thytrader.execution.overlay import InstrumentScopedStore
 from thytrader.market_data.service import MarketDataService
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore, _deployment_values
@@ -29,6 +27,8 @@ from thytrader.risk.accounting_evidence import accounting_snapshot, risk_market_
 from thytrader.risk.breakers import _daily_pnl
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.trading.models import IntentPurpose, OrderIntent
+from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
     from uuid import UUID

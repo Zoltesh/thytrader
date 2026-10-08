@@ -93,7 +93,6 @@ if TYPE_CHECKING:
     from thytrader.config import Settings
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
-    from thytrader.execution.store import ExecutionStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.service import MarketDataService
@@ -110,6 +109,7 @@ if TYPE_CHECKING:
     from thytrader.runtime import RuntimeState
     from thytrader.strategies.library import StrategyStore
     from thytrader.strategies.snapshots import StrategySnapshotStore
+    from thytrader.trading.store import ExecutionStore
 
 
 @dataclass(frozen=True, slots=True)

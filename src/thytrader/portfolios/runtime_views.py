@@ -15,23 +15,6 @@ from pydantic import BaseModel, Field
 
 from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.book_marks import recorded_position_entry_fees, unrealized_pnl
-from thytrader.execution.ledger import ledger_from_snapshot
-from thytrader.execution.lifecycle import occupies_running_slot
-from thytrader.execution.models import (
-    DeploymentMode,
-    RuntimePhase,
-    resolved_product_id,
-    snapshot_positions,
-)
-from thytrader.execution.protection import (
-    PositionState,
-    ProtectionEvidenceResponse,
-    book_inventory_reasons,
-    book_position_state,
-    book_protection_evidence,
-    deployment_position_state,
-    protection_evidence_response,
-)
 from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.portfolios.deployment import (
     PortfolioDeploymentState,
@@ -48,17 +31,34 @@ from thytrader.portfolios.models import (
     utc_text,
 )
 from thytrader.portfolios.proposals import Proposal
-from thytrader.risk.exposure import risk_bearing_snapshots
 from thytrader.risk.gate import product_exposure
+from thytrader.trading.exposure import risk_bearing_snapshots
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.lifecycle import occupies_running_slot
+from thytrader.trading.models import (
+    DeploymentMode,
+    RuntimePhase,
+    resolved_product_id,
+    snapshot_positions,
+)
+from thytrader.trading.protection import (
+    PositionState,
+    ProtectionEvidenceResponse,
+    book_inventory_reasons,
+    book_position_state,
+    book_protection_evidence,
+    deployment_position_state,
+    protection_evidence_response,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from thytrader.execution.book_marks import BookMark
-    from thytrader.execution.models import Deployment, DeploymentSnapshot
     from thytrader.market_data.products import SpotQuoteCurrency
     from thytrader.portfolios.deployment import SleeveBook
     from thytrader.portfolios.runtime import PortfolioActionResult, PortfolioDeploymentSnapshot
+    from thytrader.trading.models import Deployment, DeploymentSnapshot
 
 _ZERO = Decimal(0)
 _FRACTION = Decimal("0.000001")
