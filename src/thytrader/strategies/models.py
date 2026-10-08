@@ -3,10 +3,11 @@
 The schema is split by document section in ``thytrader.strategies.schema``
 (``primitives``, ``market``, ``indicator_parameters``, ``indicator_definition``,
 ``indicator_warmup``, ``conditions``, ``timeframes``, ``entry``, ``exits``,
-``execution``). This module defines the top-level ``StrategyDefinition`` with its sizing
-and portfolio limits, cross-section validation, derived data requirements, and the
-canonical bytes and fingerprint, and re-exports every public name of the section
-modules (``__all__``), so it stays the import path. ``PortfolioLimits`` is defined here
+``execution``), with whole-document checks in ``document_validation`` and derived views
+(coverage, data requirements, operands) in ``document_queries``. This module defines the
+top-level ``StrategyDefinition`` with its sizing and portfolio limits and the canonical
+bytes and fingerprint, and re-exports every public name of the schema modules
+(``__all__``), so it stays the import path. ``PortfolioLimits`` is defined here
 because OpenAPI names it after this module (``thytrader__strategies__models__PortfolioLimits``,
 disambiguating the portfolio model of the same name).
 """
@@ -21,7 +22,7 @@ from typing import Literal, Self
 
 from pydantic import Field, field_serializer, field_validator, model_validator
 
-from thytrader.market_data.models import EXECUTION_TIMEFRAMES, DatasetTimeframe
+from thytrader.market_data.models import DatasetTimeframe
 from thytrader.strategies.schema.conditions import (
     AllCondition,
     AnyCondition,
@@ -33,10 +34,35 @@ from thytrader.strategies.schema.conditions import (
     IndicatorOperand,
     LiteralOperand,
     NotCondition,
-    _referenced_indicator_ids,
-    _require_condition_series,
     condition_indicator_operands,
     operand_value_key,
+)
+from thytrader.strategies.schema.document_queries import (
+    MAX_STRATEGY_INSTRUMENTS,
+    can_pyramid_add,
+    covered_instruments,
+    covered_product_ids,
+    decision_and_filter_indicators,
+    decision_clock_indicators,
+    expanded_data_requirements,
+    extra_indicator_timeframe_groups,
+    extra_indicator_timeframes,
+    lockstep_product_ids,
+    pyramiding_enabled,
+    reference_data_requirements,
+    reference_indicator_groups,
+    reference_instruments,
+    reference_series,
+    strategy_indicator_operands,
+    strategy_indicator_value_keys,
+    unbound_indicator_timeframes,
+)
+from thytrader.strategies.schema.document_validation import (
+    _validate_covered_instruments,
+    _validate_decision_indicators,
+    _validate_htf_filter,
+    _validate_reference_instruments,
+    _validate_signal_exit,
 )
 from thytrader.strategies.schema.entry import (
     EntryDefinition,
@@ -71,7 +97,6 @@ from thytrader.strategies.schema.indicator_definition import (
     MAX_INDICATOR_OFFSET,
     STOCHASTIC_OUTPUT_SERIES,
     IndicatorDefinition,
-    _indicator_input_fields,
     indicator_offset,
     indicator_output_series,
     indicator_value_keys,
@@ -385,412 +410,6 @@ class StrategyDefinition(_FrozenModel):
         _validate_signal_exit(self)
         _validate_htf_filter(self)
         return self
-
-
-MAX_STRATEGY_INSTRUMENTS = 8
-
-
-def covered_instruments(definition: StrategyDefinition) -> tuple[Instrument, ...]:
-    """Return the primary instrument followed by additional instruments."""
-    return (definition.instrument, *definition.additional_instruments)
-
-
-def covered_product_ids(definition: StrategyDefinition) -> tuple[str, ...]:
-    """Return covered Coinbase USD spot product ids in document order."""
-    return tuple(item.product_id for item in covered_instruments(definition))
-
-
-def lockstep_product_ids(definition: StrategyDefinition) -> tuple[str, ...]:
-    """Return covered product ids in lexicographic order for shared-bar evaluation."""
-    return tuple(sorted(covered_product_ids(definition)))
-
-
-def pyramiding_enabled(definition: StrategyDefinition) -> bool:
-    """True when the document explicitly opts into same-side adds."""
-    return definition.entry.pyramiding is not None
-
-
-def can_pyramid_add(
-    *,
-    strategy: StrategyDefinition,
-    side: Literal["long", "short"],
-    entry_price: Decimal,
-    mark: Decimal,
-    add_count: int,
-) -> bool:
-    """Return whether one same-side add is legal under schema (not the runtime risk policy)."""
-    policy = strategy.entry.pyramiding
-    if policy is None or add_count < 1 or add_count >= strategy.entry.max_open_positions:
-        return False
-    if side == "long":
-        return mark > entry_price
-    return mark < entry_price
-
-
-def _validate_covered_instruments(definition: StrategyDefinition) -> None:
-    """Reject duplicate products and concurrent-position caps that exceed coverage."""
-    products = covered_product_ids(definition)
-    if len(products) != len(set(products)):
-        raise ValueError("additional_instruments must be unique and exclude instrument.product_id")
-    if len(products) > MAX_STRATEGY_INSTRUMENTS:
-        raise ValueError("a strategy document may cover at most 8 spot products")
-    quotes = {
-        instrument.quote_currency
-        for instrument in (definition.instrument, *definition.additional_instruments)
-    }
-    if len(quotes) != 1:
-        raise ValueError("all covered instruments must share one quote currency")
-    if definition.portfolio_limits.max_concurrent_positions > len(products):
-        raise ValueError("max_concurrent_positions cannot exceed the number of covered products")
-
-
-def _validate_decision_indicators(definition: StrategyDefinition) -> None:
-    """Resolve LTF indicator identity, warmup, and ATR-stop references."""
-    identifiers = [indicator.id for indicator in definition.indicators]
-    if len(identifiers) != len(set(identifiers)):
-        raise ValueError("indicator ids must be unique")
-    known = set(identifiers)
-    references = _referenced_indicator_ids(definition.entry.when)
-    references.add(definition.exits.initial_stop.atr_indicator)
-    trailing = definition.exits.trailing_stop
-    if isinstance(trailing, AtrTrailingStop):
-        references.add(trailing.atr_indicator)
-    unknown = references - known
-    if unknown:
-        raise ValueError(f"unknown indicator references: {sorted(unknown)}")
-    _require_condition_series(definition.entry.when, definition.indicators)
-    _require_atr_indicator(
-        definition.indicators,
-        definition.exits.initial_stop.atr_indicator,
-        role="initial stop",
-        decision_timeframe=definition.timeframe,
-    )
-    if isinstance(trailing, AtrTrailingStop):
-        _require_atr_indicator(
-            definition.indicators,
-            trailing.atr_indicator,
-            role="trailing stop",
-            decision_timeframe=definition.timeframe,
-        )
-    _validate_indicator_timeframes(definition)
-    decision_indicators = decision_clock_indicators(definition)
-    required_fields = {
-        field for indicator in decision_indicators for field in _indicator_input_fields(indicator)
-    }
-    if not required_fields.issubset(definition.data_requirements.required_fields):
-        raise ValueError("required_fields must include every indicator input")
-    required_warmup = extra_indicator_timeframe_warmup(
-        decision_indicators, operands=strategy_indicator_operands(definition)
-    )
-    if definition.data_requirements.warmup_bars < required_warmup:
-        raise ValueError("warmup_bars must cover the longest indicator period")
-
-
-def _validate_reference_instruments(definition: StrategyDefinition) -> None:
-    """Resolve indicator sources against declared references (ADR 0096).
-
-    Every ``source`` must name a declared reference, every reference must be read by at
-    least one indicator, share the traded instrument's quote currency, and use the
-    decision timeframe or a coarser integer multiple of it (the HTF alignment rule, with
-    the decision clock itself allowed). Warmup per reference is derived from its
-    indicators, so it can never be under-declared.
-    """
-    references = definition.data_requirements.reference_instruments
-    declared = {reference.id for reference in references}
-    sources = {
-        indicator.source for indicator in definition.indicators if indicator.source is not None
-    }
-    unknown = sorted(sources - declared)
-    if unknown:
-        raise ValueError(
-            "indicator source must name a declared data_requirements.reference_instruments "
-            f"id: {unknown}"
-        )
-    quote = definition.instrument.quote_currency
-    for reference in references:
-        if reference.quote_currency != quote:
-            raise ValueError(
-                f"reference instrument {reference.id} ({reference.product_id}) must use the "
-                f"strategy quote currency {quote}"
-            )
-        if not is_valid_reference_pair(definition.timeframe, reference.timeframe):
-            raise ValueError(
-                f"reference instrument {reference.id} timeframe {reference.timeframe} must "
-                f"equal the strategy timeframe {definition.timeframe} or be a coarser integer "
-                "multiple of it"
-            )
-    unused = sorted(declared - sources)
-    if unused:
-        raise ValueError(
-            f"every reference instrument must be read by at least one indicator source: {unused}"
-        )
-
-
-def _validate_signal_exit(definition: StrategyDefinition) -> None:
-    """Resolve the optional exit-rule tree with the entry operand rules (ADR 0093).
-
-    The tree may reference any decision-list indicator (including per-indicator extra
-    timeframes, like ``entry.when``) but never an HTF-filter indicator: the HTF filter
-    only gates entries. Multi-series operands must name a declared series.
-    """
-    condition = signal_exit_condition(definition.exits)
-    if condition is None:
-        return
-    references = _referenced_indicator_ids(condition)
-    known = {indicator.id for indicator in definition.indicators}
-    htf_filter = definition.htf_filter
-    htf_ids = set() if htf_filter is None else {indicator.id for indicator in htf_filter.indicators}
-    filter_only = sorted((references - known) & htf_ids)
-    if filter_only:
-        raise ValueError(f"exits.signal_exit cannot reference HTF filter indicators: {filter_only}")
-    unknown = sorted(references - known)
-    if unknown:
-        raise ValueError(f"unknown exits.signal_exit indicator references: {unknown}")
-    _require_condition_series(condition, definition.indicators)
-
-
-def _require_atr_indicator(
-    indicators: tuple[IndicatorDefinition, ...],
-    indicator_id: str,
-    *,
-    role: str,
-    decision_timeframe: str,
-) -> None:
-    """Reject a stop reference that is missing, not an ATR, or not on the decision clock."""
-    atr = next((item for item in indicators if item.id == indicator_id), None)
-    if atr is None or atr.kind is not IndicatorKind.ATR:
-        raise ValueError(f"{role} indicator must reference an ATR")
-    if atr.source is not None:
-        raise ValueError(f"{role} ATR must read the traded instrument, not a reference instrument")
-    if resolved_indicator_timeframe(atr, decision_timeframe) != decision_timeframe:
-        raise ValueError(f"{role} ATR must use the strategy decision timeframe")
-
-
-def _validate_htf_filter(definition: StrategyDefinition) -> None:
-    """Reject HTF clocks that are not strictly coarser, or that reuse LTF indicator ids."""
-    htf_filter = definition.htf_filter
-    if htf_filter is None:
-        return
-    if not is_valid_htf_pair(definition.timeframe, htf_filter.timeframe):
-        raise ValueError(
-            "htf_filter.timeframe must be strictly coarser than the strategy decision "
-            "timeframe and an integer multiple of it"
-        )
-    overlap = {indicator.id for indicator in definition.indicators}.intersection(
-        {indicator.id for indicator in htf_filter.indicators}
-    )
-    if overlap:
-        raise ValueError(f"HTF indicator ids must not reuse decision indicators: {sorted(overlap)}")
-
-
-def decision_clock_indicators(definition: StrategyDefinition) -> tuple[IndicatorDefinition, ...]:
-    """Return LTF-list indicators that evaluate on the traded instrument's decision clock.
-
-    Indicators with a reference ``source`` read another instrument's bars and are
-    excluded (see :func:`reference_indicator_groups`).
-    """
-    return tuple(
-        indicator
-        for indicator in definition.indicators
-        if indicator.source is None
-        and resolved_indicator_timeframe(indicator, definition.timeframe) == definition.timeframe
-    )
-
-
-def reference_instruments(definition: StrategyDefinition) -> tuple[ReferenceInstrument, ...]:
-    """Return the declared read-only reference series in declaration order (ADR 0096)."""
-    return definition.data_requirements.reference_instruments
-
-
-def reference_indicator_groups(
-    definition: StrategyDefinition,
-) -> tuple[tuple[ReferenceInstrument, tuple[IndicatorDefinition, ...]], ...]:
-    """Group indicators by the reference they read, in reference declaration order.
-
-    Validation guarantees every reference has at least one indicator.
-    """
-    return tuple(
-        (
-            reference,
-            tuple(
-                indicator for indicator in definition.indicators if indicator.source == reference.id
-            ),
-        )
-        for reference in reference_instruments(definition)
-    )
-
-
-def reference_data_requirements(
-    definition: StrategyDefinition,
-) -> tuple[ReferenceDataRequirement, ...]:
-    """Return every reference series a run or deployment must load, with derived warmup."""
-    return tuple(
-        ReferenceDataRequirement(
-            reference_id=reference.id,
-            product_id=reference.product_id,
-            timeframe=reference.timeframe,
-            warmup_bars=extra_indicator_timeframe_warmup(
-                indicators, operands=strategy_indicator_operands(definition)
-            ),
-            required_fields=extra_indicator_required_fields(indicators),
-        )
-        for reference, indicators in reference_indicator_groups(definition)
-        if indicators
-    )
-
-
-def reference_series(definition: StrategyDefinition) -> frozenset[tuple[str, str]]:
-    """Return the ``(product_id, timeframe)`` pairs the document reads as references."""
-    return frozenset(
-        (reference.product_id, reference.timeframe)
-        for reference in reference_instruments(definition)
-    )
-
-
-def extra_indicator_timeframe_groups(
-    definition: StrategyDefinition,
-) -> tuple[tuple[str, tuple[IndicatorDefinition, ...]], ...]:
-    """Group extra-TF LTF-list indicators by clock in venue-duration order."""
-    grouped: dict[str, list[IndicatorDefinition]] = {}
-    for indicator in definition.indicators:
-        clock = resolved_indicator_timeframe(indicator, definition.timeframe)
-        if clock == definition.timeframe:
-            continue
-        grouped.setdefault(clock, []).append(indicator)
-    return tuple(
-        (timeframe, tuple(grouped[timeframe]))
-        for timeframe in EXECUTION_TIMEFRAMES
-        if timeframe in grouped
-    )
-
-
-def extra_indicator_timeframes(definition: StrategyDefinition) -> tuple[str, ...]:
-    """Return extra indicator clocks in venue-duration order."""
-    groups = extra_indicator_timeframe_groups(definition)
-    return tuple(timeframe for timeframe, _indicators in groups)
-
-
-def unbound_indicator_timeframes(definition: StrategyDefinition) -> tuple[str, ...]:
-    """Return extra indicator clocks that need their own research dataset fingerprint.
-
-    An extra TF that equals ``htf_filter.timeframe`` is covered by ``htf_dataset_fingerprint``.
-    """
-    htf_timeframe = definition.htf_filter.timeframe if definition.htf_filter is not None else None
-    return tuple(
-        timeframe
-        for timeframe in extra_indicator_timeframes(definition)
-        if timeframe != htf_timeframe
-    )
-
-
-def _validate_indicator_timeframes(definition: StrategyDefinition) -> None:
-    """Reject extra indicator clocks that are not coarser integer multiples of LTF."""
-    for indicator in definition.indicators:
-        clock = resolved_indicator_timeframe(indicator, definition.timeframe)
-        if clock == definition.timeframe:
-            continue
-        if not is_valid_htf_pair(definition.timeframe, clock):
-            raise ValueError(
-                "indicator timeframe must be strictly coarser than the strategy decision "
-                "timeframe and an integer multiple of it"
-            )
-    _require_htf_coverage_for_shared_indicator_clock(definition)
-
-
-def _require_htf_coverage_for_shared_indicator_clock(definition: StrategyDefinition) -> None:
-    """When extra indicators share the HTF clock, the HTF dataset must cover them."""
-    htf_filter = definition.htf_filter
-    if htf_filter is None:
-        return
-    groups = dict(extra_indicator_timeframe_groups(definition))
-    shared = groups.get(htf_filter.timeframe)
-    if shared is None:
-        return
-    needed_warmup = extra_indicator_timeframe_warmup(
-        shared, operands=strategy_indicator_operands(definition)
-    )
-    if htf_filter.data_requirements.warmup_bars < needed_warmup:
-        raise ValueError("HTF warmup_bars must cover extra indicators on the HTF timeframe")
-    needed_fields = extra_indicator_required_fields(shared)
-    if not set(needed_fields).issubset(htf_filter.data_requirements.required_fields):
-        raise ValueError("HTF required_fields must include extra indicators on the HTF timeframe")
-
-
-def expanded_data_requirements(
-    definition: StrategyDefinition,
-) -> tuple[TimeframeDataRequirement, ...]:
-    """Return every timeframe a research run must fingerprint and bind."""
-    requirements: list[TimeframeDataRequirement] = [
-        TimeframeDataRequirement(
-            timeframe=definition.timeframe,
-            warmup_bars=definition.data_requirements.warmup_bars,
-            required_fields=definition.data_requirements.required_fields,
-            role="decision",
-        )
-    ]
-    htf_filter = definition.htf_filter
-    if htf_filter is not None:
-        requirements.append(
-            TimeframeDataRequirement(
-                timeframe=htf_filter.timeframe,
-                warmup_bars=htf_filter.data_requirements.warmup_bars,
-                required_fields=htf_filter.data_requirements.required_fields,
-                role="filter",
-            )
-        )
-    for timeframe, indicators in extra_indicator_timeframe_groups(definition):
-        if htf_filter is not None and timeframe == htf_filter.timeframe:
-            continue
-        requirements.append(
-            TimeframeDataRequirement(
-                timeframe=timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators, operands=strategy_indicator_operands(definition)
-                ),
-                required_fields=extra_indicator_required_fields(indicators),
-                role="indicator",
-            )
-        )
-    return tuple(requirements)
-
-
-def strategy_indicator_operands(definition: StrategyDefinition) -> tuple[IndicatorOperand, ...]:
-    """Collect entry, signal-exit, and filter operands for calculation and warmup."""
-    conditions: list[ConditionNode] = [definition.entry.when]
-    exit_condition = signal_exit_condition(definition.exits)
-    if exit_condition is not None:
-        conditions.append(exit_condition)
-    if definition.htf_filter is not None:
-        conditions.append(definition.htf_filter.when)
-    return tuple(
-        dict.fromkeys(
-            operand for node in conditions for operand in condition_indicator_operands(node)
-        )
-    )
-
-
-def strategy_indicator_value_keys(definition: StrategyDefinition) -> tuple[str, ...]:
-    """Keep historical trace keys and append distinct lagged operand evidence keys."""
-    keys = tuple(
-        key
-        for indicator in decision_and_filter_indicators(definition)
-        for key in indicator_value_keys(indicator)
-    )
-    return keys + tuple(
-        operand_value_key(operand)
-        for operand in strategy_indicator_operands(definition)
-        if operand.offset is not None
-    )
-
-
-def decision_and_filter_indicators(
-    definition: StrategyDefinition,
-) -> tuple[IndicatorDefinition, ...]:
-    """Return LTF then HTF indicators in declaration order for traces and summaries."""
-    htf_filter = definition.htf_filter
-    if htf_filter is None:
-        return definition.indicators
-    return (*definition.indicators, *htf_filter.indicators)
 
 
 def canonical_strategy_bytes(definition: StrategyDefinition) -> bytes:

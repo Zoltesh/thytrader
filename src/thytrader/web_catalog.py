@@ -17,7 +17,7 @@ from thytrader.operator.indicator_report import (
     web_indicator_catalog_document,
     web_indicator_warmup_examples_document,
 )
-from thytrader.strategies.templates import template_catalog
+from thytrader.strategies.template_ids import template_catalog
 
 WEB_GENERATED_DIRECTORY = ("web", "src", "lib", "generated")
 """Repository-relative directory (as path parts) holding the generated JSON files."""

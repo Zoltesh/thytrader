@@ -73,7 +73,6 @@ from thytrader.market_data.models import Candle
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.indicator_catalog import (
     INDICATOR_KIND_SPECS,
-    IndicatorKindSpec,
     default_indicator_definition,
 )
 from thytrader.strategies.models import (
@@ -85,12 +84,13 @@ from thytrader.strategies.models import (
     reference_instruments,
     strategy_fingerprint,
 )
-from thytrader.strategies.templates import StrategyTemplateId
+from thytrader.strategies.template_ids import StrategyTemplateId
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from tests.evaluation.indicator_reference import Series
+    from thytrader.strategies.indicator_spec_model import IndicatorKindSpec
 
 CANDLES = synthetic_candles(240)
 CLOSES = [candle.close for candle in CANDLES]

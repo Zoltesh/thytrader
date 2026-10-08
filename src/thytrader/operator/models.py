@@ -31,7 +31,7 @@ from thytrader.portfolios.models import (
     PortfolioLimits,
 )
 from thytrader.research.catalog import StudyCatalogSummary
-from thytrader.strategies.indicator_catalog import ParameterKind
+from thytrader.strategies.indicator_spec_model import ParameterKind
 from thytrader.trading.protection import ProtectionEvidenceResponse
 
 SCHEMA_VERSION: Literal["thytrader-operator-report-v1"] = "thytrader-operator-report-v1"

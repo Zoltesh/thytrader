@@ -13,7 +13,8 @@ from thytrader.market_data.models import (
 )
 from thytrader.market_data.products import parse_spot_product_id
 from thytrader.strategies.models import Instrument, StrategyDefinition
-from thytrader.strategies.templates import build_template_definition, parse_template_id
+from thytrader.strategies.template_ids import parse_template_id
+from thytrader.strategies.templates import build_template_definition
 
 if TYPE_CHECKING:
     from uuid import UUID

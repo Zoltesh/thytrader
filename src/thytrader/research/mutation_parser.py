@@ -11,7 +11,7 @@ import argparse
 from thytrader.cli_parse import trailing_options
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.strategies.library import StrategyOrigin
-from thytrader.strategies.templates import StrategyTemplateId
+from thytrader.strategies.template_ids import StrategyTemplateId
 
 _CONFIRM_HELP = (
     "Required for mutations. This CLI cannot deploy, paper-trade, live-trade, or cancel orders."

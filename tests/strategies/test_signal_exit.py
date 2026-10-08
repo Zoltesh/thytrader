@@ -25,13 +25,13 @@ from thytrader.strategies.models import (
     strategy_fingerprint,
 )
 from thytrader.strategies.summary import strategy_summary
-from thytrader.strategies.templates import (
+from thytrader.strategies.template_blueprints import template_blueprint
+from thytrader.strategies.template_ids import (
     StrategyTemplateId,
-    build_template_definition,
     parse_template_id,
-    template_blueprint,
     template_catalog,
 )
+from thytrader.strategies.templates import build_template_definition
 
 _GOLDEN = Path(__file__).parent / "golden"
 _GOLDEN_FINGERPRINTS = {

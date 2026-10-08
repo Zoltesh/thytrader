@@ -15,10 +15,10 @@ from thytrader.strategies.models import (
     extra_indicator_timeframe_warmup,
     strategy_indicator_operands,
 )
-from thytrader.strategies.templates import (
+from thytrader.strategies.template_blueprints import template_blueprint
+from thytrader.strategies.template_ids import (
     StrategyTemplateId,
     parse_template_id,
-    template_blueprint,
     template_catalog,
 )
 
