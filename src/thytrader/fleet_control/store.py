@@ -2,7 +2,7 @@
 
 The same object is the entry gate bound to an in-memory execution store, so a
 disarm and a concurrent start share one lock. PostgreSQL uses the row lock in
-:mod:`thytrader.fleet_control.postgres` instead.
+:mod:`thytrader.persistence.postgres_fleet_control` instead.
 """
 
 from __future__ import annotations

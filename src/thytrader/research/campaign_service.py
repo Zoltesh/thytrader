@@ -2,7 +2,7 @@
 
 import asyncio
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 from uuid import UUID, uuid7
 
 from thytrader.backtest.submission import BacktestSubmissionRejectedError, resolve_backtest_window
@@ -26,11 +26,64 @@ from thytrader.research.jobs import ResearchJobStatus
 from thytrader.strategies.library import StrategySnapshotNotFoundError
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+
+    from thytrader.backtest.projections import BacktestProjectionReader
+    from thytrader.backtest.submission import BacktestSubmissionRequest
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
-    from thytrader.persistence.postgres_campaigns import CampaignTransaction, PostgresCampaignStore
-    from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
-    from thytrader.persistence.postgres_strategies import PostgresStrategyStore
+    from thytrader.research.jobs import ResearchJobStore
+    from thytrader.strategies.snapshots import StrategySnapshot
+
+
+class CampaignTransaction(Protocol):
+    """One locked campaign row: queue children and save state inside the same lock."""
+
+    @property
+    def record(self) -> CampaignRecord:
+        """The campaign as read under the lock."""
+        ...
+
+    async def queue(
+        self, key: str, request: BacktestSubmissionRequest, *, strategy_id: UUID, now: datetime
+    ) -> UUID:
+        """Queue one child backtest job idempotently and return its id."""
+        ...
+
+    async def save(self, record: CampaignRecord) -> None:
+        """Persist new case state; the manifest cannot change."""
+        ...
+
+
+class CampaignStore(Protocol):
+    """Durable campaigns serialized by a row lock shared by the API and workers."""
+
+    async def create(self, record: CampaignRecord) -> None:
+        """Persist one frozen campaign."""
+        ...
+
+    async def get(self, campaign_id: UUID) -> CampaignRecord:
+        """Read one campaign's frozen intent and latest evidence."""
+        ...
+
+    async def list(self, *, limit: int = 50, pending: bool = False) -> tuple[CampaignRecord, ...]:
+        """Return recent (or pending) campaigns."""
+        ...
+
+    def locked(self, campaign_id: UUID) -> AbstractAsyncContextManager[CampaignTransaction]:
+        """Hold the campaign row lock for one refresh."""
+        ...
+
+
+class CampaignStrategyReader(Protocol):
+    """Strategy snapshots a campaign freezes and re-reads."""
+
+    async def snapshot(self, strategy_id: UUID) -> StrategySnapshot:
+        """Snapshot the current definition of one mutable strategy."""
+        ...
+
+    async def load(self, strategy_fingerprint_value: str) -> StrategySnapshot:
+        """Load one exact published snapshot."""
+        ...
 
 
 class CampaignService:
@@ -39,10 +92,10 @@ class CampaignService:
     def __init__(
         self,
         *,
-        store: PostgresCampaignStore,
-        strategies: PostgresStrategyStore,
-        jobs: PostgresResearchJobStore,
-        results: PostgresBacktestResultStore,
+        store: CampaignStore,
+        strategies: CampaignStrategyReader,
+        jobs: ResearchJobStore,
+        results: BacktestProjectionReader,
         datasets: DatasetStore,
         provider: str = "coinbase",
     ) -> None:

@@ -38,8 +38,8 @@ from thytrader.strategies.snapshots import (
 )
 
 if TYPE_CHECKING:
+    from thytrader.backtest.results import BacktestResultReader
     from thytrader.backtest.submission import BacktestSubmitter
-    from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.strategies.snapshots import StrategySnapshotStore
 
 _REFERENCE = Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"

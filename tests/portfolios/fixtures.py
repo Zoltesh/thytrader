@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
     from uuid import UUID
 
-    from thytrader.persistence.backtest_results import BacktestResultSummaryView
+    from thytrader.backtest.results import BacktestResultSummaryView
     from thytrader.strategies.library import StrategyRecord
     from thytrader.strategies.memory_store import InMemoryStrategyStore
 

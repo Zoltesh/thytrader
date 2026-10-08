@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
-    from thytrader.persistence.backtest_results import BacktestResultSummaryView
+    from thytrader.backtest.results import BacktestResultSummaryView
 
 
 def _summary() -> BacktestSummary:

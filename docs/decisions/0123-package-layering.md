@@ -41,7 +41,10 @@ settings imported domain enums.
 
 ## Consequences
 
-- The remaining upward imports are the decoupling work list. Research, backtest and fleet
-  control must reach Postgres through protocols wired by processes.
+- Domain packages never import `persistence`. They own the store protocols they consume
+  (for example `backtest.submission.SubmissionRunStore` and
+  `research.campaign_service.CampaignStore`). Processes wire the PostgreSQL adapters such as
+  `persistence.postgres_backtest_submitter.PostgresBacktestSubmitter`. Store contracts that
+  lived in `persistence` move to their domain (`audit_events`, `backtest.results`).
 - Moves keep definitions AST-identical and OpenAPI byte-identical. Old import paths are
   retargeted rather than kept as shims.

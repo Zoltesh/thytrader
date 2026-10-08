@@ -23,7 +23,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from thytrader.fleet_control import postgres as fleet_postgres, service as fleet_service
+from thytrader.fleet_control import service as fleet_service
 from thytrader.fleet_control.admission import refresh_process_entry_inhibition
 from thytrader.fleet_control.inventory import read_stable_inventory
 from thytrader.fleet_control.models import (
@@ -37,9 +37,10 @@ from thytrader.fleet_control.models import (
     FleetTargetStatus,
     TargetResult,
 )
-from thytrader.fleet_control.postgres import PostgresFleetControlStore
 from thytrader.fleet_control.service import execute_fleet
+from thytrader.persistence import postgres_fleet_control as fleet_postgres
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_fleet_control import PostgresFleetControlStore
 from thytrader.persistence.schema import (
     deployments,
     fleet_control_operations,

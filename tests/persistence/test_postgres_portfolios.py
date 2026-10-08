@@ -22,9 +22,9 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.persistence.test_migration_0048_strategy_root import _ROOT, _alembic, scratch_database
 from tests.portfolios.fixtures import datasets_for_two_sleeves
-from thytrader.backtest.submission import PostgresBacktestSubmitter
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_backtest_submitter import PostgresBacktestSubmitter
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore

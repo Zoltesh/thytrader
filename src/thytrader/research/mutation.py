@@ -34,16 +34,16 @@ from thytrader.strategies.library import (
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from thytrader.backtest.results import (
+        BacktestResultReader,
+        BacktestResultSummaryView,
+    )
     from thytrader.backtest.submission import (
         BacktestStartRequest,
         BacktestSubmissionRequest,
         BacktestSubmitter,
     )
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.backtest_results import (
-        BacktestResultReader,
-        BacktestResultSummaryView,
-    )
     from thytrader.research.catalog import ResearchStudyCatalog, StudyCatalogSummary
     from thytrader.research.study_start import ResearchStudyStartRequest
     from thytrader.strategies.snapshots import StrategySnapshotStore

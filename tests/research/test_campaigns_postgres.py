@@ -15,6 +15,7 @@ from sqlalchemy import update
 from tests.portfolios.fixtures import DATA_START, write_dataset
 from thytrader.backtest.submission import BacktestStartRequest
 from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.schema import research_jobs
 from thytrader.research.campaigns import CampaignCaseStart, CampaignCaseStatus, CampaignStart
 from thytrader.research_worker.executor import ResearchJobExecutor, build_research_services
@@ -37,7 +38,8 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
             campaign = services.campaigns
             assert campaign is not None
             strategy = await create_strategy_from_definition(
-                campaign.strategies, create_template_strategy(product_id="BTC-USDC", timeframe="1h")
+                PostgresStrategyStore(engine),
+                create_template_strategy(product_id="BTC-USDC", timeframe="1h"),
             )
             # The real queue uses PostgreSQL's clock to reject expired jobs.
             now = datetime.now(UTC)

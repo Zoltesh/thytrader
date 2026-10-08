@@ -64,9 +64,9 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
 
     from thytrader.backtest.models import BacktestResult
+    from thytrader.backtest.results import BacktestResultReader
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import (
         StrategySnapshot,

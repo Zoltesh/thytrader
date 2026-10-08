@@ -29,9 +29,9 @@ from thytrader.portfolios.models import PortfolioError
 if TYPE_CHECKING:
     from uuid import UUID
 
+    from thytrader.backtest.results import BacktestResultReader
     from thytrader.backtest.submission import BacktestSubmitter
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.portfolios.backtest import PortfolioBacktestPlan, PortfolioBacktestResult
     from thytrader.portfolios.store import PortfolioBacktestStore
 

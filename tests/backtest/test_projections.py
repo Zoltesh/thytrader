@@ -18,9 +18,9 @@ from thytrader.backtest.cost_attribution import BacktestCostAttribution, compute
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
 from thytrader.backtest.projections import BacktestProjection
+from thytrader.backtest.results import BacktestResultIntegrityError
 from thytrader.config import Settings
 from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
-from thytrader.persistence.backtest_results import BacktestResultIntegrityError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
 

@@ -11,13 +11,10 @@ from pydantic import SecretStr
 import pytest
 
 from tests.portfolios.fixtures import DATA_START, write_dataset
-from thytrader.backtest.submission import (
-    BacktestSubmissionRejectedError,
-    BacktestSubmissionRequest,
-    PostgresBacktestSubmitter,
-)
+from thytrader.backtest.submission import BacktestSubmissionRejectedError, BacktestSubmissionRequest
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_backtest_submitter import PostgresBacktestSubmitter
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore

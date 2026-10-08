@@ -6,8 +6,8 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
+from thytrader.backtest.results import DisabledBacktestResultStore
 from thytrader.backtest.submission import BacktestStartRequest, BacktestSubmissionResult
-from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.research.mutation import ResearchMutator
 from thytrader.strategies.library import StrategyInvalidError
 from thytrader.strategies.memory_store import InMemoryStrategyStore

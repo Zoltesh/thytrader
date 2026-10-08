@@ -8,10 +8,10 @@ from decimal import Decimal
 from uuid import uuid4
 
 from thytrader.audit_events import InMemoryAuditEventStore
+from thytrader.backtest.results import DisabledBacktestResultStore
 from thytrader.config import Settings
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService

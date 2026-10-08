@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from tests.execution.test_performance_capital import _live_snapshot
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
+from thytrader.backtest.results import DisabledBacktestResultStore
 from thytrader.config import Settings
 from thytrader.evaluation.indicators import canonical_decimal
 from thytrader.market_data.models import Candle, CandleInterval, MarketDataPreview, MarketProduct
@@ -20,7 +21,6 @@ from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.models import ReportStatus
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
