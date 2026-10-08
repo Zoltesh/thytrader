@@ -10,7 +10,7 @@ from pydantic import Field
 
 from thytrader import __version__
 from thytrader.alerts.store import ALERT_REPORT_ROW_LIMIT, DisabledAlertStore
-from thytrader.memory.models import NotifyProvider
+from thytrader.config import NotifyProvider
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,

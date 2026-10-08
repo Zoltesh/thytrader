@@ -25,7 +25,6 @@ from thytrader.api.dependencies import (
     get_portfolio_store,
     get_strategy_store,
 )
-from thytrader.api.live_ack import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.api.strategy_http import strategy_http_error
 from thytrader.audit_events import (
     AuditEvent,
@@ -38,6 +37,7 @@ from thytrader.execution.store import ExecutionStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.operator.models import PaperLiveFillComparison
 from thytrader.operator.portfolios_report import paper_live_fill_comparisons
+from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestRequest,

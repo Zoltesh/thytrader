@@ -88,6 +88,7 @@ from thytrader.market_data.worker_state import (
 )
 from thytrader.memory.notify import (
     NotificationSender,
+    ReloadingNotificationSender,
     notification_sender_from_settings,
 )
 from thytrader.memory.store import (
@@ -151,7 +152,6 @@ from thytrader.risk.store import DisabledRiskPolicyStore, RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
 from thytrader.security.middleware import TrustBoundaryMiddleware
-from thytrader.settings_yaml import ReloadingNotificationSender, SettingsStore
 from thytrader.strategies.library import DisabledStrategyStore, StrategyStore
 from thytrader.strategies.snapshots import (
     DisabledStrategySnapshotStore,
@@ -166,6 +166,7 @@ if TYPE_CHECKING:
     from thytrader.exchanges.protocols import ExchangeAccount
     from thytrader.execution.broker import Broker
     from thytrader.operator_chat.llm import LlmClient
+    from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 _HARNESS_POLL_SECONDS = 0.01

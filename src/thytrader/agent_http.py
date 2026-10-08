@@ -15,7 +15,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from thytrader.config import Settings
+from thytrader.config import Settings, default_api_base_url
 from thytrader.ops_contract import STALE_IMAGE_REBUILD, ops_contract_matches
 from thytrader.security.client import mutation_headers
 
@@ -73,12 +73,6 @@ class AgentHttpError(RuntimeError):
         self.timed_out = timed_out
         self.dropped = dropped
         self.code = code
-
-
-def default_api_base_url(settings: Settings) -> str:
-    """Build the loopback API origin from process settings."""
-    host = "127.0.0.1" if not settings.api_host.is_loopback else str(settings.api_host)
-    return f"http://{host}:{settings.api_port}"
 
 
 def base_url_options() -> argparse.ArgumentParser:

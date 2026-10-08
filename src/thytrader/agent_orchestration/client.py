@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from thytrader.agent_http import request_json, request_mutation_json
 from thytrader.agent_orchestration.models import (
     AgentOrchestrationStatus,
     SkippedConfirmationRequest,
     SkippedConfirmationResponse,
-    YoloTier,
 )
+
+if TYPE_CHECKING:
+    from thytrader.config import YoloTier
 
 ORCHESTRATION_API_PREFIX = "/api/v1/agent-orchestration"
 

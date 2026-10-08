@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from thytrader.config import NotifyProvider
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.memory.trade_reasons import TradeReasonRecord
 
@@ -93,14 +94,6 @@ class PatternStatus(StrEnum):
     SUPPORTED = "supported"
     CONTRADICTED = "contradicted"
     RETIRED = "retired"
-
-
-class NotifyProvider(StrEnum):
-    """Configured delivery backend. Default is no external send."""
-
-    NONE = "none"
-    LOG = "log"
-    WEBHOOK = "webhook"
 
 
 class NotifySeverity(StrEnum):

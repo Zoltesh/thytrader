@@ -11,6 +11,7 @@ import json
 from typing import cast
 from uuid import UUID
 
+from thytrader.execution.entry_latch import InhibitionSnapshot
 from thytrader.execution.models import ExecutionStoreError
 from thytrader.fleet_control.models import (
     FleetAction,
@@ -18,7 +19,6 @@ from thytrader.fleet_control.models import (
     FleetOperation,
     FleetOperationStatus,
     FleetTargetStatus,
-    InhibitionSnapshot,
     TargetResult,
     VenueEffect,
 )

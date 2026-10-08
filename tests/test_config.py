@@ -5,9 +5,7 @@ from ipaddress import IPv4Address
 from pydantic import ValidationError
 import pytest
 
-from thytrader.agent_orchestration.models import YoloTier
-from thytrader.config import Environment, Settings
-from thytrader.memory.models import NotifyProvider
+from thytrader.config import Environment, NotifyProvider, Settings, YoloTier
 
 # This intentionally unsafe address exercises the network-exposure rejection path.
 _UNSAFE_BIND_ADDRESS = IPv4Address("0.0.0.0")  # noqa: S104

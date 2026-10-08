@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.audit_events import InMemoryAuditEventStore
-from thytrader.config import Settings
+from thytrader.config import NotifyProvider, Settings
 from thytrader.memory.evidence import LocalEvidenceResolver
 from thytrader.memory.models import (
     ActorOrigin,
@@ -19,7 +19,6 @@ from thytrader.memory.models import (
     JournalEntry,
     JournalKind,
     LessonOutcome,
-    NotifyProvider,
 )
 from thytrader.memory.notify import RecordingNotificationSender
 from thytrader.memory.store import DisabledExperientialMemoryStore, InMemoryExperientialMemoryStore

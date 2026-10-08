@@ -7,7 +7,7 @@ import asyncio
 from pydantic import ValidationError
 import pytest
 
-from thytrader.agent_orchestration.models import SkippedConfirmationRequest, YoloTier
+from thytrader.agent_orchestration.models import SkippedConfirmationRequest
 from thytrader.agent_orchestration.service import (
     YoloSkipRejectedError,
     orchestration_status,
@@ -18,7 +18,7 @@ from thytrader.audit_events import (
     DisabledAuditEventStore,
     InMemoryAuditEventStore,
 )
-from thytrader.config import Settings
+from thytrader.config import Settings, YoloTier
 
 
 def test_default_status_is_safe_with_live_hard_gate() -> None:

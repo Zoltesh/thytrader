@@ -21,14 +21,9 @@ import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL
+from thytrader.config import NotifyProvider
 from thytrader.execution.ids import utc_now
-from thytrader.memory.models import (
-    ActorOrigin,
-    DeliveryStatus,
-    NotificationRecord,
-    NotifyProvider,
-    NotifySeverity,
-)
+from thytrader.memory.models import ActorOrigin, DeliveryStatus, NotificationRecord, NotifySeverity
 from thytrader.memory.notify import DeliveryResult
 
 if TYPE_CHECKING:

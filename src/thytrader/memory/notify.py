@@ -9,14 +9,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from thytrader.memory.models import (
-    DeliveryStatus,
-    NotificationRecord,
-    NotifyProvider,
-)
+from thytrader.config import NotifyProvider
+from thytrader.memory.models import DeliveryStatus, NotificationRecord
 
 if TYPE_CHECKING:
     from thytrader.config import Settings
+    from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 _WEBHOOK_TIMEOUT_SECONDS = 10.0
@@ -158,3 +156,29 @@ def notification_sender_from_settings(settings: Settings) -> NotificationSender:
             raise ValueError("webhook notify requires THYTRADER_NOTIFY_WEBHOOK_URL")
         return WebhookNotificationSender(secret.get_secret_value())
     return DisabledNotificationSender()
+
+
+class ReloadingNotificationSender:
+    """Rebuild the inner sender when YAML ``notify_provider`` changes."""
+
+    def __init__(self, store: SettingsStore) -> None:
+        """Bind one settings store. Webhook URLs stay inside the inner sender."""
+        self._store = store
+        self._inner: NotificationSender = notification_sender_from_settings(store.current())
+        self._provider = self._inner.provider()
+
+    def provider(self) -> NotifyProvider:
+        """Return the current provider after a possible YAML reload."""
+        return self._refresh().provider()
+
+    async def deliver(self, record: NotificationRecord) -> DeliveryResult:
+        """Deliver through the latest configured backend."""
+        return await self._refresh().deliver(record)
+
+    def _refresh(self) -> NotificationSender:
+        """Swap the inner sender when the YAML notify provider changes."""
+        settings = self._store.current()
+        if settings.notify_provider is not self._provider:
+            self._inner = notification_sender_from_settings(settings)
+            self._provider = settings.notify_provider
+        return self._inner

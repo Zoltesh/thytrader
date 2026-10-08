@@ -305,3 +305,16 @@ def ops_contract_matches(payload: Mapping[str, object] | None) -> bool:
     if payload is None:
         return False
     return dict(payload) == expected_ops_contract()
+
+
+LIVE_ACK_FIELD = "i_understand_live"
+
+
+LIVE_ACK_REQUIRED_CODE = "live_acknowledgement_required"
+
+
+LIVE_ACK_REQUIRED_DETAIL = (
+    f"{LIVE_ACK_REQUIRED_CODE}: Live trading spends real money. Send "
+    f"{LIVE_ACK_FIELD}=true only after the operator explicitly acknowledged live trading "
+    "(CLI --i-understand-live, the UI live confirmation, or the chat understand-live box)."
+)

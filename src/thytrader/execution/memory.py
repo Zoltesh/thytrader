@@ -52,7 +52,7 @@ if TYPE_CHECKING:
     from datetime import datetime, timedelta
     from decimal import Decimal
 
-    from thytrader.fleet_control.store import EntryGate
+    from thytrader.execution.entry_latch import EntryGate
     from thytrader.strategies.snapshots import StrategySnapshot
 
 

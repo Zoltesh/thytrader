@@ -6,7 +6,6 @@ import json
 from typing import TYPE_CHECKING
 
 from thytrader.agent_orchestration.service import orchestration_status
-from thytrader.api.live_ack import LIVE_ACK_FIELD
 from thytrader.observability.logging import extra_redacted_secrets
 from thytrader.operator.redaction import REDACTION, configured_secrets, redact_text
 from thytrader.operator_chat.asgi import LocalApiError, invoke_local_json
@@ -24,6 +23,7 @@ from thytrader.operator_chat.tools import (
     tool_by_name,
     yolo_tier_for,
 )
+from thytrader.ops_contract import LIVE_ACK_FIELD
 
 if TYPE_CHECKING:
     from fastapi import FastAPI

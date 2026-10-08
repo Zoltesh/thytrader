@@ -6,7 +6,7 @@ import asyncio
 from datetime import UTC, datetime
 
 from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
-from thytrader.config import Settings
+from thytrader.config import NotifyProvider, Settings
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.memory.models import (
     ActorOrigin,
@@ -14,7 +14,6 @@ from thytrader.memory.models import (
     JournalKind,
     JournalWrite,
     NotificationWrite,
-    NotifyProvider,
     NotifySeverity,
 )
 from thytrader.memory.notify import DisabledNotificationSender, RecordingNotificationSender

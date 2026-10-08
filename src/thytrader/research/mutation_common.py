@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from thytrader.agent_orchestration.confirmation import require_mutation_confirmation
-from thytrader.agent_orchestration.models import YoloTier
+from thytrader.config import YoloTier
 from thytrader.strategies.library import parse_document
 
 if TYPE_CHECKING:

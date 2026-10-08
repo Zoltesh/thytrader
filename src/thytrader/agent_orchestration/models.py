@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from thytrader.config import YoloTier
+
 ORCHESTRATION_SCHEMA_VERSION: Literal["thytrader-agent-orchestration-v1"] = (
     "thytrader-agent-orchestration-v1"
 )
@@ -18,20 +20,6 @@ PLAYBOOK_SEQUENCE: tuple[str, ...] = (
     "backtest",
     "optional_paper",
 )
-
-
-class YoloTier(StrEnum):
-    """Surfaces that may skip `--confirm` when YOLO is explicitly enabled.
-
-    Live YOLO never skips ``--i-understand-live``. Risk-policy publication,
-    live place-order, ``--local`` research, and memory stay hard-gated.
-    Paper YOLO never covers a live deployment.
-    """
-
-    DATA = "data"
-    RESEARCH = "research"
-    PAPER = "paper"
-    LIVE = "live"
 
 
 class ConfirmationMode(StrEnum):

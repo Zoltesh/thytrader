@@ -12,14 +12,7 @@ from __future__ import annotations
 from fastapi import HTTPException, status
 
 from thytrader.execution.models import DeploymentMode
-
-LIVE_ACK_FIELD = "i_understand_live"
-LIVE_ACK_REQUIRED_CODE = "live_acknowledgement_required"
-LIVE_ACK_REQUIRED_DETAIL = (
-    f"{LIVE_ACK_REQUIRED_CODE}: Live trading spends real money. Send "
-    f"{LIVE_ACK_FIELD}=true only after the operator explicitly acknowledged live trading "
-    "(CLI --i-understand-live, the UI live confirmation, or the chat understand-live box)."
-)
+from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL
 
 
 def require_live_acknowledgement(mode: DeploymentMode, *, acknowledged: bool) -> None:

@@ -6,10 +6,9 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from thytrader.agent_orchestration.models import YoloTier
 from thytrader.api.app import create_app
 from thytrader.audit_events import DisabledAuditEventStore, InMemoryAuditEventStore
-from thytrader.config import Settings
+from thytrader.config import Settings, YoloTier
 
 
 def test_get_orchestration_defaults_to_safe() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.agent_orchestration.models import YoloTier
+from thytrader.config import YoloTier
 from thytrader.market_data.lookback import describe_watch_lookback_ceilings
 from thytrader.operator_chat.models import ChatLane
 
