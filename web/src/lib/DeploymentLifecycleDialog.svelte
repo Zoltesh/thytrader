@@ -91,7 +91,7 @@
 					'clock unknown'}</span
 			>
 		</div>
-		{#each dialog.body as line (line)}
+		{#each dialog.body as line, index (index)}
 			<p>{line}</p>
 		{/each}
 		{#if dialog.chooseStopMode}

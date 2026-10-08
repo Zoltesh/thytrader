@@ -363,7 +363,7 @@
 					data-testid="review-risk-policy">{riskPolicyText.text}</b
 				>
 			</div>
-			{#each review.warnings as warning (warning)}
+			{#each review.warnings as warning, index (index)}
 				<p class="warning" role="status">{warning}</p>
 			{/each}
 			<p class="hint">

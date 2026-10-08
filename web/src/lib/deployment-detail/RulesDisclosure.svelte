@@ -46,7 +46,7 @@
 				</dl>
 				<p class="config-section">Indicators</p>
 				<ul class="config-list">
-					{#each strategyConfig.summary.indicators as line (line)}
+					{#each strategyConfig.summary.indicators as line, index (index)}
 						<li>{line}</li>
 					{/each}
 				</ul>
@@ -58,13 +58,13 @@
 				{/if}
 				<p class="config-section">Exits</p>
 				<ul class="config-list">
-					{#each strategyConfig.summary.exits as line (line)}
+					{#each strategyConfig.summary.exits as line, index (index)}
 						<li>{line}</li>
 					{/each}
 				</ul>
 				<p class="config-section">Sizing &amp; limits</p>
 				<ul class="config-list">
-					{#each strategyConfig.summary.sizing as line (line)}
+					{#each strategyConfig.summary.sizing as line, index (index)}
 						<li>{line}</li>
 					{/each}
 				</ul>

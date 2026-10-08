@@ -263,7 +263,7 @@
 					</p>
 					{#if unfilledEntryLines(diagnostics).length > 0}
 						<ul>
-							{#each unfilledEntryLines(diagnostics) as line (line)}<li>{line}</li>{/each}
+							{#each unfilledEntryLines(diagnostics) as line, index (index)}<li>{line}</li>{/each}
 						</ul>
 					{/if}
 					{#if diagnostics.skipped.length > 0}
@@ -287,7 +287,7 @@
 					{#if exitReasonLines(diagnostics).length > 0}
 						<p class="faint">How positions closed:</p>
 						<ul data-testid="diagnostics-exits">
-							{#each exitReasonLines(diagnostics) as line (line)}<li>{line}</li>{/each}
+							{#each exitReasonLines(diagnostics) as line, index (index)}<li>{line}</li>{/each}
 						</ul>
 					{/if}
 				{/if}

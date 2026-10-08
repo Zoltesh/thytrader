@@ -394,7 +394,7 @@
 										{#if sleeve.issues.length === 0}
 											<span class="muted">Ready to backtest</span>
 										{:else}
-											{#each sleeve.issues as issue (issue)}
+											{#each sleeve.issues as issue, index (index)}
 												<div class="issue" data-testid="sleeve-issue">{sleeveIssueText(issue)}</div>
 											{/each}
 										{/if}
