@@ -15,6 +15,19 @@ import pytest
 from sqlalchemy import delete, update
 from sqlalchemy.exc import IntegrityError
 
+from thytrader.evaluation.models import (
+    CapitalAssumptions,
+    CostAssumptions,
+    EvaluationWindow,
+    ResearchRunSpecification,
+    WarmupWindow,
+    canonical_research_run_bytes,
+    research_run_fingerprint,
+)
+from thytrader.evaluation.publication import (
+    PublishedResearchRunSpecification,
+    ResearchRunPublicationError,
+)
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval
 from thytrader.market_data.quality import analyze_range
@@ -26,19 +39,6 @@ from thytrader.persistence.schema import (
     strategies,
     strategy_dataset_bindings,
     strategy_snapshots,
-)
-from thytrader.research.models import (
-    CapitalAssumptions,
-    CostAssumptions,
-    EvaluationWindow,
-    ResearchRunSpecification,
-    WarmupWindow,
-    canonical_research_run_bytes,
-    research_run_fingerprint,
-)
-from thytrader.research.publication import (
-    PublishedResearchRunSpecification,
-    ResearchRunPublicationError,
 )
 from thytrader.research.signal_service import evaluate_published_signal_run
 from thytrader.strategies.library import StrategyNotFoundError, create_strategy_from_definition

@@ -28,6 +28,11 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     resolve_backtest_window,
 )
+from thytrader.evaluation.models import (
+    AdditionalInstrumentDataset,
+    IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
+)
 from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
 from thytrader.portfolios.backtest import (
     PlannedSleeve,
@@ -37,11 +42,6 @@ from thytrader.portfolios.backtest import (
 )
 from thytrader.portfolios.models import PortfolioError, sleeve_issues, utc_text
 from thytrader.portfolios.rules import require_revision, sleeve_capital
-from thytrader.research.models import (
-    AdditionalInstrumentDataset,
-    IndicatorTimeframeDataset,
-    ReferenceInstrumentDataset,
-)
 from thytrader.strategies.library import StrategyInvalidError, StrategyNotFoundError
 from thytrader.strategies.models import (
     covered_product_ids,

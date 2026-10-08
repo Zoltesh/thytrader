@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 
+from thytrader.evaluation.indicators import calculate_indicator_rows
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
 from thytrader.market_data import window_cache
 from thytrader.market_data.models import (
@@ -23,7 +24,6 @@ from thytrader.market_data.window_cache import (
     DeployWindowCache,
     WindowCacheWarmingError,
 )
-from thytrader.research.indicators import calculate_indicator_rows
 from thytrader.strategies.models import IndicatorDefinition
 
 pytestmark = pytest.mark.anyio

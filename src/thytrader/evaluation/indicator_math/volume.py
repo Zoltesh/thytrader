@@ -6,8 +6,8 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicator_math.core import _parameters_of
-from thytrader.research.indicator_math.moving_averages import (
+from thytrader.evaluation.indicator_math.core import _parameters_of
+from thytrader.evaluation.indicator_math.moving_averages import (
     _exponential_moving_average_optional,
     _simple_moving_average,
 )

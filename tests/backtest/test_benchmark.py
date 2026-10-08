@@ -20,15 +20,15 @@ from thytrader.backtest.models import (
     backtest_result_fingerprint,
     canonical_backtest_result_bytes,
 )
-from thytrader.market_data.models import Candle
-from thytrader.persistence.backtest_benchmarks import PostgresBacktestBenchmarkReader
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
 )
+from thytrader.market_data.models import Candle
+from thytrader.persistence.backtest_benchmarks import PostgresBacktestBenchmarkReader
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 from .test_kernel import _candles, _run, _strategy

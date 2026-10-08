@@ -19,7 +19,7 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from tests.research.indicator_reference import (
+from tests.evaluation.indicator_reference import (
     TOLERANCE,
     close_enough,
     flat_candles,
@@ -57,10 +57,8 @@ from tests.research.indicator_reference import (
     ref_zscore,
     synthetic_candles,
 )
-from thytrader.execution.signals import evaluate_latest_entry
-from thytrader.market_data.models import Candle
-from thytrader.research.indicators import calculate_indicator_rows
-from thytrader.research.models import (
+from thytrader.evaluation.indicators import calculate_indicator_rows
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -68,8 +66,10 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import EntryConditionOutcome
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import EntryConditionOutcome
+from thytrader.execution.signals import evaluate_latest_entry
+from thytrader.market_data.models import Candle
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.indicator_catalog import (
     INDICATOR_KIND_SPECS,
@@ -90,7 +90,7 @@ from thytrader.strategies.templates import StrategyTemplateId
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from tests.research.indicator_reference import Series
+    from tests.evaluation.indicator_reference import Series
 
 CANDLES = synthetic_candles(240)
 CLOSES = [candle.close for candle in CANDLES]

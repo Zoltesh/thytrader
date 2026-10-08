@@ -26,10 +26,10 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.backtest.broker import FillModel
+    from thytrader.evaluation.stress import ExecutionStress
+    from thytrader.evaluation.trace import SignalTraceRecord
     from thytrader.execution.geometry import EntrySkipReason
     from thytrader.market_data.models import Candle
-    from thytrader.research.stress import ExecutionStress
-    from thytrader.research.trace import SignalTraceRecord
 
 
 ExitReason = BacktestExitReason

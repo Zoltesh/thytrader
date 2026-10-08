@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from thytrader.backtest.service import evaluate_and_publish_backtest
-from thytrader.research.models import research_run_fingerprint
-from thytrader.research.publication import PublishedResearchRunSpecification
+from thytrader.evaluation.models import research_run_fingerprint
+from thytrader.evaluation.publication import PublishedResearchRunSpecification
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
 
@@ -18,8 +18,8 @@ from .test_kernel import _candles, _run, _strategy
 
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestDiagnostics, BacktestResult
+    from thytrader.evaluation.trace import SignalTrace
     from thytrader.market_data.models import Candle
-    from thytrader.research.trace import SignalTrace
 
 
 class _RunStore:

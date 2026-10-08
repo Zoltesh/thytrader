@@ -3,8 +3,8 @@
 from tests.api.test_backtests import _candles, _run, _strategy
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.backtest.models import backtest_evaluation_window, backtest_result_fingerprint
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
 from thytrader.research.bar_explanations import bar_explanation_page
-from thytrader.research.signal_evaluator import evaluate_signal_trace
 
 
 def test_explanation_page_is_deterministic_and_joins_only_recorded_facts() -> None:

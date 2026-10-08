@@ -11,7 +11,7 @@ from thytrader.backtest.models import (
     BacktestPerformanceMetrics,
     BacktestSummary,
 )
-from thytrader.research.models import CostAssumptions, FingerprintText
+from thytrader.evaluation.models import CostAssumptions, FingerprintText
 
 
 class BacktestProjection(BaseModel):

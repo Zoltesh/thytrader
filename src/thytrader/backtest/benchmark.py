@@ -15,15 +15,15 @@ from thytrader.backtest.models import (
     backtest_result_fingerprint,
 )
 from thytrader.decimal_text import canonical_decimal
+from thytrader.evaluation.models import (
+    ResearchRunSpecification,
+    research_run_fingerprint,
+    specification_bar_interval,
+)
 from thytrader.market_data.quality import (
     CandleQualityError,
     validate_candle_timestamp,
     validate_candle_values,
-)
-from thytrader.research.models import (
-    ResearchRunSpecification,
-    research_run_fingerprint,
-    specification_bar_interval,
 )
 
 if TYPE_CHECKING:

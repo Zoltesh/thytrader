@@ -15,7 +15,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     AdditionalInstrumentDataset,
     CapitalAssumptions,
     CostAssumptions,
@@ -25,7 +25,7 @@ from thytrader.research.models import (
     ReferenceInstrumentDataset,
     reject_removed_engine_selection,
 )
-from thytrader.research.stress import ExecutionStress
+from thytrader.evaluation.stress import ExecutionStress
 
 if TYPE_CHECKING:
     from thytrader.market_data.products import SpotQuoteCurrency

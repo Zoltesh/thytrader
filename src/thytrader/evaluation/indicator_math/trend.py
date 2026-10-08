@@ -6,17 +6,17 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicator_math.core import (
+from thytrader.evaluation.indicator_math.core import (
     IndicatorCalculationError,
     _parameters_of,
     _period_parameter,
 )
-from thytrader.research.indicator_math.moving_averages import (
+from thytrader.evaluation.indicator_math.moving_averages import (
     _wilder_smooth,
     _wilder_smooth_optional,
 )
-from thytrader.research.indicator_math.rolling_statistics import _rolling_extreme
-from thytrader.research.indicator_math.volatility import _average_true_range, _true_range
+from thytrader.evaluation.indicator_math.rolling_statistics import _rolling_extreme
+from thytrader.evaluation.indicator_math.volatility import _average_true_range, _true_range
 from thytrader.strategies.models import (
     IchimokuIndicatorParameters,
     IndicatorParameters,

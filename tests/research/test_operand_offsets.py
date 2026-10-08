@@ -9,32 +9,32 @@ from decimal import Decimal
 from pydantic import ValidationError
 import pytest
 
-from tests.research.test_htf_filter import (
+from tests.evaluation.test_htf_filter import (
     _htf_candles,
     _htf_strategy,
     _ltf_candles,
     _run as _htf_run,
 )
-from tests.research.test_indicator_timeframes import _extra_tf_strategy, _run as _extra_run
-from tests.research.test_reference_alignment import (
+from tests.evaluation.test_indicator_timeframes import _extra_tf_strategy, _run as _extra_run
+from tests.evaluation.test_reference_alignment import (
     _EVALUATION_START,
     _HOURS,
     _decision_candles,
     _references,
 )
-from tests.research.test_signal_evaluator import _candles, _run, _strategy
+from tests.evaluation.test_signal_evaluator import _candles, _run, _strategy
 from tests.strategies.reference_support import reference_run, reference_strategy
+from thytrader.evaluation.indicators import calculate_indicator_rows
+from thytrader.evaluation.models import ResearchRunSpecification
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_rules import entry_rule_trace, signal_record
 from thytrader.execution.decisions import ConditionComparisonTrace, ConditionGroupTrace
 from thytrader.execution.signals import (
     evaluate_latest_entry_evidence,
     evaluate_latest_signal_exit,
 )
-from thytrader.research.indicators import calculate_indicator_rows
-from thytrader.research.models import ResearchRunSpecification
 from thytrader.research.parameter_sweep import apply_parameter_cell
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     AllCondition,

@@ -1,6 +1,6 @@
 """Independent Decimal reference implementations for the wider indicator catalog.
 
-These are deliberately written apart from ``thytrader.research.indicators``: each value is
+These are deliberately written apart from ``thytrader.evaluation.indicators``: each value is
 recomputed from scratch per bar straight from the documented formula, so a regression
 in a shared engine helper cannot silently move both sides. The deterministic candle
 generator uses integer LCG arithmetic only, so it is identical on every Python version.

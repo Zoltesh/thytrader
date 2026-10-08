@@ -16,6 +16,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from thytrader.evaluation.trace import (
+    EntryConditionOutcome,
+    SignalTraceRecord,
+)
 from thytrader.execution.models import (
     DeploymentMode,
     IntentPurpose,
@@ -26,10 +30,6 @@ from thytrader.execution.models import (
 )
 from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.research.trace import (
-    EntryConditionOutcome,
-    SignalTraceRecord,
-)
 from thytrader.strategies.models import ComparisonOperator
 
 DECISION_SCHEMA_VERSION: Literal["thytrader-bar-decision-v1"] = "thytrader-bar-decision-v1"

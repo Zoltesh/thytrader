@@ -22,11 +22,11 @@ from thytrader.backtest.kernel_state import (
     _Tally,
 )
 from thytrader.backtest.models import BacktestGateReason
+from thytrader.evaluation.stress import maker_touched
+from thytrader.evaluation.trace import EntryConditionOutcome, SignalTraceRecord
 from thytrader.execution.economics import target_guard_allows
 from thytrader.execution.geometry import EntrySkipReason, entry_levels
 from thytrader.execution.models import PositionSide as RuntimePositionSide
-from thytrader.research.stress import maker_touched
-from thytrader.research.trace import EntryConditionOutcome, SignalTraceRecord
 from thytrader.strategies.models import StrategyDefinition, can_pyramid_add, reward_risk_multiple
 
 if TYPE_CHECKING:

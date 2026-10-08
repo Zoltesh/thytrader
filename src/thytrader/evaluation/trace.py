@@ -20,7 +20,7 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BACKTEST_ENGINE,
     BacktestEngine,
     FingerprintText,

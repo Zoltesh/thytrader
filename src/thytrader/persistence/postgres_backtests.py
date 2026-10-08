@@ -27,6 +27,9 @@ from thytrader.backtest.models import (
     canonical_backtest_diagnostics_bytes,
     canonical_backtest_result_bytes,
 )
+from thytrader.evaluation.models import ResearchRunSpecification
+from thytrader.evaluation.publication import ResearchRunPublicationError
+from thytrader.evaluation.trace import SignalTrace, signal_trace_fingerprint
 from thytrader.persistence.backtest_projections import load_backtest_projections
 from thytrader.persistence.backtest_results import (
     BacktestResultIntegrityError,
@@ -36,9 +39,6 @@ from thytrader.persistence.backtest_results import (
 )
 from thytrader.persistence.postgres_strategies import snapshot_owner
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
-from thytrader.research.models import ResearchRunSpecification
-from thytrader.research.publication import ResearchRunPublicationError
-from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -46,8 +46,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.backtest.projections import BacktestProjection
+    from thytrader.evaluation.publication import PublishedResearchRunSpecification
     from thytrader.market_data.datasets import DatasetStore
-    from thytrader.research.publication import PublishedResearchRunSpecification
 
 _FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _logger = logging.getLogger(__name__)

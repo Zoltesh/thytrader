@@ -103,6 +103,12 @@
       ]
     },
     {
+      "name": "evaluation",
+      "components": [
+        "evaluation"
+      ]
+    },
+    {
       "name": "contracts",
       "components": [
         "exchanges",
@@ -139,9 +145,7 @@
     }
   ],
   "allowed_upward_imports": {
-    "backtest -> research": 30,
     "risk -> execution": 20,
-    "execution -> research": 14,
     "research -> persistence": 7,
     "backtest -> persistence": 3,
     "execution -> memory": 3,

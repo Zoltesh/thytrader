@@ -11,8 +11,8 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from tests.research.test_htf_filter import _htf_candles, _ltf_candles
-from thytrader.research.models import (
+from tests.evaluation.test_htf_filter import _htf_candles, _ltf_candles
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -20,8 +20,8 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
-from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
-from thytrader.research.trace import EntryConditionOutcome
+from thytrader.evaluation.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 _LTF_DATASET_FINGERPRINT = "sha256:" + "2" * 64

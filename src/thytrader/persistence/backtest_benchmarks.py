@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from thytrader.backtest.models import BacktestBenchmark, BacktestResult
+    from thytrader.evaluation.models import ResearchRunSpecification
     from thytrader.market_data.models import Candle
-    from thytrader.research.models import ResearchRunSpecification
 
 
 class BacktestBenchmarkNotFoundError(LookupError):

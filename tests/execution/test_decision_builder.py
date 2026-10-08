@@ -10,6 +10,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from tests.execution.decision_support import strategy
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_builder import (
     USER_FEED_GATE_DETAIL,
     BarContext,
@@ -42,7 +43,6 @@ from thytrader.execution.models import (
 )
 from thytrader.execution.signals import LatestEntryEvaluation
 from thytrader.execution_worker.service import USER_FEED_PAUSE_DETAIL
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
 
 _BAR = datetime(2026, 3, 4, 10, tzinfo=UTC)

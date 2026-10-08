@@ -25,13 +25,14 @@ from pydantic import (
 )
 
 from thytrader.backtest.models import BacktestSummary
-from thytrader.market_data.models import DatasetTimeframe
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     EvaluationWindow,
     IndicatorTimeframeDataset,
     ReferenceInstrumentDataset,
     reject_removed_engine_selection,
 )
+from thytrader.evaluation.stress import ExecutionStress
+from thytrader.market_data.models import DatasetTimeframe
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
     MAX_SYNC_CANDIDATES,
@@ -41,7 +42,6 @@ from thytrader.research.parameter_sweep import (
     StitchedOosEquity,
     validate_parameter_axes_candidate_budget,
 )
-from thytrader.research.stress import ExecutionStress
 
 STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
 

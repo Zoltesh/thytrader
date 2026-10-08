@@ -12,19 +12,19 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.market_data.datasets import DatasetStoreError
-from thytrader.persistence.postgres_strategies import PostgresStrategyStore, snapshot_owner
-from thytrader.persistence.schema import published_research_run_specs
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     ResearchRunSpecification,
     canonical_research_run_bytes,
     research_run_fingerprint,
 )
-from thytrader.research.publication import (
+from thytrader.evaluation.publication import (
     PublishedResearchRunSpecification,
     ResearchRunPublicationError,
     verify_research_run_eligibility,
 )
+from thytrader.market_data.datasets import DatasetStoreError
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore, snapshot_owner
+from thytrader.persistence.schema import published_research_run_specs
 from thytrader.strategies.snapshots import StrategySnapshotError
 
 if TYPE_CHECKING:

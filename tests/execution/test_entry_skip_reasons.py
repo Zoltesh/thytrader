@@ -9,6 +9,11 @@ from decimal import Decimal
 import pytest
 
 from thytrader.backtest.kernel import _size_entry
+from thytrader.evaluation.trace import (
+    EntryConditionOutcome,
+    IndicatorTraceValue,
+    SignalTraceRecord,
+)
 from thytrader.execution.geometry import (
     EntryLevels,
     EntrySkipReason,
@@ -20,11 +25,6 @@ from thytrader.execution.geometry import (
 from thytrader.execution.models import OrderSide, PositionSide
 from thytrader.execution.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
 from thytrader.market_data.models import MarketProduct
-from thytrader.research.trace import (
-    EntryConditionOutcome,
-    IndicatorTraceValue,
-    SignalTraceRecord,
-)
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition
 

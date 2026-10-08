@@ -19,14 +19,14 @@ from thytrader.backtest.submission_models import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
 )
-from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
-from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     AdditionalInstrumentDataset,
     ReferenceInstrumentDataset,
     warmup_starts_at,
 )
-from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
+from thytrader.evaluation.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
+from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,

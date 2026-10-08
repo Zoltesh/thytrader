@@ -24,7 +24,7 @@ from pydantic import (
     model_validator,
 )
 
-from thytrader.research.models import DecimalInputText
+from thytrader.evaluation.models import DecimalInputText
 from thytrader.strategies.models import (
     StrategyDefinition,
     StrategyMetadata,

@@ -9,13 +9,13 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.kernel_state import BacktestSimulationError
+from thytrader.evaluation.models import ResearchRunSpecification, specification_bar_interval
 from thytrader.market_data.models import CandleInterval, parse_candle_interval
 from thytrader.market_data.quality import (
     CandleQualityError,
     validate_candle_timestamp,
     validate_candle_values,
 )
-from thytrader.research.models import ResearchRunSpecification, specification_bar_interval
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

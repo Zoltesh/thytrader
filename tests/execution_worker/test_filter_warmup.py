@@ -8,6 +8,8 @@ import pytest
 from tests.execution.decision_support import paper_book
 from tests.execution.test_htf_filter import _five_minute_htf_strategy
 from tests.worker_patching import patch_worker_global
+from thytrader.evaluation.signal_evaluator import SignalEvaluationError
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionOutcome
@@ -19,8 +21,6 @@ from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
-from thytrader.research.signal_evaluator import SignalEvaluationError
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.models import StrategyDefinition
 

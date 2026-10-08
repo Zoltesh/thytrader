@@ -20,8 +20,8 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_result_fingerprint,
 )
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import (
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import (
     EntryConditionOutcome,
     canonical_signal_trace_bytes,
 )

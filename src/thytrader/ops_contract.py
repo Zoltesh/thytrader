@@ -70,6 +70,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
+from thytrader.evaluation.models import BACKTEST_ENGINE
 from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
@@ -81,7 +82,6 @@ from thytrader.portfolios.models import (
     PORTFOLIO_MODES,
 )
 from thytrader.portfolios.proposals import PROPOSAL_KINDS
-from thytrader.research.models import BACKTEST_ENGINE
 from thytrader.research.parameter_sweep import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
 from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 

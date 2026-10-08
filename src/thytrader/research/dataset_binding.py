@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     AdditionalInstrumentDataset,
     IndicatorTimeframeDataset,
     ReferenceInstrumentDataset,

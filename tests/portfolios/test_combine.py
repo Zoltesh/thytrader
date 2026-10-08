@@ -17,6 +17,7 @@ import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import BacktestSubmissionRequest
+from thytrader.evaluation.models import CostAssumptions
 from thytrader.market_data.models import Candle, DatasetTimeframe
 from thytrader.portfolios.backtest import (
     PlannedSleeve,
@@ -33,7 +34,6 @@ from thytrader.portfolios.combine import (
     combine_portfolio,
     pearson,
 )
-from thytrader.research.models import CostAssumptions
 
 _S = datetime(2026, 1, 1, tzinfo=UTC)
 _E = _S + timedelta(hours=4)

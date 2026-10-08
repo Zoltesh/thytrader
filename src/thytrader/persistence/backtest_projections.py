@@ -21,13 +21,13 @@ from thytrader.backtest.models import (
     backtest_evaluation_window,
 )
 from thytrader.backtest.projections import BacktestProjection
+from thytrader.evaluation.models import FingerprintText, ResearchRunSpecification
 from thytrader.persistence.backtest_results import (
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
     BacktestResultUnavailableError,
 )
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
-from thytrader.research.models import FingerprintText, ResearchRunSpecification
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine

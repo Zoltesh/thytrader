@@ -12,13 +12,7 @@ import sys
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.config import Settings
-from thytrader.execution.ids import uuid7
-from thytrader.market_data.datasets import DatasetStore
-from thytrader.market_data.models import parse_candle_interval
-from thytrader.persistence.database import create_engine, dispose
-from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
-from thytrader.persistence.postgres_strategies import PostgresStrategyStore
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BACKTEST_ENGINE,
     CapitalAssumptions,
     CostAssumptions,
@@ -30,6 +24,12 @@ from thytrader.research.models import (
     removed_engine_selection_message,
     warmup_starts_at,
 )
+from thytrader.execution.ids import uuid7
+from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.models import parse_candle_interval
+from thytrader.persistence.database import create_engine, dispose
+from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
+from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.strategies.models import reference_instruments, unbound_indicator_timeframes
 
 if TYPE_CHECKING:

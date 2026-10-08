@@ -26,6 +26,7 @@ from thytrader.agent_http import (
     require_matching_ops_contract,
 )
 from thytrader.config import Settings, default_api_base_url
+from thytrader.evaluation.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
 from thytrader.execution.decisions import (
     ConditionComparisonTrace,
     ConditionResult,
@@ -43,7 +44,6 @@ from thytrader.operator.models import (
     ReportStatus,
 )
 from thytrader.ops_contract import expected_ops_contract
-from thytrader.research.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
 from thytrader.strategies.models import ComparisonOperator
 
 

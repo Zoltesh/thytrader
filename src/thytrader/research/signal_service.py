@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
-from thytrader.research.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
 
 if TYPE_CHECKING:
+    from thytrader.evaluation.publication import PublishedResearchRunSpecification
+    from thytrader.evaluation.trace import SignalTrace
     from thytrader.market_data.models import Candle
-    from thytrader.research.publication import PublishedResearchRunSpecification
-    from thytrader.research.trace import SignalTrace
     from thytrader.strategies.snapshots import StrategySnapshot
 
 

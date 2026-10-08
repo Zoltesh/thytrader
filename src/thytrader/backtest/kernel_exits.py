@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from thytrader.backtest.kernel_atr import _trail_position
 from thytrader.backtest.kernel_fills import _close_position
-from thytrader.research.stress import maker_touched
-from thytrader.research.trace import EntryConditionOutcome, SignalTraceRecord
+from thytrader.evaluation.stress import maker_touched
+from thytrader.evaluation.trace import EntryConditionOutcome, SignalTraceRecord
 
 if TYPE_CHECKING:
     from datetime import timedelta

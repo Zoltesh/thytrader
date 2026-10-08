@@ -7,14 +7,14 @@ import pytest
 
 from tests.backtest.test_kernel import _bars, _candles, _run, _strategy
 from thytrader.backtest.kernel import simulate_backtest, simulate_backtest_with_diagnostics
+from thytrader.evaluation.models import research_run_fingerprint
+from thytrader.evaluation.stress import ExecutionStress
 from thytrader.execution.economics import (
     EconomicEntryGuard,
     EconomicPreflightRequest,
     economic_preflight,
 )
 from thytrader.execution.geometry import EntrySkipReason
-from thytrader.research.models import research_run_fingerprint
-from thytrader.research.stress import ExecutionStress
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 
 

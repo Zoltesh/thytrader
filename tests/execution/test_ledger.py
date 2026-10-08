@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from tests.execution.protection_support import settled_snapshot
+from thytrader.evaluation.indicators import canonical_decimal
 from thytrader.execution.ledger import (
     PAPER_MAKER_FEE_RATE,
     PAPER_TAKER_FEE_RATE,
@@ -31,7 +32,6 @@ from thytrader.execution.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.research.indicators import canonical_decimal
 
 
 def _at(hour: int) -> datetime:

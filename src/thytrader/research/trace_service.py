@@ -16,12 +16,12 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BacktestEngine,
     FingerprintText,
 )
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import (
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import (
     EntryConditionOutcome,
     IndicatorId,
     SignalTrace,
@@ -33,8 +33,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from thytrader.backtest.models import BacktestResult
+    from thytrader.evaluation.models import ResearchRunSpecification
     from thytrader.market_data.models import Candle
-    from thytrader.research.models import ResearchRunSpecification
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategySnapshot
 

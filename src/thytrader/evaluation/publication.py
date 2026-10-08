@@ -6,9 +6,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+from thytrader.evaluation.models import warmup_starts_at
+from thytrader.evaluation.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.models import warmup_starts_at
-from thytrader.research.multi_timeframe import closed_bar_required_coverage, htf_required_coverage
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,
@@ -21,8 +21,8 @@ from thytrader.strategies.models import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from thytrader.evaluation.models import AdditionalInstrumentDataset, ResearchRunSpecification
     from thytrader.market_data.datasets import DatasetManifest
-    from thytrader.research.models import AdditionalInstrumentDataset, ResearchRunSpecification
     from thytrader.strategies.models import (
         IndicatorDefinition,
         IndicatorOperand,

@@ -28,8 +28,8 @@ from thytrader.market_data.datasets import DatasetStore
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from thytrader.evaluation.models import ResearchRunSpecification
     from thytrader.market_data.models import Candle
-    from thytrader.research.models import ResearchRunSpecification
 
 
 class _FixedCandles(DatasetStore):

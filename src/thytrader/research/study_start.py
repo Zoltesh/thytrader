@@ -27,6 +27,13 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     resolve_backtest_window,
 )
+from thytrader.evaluation.models import (
+    DecimalInputText,
+    IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
+    reject_removed_engine_selection,
+)
+from thytrader.evaluation.stress import ExecutionStress
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.research.dataset_binding import (
     BoundDataset,
@@ -36,18 +43,11 @@ from thytrader.research.dataset_binding import (
     bind_reference_datasets,
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
-from thytrader.research.models import (
-    DecimalInputText,
-    IndicatorTimeframeDataset,
-    ReferenceInstrumentDataset,
-    reject_removed_engine_selection,
-)
 from thytrader.research.parameter_sweep import (
     ParameterAxis,
     SelectionMetric,
     derive_parameter_candidates,
 )
-from thytrader.research.stress import ExecutionStress
 from thytrader.research.studies import (
     STUDY_CONTRACT_VERSION,
     FoldMode,

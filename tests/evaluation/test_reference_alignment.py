@@ -21,18 +21,18 @@ from tests.strategies.reference_support import (
     reference_run,
     reference_strategy,
 )
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     ReferenceInstrumentDataset,
     ResearchRunSpecification,
     canonical_research_run_bytes,
     research_run_fingerprint,
 )
-from thytrader.research.signal_evaluator import (
+from thytrader.evaluation.signal_evaluator import (
     SignalEvaluationError,
     calculate_reference_indicator_rows,
     evaluate_signal_trace,
 )
-from thytrader.research.trace import EntryConditionOutcome, SignalTrace
+from thytrader.evaluation.trace import EntryConditionOutcome, SignalTrace
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import Candle

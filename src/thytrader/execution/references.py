@@ -13,12 +13,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from thytrader.execution.decisions import DecisionSkipReason
-from thytrader.research.multi_timeframe import (
+from thytrader.evaluation.multi_timeframe import (
     bars_closed_at_or_before,
     closed_bar_starts,
     mapped_htf_start,
 )
+from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.strategies.models import reference_data_requirements
 
 if TYPE_CHECKING:

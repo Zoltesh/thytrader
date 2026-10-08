@@ -8,32 +8,32 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.indicators import (
+from thytrader.evaluation.indicators import (
     IndicatorCalculationError,
     calculate_indicator_rows,
     canonical_decimal,
 )
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BACKTEST_ENGINE,
     BacktestEngine,
     ResearchRunSpecification,
     research_run_fingerprint,
     specification_bar_interval,
 )
-from thytrader.research.multi_timeframe import (
+from thytrader.evaluation.multi_timeframe import (
     closed_bar_starts,
     htf_candle_starts,
     index_candles_by_start,
     ltf_close,
     mapped_htf_start,
 )
-from thytrader.research.trace import (
+from thytrader.evaluation.trace import (
     EntryConditionOutcome,
     IndicatorTraceValue,
     SignalTrace,
     SignalTraceRecord,
 )
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.strategies.models import (
     AllCondition,
     ComparisonCondition,

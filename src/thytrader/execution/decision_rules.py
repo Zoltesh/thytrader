@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from thytrader.decimal_text import canonical_decimal
+from thytrader.evaluation.signal_evaluator import entry_condition_outcome
+from thytrader.evaluation.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
 from thytrader.execution.decisions import (
     ConditionComparisonTrace,
     ConditionGroupTrace,
@@ -23,8 +25,6 @@ from thytrader.execution.decisions import (
     ExitRuleTrace,
     HtfFilterTrace,
 )
-from thytrader.research.signal_evaluator import entry_condition_outcome
-from thytrader.research.trace import EntryConditionOutcome, IndicatorTraceValue, SignalTraceRecord
 from thytrader.strategies.indicator_catalog import indicator_kind_spec
 from thytrader.strategies.models import (
     AllCondition,
