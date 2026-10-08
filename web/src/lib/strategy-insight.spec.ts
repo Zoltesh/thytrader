@@ -180,6 +180,18 @@ describe('validateDefinition with the wider catalog', () => {
 	});
 });
 
+describe('validateDefinition problem list', () => {
+	it('lists a repeated problem once', () => {
+		const builder = model();
+		builder.entry.when = { all: [builder.entry.when, { all: [] }, { any: [] }] };
+		const problems = validateDefinition(builder);
+		expect(problems.filter((item) => item === 'Empty condition groups are not allowed.')).toEqual([
+			'Empty condition groups are not allowed.'
+		]);
+		expect(new Set(problems).size).toBe(problems.length);
+	});
+});
+
 describe('semanticDiff', () => {
 	it('labels notional bounds with the quote currency and keeps indicator text', () => {
 		const before = model();

@@ -567,7 +567,7 @@
 	<section class="card body" aria-label="How this was simulated">
 		<h2>How this was simulated</h2>
 		<ul class="disclosures" data-testid="backtest-disclosures">
-			{#each result.disclosures as text (text)}
+			{#each result.disclosures as text, index (index)}
 				<li>{text}</li>
 			{/each}
 		</ul>

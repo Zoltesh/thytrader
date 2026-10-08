@@ -123,7 +123,9 @@
 		bar's close; live fills when Coinbase matches the order. Positive bps is worse than the posted
 		limit.
 	</p>
-	{#each warnings as warning (warning)}<p class="foot warn small" role="status">{warning}</p>{/each}
+	{#each warnings as warning, index (index)}<p class="foot warn small" role="status">
+			{warning}
+		</p>{/each}
 </section>
 
 <style>

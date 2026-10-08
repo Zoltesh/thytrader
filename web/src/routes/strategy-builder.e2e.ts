@@ -113,6 +113,24 @@ test('saves and reloads independent operand offsets', async ({ page }) => {
 	await expect(page.getByLabel('Right operand offset (bars ago)').first()).toHaveValue('0');
 });
 
+test('two empty condition groups list the problem once without breaking the page', async ({
+	page
+}) => {
+	const errors: string[] = [];
+	page.on('pageerror', (error) => errors.push(error.message));
+	await mockDraftStorage(page);
+	await page.goto(`/strategies/${strategyId}`);
+	await page.getByRole('button', { name: 'Entry conditions' }).click();
+	await page.getByRole('button', { name: '+ ALL' }).first().click();
+	await page.getByRole('button', { name: '+ ANY' }).first().click();
+	const problems = page.locator('.problems li');
+	await expect(problems.filter({ hasText: 'Empty condition groups are not allowed.' })).toHaveCount(
+		1
+	);
+	await expect(page.getByRole('button', { name: '+ ANY' }).first()).toBeEnabled();
+	expect(errors).toEqual([]);
+});
+
 test('loads a draft into the builder with sections, rule tree, and inspector summary', async ({
 	page
 }) => {

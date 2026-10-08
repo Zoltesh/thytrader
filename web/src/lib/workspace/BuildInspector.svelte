@@ -37,7 +37,7 @@
 				<div>
 					<span>{validationErrors.length} problem{validationErrors.length === 1 ? '' : 's'}</span>
 					<ul class="problems">
-						{#each validationErrors as problem (problem)}
+						{#each validationErrors as problem, index (index)}
 							<li>{problem}</li>
 						{/each}
 					</ul>

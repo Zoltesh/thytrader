@@ -416,7 +416,8 @@ export function validateDefinition(model: BuilderModel): string[] {
 	if (!Number.isInteger(model.warmup_bars) || model.warmup_bars < 1 || model.warmup_bars > 10_000) {
 		problems.push('Warmup must be an integer between 1 and 10,000 bars.');
 	}
-	return problems;
+	// One line per distinct problem: repeats (e.g. several empty groups) add nothing.
+	return [...new Set(problems)];
 }
 
 function validateHtfFilter(

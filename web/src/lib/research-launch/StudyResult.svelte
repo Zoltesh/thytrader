@@ -55,7 +55,7 @@
 			{/if}
 		</p>
 	{/if}
-	{#each studyResult.warnings as warning (warning)}
+	{#each studyResult.warnings as warning, index (index)}
 		<p class="view-note">{warning}</p>
 	{/each}
 	<table class="results-table" aria-label="Study windows">
