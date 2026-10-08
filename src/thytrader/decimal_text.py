@@ -2,7 +2,7 @@
 
 This module imports nothing from ThyTrader, so market data, execution, operator,
 portfolio, and backtest code can render Decimals without depending on research.
-``thytrader.research.indicators`` re-exports ``canonical_decimal``.
+``thytrader.evaluation.indicators`` re-exports ``canonical_decimal``.
 """
 
 from decimal import Decimal

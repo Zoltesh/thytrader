@@ -14,6 +14,8 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
 )
+from thytrader.evaluation.models import EvaluationWindow
+from thytrader.evaluation.publication import explain_evaluation_window_rejection
 from thytrader.market_data.datasets import DatasetStoreError
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
 from thytrader.research.catalog import (
@@ -21,7 +23,6 @@ from thytrader.research.catalog import (
     StudyCatalogSummary,
     StudyCatalogUnavailableError,
 )
-from thytrader.research.models import EvaluationWindow
 from thytrader.research.parameter_sweep import (
     MAX_CANDIDATES,
     AxisValue,
@@ -36,7 +37,6 @@ from thytrader.research.parameter_sweep import (
     stitch_oos_equity,
     unavailable_stitched_equity,
 )
-from thytrader.research.publication import explain_evaluation_window_rejection
 from thytrader.research.study_models import (
     ASYNC_STUDY_BUDGET,
     STUDY_CONTRACT_VERSION,

@@ -20,17 +20,17 @@ from thytrader.backtest.submission_models import (
     BacktestSubmissionRejectedError,
     BacktestSubmissionRequest,
 )
-from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
-from thytrader.research.models import AdditionalInstrumentDataset, EvaluationWindow
-from thytrader.research.multi_timeframe import (
+from thytrader.evaluation.models import AdditionalInstrumentDataset, EvaluationWindow
+from thytrader.evaluation.multi_timeframe import (
     earliest_evaluation_start_for_closed_bar,
     latest_evaluation_end_for_closed_bar,
 )
-from thytrader.research.publication import (
+from thytrader.evaluation.publication import (
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
     explain_evaluation_window_rejection,
 )
+from thytrader.market_data.datasets import DatasetManifest, DatasetStoreError
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
     extra_indicator_timeframe_warmup,

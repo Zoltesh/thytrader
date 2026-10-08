@@ -14,13 +14,13 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     _with_evaluation_window,
 )
-from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
-from thytrader.research.multi_timeframe import (
+from thytrader.evaluation.multi_timeframe import (
     earliest_evaluation_start_for_closed_bar,
     htf_required_coverage,
     latest_evaluation_end_for_closed_bar,
 )
-from thytrader.research.publication import dataset_evaluation_bounds
+from thytrader.evaluation.publication import dataset_evaluation_bounds
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
 

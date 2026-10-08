@@ -22,9 +22,9 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.evaluation.stress import ExecutionStress
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
-from thytrader.research.stress import ExecutionStress
 
 _FINGERPRINT_PREFIX = "sha256:"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"

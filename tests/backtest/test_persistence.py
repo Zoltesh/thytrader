@@ -19,6 +19,13 @@ from thytrader.backtest.models import (
     BacktestResult,
     backtest_result_fingerprint,
 )
+from thytrader.evaluation.models import (
+    ResearchRunSpecification,
+    canonical_research_run_bytes,
+    research_run_fingerprint,
+)
+from thytrader.evaluation.publication import PublishedResearchRunSpecification
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_backtests import (
@@ -33,13 +40,6 @@ from thytrader.persistence.schema import (
     strategy_dataset_bindings,
     strategy_snapshots,
 )
-from thytrader.research.models import (
-    ResearchRunSpecification,
-    canonical_research_run_bytes,
-    research_run_fingerprint,
-)
-from thytrader.research.publication import PublishedResearchRunSpecification
-from thytrader.research.signal_evaluator import evaluate_signal_trace
 
 from .test_kernel import _candles, _run, _strategy
 

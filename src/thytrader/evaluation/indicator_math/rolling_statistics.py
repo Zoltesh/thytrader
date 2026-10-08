@@ -5,12 +5,12 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicator_math.core import (
+from thytrader.evaluation.indicator_math.core import (
     _locked_source_series,
     _period_parameter,
     _windows_defined,
 )
-from thytrader.research.indicator_math.moving_averages import _simple_moving_average
+from thytrader.evaluation.indicator_math.moving_averages import _simple_moving_average
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

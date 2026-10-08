@@ -10,7 +10,7 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     AdditionalInstrumentDataset,
     CapitalAssumptions,
     CostAssumptions,
@@ -58,7 +58,7 @@ def _reference_run() -> ResearchRunSpecification:
 def test_reference_run_has_stable_canonical_identity() -> None:
     """The complete run request must match a literal durable golden vector."""
     run = _reference_run()
-    expected = Path("tests/research/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
+    expected = Path("tests/evaluation/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
 
     assert canonical_research_run_bytes(run) == expected
     assert (
@@ -439,7 +439,7 @@ def test_omitted_additional_instrument_datasets_preserve_reference_identity() ->
     assert run.additional_instrument_datasets == ()
     canonical = canonical_research_run_bytes(run)
     assert b"additional_instrument_datasets" not in canonical
-    expected = Path("tests/research/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
+    expected = Path("tests/evaluation/golden/reference_run_spec.json").read_bytes().rstrip(b"\n")
     assert canonical == expected
 
 

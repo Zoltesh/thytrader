@@ -21,8 +21,7 @@ from pydantic import (
 )
 
 from thytrader.backtest.research_validity import ResearchValidityLimitCode
-from thytrader.execution.geometry import EntrySkipReason
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BACKTEST_ENGINE,
     BacktestEngine,
     FingerprintText,
@@ -30,6 +29,7 @@ from thytrader.research.models import (
     UtcDateTime,
     specification_bar_interval,
 )
+from thytrader.execution.geometry import EntrySkipReason
 
 _RESULT_DECIMAL_PATTERN = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")
 _BENCHMARK_FINGERPRINT_PLACEHOLDER = "sha256:" + "0" * 64

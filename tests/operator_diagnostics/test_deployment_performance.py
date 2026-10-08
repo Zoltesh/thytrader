@@ -13,6 +13,7 @@ from tests.execution.test_performance_capital import _live_snapshot
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.config import Settings
+from thytrader.evaluation.indicators import canonical_decimal
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
     Deployment,
@@ -38,7 +39,6 @@ from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
-from thytrader.research.indicators import canonical_decimal
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.models import StrategyDefinition

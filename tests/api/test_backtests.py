@@ -18,6 +18,13 @@ from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import BacktestBenchmark, BacktestResult, backtest_result_fingerprint
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.config import Settings
+from thytrader.evaluation.models import (
+    CapitalAssumptions,
+    CostAssumptions,
+    EvaluationWindow,
+    ResearchRunSpecification,
+    WarmupWindow,
+)
 from thytrader.market_data.models import Candle
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkUnavailableError
 from thytrader.persistence.backtest_results import (
@@ -26,13 +33,6 @@ from thytrader.persistence.backtest_results import (
     BacktestResultUnavailableError,
 )
 from thytrader.research.jobs import ResearchExecutionMode
-from thytrader.research.models import (
-    CapitalAssumptions,
-    CostAssumptions,
-    EvaluationWindow,
-    ResearchRunSpecification,
-    WarmupWindow,
-)
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint

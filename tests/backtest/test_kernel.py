@@ -19,16 +19,16 @@ from thytrader.backtest.models import (
     backtest_result_fingerprint,
     canonical_backtest_result_bytes,
 )
-from thytrader.market_data.models import Candle
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
 )
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import combined_signal_trace_fingerprint, signal_trace_fingerprint
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import combined_signal_trace_fingerprint, signal_trace_fingerprint
+from thytrader.market_data.models import Candle
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 

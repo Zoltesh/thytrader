@@ -76,13 +76,13 @@ from thytrader.backtest.models import (
     EquityPoint,
 )
 from thytrader.backtest.research_validity import collect_backtest_validity_limits
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     BACKTEST_ENGINE,
     ResearchRunSpecification,
     research_run_fingerprint,
 )
-from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
-from thytrader.research.trace import SignalTrace, signal_trace_fingerprint
+from thytrader.evaluation.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
+from thytrader.evaluation.trace import SignalTrace, signal_trace_fingerprint
 from thytrader.strategies.models import (
     StrategyDefinition,
     lockstep_product_ids,

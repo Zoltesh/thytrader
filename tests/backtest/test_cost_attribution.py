@@ -15,8 +15,8 @@ from thytrader.backtest.cost_attribution import BacktestCostAttribution, compute
 from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import backtest_result_fingerprint, canonical_backtest_result_bytes
 from thytrader.config import Settings
+from thytrader.evaluation.stress import ExecutionStress
 from thytrader.research.http import show_result
-from thytrader.research.stress import ExecutionStress
 from thytrader.strategies.models import StrategyDefinition
 
 

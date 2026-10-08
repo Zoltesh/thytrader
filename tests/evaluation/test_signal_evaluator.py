@@ -13,22 +13,22 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from thytrader.market_data.models import Candle
-from thytrader.research.indicators import calculate_indicator_rows
-from thytrader.research.models import (
+from thytrader.evaluation.indicators import calculate_indicator_rows
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
 )
-from thytrader.research.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
-from thytrader.research.trace import (
+from thytrader.evaluation.signal_evaluator import SignalEvaluationError, evaluate_signal_trace
+from thytrader.evaluation.trace import (
     IndicatorTraceValue,
     SignalTraceRecord,
     canonical_signal_trace_bytes,
     signal_trace_fingerprint,
 )
+from thytrader.market_data.models import Candle
 from thytrader.strategies.models import (
     BollingerIndicatorParameters,
     ConstantIndicatorParameters,
@@ -1424,7 +1424,9 @@ def test_reference_signal_trace_matches_literal_golden_bytes() -> None:
     """The complete trace ordering and Decimal rendering must remain byte-for-byte stable."""
     strategy = _strategy()
     trace = evaluate_signal_trace(_run(strategy), strategy, _candles())
-    expected = Path("tests/research/golden/reference_signal_trace.json").read_bytes().rstrip(b"\n")
+    expected = (
+        Path("tests/evaluation/golden/reference_signal_trace.json").read_bytes().rstrip(b"\n")
+    )
 
     assert canonical_signal_trace_bytes(trace) == expected
     assert signal_trace_fingerprint(trace) == (

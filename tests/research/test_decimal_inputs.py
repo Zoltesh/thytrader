@@ -12,8 +12,8 @@ from thytrader.backtest.submission import (
     BacktestStartRequest,
     _execution_fingerprint,
 )
+from thytrader.evaluation.models import json_number_as_decimal_text
 from thytrader.portfolios.backtest import PortfolioBacktestRequest
-from thytrader.research.models import json_number_as_decimal_text
 from thytrader.research.parameter_sweep import ParameterAxis
 from thytrader.research.studies import ResearchStudyRequest, request_fingerprint
 from thytrader.research.study_start import ResearchStudyStartRequest

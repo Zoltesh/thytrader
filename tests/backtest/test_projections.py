@@ -19,10 +19,10 @@ from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
 from thytrader.backtest.projections import BacktestProjection
 from thytrader.config import Settings
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
 from thytrader.persistence.backtest_results import BacktestResultIntegrityError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
-from thytrader.research.signal_evaluator import evaluate_signal_trace
 
 from .test_kernel import _candles, _run, _strategy
 from .test_persistence import _cleanup_seeded_sources, _result_store, _seed_sources

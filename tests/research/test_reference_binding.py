@@ -17,6 +17,7 @@ import pytest
 
 from tests.strategies.reference_support import reference_strategy
 from thytrader.backtest.submission import BacktestStartRequest
+from thytrader.evaluation.models import ReferenceInstrumentDataset
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.dataset_binding import (
     DatasetResolver,
@@ -25,7 +26,6 @@ from thytrader.research.dataset_binding import (
     bind_reference_datasets,
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
-from thytrader.research.models import ReferenceInstrumentDataset
 from thytrader.research.studies import (
     MarketBinding,
     PlannedStudyWindow,

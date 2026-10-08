@@ -6,9 +6,13 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicators import calculate_indicator_rows
-from thytrader.research.multi_timeframe import bars_closed_at_or_before, ltf_close, mapped_htf_start
-from thytrader.research.signal_evaluator import (
+from thytrader.evaluation.indicators import calculate_indicator_rows
+from thytrader.evaluation.multi_timeframe import (
+    bars_closed_at_or_before,
+    ltf_close,
+    mapped_htf_start,
+)
+from thytrader.evaluation.signal_evaluator import (
     SignalEvaluationError,
     and_entry_outcomes,
     calculate_extra_indicator_rows,
@@ -18,7 +22,7 @@ from thytrader.research.signal_evaluator import (
     htf_filter_outcome,
     overlay_indicator_timeframe_values,
 )
-from thytrader.research.trace import EntryConditionOutcome
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.strategies.models import (
     decision_clock_indicators,
     reference_instruments,

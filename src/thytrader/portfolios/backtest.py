@@ -28,6 +28,17 @@ from pydantic import (
 
 from thytrader.backtest.models import ResultDecimalText
 from thytrader.backtest.submission import BacktestSubmissionRequest
+from thytrader.evaluation.models import (
+    BACKTEST_ENGINE,
+    AdditionalInstrumentDataset,
+    BacktestEngine,
+    CostAssumptions,
+    FingerprintText,
+    IndicatorTimeframeDataset,
+    ReferenceInstrumentDataset,
+    StrictDecimalInputText,
+    reject_removed_engine_selection,
+)
 from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.portfolios.models import (
@@ -39,17 +50,6 @@ from thytrader.portfolios.models import (
     utc_text,
 )
 from thytrader.research.jobs import ResearchJobStatus
-from thytrader.research.models import (
-    BACKTEST_ENGINE,
-    AdditionalInstrumentDataset,
-    BacktestEngine,
-    CostAssumptions,
-    FingerprintText,
-    IndicatorTimeframeDataset,
-    ReferenceInstrumentDataset,
-    StrictDecimalInputText,
-    reject_removed_engine_selection,
-)
 
 PortfolioBacktestContract = Literal["thytrader-portfolio-backtest-v1"]
 PORTFOLIO_BACKTEST_EXPIRY_HOURS: Final = 24

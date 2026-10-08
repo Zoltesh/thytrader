@@ -11,6 +11,16 @@ import pytest
 from tests.execution.test_htf_filter import _five_minute_htf_strategy
 from tests.strategies.reference_support import reference_payload
 from tests.worker_patching import patch_worker_global
+from thytrader.evaluation.models import warmup_starts_at
+from thytrader.evaluation.multi_timeframe import (
+    closed_bar_required_coverage,
+    closed_bar_starts,
+    ltf_close,
+)
+from thytrader.evaluation.signal_evaluator import (
+    calculate_extra_indicator_rows,
+    calculate_htf_indicator_rows,
+)
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
 from thytrader.execution.geometry import entry_bar_bucket
 from thytrader.execution.references import reference_gate
@@ -29,16 +39,6 @@ from thytrader.market_data.models import (
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.window_state import WindowCacheWarmingError
-from thytrader.research.models import warmup_starts_at
-from thytrader.research.multi_timeframe import (
-    closed_bar_required_coverage,
-    closed_bar_starts,
-    ltf_close,
-)
-from thytrader.research.signal_evaluator import (
-    calculate_extra_indicator_rows,
-    calculate_htf_indicator_rows,
-)
 from thytrader.strategies.models import (
     StrategyDefinition,
     reference_data_requirements,

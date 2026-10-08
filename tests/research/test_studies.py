@@ -12,8 +12,8 @@ import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
+from thytrader.evaluation.models import IndicatorTimeframeDataset
 from thytrader.market_data.datasets import DatasetManifest
-from thytrader.research.models import IndicatorTimeframeDataset
 from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
     ASYNC_STUDY_BUDGET,

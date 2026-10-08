@@ -1,7 +1,7 @@
 """Deterministic Decimal indicator calculations for signal evaluation.
 
 This module dispatches declared indicators through the ``_*_CALCULATORS`` tables to
-the indicator math in ``thytrader.research.indicator_math``, split by family: ``core``
+the indicator math in ``thytrader.evaluation.indicator_math``, split by family: ``core``
 (``IndicatorCalculationError`` and shared helpers), ``moving_averages``,
 ``rolling_statistics``, ``momentum``, ``volatility``, ``trend``, and ``volume``.
 """
@@ -20,8 +20,11 @@ from decimal import (
 from typing import TYPE_CHECKING
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.research.indicator_math.core import IndicatorCalculationError, _locked_source_series
-from thytrader.research.indicator_math.momentum import (
+from thytrader.evaluation.indicator_math.core import (
+    IndicatorCalculationError,
+    _locked_source_series,
+)
+from thytrader.evaluation.indicator_math.momentum import (
     _awesome_oscillator_values,
     _chande_momentum_oscillator,
     _commodity_channel_index,
@@ -37,7 +40,7 @@ from thytrader.research.indicator_math.momentum import (
     _ultimate_oscillator_values,
     _williams_percent_r,
 )
-from thytrader.research.indicator_math.moving_averages import (
+from thytrader.evaluation.indicator_math.moving_averages import (
     _double_exponential_moving_average,
     _exponential_moving_average,
     _hull_moving_average,
@@ -46,7 +49,7 @@ from thytrader.research.indicator_math.moving_averages import (
     _triple_exponential_moving_average,
     _weighted_moving_average,
 )
-from thytrader.research.indicator_math.rolling_statistics import (
+from thytrader.evaluation.indicator_math.rolling_statistics import (
     _linear_regression_series,
     _percent_rank,
     _rolling_highest,
@@ -55,7 +58,7 @@ from thytrader.research.indicator_math.rolling_statistics import (
     _rolling_sample_stdev,
     _rolling_zscore,
 )
-from thytrader.research.indicator_math.trend import (
+from thytrader.evaluation.indicator_math.trend import (
     _adx_series,
     _aroon_series,
     _ichimoku_series,
@@ -63,7 +66,7 @@ from thytrader.research.indicator_math.trend import (
     _supertrend_series,
     _vortex_series,
 )
-from thytrader.research.indicator_math.volatility import (
+from thytrader.evaluation.indicator_math.volatility import (
     _average_true_range,
     _bollinger_bandwidth_values,
     _bollinger_percent_b_values,
@@ -74,7 +77,7 @@ from thytrader.research.indicator_math.volatility import (
     _keltner_series,
     _normalized_average_true_range,
 )
-from thytrader.research.indicator_math.volume import (
+from thytrader.evaluation.indicator_math.volume import (
     _accumulation_distribution_series,
     _chaikin_money_flow,
     _force_index,

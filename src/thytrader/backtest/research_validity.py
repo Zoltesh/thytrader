@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from thytrader.research.stress import ExecutionStress
+    from thytrader.evaluation.stress import ExecutionStress
 
 from thytrader.strategies.models import StrategyDefinition, signal_exit_condition
 

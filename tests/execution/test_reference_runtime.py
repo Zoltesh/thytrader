@@ -24,6 +24,7 @@ from tests.strategies.reference_support import (
     reference_payload,
     reference_strategy,
 )
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import (
@@ -51,7 +52,6 @@ from thytrader.market_data.watchlist import (
     InMemoryMarketDataWatchlistStore,
     MarketDataWatchTarget,
 )
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.models import (
     StrategyDefinition,
     reference_data_requirements,

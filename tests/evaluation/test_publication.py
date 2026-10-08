@@ -9,15 +9,14 @@ from uuid import UUID
 
 import pytest
 
-from thytrader.market_data.datasets import DatasetManifest
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
     ResearchRunSpecification,
     WarmupWindow,
 )
-from thytrader.research.publication import (
+from thytrader.evaluation.publication import (
     ResearchRunPublicationError,
     dataset_evaluation_bounds,
     evaluation_end_fits_dataset,
@@ -26,6 +25,7 @@ from thytrader.research.publication import (
     latest_allowed_evaluation_end,
     verify_research_run_eligibility,
 )
+from thytrader.market_data.datasets import DatasetManifest
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
 

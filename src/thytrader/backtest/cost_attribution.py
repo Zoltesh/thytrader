@@ -12,7 +12,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validat
 
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
 from thytrader.decimal_text import canonical_decimal
-from thytrader.research.models import FingerprintText
+from thytrader.evaluation.models import FingerprintText
 
 _PLACEHOLDER = "sha256:" + "0" * 64
 _PLAIN_DECIMAL = re.compile(r"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?$")

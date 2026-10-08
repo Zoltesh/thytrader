@@ -17,6 +17,7 @@ import pytest
 
 from tests.execution.decision_support import candles, next_candle, product, strategy
 from tests.execution.test_live_lifecycle_hardening import _ScriptedVenue, _venue_fill
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.broker import CANCEL_PENDING_REASON, SubmitResult
 from thytrader.execution.capital import live_sizing_cash
 from thytrader.execution.decision_journal import (
@@ -46,7 +47,6 @@ from thytrader.execution.models import (
     RuntimePhase,
 )
 from thytrader.execution.paper import PaperBroker
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:

@@ -20,7 +20,7 @@ from thytrader.strategies.models import (
 )
 
 if TYPE_CHECKING:
-    from thytrader.research.models import AdditionalInstrumentDataset
+    from thytrader.evaluation.models import AdditionalInstrumentDataset
     from thytrader.strategies.models import StrategyDefinition
 
 

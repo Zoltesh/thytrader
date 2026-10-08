@@ -25,13 +25,13 @@ from thytrader.backtest.submission import (
     BacktestSubmissionRequest,
     resolve_backtest_window,
 )
-from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
-from thytrader.persistence.postgres_strategies import _verify_compatible_dataset
-from thytrader.research.models import ReferenceInstrumentDataset
-from thytrader.research.publication import (
+from thytrader.evaluation.models import ReferenceInstrumentDataset
+from thytrader.evaluation.publication import (
     ResearchRunPublicationError,
     verify_research_run_eligibility,
 )
+from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
+from thytrader.persistence.postgres_strategies import _verify_compatible_dataset
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategyDatasetMismatchError, StrategySnapshot
 

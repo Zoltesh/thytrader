@@ -6,16 +6,16 @@ import asyncio
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import signal_trace_fingerprint
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import signal_trace_fingerprint
 from thytrader.strategies.models import lockstep_product_ids
 
 if TYPE_CHECKING:
     from thytrader.backtest.models import BacktestDiagnostics, BacktestResult
+    from thytrader.evaluation.models import ResearchRunSpecification
+    from thytrader.evaluation.publication import PublishedResearchRunSpecification
+    from thytrader.evaluation.trace import SignalTrace
     from thytrader.market_data.models import Candle
-    from thytrader.research.models import ResearchRunSpecification
-    from thytrader.research.publication import PublishedResearchRunSpecification
-    from thytrader.research.trace import SignalTrace
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategySnapshot
 

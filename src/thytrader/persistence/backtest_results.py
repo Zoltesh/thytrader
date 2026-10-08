@@ -14,7 +14,7 @@ if TYPE_CHECKING:
         BacktestResult,
         BacktestSummary,
     )
-    from thytrader.research.models import ResearchRunSpecification
+    from thytrader.evaluation.models import ResearchRunSpecification
 
 
 class BacktestResultUnavailableError(RuntimeError):

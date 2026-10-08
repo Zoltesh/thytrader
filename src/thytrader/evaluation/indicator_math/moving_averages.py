@@ -6,7 +6,7 @@ from decimal import Decimal
 from math import isqrt
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicator_math.core import (
+from thytrader.evaluation.indicator_math.core import (
     _locked_source_series,
     _parameters_of,
     _windows_defined,

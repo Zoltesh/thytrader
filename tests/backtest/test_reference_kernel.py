@@ -16,9 +16,9 @@ from tests.backtest.test_kernel import _candles, _hour, _run, _strategy, _with
 from tests.strategies.reference_support import REFERENCE_DATASET, daily_bars
 from thytrader.backtest.kernel import BacktestSimulationError, simulate_backtest
 from thytrader.backtest.models import backtest_result_fingerprint
-from thytrader.research.models import ReferenceInstrumentDataset, ResearchRunSpecification
-from thytrader.research.signal_evaluator import evaluate_signal_trace
-from thytrader.research.trace import EntryConditionOutcome
+from thytrader.evaluation.models import ReferenceInstrumentDataset, ResearchRunSpecification
+from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:

@@ -20,14 +20,14 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
-from thytrader.research.models import BacktestEngine, FingerprintText
-from thytrader.research.trace import EntryConditionOutcome, IndicatorId
+from thytrader.evaluation.models import BacktestEngine, FingerprintText
+from thytrader.evaluation.trace import EntryConditionOutcome, IndicatorId
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from thytrader.backtest.models import BacktestEvaluationWindow, BacktestResult
-    from thytrader.research.trace import SignalTrace
+    from thytrader.evaluation.trace import SignalTrace
 
 BAR_EXPLANATION_PAGE_MAX_LIMIT = 500
 BAR_EXPLANATION_PAGE_DEFAULT_LIMIT = 100

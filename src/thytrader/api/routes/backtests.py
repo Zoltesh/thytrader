@@ -50,6 +50,7 @@ from thytrader.backtest.models import (
 )
 from thytrader.backtest.projections import BacktestProjection, BacktestProjectionReader
 from thytrader.backtest.submission import BacktestStartRequest
+from thytrader.evaluation.models import CostAssumptions, ResearchRunSpecification
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
@@ -84,7 +85,6 @@ from thytrader.research.jobs import (
     ResearchJobStatus,
     ResearchJobStore,
 )
-from thytrader.research.models import CostAssumptions, ResearchRunSpecification
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.research.trace_service import (
     SIGNAL_TRACE_PAGE_DEFAULT_LIMIT,
@@ -102,7 +102,7 @@ from thytrader.strategies.snapshots import (
 )
 
 if TYPE_CHECKING:
-    from thytrader.research.trace import SignalTrace
+    from thytrader.evaluation.trace import SignalTrace
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)

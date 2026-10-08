@@ -6,12 +6,11 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from thytrader.research.publication import PublishedResearchRunSpecification
+from tests.evaluation.test_signal_evaluator import _candles, _run, _strategy
+from thytrader.evaluation.publication import PublishedResearchRunSpecification
 from thytrader.research.signal_service import evaluate_published_signal_run
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
-
-from .test_signal_evaluator import _candles, _run, _strategy
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import Candle
@@ -93,4 +92,4 @@ def test_service_loads_exact_published_artifacts_before_evaluation() -> None:
     assert strategy_store.loaded == [specification.strategy_fingerprint]
     assert dataset_store.loaded == [specification.dataset_fingerprint]
     assert len(trace.records) == 2
-    assert Path("tests/research/golden/reference_signal_trace.json").exists()
+    assert Path("tests/evaluation/golden/reference_signal_trace.json").exists()

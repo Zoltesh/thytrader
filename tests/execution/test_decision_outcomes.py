@@ -13,6 +13,7 @@ from tests.execution.decision_support import (
     paper_book,
     strategy,
 )
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import (
     ConditionComparisonTrace,
@@ -24,7 +25,6 @@ from thytrader.execution.decisions import (
     DecisionSkipReason,
 )
 from thytrader.execution.models import DeploymentStatus, IntentPurpose, PositionSide
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.risk.models import compiled_default_risk_policy
 
 

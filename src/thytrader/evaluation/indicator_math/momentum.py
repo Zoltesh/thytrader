@@ -6,19 +6,19 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
-from thytrader.research.indicator_math.core import (
+from thytrader.evaluation.indicator_math.core import (
     IndicatorCalculationError,
     _difference,
     _locked_source_series,
     _parameters_of,
 )
-from thytrader.research.indicator_math.moving_averages import (
+from thytrader.evaluation.indicator_math.moving_averages import (
     _exponential_moving_average,
     _exponential_moving_average_optional,
     _simple_moving_average,
     _simple_moving_average_defined,
 )
-from thytrader.research.indicator_math.rolling_statistics import (
+from thytrader.evaluation.indicator_math.rolling_statistics import (
     _rolling_extreme,
     _rolling_extreme_optional,
 )

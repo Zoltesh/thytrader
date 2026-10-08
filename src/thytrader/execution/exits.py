@@ -10,6 +10,8 @@ from dataclasses import replace
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from thytrader.evaluation.signal_evaluator import SignalEvaluationError
+from thytrader.evaluation.trace import EntryConditionOutcome
 from thytrader.execution.breaker_pause import _exit_cooldown
 from thytrader.execution.decision_scope import note_evaluation_error, note_exit_evaluation
 from thytrader.execution.exit_guards import (
@@ -48,8 +50,6 @@ from thytrader.execution.runtime_ops import (
 from thytrader.execution.signals import evaluate_latest_signal_exit
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.research.signal_evaluator import SignalEvaluationError
-from thytrader.research.trace import EntryConditionOutcome
 from thytrader.strategies.models import signal_exit_condition
 
 if TYPE_CHECKING:

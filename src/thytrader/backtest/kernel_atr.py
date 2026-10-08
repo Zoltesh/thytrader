@@ -15,8 +15,8 @@ from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_st
 from thytrader.strategies.models import StrategyDefinition, atr_trailing_stop
 
 if TYPE_CHECKING:
+    from thytrader.evaluation.trace import SignalTraceRecord
     from thytrader.market_data.models import Candle
-    from thytrader.research.trace import SignalTraceRecord
 
 
 def _trail_position(

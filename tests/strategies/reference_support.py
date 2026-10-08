@@ -15,8 +15,7 @@ from pathlib import Path
 from typing import cast
 from uuid import UUID
 
-from thytrader.market_data.models import Candle
-from thytrader.research.models import (
+from thytrader.evaluation.models import (
     CapitalAssumptions,
     CostAssumptions,
     EvaluationWindow,
@@ -24,6 +23,7 @@ from thytrader.research.models import (
     ResearchRunSpecification,
     WarmupWindow,
 )
+from thytrader.market_data.models import Candle
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 GOLDEN = Path(__file__).parent / "golden"

@@ -11,7 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from thytrader.research.models import BACKTEST_ENGINE, BacktestEngine
+from thytrader.evaluation.models import BACKTEST_ENGINE, BacktestEngine
 
 BacktestAssumptionKey = Literal[
     "signal_timing",
