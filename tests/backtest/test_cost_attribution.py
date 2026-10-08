@@ -16,7 +16,7 @@ from thytrader.backtest.kernel import simulate_backtest
 from thytrader.backtest.models import backtest_result_fingerprint, canonical_backtest_result_bytes
 from thytrader.config import Settings
 from thytrader.evaluation.stress import ExecutionStress
-from thytrader.research.http import show_result
+from thytrader.research.http_backtests import show_result
 from thytrader.strategies.models import StrategyDefinition
 
 
@@ -124,7 +124,7 @@ def test_research_cli_forwards_attribution_without_requesting_full_ledger(
         assert method == "GET" and url.endswith("?detail=summary")
         return {"result_fingerprint": expected["result_fingerprint"], "cost_attribution": expected}
 
-    monkeypatch.setattr("thytrader.research.http.request_json", request)
+    monkeypatch.setattr("thytrader.research.http_backtests.request_json", request)
     payload = json.loads(show_result("http://localhost:8200", backtest_result_fingerprint(result)))
     assert payload["cost_attribution"] == expected
 

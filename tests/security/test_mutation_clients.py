@@ -13,7 +13,7 @@ from thytrader.agent_orchestration.client import record_skipped_confirmation
 from thytrader.config import Environment, Settings, YoloTier
 from thytrader.data_control.client import add_watch, fill_gaps
 from thytrader.memory.client import add_journal
-from thytrader.research.http import create_strategy, delete_strategy
+from thytrader.research.http_strategies import create_strategy, delete_strategy
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 
 
@@ -140,15 +140,15 @@ def test_research_client_create_strategy_sends_installation_bearer() -> None:
             return_value=settings,
         ),
         patch(
-            "thytrader.research.http._as_object",
+            "thytrader.research.http_strategies._as_object",
             side_effect=lambda value, _: value if isinstance(value, dict) else {},
         ),
         patch(
-            "thytrader.research.http._as_str",
+            "thytrader.research.http_strategies._as_str",
             return_value="00000000-0000-0000-0000-000000000001",
         ),
         patch(
-            "thytrader.research.http._encode",
+            "thytrader.research.http_strategies._encode",
             return_value="{}",
         ),
     ):
@@ -164,10 +164,10 @@ def test_research_client_delete_strategy_sends_installation_bearer() -> None:
         patcher,
         patch("thytrader.agent_http.Settings", return_value=settings),
         patch(
-            "thytrader.research.http._as_object",
+            "thytrader.research.http_strategies._as_object",
             side_effect=lambda value, _: value if isinstance(value, dict) else {},
         ),
-        patch("thytrader.research.http._encode", return_value="{}"),
+        patch("thytrader.research.http_strategies._encode", return_value="{}"),
     ):
         delete_strategy("http://127.0.0.1:8200", UUID("01985cf0-7b60-7000-8000-000000000001"))
     assert captured.get(INSTALLATION_AUTH_HEADER) == "Bearer lane-mutation-token"

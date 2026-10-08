@@ -35,7 +35,8 @@ from thytrader.research.mutation_common import ResearchCliError, _is_mutation
 from thytrader.research.mutation_http import _dispatch_http
 from thytrader.research.mutation_local import _dispatch_local
 from thytrader.research.mutation_parser import _parser
-from thytrader.research.studies import ResearchStudyError, StudyPlanningError
+from thytrader.research.studies import ResearchStudyError
+from thytrader.research.study_planning import StudyPlanningError
 from thytrader.strategies.library import StrategyLibraryError
 
 if TYPE_CHECKING:

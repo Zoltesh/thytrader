@@ -33,15 +33,15 @@ from thytrader.evaluation.models import (
 )
 from thytrader.evaluation.stress import ExecutionStress
 from thytrader.market_data.models import DatasetTimeframe
-from thytrader.research.parameter_sweep import (
+from thytrader.research.stitched_equity import StitchedOosEquity
+from thytrader.research.sweep_axes import (
     MAX_CANDIDATES,
     MAX_SYNC_CANDIDATES,
     AxisValue,
     ParameterAxis,
-    SelectionMetric,
-    StitchedOosEquity,
     validate_parameter_axes_candidate_budget,
 )
+from thytrader.research.sweep_selection import SelectionMetric
 
 STUDY_CONTRACT_VERSION = "thytrader-research-study-v1"
 

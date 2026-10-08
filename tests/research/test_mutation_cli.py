@@ -202,8 +202,10 @@ def test_bulk_delete_by_tag_pages_the_library_and_batches_by_100(
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_json", side_effect=fake_read),
-        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        patch("thytrader.research.http_strategies.request_json", side_effect=fake_read),
+        patch(
+            "thytrader.research.http_strategies.request_mutation_json", side_effect=fake_mutation
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(["bulk-delete-strategies", "--tag", "per-market", "--dry-run"])
@@ -228,8 +230,8 @@ def test_bulk_delete_by_tag_fails_closed_when_the_api_ignores_the_tag() -> None:
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_json", side_effect=fake_read),
-        patch("thytrader.research.http.request_mutation_json") as mutation,
+        patch("thytrader.research.http_strategies.request_json", side_effect=fake_read),
+        patch("thytrader.research.http_strategies.request_mutation_json") as mutation,
         pytest.raises(SystemExit) as raised,
     ):
         main(["bulk-delete-strategies", "--tag", "per-market", "--confirm"])
@@ -259,7 +261,9 @@ def test_clone_strategy_name_is_sent_in_the_same_call(capsys: pytest.CaptureFixt
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        patch(
+            "thytrader.research.http_strategies.request_mutation_json", side_effect=fake_mutation
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -295,7 +299,7 @@ def test_list_strategies_tag_filters_on_the_server(capsys: pytest.CaptureFixture
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_json", side_effect=fake_read),
+        patch("thytrader.research.http_strategies.request_json", side_effect=fake_read),
         pytest.raises(SystemExit) as raised,
     ):
         main(["list-strategies", "--tag", "majors"])
@@ -319,7 +323,7 @@ def test_list_strategies_origin_filters_on_the_server() -> None:
                 "thytrader.agent_http.urlopen",
                 side_effect=urlopen_ready_then(matching_ready_payload()),
             ),
-            patch("thytrader.research.http.request_json", side_effect=fake_read),
+            patch("thytrader.research.http_strategies.request_json", side_effect=fake_read),
             pytest.raises(SystemExit) as raised,
         ):
             main(argv)
@@ -421,7 +425,9 @@ def test_save_strategy_puts_the_document_with_its_revision(
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        patch(
+            "thytrader.research.http_strategies.request_mutation_json", side_effect=fake_mutation
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(
@@ -478,7 +484,9 @@ def test_import_strategy_reports_validation_like_show_strategy(
             "thytrader.agent_http.urlopen",
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
-        patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation),
+        patch(
+            "thytrader.research.http_strategies.request_mutation_json", side_effect=fake_mutation
+        ),
         pytest.raises(SystemExit) as raised,
     ):
         main(["import-strategy", "--file", str(_REFERENCE_STRATEGY), "--confirm"])
@@ -501,7 +509,7 @@ def test_valid_import_prints_no_invalid_notice(capsys: pytest.CaptureFixture[str
             side_effect=urlopen_ready_then(matching_ready_payload()),
         ),
         patch(
-            "thytrader.research.http.request_mutation_json",
+            "thytrader.research.http_strategies.request_mutation_json",
             return_value=_strategy_response(),
         ),
         pytest.raises(SystemExit) as raised,

@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from thytrader.agent_http import AgentHttpError
 from thytrader.market_data.models import published_execution_timeframe
-from thytrader.research.http import show_result, window_fields
+from thytrader.research.http_backtests import show_result, window_fields
 
 _RESULT_FINGERPRINT = "sha256:" + "r" * 64
 _STRATEGY_FINGERPRINT = "sha256:" + "s" * 64
@@ -61,7 +61,10 @@ def _show_result_for_timeframe(timeframe: str, quote_currency: str = "USD") -> d
         message = f"unexpected research HTTP request: {url}"
         raise AssertionError(message)
 
-    with patch("thytrader.research.http.request_json", side_effect=fake_request_json):
+    with (
+        patch("thytrader.research.http_backtests.request_json", side_effect=fake_request_json),
+        patch("thytrader.research.http_strategies.request_json", side_effect=fake_request_json),
+    ):
         return json.loads(show_result("http://127.0.0.1:8000", _RESULT_FINGERPRINT))
 
 
@@ -115,7 +118,10 @@ def test_show_result_keeps_currency_unknown_when_source_is_unavailable() -> None
             return _summary_payload()
         raise AgentHttpError("HTTP 404: strategy source was not found.")
 
-    with patch("thytrader.research.http.request_json", side_effect=missing_source):
+    with (
+        patch("thytrader.research.http_backtests.request_json", side_effect=missing_source),
+        patch("thytrader.research.http_strategies.request_json", side_effect=missing_source),
+    ):
         payload = json.loads(show_result("http://127.0.0.1:8000", _RESULT_FINGERPRINT))
     assert payload["currency"] is None
     assert payload["timeframe"] == "1h"

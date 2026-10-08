@@ -43,18 +43,16 @@ from thytrader.research.dataset_binding import (
     bind_reference_datasets,
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
-from thytrader.research.parameter_sweep import (
-    ParameterAxis,
-    SelectionMetric,
-    derive_parameter_candidates,
-)
+from thytrader.research.parameter_sweep import derive_parameter_candidates
 from thytrader.research.studies import (
     STUDY_CONTRACT_VERSION,
     FoldMode,
     ResearchStudyRequest,
     StudyKind,
-    StudyPlanningError,
 )
+from thytrader.research.study_planning import StudyPlanningError
+from thytrader.research.sweep_axes import ParameterAxis
+from thytrader.research.sweep_selection import SelectionMetric
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -26,14 +26,8 @@ from thytrader.research.dataset_binding import (
     bind_reference_datasets,
 )
 from thytrader.research.market_variants import MarketVariantError, derive_market_variant
-from thytrader.research.studies import (
-    MarketBinding,
-    PlannedStudyWindow,
-    StudyKind,
-    WindowRole,
-    plan_study,
-    window_submission_request,
-)
+from thytrader.research.studies import MarketBinding, PlannedStudyWindow, StudyKind, WindowRole
+from thytrader.research.study_planning import plan_study, window_submission_request
 from thytrader.research.study_start import ResearchStudyStartRequest, bind_study_start
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.strategies.models import strategy_fingerprint

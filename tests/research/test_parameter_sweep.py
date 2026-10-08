@@ -8,20 +8,17 @@ from pathlib import Path
 import pytest
 
 from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoint
-from thytrader.research.parameter_sweep import (
+from thytrader.research.parameter_sweep import apply_parameter_cell, derive_parameter_candidates
+from thytrader.research.stitched_equity import StitchSourceWindow, stitch_oos_equity
+from thytrader.research.sweep_axes import (
     MAX_CANDIDATES,
     MAX_SYNC_CANDIDATES,
     ParameterAxis,
-    SelectionMetric,
-    StitchSourceWindow,
     SweepAxisTarget,
-    apply_parameter_cell,
-    derive_parameter_candidates,
     expand_parameter_grid,
-    select_candidate_fingerprint,
-    stitch_oos_equity,
     validate_parameter_axes_candidate_budget,
 )
+from thytrader.research.sweep_selection import SelectionMetric, select_candidate_fingerprint
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     AllCondition,

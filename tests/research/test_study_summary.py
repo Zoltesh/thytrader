@@ -9,14 +9,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.models import BacktestSummary
-from thytrader.research.parameter_sweep import (
+from thytrader.research.parameter_sweep import derive_parameter_candidates
+from thytrader.research.stitched_equity import (
     SUMMARY_STITCHED_POINTS,
-    ParameterAxis,
     StitchedEquityPoint,
     StitchedOosEquity,
-    SweepAxisTarget,
-    candidate_axis_values,
-    derive_parameter_candidates,
     downsample_stitched_points,
 )
 from thytrader.research.studies import (
@@ -26,8 +23,10 @@ from thytrader.research.studies import (
     StudyWindowResult,
     WindowRole,
     load_candidate_definitions,
-    summarize_research_study,
 )
+from thytrader.research.study_summaries import summarize_research_study
+from thytrader.research.sweep_axes import ParameterAxis, SweepAxisTarget
+from thytrader.research.sweep_coordinates import candidate_axis_values
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:

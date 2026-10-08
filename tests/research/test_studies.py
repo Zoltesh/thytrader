@@ -14,7 +14,6 @@ from thytrader.backtest.models import BacktestResult, BacktestSummary, EquityPoi
 from thytrader.backtest.submission import BacktestSubmissionRequest, BacktestSubmissionResult
 from thytrader.evaluation.models import IndicatorTimeframeDataset
 from thytrader.market_data.datasets import DatasetManifest
-from thytrader.research.parameter_sweep import ParameterAxis, SelectionMetric
 from thytrader.research.studies import (
     ASYNC_STUDY_BUDGET,
     SYNC_STUDY_BUDGET,
@@ -22,16 +21,20 @@ from thytrader.research.studies import (
     MarketBinding,
     ResearchStudyRequest,
     ResearchStudyService,
-    StudyBudgetError,
     StudyKind,
-    StudyPlanningError,
     StudyWindowResult,
     WindowRole,
-    aggregate_windows,
+)
+from thytrader.research.study_assembly import aggregate_windows
+from thytrader.research.study_identity import request_fingerprint
+from thytrader.research.study_planning import (
+    StudyBudgetError,
+    StudyPlanningError,
     plan_study,
-    request_fingerprint,
     window_submission_request,
 )
+from thytrader.research.sweep_axes import ParameterAxis
+from thytrader.research.sweep_selection import SelectionMetric
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
 
