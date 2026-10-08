@@ -112,8 +112,18 @@ If GitNexus and source disagree, source plus executed tests are authoritative; r
 
 ### 3a. Keep modules cohesive (no god files)
 
-Every module holds one concern. Aim for GitNexus community cohesion as close to 1.0 as possible.
+Every module holds one concern, and every package sits in one architectural layer.
 
+- **Layering.** `tests/package_layers.json` declares the layers, highest first: processes,
+  interfaces (agent CLIs and their loopback clients), services, persistence, coordination,
+  research, simulation, execution, risk, contracts, platform, market, foundation. A module
+  may import its own layer or lower ones. CI (`tests/test_package_layers.py`) fails on a new
+  upward import, on growth past a recorded ceiling in `allowed_upward_imports`, and on a
+  ceiling left above the current count (lower it; delete it at zero). Same-layer packages may
+  not import each other in a cycle. Fix an upward import by moving the code to the layer
+  that owns it or by inverting the dependency (a protocol in the lower layer, the concrete
+  wired in by a process). Place a new top-level package in a layer before using it. Print
+  the current upward imports with `uv run python -m tests.test_package_layers`.
 - **Size budget.** Python modules should stay near 600 lines and TS/Svelte near 400. CI enforces
   hard budgets of 800 and 600 (`tests/test_module_size_budget.py`). Files already over budget
   are listed in `tests/module_size_allowlist.json` with a ceiling that may only go down. Never
@@ -128,8 +138,13 @@ Every module holds one concern. Aim for GitNexus community cohesion as close to 
 
   Put new code in the module that owns the community it joins, or a new module, never the
   nearest large file. Facades and barrels that only delegate or re-export are exempt.
-- **Do not lower cohesion.** Keep touched communities at or above 0.8 and move them toward 1.0.
-  Find weak spots with:
+- **Read GitNexus cohesion per community, not as a mean.** Cohesion is the share of a
+  community's call edges that stay inside it. On this repo's size GitNexus clusters at high
+  resolution, so cohesive files split into many 3–5 symbol fragments, and the repo-wide mean
+  sits near 0.65 even for well-factored code; a mean near 1.0 is neither reachable nor a
+  goal. Do not inline helpers or duplicate utilities to move it. Act on production
+  communities of 10+ symbols under 0.8 that span several packages: they mark a concept with
+  no home. Keep touched communities at or above 0.8. Find them with:
 
   ```bash
   node .gitnexus/run.cjs cypher "MATCH (c:Community) WHERE c.cohesion < 0.8 AND c.symbolCount >= 10 RETURN c.id, c.label, c.cohesion, c.symbolCount ORDER BY c.cohesion" --repo .

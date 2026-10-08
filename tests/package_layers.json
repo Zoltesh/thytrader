@@ -1,0 +1,159 @@
+{
+  "components": {
+    "agent_cli": [
+      "agent_http",
+      "cli_errors",
+      "agent_orchestration.cli",
+      "agent_orchestration.client",
+      "backtest.cli",
+      "data_control.cli",
+      "data_control.client",
+      "memory.cli",
+      "memory.client",
+      "operator.cli",
+      "operator.http",
+      "operator_chat.http",
+      "portfolios.cli",
+      "portfolios.client",
+      "portfolios.manager_cli",
+      "research.cli",
+      "research.http",
+      "research.mutation_cli",
+      "research.mutation_common",
+      "research.mutation_http",
+      "research.mutation_local",
+      "research.mutation_parser",
+      "research.run_cli",
+      "runtime_control",
+      "runtime_control.*",
+      "security.client"
+    ]
+  },
+  "layers": [
+    {
+      "name": "processes",
+      "components": [
+        "api",
+        "execution_worker",
+        "market_data_worker",
+        "research_worker",
+        "web_catalog",
+        "worker"
+      ]
+    },
+    {
+      "name": "interfaces",
+      "components": [
+        "agent_cli",
+        "operator_chat"
+      ]
+    },
+    {
+      "name": "services",
+      "components": [
+        "agent_orchestration",
+        "data_control",
+        "operator",
+        "ops_contract"
+      ]
+    },
+    {
+      "name": "persistence",
+      "components": [
+        "persistence"
+      ]
+    },
+    {
+      "name": "coordination",
+      "components": [
+        "alerts",
+        "fleet_control",
+        "memory",
+        "portfolios"
+      ]
+    },
+    {
+      "name": "research",
+      "components": [
+        "research"
+      ]
+    },
+    {
+      "name": "simulation",
+      "components": [
+        "backtest"
+      ]
+    },
+    {
+      "name": "execution",
+      "components": [
+        "execution"
+      ]
+    },
+    {
+      "name": "risk",
+      "components": [
+        "portfolio",
+        "risk"
+      ]
+    },
+    {
+      "name": "contracts",
+      "components": [
+        "exchanges",
+        "strategies"
+      ]
+    },
+    {
+      "name": "platform",
+      "components": [
+        "config",
+        "credentials",
+        "observability",
+        "runtime",
+        "security",
+        "settings_yaml"
+      ]
+    },
+    {
+      "name": "market",
+      "components": [
+        "market_data"
+      ]
+    },
+    {
+      "name": "foundation",
+      "components": [
+        "cli_parse",
+        "decimal_text",
+        "exit_codes",
+        "ids",
+        "thytrader"
+      ]
+    }
+  ],
+  "allowed_upward_imports": {
+    "backtest -> research": 30,
+    "risk -> execution": 20,
+    "execution -> research": 14,
+    "research -> persistence": 8,
+    "execution -> persistence": 6,
+    "fleet_control -> persistence": 4,
+    "backtest -> persistence": 3,
+    "execution -> memory": 3,
+    "memory -> persistence": 3,
+    "agent_orchestration -> agent_cli": 2,
+    "alerts -> operator": 2,
+    "exchanges -> execution": 2,
+    "exchanges -> persistence": 2,
+    "portfolios -> persistence": 2,
+    "settings_yaml -> memory": 2,
+    "config -> agent_orchestration": 1,
+    "config -> memory": 1,
+    "data_control -> market_data_worker": 1,
+    "execution -> fleet_control": 1,
+    "operator -> agent_cli": 1,
+    "operator_chat -> api": 1,
+    "settings_yaml -> agent_orchestration": 1
+  }
+}
