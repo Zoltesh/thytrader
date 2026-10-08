@@ -17,9 +17,8 @@ from typing import TYPE_CHECKING
 from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.fill_comparison import entry_fill_stats, paper_live_twins
-from thytrader.operator.models import (
-    STANDARD_REDACTION,
-    ComponentReport,
+from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
+from thytrader.operator.portfolio_models import (
     EntryFillDigest,
     PaperLiveFillComparison,
     PortfolioBacktestDigest,
@@ -27,7 +26,6 @@ from thytrader.operator.models import (
     PortfolioSleeveDigest,
     PortfoliosPayload,
     PortfoliosReport,
-    ReportStatus,
 )
 from thytrader.operator.status import recommend_next_action
 from thytrader.portfolios.deployment import members, sleeve_books

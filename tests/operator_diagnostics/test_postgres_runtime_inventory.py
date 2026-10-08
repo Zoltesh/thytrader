@@ -18,7 +18,8 @@ from tests.fleet_control.test_postgres_safety import (
 )
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
-from thytrader.alerts.supervision import AlertThresholds, gather_safety_findings
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore

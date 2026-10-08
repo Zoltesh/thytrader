@@ -19,10 +19,8 @@ from tests.operator_diagnostics.test_readiness_preflight import (
 )
 from thytrader.exchanges.models import ExchangeOpenOrder
 from thytrader.operator.readiness import build_readiness_report
-from thytrader.operator.venue_reconciliation import (
-    VenueReconciliationPayload,
-    build_venue_reconciliation_report,
-)
+from thytrader.operator.venue_reconciliation import build_venue_reconciliation_report
+from thytrader.operator.venue_reconciliation_models import VenueReconciliationPayload
 from thytrader.portfolio.service import PortfolioService
 from thytrader.portfolios.models import (
     ManagerSettings,

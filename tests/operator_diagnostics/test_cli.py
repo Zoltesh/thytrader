@@ -17,14 +17,8 @@ from tests.http_fakes import (
 )
 from thytrader import __version__
 from thytrader.operator.cli import main
-from thytrader.operator.models import (
-    SCHEMA_VERSION,
-    STANDARD_REDACTION,
-    HealthPayload,
-    HealthReport,
-    ReportStatus,
-    current_ops_contract,
-)
+from thytrader.operator.health_models import HealthPayload, HealthReport, current_ops_contract
+from thytrader.operator.models import SCHEMA_VERSION, STANDARD_REDACTION, ReportStatus
 from thytrader.ops_contract import EXPECTED_SCHEMA_REVISION, OPS_CONTRACT_ID
 
 

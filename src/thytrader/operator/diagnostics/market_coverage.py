@@ -26,9 +26,7 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerState,
     MarketDataWorkerUnavailableError,
 )
-from thytrader.operator.models import (
-    STANDARD_REDACTION,
-    ComponentReport,
+from thytrader.operator.market_models import (
     DataCatalogPayload,
     DataCatalogReport,
     DatasetCoverageRow,
@@ -37,8 +35,8 @@ from thytrader.operator.models import (
     ProductsPayload,
     ProductsReport,
     ProductSummary,
-    ReportStatus,
 )
+from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.status import aggregate_status, recommend_next_action
 
 if TYPE_CHECKING:

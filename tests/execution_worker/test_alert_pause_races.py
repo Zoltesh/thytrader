@@ -17,7 +17,8 @@ from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import AlertStoreError, InMemoryAlertStore
-from thytrader.alerts.supervision import AlertThresholds, worker_book_failure_finding
+from thytrader.alerts.supervision_inputs import AlertThresholds
+from thytrader.alerts.supervision_rows import worker_book_failure_finding
 from thytrader.execution_worker import service as worker_service
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import parse_candle_interval

@@ -21,12 +21,9 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
-from thytrader.alerts.supervision import (
-    AlertThresholds,
-    SnapshotEvidence,
-    gather_safety_findings,
-    verified_worker_recovery,
-)
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_inputs import AlertThresholds, SnapshotEvidence
+from thytrader.alerts.supervision_rows import verified_worker_recovery
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.trading.models import (
     DeploymentMode,
@@ -43,7 +40,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.alerts.models import SafetyEvidence
-    from thytrader.alerts.supervision import ClosedCandleReader
+    from thytrader.alerts.supervision_inputs import ClosedCandleReader
     from thytrader.market_data.models import Candle
     from thytrader.trading.models import Deployment
 

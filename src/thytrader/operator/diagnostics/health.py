@@ -13,19 +13,17 @@ from thytrader import __version__
 from thytrader.config import Settings, default_api_base_url
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
-from thytrader.operator.models import (
-    STANDARD_REDACTION,
-    ComponentReport,
+from thytrader.operator.health_models import (
     ConfigurationPayload,
     ConfigurationReport,
     ExchangePayload,
     ExchangeReport,
     HealthPayload,
     HealthReport,
-    ReportStatus,
     ResearchWorkersPayload,
     current_ops_contract,
 )
+from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.research_workers import research_worker_health, stale_after_seconds
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.persistence.database import ping

@@ -9,7 +9,7 @@ import signal
 from typing import TYPE_CHECKING
 
 from thytrader.alerts.service import AlertService
-from thytrader.alerts.supervision import AlertThresholds
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import run_execution_worker

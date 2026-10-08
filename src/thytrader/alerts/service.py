@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from thytrader.alerts.models import AlertCheck, OperatorAlert, SupervisionFinding
     from thytrader.alerts.store import AlertApplication, AlertStore
-    from thytrader.alerts.supervision import AlertThresholds
+    from thytrader.alerts.supervision_inputs import AlertThresholds
 
 _logger = logging.getLogger(__name__)
 

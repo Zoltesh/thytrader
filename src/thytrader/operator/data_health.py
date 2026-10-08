@@ -3,19 +3,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
 from thytrader.market_data.models import DatasetTimeframe, parse_candle_interval
-from thytrader.operator.models import (
-    ComponentReport,
-    DataCatalogReport,
-    DatasetCoverageRow,
-    OperatorEnvelope,
-    ReportStatus,
-)
+from thytrader.operator.models import ComponentReport, OperatorEnvelope, ReportStatus
+
+if TYPE_CHECKING:
+    from thytrader.operator.market_models import DataCatalogReport, DatasetCoverageRow
 
 TailState = Literal["fresh", "settling", "stale", "missing", "invalid"]
 

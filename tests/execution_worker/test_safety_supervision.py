@@ -12,7 +12,7 @@ from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode, SafetyEvidence
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
-from thytrader.alerts.supervision import AlertThresholds
+from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import service as worker_service
 from thytrader.execution_worker.service import _run_cycle

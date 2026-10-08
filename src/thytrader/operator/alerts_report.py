@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
-from uuid import UUID  # noqa: TC003 - Pydantic resolves AlertItem annotations at class creation.
+from uuid import UUID
 
 from pydantic import Field
 

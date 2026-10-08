@@ -33,11 +33,9 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import AlertStoreError
-from thytrader.alerts.supervision import (
-    AlertThresholds,
-    gather_safety_findings,
-    worker_book_failure_finding,
-)
+from thytrader.alerts.supervision import gather_safety_findings
+from thytrader.alerts.supervision_inputs import AlertThresholds
+from thytrader.alerts.supervision_rows import worker_book_failure_finding
 from thytrader.execution_worker.service import _pause_repeatedly_failing_books
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.persistence import postgres_alerts as module

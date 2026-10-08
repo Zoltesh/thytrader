@@ -33,16 +33,10 @@ from thytrader.execution.decisions import (
     DecisionOperand,
     EntryRuleTrace,
 )
+from thytrader.operator.health_models import HealthPayload, HealthReport
 from thytrader.operator.http import fetch_operator_report
-from thytrader.operator.models import (
-    SCHEMA_VERSION,
-    STANDARD_REDACTION,
-    DecisionsPayload,
-    DecisionsReport,
-    HealthPayload,
-    HealthReport,
-    ReportStatus,
-)
+from thytrader.operator.models import SCHEMA_VERSION, STANDARD_REDACTION, ReportStatus
+from thytrader.operator.runtime_models import DecisionsPayload, DecisionsReport
 from thytrader.ops_contract import expected_ops_contract
 from thytrader.strategies.models import ComparisonOperator
 

@@ -5,13 +5,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from thytrader.operator.data_health import data_health_report, watched_tail
-from thytrader.operator.models import (
-    STANDARD_REDACTION,
+from thytrader.operator.market_models import (
     DataCatalogPayload,
     DataCatalogReport,
     DatasetCoverageRow,
-    ReportStatus,
 )
+from thytrader.operator.models import STANDARD_REDACTION, ReportStatus
 
 _NOW = datetime(2026, 10, 6, 3, 40, tzinfo=UTC)
 
