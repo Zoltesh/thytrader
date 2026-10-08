@@ -19,9 +19,8 @@ from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution.models import DeploymentKind, DeploymentMode, DeploymentStatus
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
-from thytrader.execution_worker.ports import LiveFeeProfileReader, QuoteBalanceReader, _logger
+from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.execution_worker.strategy_step import (
-    LockstepProductWindows,
     _advance_strategy,
     _advance_strategy_ready,
     _journaled_bar,
@@ -81,8 +80,6 @@ if TYPE_CHECKING:
 __all__ = [
     "USER_FEED_PAUSE_DETAIL",
     "_MISSING_DECISION_CANDLES",
-    "LiveFeeProfileReader",
-    "LockstepProductWindows",
     "QuoteBalanceReader",
     "_advance_strategy",
     "_advance_strategy_ready",

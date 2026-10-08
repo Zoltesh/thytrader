@@ -44,6 +44,13 @@ jobs:
           THYTRADER_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci-only@localhost:5432/thytrader_ci_test
         run: uv run alembic upgrade head
 
+      # Fails when SQLAlchemy metadata (persistence/tables) drifts from what the
+      # migrations create, including column/table comments.
+      - name: Check Alembic metadata drift
+        env:
+          THYTRADER_DATABASE_URL: postgresql+asyncpg://thytrader:thytrader-ci-only@localhost:5432/thytrader_ci_test
+        run: uv run alembic check
+
       # THYTRADER_DATABASE_URL (the application's own default) is deliberately not set
       # here: several tests assert unconfigured-database behavior and would break if
       # Settings() picked up an ambient database URL. Only the two test-scoped

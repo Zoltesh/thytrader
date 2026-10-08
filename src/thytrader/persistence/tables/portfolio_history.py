@@ -40,6 +40,10 @@ portfolio_snapshots = Table(
         nullable=False,
         comment="Exact total USD valuation as a decimal.",
     ),
+    # Deliberately untyped (NullType): the column is PostgreSQL ``json`` (migration 0001),
+    # and PostgresPortfolioHistoryStore.record writes a pre-serialized ``json.dumps``
+    # string. Declaring ``JSON()`` here would make SQLAlchemy serialize it a second time
+    # and store a JSON string literal instead of an object. Nothing reads this column.
     Column(
         "snapshot",
         nullable=False,

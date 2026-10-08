@@ -12,7 +12,6 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-import json
 import logging
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID, uuid4
@@ -770,8 +769,3 @@ class ResearchJobRunner:
         if recovered:
             _logger.info("research_jobs_recovered count=%s", recovered)
         return asyncio.create_task(self.run_forever(stop_event), name="research-job-runner")
-
-
-def canonical_job_payload(payload: object) -> str:
-    """Serialize one queued job payload with stable JSON ordering."""
-    return json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)

@@ -48,14 +48,6 @@ def remember_entry_inhibition(snapshot: dict[str, bool] | None) -> None:
     _cache.snapshot = None if snapshot is None else dict(snapshot)
 
 
-def entry_inhibition_snapshot() -> dict[str, bool] | None:
-    """Return a copy of the process snapshot, or ``None`` when unloaded."""
-    snapshot = _cache.snapshot
-    if snapshot is None:
-        return None
-    return dict(snapshot)
-
-
 def clear_entry_inhibition_cache() -> None:
     """Drop the process snapshot so a test cannot leak inhibition."""
     remember_entry_inhibition(None)

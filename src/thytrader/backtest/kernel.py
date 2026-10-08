@@ -64,7 +64,6 @@ from thytrader.backtest.kernel_fills import _close_position
 from thytrader.backtest.kernel_results import _equity_point, _evaluated_no_trade_bars, _summary
 from thytrader.backtest.kernel_state import (
     BacktestSimulationError,
-    ExitReason,
     PositionSide,
     _Book,
     _Costs,
@@ -99,7 +98,6 @@ if TYPE_CHECKING:
 __all__ = [
     "_SIMULATION_CONTEXT",
     "BacktestSimulationError",
-    "ExitReason",
     "PositionSide",
     "_size_entry",
     "simulate_backtest",

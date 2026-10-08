@@ -115,8 +115,3 @@ export function lifecycleContractNote(deployment: Deployment): string | null {
 			: `missing from the response: ${contract.missing.join(', ')}`;
 	return `Lifecycle controls are unavailable because the deployment contract is incomplete (${detail}). Values are shown read-only; nothing is inferred.`;
 }
-
-/** Whether the deployment snapshot is safe to show as the canonical state. */
-export function deploymentSnapshotComplete(deployment: Deployment): boolean {
-	return lifecycleContractOf(deployment).state === 'complete';
-}

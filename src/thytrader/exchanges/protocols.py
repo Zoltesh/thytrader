@@ -4,15 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from thytrader.execution.models import OrderSide
-
 if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance
-    from thytrader.execution.broker import SubmitResult
-    from thytrader.execution.models import Fill, OrderKind
 
 
 class ExchangeAccount(Protocol):
@@ -32,46 +28,4 @@ class ExchangeAccount(Protocol):
 
     async def get_fee_profile(self) -> FeeProfile:
         """Return the current 30-day volume and fee tier details."""
-        ...
-
-
-class LiveVenueBroker(Protocol):
-    """Submit and observe spot orders through signed REST, never SDK order helpers."""
-
-    async def place_order(
-        self,
-        *,
-        client_order_id: str,
-        product_id: str,
-        side: OrderSide,
-        kind: OrderKind,
-        quantity: Decimal,
-        price: Decimal | None,
-        stop_trigger_price: Decimal | None = None,
-        take_profit_price: Decimal | None = None,
-    ) -> SubmitResult:
-        """POST one order and return the immediate JSON-derived snapshot."""
-        ...
-
-    async def cancel_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
-        """Cancel one open order and return its resulting snapshot."""
-        ...
-
-    async def get_order(self, *, venue_order_id: str, client_order_id: str) -> SubmitResult:
-        """GET one order by venue identity."""
-        ...
-
-    async def list_fills(
-        self,
-        *,
-        product_id: str,
-        order_id: str | None = None,
-    ) -> tuple[Fill, ...]:
-        """Page the venue fill ledger for one product, optionally one order."""
-        ...
-
-    def maker_limit_price(
-        self, *, product_id: str, mark: Decimal, side: OrderSide = OrderSide.BUY
-    ) -> Decimal:
-        """Return the post-only limit price for an entry on one spot side."""
         ...

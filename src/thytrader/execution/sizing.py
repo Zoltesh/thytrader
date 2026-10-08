@@ -1,8 +1,8 @@
 """ATR risk-fraction sizing for one long or short entry, quantized to venue increments.
 
 Every refusal names an ``EntrySkipReason`` (ADR 0090). ``size_entry_or_skip`` and
-``size_pyramid_add_or_skip`` return it; ``size_entry`` / ``size_pyramid_add`` keep the
-older ``None`` contract for callers that only need the order.
+``size_pyramid_add_or_skip`` return it; ``size_entry`` keeps the older ``None`` contract
+for callers that only need the order.
 """
 
 from __future__ import annotations
@@ -182,31 +182,6 @@ def _bounded_order(
         stop_price=levels.stop_price,
         target_price=levels.target_price,
     )
-
-
-def size_pyramid_add(
-    *,
-    strategy: StrategyDefinition,
-    cash: Decimal,
-    entry_price: Decimal,
-    existing_stop: Decimal,
-    existing_target: Decimal | None,
-    product: MarketProduct,
-    fee_rate: Decimal = Decimal("0"),
-    side: PositionSide = PositionSide.LONG,
-) -> SizedEntry | None:
-    """Size a same-side add, or return None when ``size_pyramid_add_or_skip`` names a reason."""
-    sized = size_pyramid_add_or_skip(
-        strategy=strategy,
-        cash=cash,
-        entry_price=entry_price,
-        existing_stop=existing_stop,
-        existing_target=existing_target,
-        product=product,
-        fee_rate=fee_rate,
-        side=side,
-    )
-    return sized if isinstance(sized, SizedEntry) else None
 
 
 def size_pyramid_add_or_skip(

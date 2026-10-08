@@ -641,13 +641,6 @@ export async function listStrategyDeployments(strategyId: string): Promise<Deplo
 	return rows.filter((deployment) => deployment.strategy_id === strategyId);
 }
 
-/** Display name for a deployment's strategy, labelling detached live books honestly. */
-export function deploymentStrategyLabel(deployment: Deployment, knownName: string | null): string {
-	const name = knownName ?? deployment.strategy_name ?? null;
-	if (deployment.strategy_deleted === true) return `${name ?? 'Strategy'} (deleted strategy)`;
-	return name ?? 'Strategy';
-}
-
 /** Deliberate comparison metadata, independent of deployment lifecycle and orders. */
 export type DeploymentTwinLink = {
 	paper_deployment_id: string;
