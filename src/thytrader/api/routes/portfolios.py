@@ -27,17 +27,17 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import LIVE_ACK_REQUIRED_DETAIL
 from thytrader.api.strategy_http import strategy_http_error
-from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
-from thytrader.market_data.datasets import DatasetStore
-from thytrader.operator.models import PaperLiveFillComparison
-from thytrader.operator.portfolios_report import paper_live_fill_comparisons
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.execution.models import ExecutionStoreError
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.datasets import DatasetStore
+from thytrader.operator.models import PaperLiveFillComparison
+from thytrader.operator.portfolios_report import paper_live_fill_comparisons
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestRequest,

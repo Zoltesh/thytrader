@@ -89,6 +89,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.alerts.store import AlertStore
+    from thytrader.audit_events import AuditEventStore
     from thytrader.config import Settings
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
@@ -99,7 +100,6 @@ if TYPE_CHECKING:
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.market_data.worker_state import MarketDataWorkerStateStore
     from thytrader.operator.research_workers import ResearchQueueSnapshotReader
-    from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.persistence.backtest_results import BacktestResultReader
     from thytrader.persistence.portfolio_history import PortfolioHistoryStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore

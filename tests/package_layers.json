@@ -107,6 +107,7 @@
     {
       "name": "platform",
       "components": [
+        "audit_events",
         "config",
         "credentials",
         "observability",
@@ -136,24 +137,22 @@
     "backtest -> research": 30,
     "risk -> execution": 20,
     "execution -> research": 14,
-    "research -> persistence": 8,
-    "execution -> persistence": 6,
-    "fleet_control -> persistence": 4,
+    "research -> persistence": 7,
     "backtest -> persistence": 3,
     "execution -> memory": 3,
-    "memory -> persistence": 3,
+    "fleet_control -> persistence": 3,
     "agent_orchestration -> agent_cli": 2,
     "alerts -> operator": 2,
     "exchanges -> execution": 2,
-    "exchanges -> persistence": 2,
-    "portfolios -> persistence": 2,
     "settings_yaml -> memory": 2,
     "config -> agent_orchestration": 1,
     "config -> memory": 1,
     "data_control -> market_data_worker": 1,
     "execution -> fleet_control": 1,
+    "memory -> persistence": 1,
     "operator -> agent_cli": 1,
     "operator_chat -> api": 1,
+    "portfolios -> persistence": 1,
     "settings_yaml -> agent_orchestration": 1
   }
 }

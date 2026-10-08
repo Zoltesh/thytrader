@@ -12,16 +12,16 @@ from typing import TYPE_CHECKING, Any
 
 import websockets
 
-from thytrader.exchanges.ws.models import (
-    HeartbeatMessage,
-    TickerMessage,
-    WebSocketConnectionState,
-)
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
+)
+from thytrader.exchanges.ws.models import (
+    HeartbeatMessage,
+    TickerMessage,
+    WebSocketConnectionState,
 )
 
 if TYPE_CHECKING:

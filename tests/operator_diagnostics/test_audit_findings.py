@@ -7,15 +7,15 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from tests.operator_diagnostics.test_service import _diagnostics
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.operator.audit_findings import audit_failure_findings
-from thytrader.operator.models import ReportStatus
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     InMemoryAuditEventStore,
 )
+from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.operator.audit_findings import audit_failure_findings
+from thytrader.operator.models import ReportStatus
 
 _NOW = datetime(2026, 10, 4, tzinfo=UTC)
 

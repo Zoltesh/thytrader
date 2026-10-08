@@ -16,6 +16,7 @@ from uuid import UUID
 
 import pytest
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import CANCEL_PENDING_REASON, SubmitResult
 from thytrader.execution.exit_guards import (
@@ -45,7 +46,6 @@ from thytrader.execution.models import (
     RuntimePhase,
 )
 from thytrader.market_data.models import Candle, MarketProduct
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 

@@ -11,6 +11,7 @@ from tests.execution_worker.test_user_feed_gate import (
     _live_snapshot,
     _published,
 )
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.ids import utc_now
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -20,7 +21,6 @@ from thytrader.execution_worker.service import (
     USER_FEED_PAUSE_DETAIL,
     _pause_five_minute_live_if_feed_down,
 )
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 
 async def _feed_paused_store() -> tuple[InMemoryExecutionStore, InMemoryUserOrderFeedStateStore]:

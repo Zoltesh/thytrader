@@ -8,13 +8,13 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
-from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
-from thytrader.exchanges.coinbase import CoinbaseAccount
-from thytrader.observability.logging import configure_logging
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEventStore,
     DisabledAuditEventStore,
 )
+from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
+from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
     DisabledPortfolioHistoryStore,

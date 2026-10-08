@@ -34,6 +34,7 @@ from thytrader.api.dependencies import (
     get_user_order_feed_state_store,
     get_worker_heartbeat_store,
 )
+from thytrader.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC001
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.execution.store import ExecutionStore  # noqa: TC001
@@ -71,7 +72,6 @@ from thytrader.operator.models import (
 from thytrader.operator.readiness import ReadinessReport
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.operator.venue_reconciliation import VenueReconciliationReport
-from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.persistence.backtest_results import BacktestResultReader  # noqa: TC001
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
 from thytrader.persistence.postgres_research_queue import (  # noqa: TC001 - FastAPI Depends.

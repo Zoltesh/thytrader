@@ -9,13 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError
 
 from thytrader.api.dependencies import get_audit_event_store, get_risk_policy_store
-from thytrader.execution.ids import utc_now
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.execution.ids import utc_now
 from thytrader.risk.models import (
     ActiveRiskPolicy,
     CapitalAllocation,

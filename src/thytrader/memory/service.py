@@ -5,6 +5,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.execution.models import DeploymentStatus, ExecutionStoreError
 from thytrader.memory.models import (
@@ -38,12 +44,6 @@ from thytrader.memory.trade_reasons import (
     TradeReasonNoteOrigin,
     TradeReasonOrigin,
     TradeReasonRecord,
-)
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
 )
 
 if TYPE_CHECKING:

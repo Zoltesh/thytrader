@@ -7,14 +7,14 @@ import json
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
+from thytrader.audit_events import (
+    AuditEventCategory,
+    InMemoryAuditEventStore,
+)
 from thytrader.exchanges.ws.market_feed import CoinbaseMarketFeed
 from thytrader.exchanges.ws.models import (
     TickerMessage,
     WebSocketConnectionState,
-)
-from thytrader.persistence.audit_events import (
-    AuditEventCategory,
-    InMemoryAuditEventStore,
 )
 
 

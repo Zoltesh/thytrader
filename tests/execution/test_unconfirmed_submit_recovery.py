@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.execution.test_reconcile import _LookupBroker, _snapshot_with_order
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import BrokerError, SubmitResult
 from thytrader.execution.ids import utc_now, uuid7
@@ -23,7 +24,6 @@ from thytrader.execution.models import (
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.models import Candle
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from datetime import datetime

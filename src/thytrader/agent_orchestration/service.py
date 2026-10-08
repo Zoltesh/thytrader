@@ -13,7 +13,7 @@ from thytrader.agent_orchestration.models import (
     SkippedConfirmationResponse,
     YoloTier,
 )
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
@@ -22,8 +22,8 @@ from thytrader.persistence.audit_events import (
 )
 
 if TYPE_CHECKING:
+    from thytrader.audit_events import AuditEventStore
     from thytrader.config import Settings
-    from thytrader.persistence.audit_events import AuditEventStore
 
 _TIER_CATEGORY: dict[YoloTier, AuditEventCategory] = {
     YoloTier.DATA: AuditEventCategory.MARKET_DATA,

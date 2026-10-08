@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
+from thytrader.audit_events import AuditEventUnavailableError
 from thytrader.execution.entry import split_pending_entry
 from thytrader.execution.models import (
     Deployment,
@@ -32,7 +33,6 @@ from thytrader.operator.models import (
     RiskReport,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
-from thytrader.persistence.audit_events import AuditEventUnavailableError
 from thytrader.risk.models import RiskPolicySource
 from thytrader.risk.store import load_effective_policy
 

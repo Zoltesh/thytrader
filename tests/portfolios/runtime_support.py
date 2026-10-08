@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.portfolios.manager import ProposalService
 from thytrader.portfolios.models import (
     ManagerPermissions,

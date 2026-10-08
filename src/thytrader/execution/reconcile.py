@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError, ClientOrderLookup
 from thytrader.execution.fill_ledger import (
@@ -27,7 +28,6 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.overlay import InstrumentScopedStore, overlay_snapshot
-from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import Broker, SubmitResult

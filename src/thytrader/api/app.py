@@ -47,6 +47,10 @@ from thytrader.api.routes.risk_policy import router as risk_policy_router
 from thytrader.api.routes.security import router as security_router
 from thytrader.api.routes.settings import router as settings_router
 from thytrader.api.routes.strategies import router as strategies_router
+from thytrader.audit_events import (
+    AuditEventStore,
+    DisabledAuditEventStore,
+)
 from thytrader.backtest.submission import (
     BacktestSubmitter,
     DisabledBacktestSubmitter,
@@ -94,10 +98,6 @@ from thytrader.observability.logging import configure_logging
 from thytrader.operator_chat.credentials import OperatorChatCredentialStore
 from thytrader.operator_chat.service import OperatorChatService
 from thytrader.operator_chat.session import OperatorChatSessionStore
-from thytrader.persistence.audit_events import (
-    AuditEventStore,
-    DisabledAuditEventStore,
-)
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkReader,
     DisabledBacktestBenchmarkReader,

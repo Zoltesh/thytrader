@@ -17,6 +17,7 @@ from thytrader.alerts.supervision import (
     gather_safety_findings,
     verified_worker_recovery,
 )
+from thytrader.audit_events import AuditEventOutcome
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.decision_journal import record_gate_skip
@@ -37,7 +38,6 @@ from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFee
 from thytrader.execution_worker.ports import _logger
 from thytrader.execution_worker.windows import _closed_window_for
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.persistence.audit_events import AuditEventOutcome
 from thytrader.strategies.models import lockstep_product_ids
 
 if TYPE_CHECKING:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.market_data.dataset_retention import (
     RetentionReport,
     collect_superseded_datasets,
@@ -18,7 +19,6 @@ from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data_worker.retention import DatasetRetentionRunner
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from pathlib import Path

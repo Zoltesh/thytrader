@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from coinbase.rest import RESTClient
 
 from thytrader.alerts.store import DisabledAlertStore
+from thytrader.audit_events import DisabledAuditEventStore
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
@@ -24,7 +25,6 @@ from thytrader.market_data.watchlist import DisabledMarketDataWatchlistStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.memory.store import DisabledExperientialMemoryStore
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.audit_events import DisabledAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.portfolio_history import DisabledPortfolioHistoryStore

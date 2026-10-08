@@ -15,15 +15,15 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.routes.deployment_models import DeploymentTwinResponse, LinkTwinRequest
 from thytrader.api.routes.deployments import require_deployment_row
-from thytrader.execution.models import ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
-from thytrader.execution.twins import TwinConflictError, TwinValidationError, load_twin_snapshots
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.execution.models import ExecutionStoreError
+from thytrader.execution.store import ExecutionStore
+from thytrader.execution.twins import TwinConflictError, TwinValidationError, load_twin_snapshots
 from thytrader.strategies.snapshots import StrategySnapshotError, StrategySnapshotStore
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])

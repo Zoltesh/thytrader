@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import desc, insert, select
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,

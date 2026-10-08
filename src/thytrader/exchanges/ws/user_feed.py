@@ -12,18 +12,18 @@ from typing import TYPE_CHECKING, Any
 
 import websockets
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.exchanges.ws.market_feed import (
     DEFAULT_HEARTBEAT_TIMEOUT_SECONDS,
     INITIAL_RECONNECT_BACKOFF_SECONDS,
     MAX_RECONNECT_BACKOFF_SECONDS,
 )
 from thytrader.exchanges.ws.models import HeartbeatMessage, WebSocketConnectionState
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Callable

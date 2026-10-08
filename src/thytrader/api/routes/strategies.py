@@ -22,17 +22,17 @@ from thytrader.api.dependencies import (
     get_strategy_store,
 )
 from thytrader.api.strategy_http import strategy_http_error
-from thytrader.backtest.models import BacktestSummary
-from thytrader.execution.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
-from thytrader.execution.store import ExecutionStore
-from thytrader.market_data.models import DatasetTimeframe
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.backtest.models import BacktestSummary
+from thytrader.execution.models import DeploymentMode, DeploymentStatus, ExecutionStoreError
+from thytrader.execution.store import ExecutionStore
+from thytrader.market_data.models import DatasetTimeframe
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.persistence.backtest_results import (
     BacktestResultReader,
     BacktestResultSummaryView,

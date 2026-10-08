@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from tests.execution.decision_support import Catalog, candles, paper_book, strategy
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution import decision_journal
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope, record_gate_skip
@@ -27,7 +28,6 @@ from thytrader.execution_worker.service import (
 )
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from uuid import UUID

@@ -16,6 +16,7 @@ from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.decision_builder import (
     BarContext,
@@ -29,7 +30,6 @@ from thytrader.execution.decisions import (
 )
 from thytrader.execution.ids import utc_now
 from thytrader.market_data.no_trade import is_no_trade_bar
-from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence

@@ -13,6 +13,7 @@ from pydantic import SecretStr
 
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api.app import create_app
+from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.config import Environment, Settings
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.ids import utc_now, uuid7
@@ -31,7 +32,6 @@ from thytrader.execution.models import (
     RuntimePhase,
     with_runtime,
 )
-from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, compiled_default_risk_policy

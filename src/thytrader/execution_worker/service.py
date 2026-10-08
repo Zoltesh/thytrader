@@ -61,6 +61,7 @@ if TYPE_CHECKING:
 
     from thytrader.alerts.models import SupervisionFinding
     from thytrader.alerts.service import AlertService
+    from thytrader.audit_events import AuditEventStore
     from thytrader.execution.broker import Broker
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.models import Deployment, DeploymentSnapshot
@@ -69,7 +70,6 @@ if TYPE_CHECKING:
     from thytrader.execution_worker.venue import ExecutionVenue
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
-    from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.portfolios.store import PortfolioRuntimeStore
     from thytrader.risk.models import RiskPolicyDefinition

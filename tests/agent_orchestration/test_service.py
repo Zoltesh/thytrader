@@ -13,12 +13,12 @@ from thytrader.agent_orchestration.service import (
     orchestration_status,
     record_skipped_confirmation,
 )
-from thytrader.config import Settings
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEventUnavailableError,
     DisabledAuditEventStore,
     InMemoryAuditEventStore,
 )
+from thytrader.config import Settings
 
 
 def test_default_status_is_safe_with_live_hard_gate() -> None:

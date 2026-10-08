@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
+from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.execution.store import DisabledExecutionStore
 from thytrader.memory.models import (
@@ -19,7 +20,6 @@ from thytrader.memory.models import (
 from thytrader.memory.notify import DisabledNotificationSender, RecordingNotificationSender
 from thytrader.memory.service import build_monitor, record_journal, submit_notification
 from thytrader.memory.store import InMemoryExperientialMemoryStore
-from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 
 
 def test_record_journal_persists_origin_and_audits() -> None:

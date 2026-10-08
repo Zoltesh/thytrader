@@ -18,6 +18,11 @@ import logging
 import sys
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+)
 from thytrader.market_data.dataset_retention import (
     DEFAULT_MAX_MANIFESTS_PER_PASS,
     DEFAULT_RETENTION_GRACE,
@@ -26,11 +31,6 @@ from thytrader.market_data.dataset_retention import (
     collect_superseded_datasets,
 )
 from thytrader.market_data.datasets import DatasetStore
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-)
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_dataset_references import PostgresDatasetReferenceSource
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from pathlib import Path
 
-    from thytrader.persistence.audit_events import AuditEventStore
+    from thytrader.audit_events import AuditEventStore
 
 _logger = logging.getLogger(__name__)
 

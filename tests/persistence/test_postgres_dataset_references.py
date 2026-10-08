@@ -11,9 +11,9 @@ from pydantic import SecretStr
 import pytest
 from sqlalchemy import delete
 
+from thytrader.audit_events import AuditEvent, AuditEventCategory, AuditEventOutcome
 from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.worker_state import MarketDataWorkerAttempt, MarketDataWorkerSuccess
-from thytrader.persistence.audit_events import AuditEvent, AuditEventCategory, AuditEventOutcome
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_dataset_references import PostgresDatasetReferenceSource

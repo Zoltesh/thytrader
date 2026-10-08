@@ -6,6 +6,12 @@ from datetime import UTC, datetime, timedelta
 import time
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.data_control.models import (
     DataControlError,
     GapCause,
@@ -35,12 +41,6 @@ from thytrader.market_data.worker_state import (
     MarketDataWorkerUnavailableError,
 )
 from thytrader.market_data_worker.service import fetch_historical_range
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
-)
 
 INSPECT_GAPS_TIME_BUDGET_SECONDS = 8.0
 INSPECT_GAPS_MAX_BARS = 20_000

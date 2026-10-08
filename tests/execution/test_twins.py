@@ -10,12 +10,12 @@ import pytest
 
 from tests.execution.test_fill_comparison import _deployment
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Environment, Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import DeploymentKind, DeploymentMode, DeploymentStatus
 from thytrader.execution.twins import TwinConflictError, TwinValidationError, comparable_twins
 from thytrader.operator.portfolios_report import paper_live_fill_comparisons
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import create_template_strategy, new_strategy_identity
 from thytrader.strategies.library import clone_strategy, create_strategy_from_definition

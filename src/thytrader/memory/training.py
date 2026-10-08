@@ -13,6 +13,12 @@ from hashlib import sha256
 import json
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.execution.ids import utc_now
 from thytrader.memory.evidence import ExperientialEvidenceError
 from thytrader.memory.models import (
@@ -34,12 +40,6 @@ from thytrader.memory.models import (
     SentimentSnapshot,
 )
 from thytrader.memory.store import DisabledExperientialMemoryStore, MemoryStoreError
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

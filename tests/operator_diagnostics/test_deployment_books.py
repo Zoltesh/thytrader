@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
@@ -19,7 +20,6 @@ from thytrader.execution.models import (
 )
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount
