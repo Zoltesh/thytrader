@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Select, desc, func, insert, or_, select
@@ -41,7 +40,7 @@ class PostgresPortfolioHistoryStore:
                     connection_status=portfolio.connection.status,
                     demo=portfolio.demo,
                     total_usd_value=portfolio.total_value.amount,
-                    snapshot=json.dumps(snapshot, ensure_ascii=False),
+                    snapshot=snapshot,
                 )
             )
 
