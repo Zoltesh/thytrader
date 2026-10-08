@@ -110,6 +110,40 @@ If GitNexus and source disagree, source plus executed tests are authoritative; r
 - After meaningful verified work, commit and push to the current branch by default unless the
   user says not to. Do not rebase or rewrite history unless the user explicitly asks.
 
+### 3a. Keep modules cohesive (no god files)
+
+Every module holds one concern. Aim for GitNexus community cohesion as close to 1.0 as possible.
+
+- **Size budget.** Python modules should stay near 600 lines and TS/Svelte near 400. CI enforces
+  hard budgets of 800 and 600 (`tests/test_module_size_budget.py`). Files already over budget
+  are listed in `tests/module_size_allowlist.json` with a ceiling that may only go down. Never
+  raise a ceiling or add an entry: split the module. When a listed file drops within budget,
+  delete its entry.
+- **Check concern spread before adding code to a file.** A file whose symbols belong to many
+  communities mixes concerns:
+
+  ```bash
+  node .gitnexus/run.cjs cypher "MATCH (s)-[r:CodeRelation {type:'MEMBER_OF'}]->(c:Community) WHERE s.filePath = 'src/thytrader/<path>.py' RETURN c.id AS id, c.label AS area, c.cohesion AS cohesion, count(s) AS symbols ORDER BY symbols DESC" --repo .
+  ```
+
+  Put new code in the module that owns the community it joins, or a new module, never the
+  nearest large file. Facades and barrels that only delegate or re-export are exempt.
+- **Do not lower cohesion.** Keep touched communities at or above 0.8 and move them toward 1.0.
+  Find weak spots with:
+
+  ```bash
+  node .gitnexus/run.cjs cypher "MATCH (c:Community) WHERE c.cohesion < 0.8 AND c.symbolCount >= 10 RETURN c.id, c.label, c.cohesion, c.symbolCount ORDER BY c.cohesion" --repo .
+  ```
+
+- **Split move-only.** Splitting a module is its own PR with no logic change. Verify every moved
+  definition is AST-identical, keep old import paths working through explicit `__all__`
+  re-exports, keep imports one-way with no new cycles, and keep logger names unchanged.
+  A monkeypatch only applies in the module that looks a name up: retarget string patches, using
+  `tests/worker_patching.py` / `tests/loop_patching.py` for the worker and loop, and prove they
+  still fire. Re-index GitNexus after the split.
+- **Delete dead code** in the same change that makes it dead. Confirm zero references with
+  GitNexus and a whole-repo text search; an empty caller set alone is not proof.
+
 ### 4. Verify before reporting completion
 
 Run the most targeted tests first, then the full checks. `.github/workflows/ci.yml` runs these on
