@@ -37,7 +37,7 @@ from thytrader.evaluation.models import ResearchRunSpecification
 from thytrader.evaluation.publication import ResearchRunPublicationError
 from thytrader.evaluation.trace import SignalTrace, signal_trace_fingerprint
 from thytrader.persistence.backtest_projections import load_backtest_projections
-from thytrader.persistence.postgres_strategies import snapshot_owner
+from thytrader.persistence.postgres_strategy_snapshots import snapshot_owner
 from thytrader.persistence.schema import published_backtest_results, published_research_run_specs
 
 if TYPE_CHECKING:
