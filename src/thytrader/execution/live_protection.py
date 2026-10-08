@@ -34,7 +34,6 @@ from thytrader.execution.runtime_ops import (
 )
 from thytrader.execution.signals import named_atr
 from thytrader.execution.submit import submit_intent
-from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
 from thytrader.strategies.models import atr_trailing_stop
 from thytrader.trading.geometry import (
     exit_order_side,
@@ -55,6 +54,7 @@ from thytrader.trading.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.trading.trailing import ratcheted_long_stop, ratcheted_short_stop
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

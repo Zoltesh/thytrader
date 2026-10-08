@@ -6,10 +6,6 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.trade_reason_scope import (
-    discretionary_trade_reason_scope,
-    trade_reason_scope,
-)
 from thytrader.execution_worker.live_sizing import _prepare_live
 from thytrader.execution_worker.supervision import (
     _cycle_broker,
@@ -21,6 +17,10 @@ from thytrader.execution_worker.supervision import (
 from thytrader.execution_worker.windows import _closed_window_for, new_closed_bars
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
+from thytrader.memory.trade_reason_scope import (
+    discretionary_trade_reason_scope,
+    trade_reason_scope,
+)
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, with_runtime
 

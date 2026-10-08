@@ -10,9 +10,9 @@ from tests.backtest.test_kernel import _WARMUP, _bars, _run, _strategy
 from tests.execution.test_loop import _always_entry_strategy, _candles, _product, _running_snapshot
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
 from thytrader.exchanges.fees import FeeProfile
-from thytrader.execution.economics import EconomicEntryGuard
 from thytrader.execution.loop import process_closed_bar
 from thytrader.execution.paper import PaperBroker
+from thytrader.trading.economics import EconomicEntryGuard
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, OrderStatus
 

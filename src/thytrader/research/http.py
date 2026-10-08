@@ -11,13 +11,13 @@ from uuid import UUID
 from pydantic import ValidationError
 
 from thytrader.agent_http import AgentHttpError, request_json, request_mutation_json
-from thytrader.execution.economics import EconomicPreflightRequest
 from thytrader.market_data.models import published_execution_timeframe
 from thytrader.memory.models import ExperientialModel
 from thytrader.ops_contract import STALE_IMAGE_REBUILD
 from thytrader.research.campaigns import CampaignStart
 from thytrader.research.mutation import ResearchMutationError
 from thytrader.strategies.library import StrategyOrigin
+from thytrader.trading.economics import EconomicPreflightRequest
 
 if TYPE_CHECKING:
     from thytrader.backtest.submission import BacktestStartRequest

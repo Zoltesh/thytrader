@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from thytrader.execution.sizing import quantize_to_increment
+from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
     from decimal import Decimal

@@ -114,20 +114,24 @@ If GitNexus and source disagree, source plus executed tests are authoritative; r
 
 Every module holds one concern, and every package sits in one architectural layer.
 
-- **Layering.** `tests/package_layers.json` declares the layers, highest first: processes,
-  interfaces (agent CLIs and their loopback clients), services, adapters (persistence and the
-  Coinbase broker), coordination, research, simulation, execution, risk, trading (the
-  broker-neutral deployment, order, fill, ledger and exposure model and the store contract),
-  evaluation (the
-  deterministic run spec, indicators and signal evaluation every mode shares), contracts,
-  platform, market, foundation. A module
-  may import its own layer or lower ones. CI (`tests/test_package_layers.py`) fails on a new
-  upward import, on growth past a recorded ceiling in `allowed_upward_imports`, and on a
-  ceiling left above the current count (lower it; delete it at zero). Same-layer packages may
-  not import each other in a cycle. Fix an upward import by moving the code to the layer
-  that owns it or by inverting the dependency (a protocol in the lower layer, the concrete
-  wired in by a process). Place a new top-level package in a layer before using it. Print
-  the current upward imports with `uv run python -m tests.test_package_layers`.
+- **Layering.** `tests/package_layers.json` declares the layers, highest first:
+  - processes, then interfaces (agent CLIs and their loopback clients), then services;
+  - adapters (PostgreSQL in `persistence`, the Coinbase broker), coordination (alerts, fleet
+    control, portfolios), research, execution (the engine that places orders), memory,
+    simulation (`backtest`), risk;
+  - trading (the broker-neutral deployment, order, fill, ledger, exposure and sizing model and
+    the store contract), evaluation (the deterministic run spec, indicators and signal
+    evaluation every mode shares), contracts (`strategies`, `exchanges`), platform, market,
+    foundation.
+
+  A module may import its own layer or lower ones, and there are no upward imports today.
+  CI (`tests/test_package_layers.py`) fails on any upward import not recorded in
+  `allowed_upward_imports`, which is empty: never add an entry. It also fails on same-layer
+  cycles. Fix an upward import by moving the code to the layer that owns it or by inverting
+  the dependency: the lower package owns a protocol, and a process wires in the concrete
+  store or adapter. Domain packages never import `persistence`. Place a new top-level
+  package in a layer before using it. `uv run python -m tests.test_package_layers` prints
+  any upward imports.
 - **Size budget.** Python modules should stay near 600 lines and TS/Svelte near 400. CI enforces
   hard budgets of 800 and 600 (`tests/test_module_size_budget.py`). Files already over budget
   are listed in `tests/module_size_allowlist.json` with a ceiling that may only go down. Never

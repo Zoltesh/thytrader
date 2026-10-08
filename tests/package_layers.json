@@ -73,7 +73,6 @@
       "components": [
         "alerts",
         "fleet_control",
-        "memory",
         "portfolios"
       ]
     },
@@ -84,15 +83,21 @@
       ]
     },
     {
-      "name": "simulation",
-      "components": [
-        "backtest"
-      ]
-    },
-    {
       "name": "execution",
       "components": [
         "execution"
+      ]
+    },
+    {
+      "name": "memory",
+      "components": [
+        "memory"
+      ]
+    },
+    {
+      "name": "simulation",
+      "components": [
+        "backtest"
       ]
     },
     {
@@ -150,7 +155,5 @@
       ]
     }
   ],
-  "allowed_upward_imports": {
-    "execution -> memory": 3
-  }
+  "allowed_upward_imports": {}
 }

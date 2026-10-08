@@ -5,8 +5,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from thytrader.execution.trade_reason_scope import current_trade_reason_scope
 from thytrader.memory.store import MemoryStoreError
+from thytrader.memory.trade_reason_scope import current_trade_reason_scope
 from thytrader.memory.trade_reasons import (
     TRADE_REASON_SCHEMA_VERSION,
     TradeReasonFillFact,
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from thytrader.execution.trade_reason_scope import TradeReasonScope
     from thytrader.memory.store import ExperientialMemoryStore
+    from thytrader.memory.trade_reason_scope import TradeReasonScope
     from thytrader.trading.models import DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
 

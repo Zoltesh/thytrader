@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from thytrader.execution.trailing import ratcheted_long_stop, ratcheted_short_stop
+from thytrader.trading.trailing import ratcheted_long_stop, ratcheted_short_stop
 
 
 def test_fill_bar_records_extreme_without_raising_stop() -> None:

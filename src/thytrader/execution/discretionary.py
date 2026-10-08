@@ -27,14 +27,13 @@ from thytrader.execution.runtime_ops import (
     _persist_runtime,
     apply_fill,
 )
-from thytrader.execution.sizing import quantize_to_increment
 from thytrader.execution.submit import submit_intent
-from thytrader.execution.trade_reason_scope import (
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
+from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.memory.trade_reason_scope import (
     discretionary_trade_reason_scope,
     trade_reason_scope,
 )
-from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
@@ -69,6 +68,7 @@ from thytrader.trading.models import (
     RuntimePhase,
     with_runtime,
 )
+from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
     from uuid import UUID

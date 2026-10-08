@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from thytrader.backtest.projections import BacktestProjection
 from thytrader.backtest.submission import BacktestStartRequest
-from thytrader.execution.economics import EconomicDecimal
+from thytrader.trading.economics import EconomicDecimal
 
 
 class CampaignModel(BaseModel):

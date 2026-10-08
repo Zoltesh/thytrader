@@ -2,7 +2,7 @@
 
 Strategies declare the guard and execution enforces it, so the declaration lives
 with the strategy model and imports nothing from execution.
-``thytrader.execution.economics`` re-exports these names.
+``thytrader.trading.economics`` re-exports these names.
 """
 
 from decimal import Decimal

@@ -17,7 +17,6 @@ from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.freshness import signal_still_valid
 from thytrader.execution.loop import maintain_open_inventory, process_closed_bar
 from thytrader.execution.stopped import stopped_product_ids, supervise_stopped_deployment
-from thytrader.execution.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
 from thytrader.execution_worker.live_sizing import _currency_available, _prepare_live
 from thytrader.execution_worker.supervision import (
     USER_FEED_PAUSE_DETAIL,
@@ -40,6 +39,7 @@ from thytrader.execution_worker.windows import (
 )
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
+from thytrader.memory.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
 from thytrader.strategies.models import lockstep_product_ids, signal_exit_condition
 from thytrader.trading.geometry import base_currency
 from thytrader.trading.ids import utc_now

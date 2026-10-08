@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from thytrader.execution.trade_reason_scope import TradeReasonScope
 from thytrader.memory.recording import (
     _record_from_submit,
     compose_trade_reasons,
@@ -16,6 +15,7 @@ from thytrader.memory.recording import (
     signal_kind_for,
 )
 from thytrader.memory.store import InMemoryExperientialMemoryStore
+from thytrader.memory.trade_reason_scope import TradeReasonScope
 from thytrader.memory.trade_reasons import (
     TradeReasonNote,
     TradeReasonNoteOrigin,
