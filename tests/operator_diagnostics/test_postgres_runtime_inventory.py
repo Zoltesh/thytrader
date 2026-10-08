@@ -36,10 +36,10 @@ from thytrader.trading.models import (
     RuntimePhase,
 )
 from thytrader.trading.protection import (
-    ProtectionStatus,
     book_protection_evidence,
     missing_occupied_inventory_products,
 )
+from thytrader.trading.protection_models import ProtectionStatus
 
 # Explicit fixture re-exports keep discovery local to this module.
 __all__ = ["anyio_backend", "private_schema"]

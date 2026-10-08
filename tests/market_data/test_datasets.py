@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 import pytest
 
-from thytrader.market_data import datasets as dataset_module
+from thytrader.market_data import dataset_catalog, dataset_verification, datasets as dataset_module
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore, DatasetStoreError
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import CandleQualityError, analyze_range
@@ -906,14 +906,15 @@ def test_dataset_store_latest_listing_skips_superseded_revision_file_lists(
         first.content_fingerprint, _extension_report(datetime.now(UTC))
     )
     resolved: list[str] = []
-    original = dataset_module._safe_dataset_path
+    original = dataset_catalog._safe_dataset_path
 
     def record_resolution(root: Path, relative: str) -> Path:
         """Record safe-path work before delegating to the production validator."""
         resolved.append(relative)
         return original(root, relative)
 
-    monkeypatch.setattr(dataset_module, "_safe_dataset_path", record_resolution)
+    monkeypatch.setattr(dataset_catalog, "_safe_dataset_path", record_resolution)
+    monkeypatch.setattr(dataset_verification, "_safe_dataset_path", record_resolution)
 
     latest = DatasetStore(tmp_path).list_latest_verified()
 
@@ -1151,6 +1152,7 @@ def test_catalog_listing_never_decodes_parquet_rows(
         raise AssertionError("catalog listing must not decode Parquet rows")
 
     monkeypatch.setattr(dataset_module, "_parquet_rows", refuse_rows)
+    monkeypatch.setattr(dataset_verification, "_parquet_rows", refuse_rows)
     latest = DatasetStore(tmp_path).list_latest_verified()
 
     assert [entry.content_fingerprint for entry in latest] == [written.content_fingerprint]
@@ -1194,6 +1196,7 @@ def test_verified_load_is_served_from_cache_only_while_bytes_match(
         return original(file)
 
     monkeypatch.setattr(dataset_module, "_parquet_rows", counting_rows)
+    monkeypatch.setattr(dataset_verification, "_parquet_rows", counting_rows)
     reader = DatasetStore(tmp_path)
 
     first = reader.load_manifest(written.content_fingerprint)
@@ -1233,6 +1236,7 @@ def test_zero_candle_budget_keeps_manifests_but_re_verifies_candle_loads(
         return original(file)
 
     monkeypatch.setattr(dataset_module, "_parquet_rows", counting_rows)
+    monkeypatch.setattr(dataset_verification, "_parquet_rows", counting_rows)
     reader = DatasetStore(tmp_path, candle_cache_budget=0)
 
     reader.load_manifest(written.content_fingerprint)

@@ -7,15 +7,13 @@ mutate an immutable result or grant paper/live trading authority.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
-import re
-from typing import TYPE_CHECKING, Annotated, Literal, Protocol, runtime_checkable
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
 from thytrader.api.dependencies import (
     get_backtest_benchmark_reader,
@@ -34,31 +32,51 @@ from thytrader.api.research_execution import (
     sync_failure,
     wait_for_job,
 )
+from thytrader.api.routes.backtest_explanations import (
+    _explanations_unavailable,
+    _load_explanation_inputs,
+)
+from thytrader.api.routes.backtest_models import (
+    BacktestBenchmarkResponse,
+    BacktestDetailResponse,
+    BacktestErrorResponse,
+    BacktestExportResponse,
+    BacktestListResponse,
+    BacktestMetricsResponse,
+    BacktestSubmissionResponse,
+    BacktestSummaryDetailResponse,
+)
+from thytrader.api.routes.backtest_reads import (
+    _BacktestSourceRunLoader,
+    _bounded_projection,
+    _derived_metrics,
+    _published_source_projection,
+    _stored_diagnostics,
+    _to_summary_response,
+)
+from thytrader.api.routes.backtest_requests import (
+    _FINGERPRINT_PATTERN,
+    _fingerprint_or_none,
+    _list_offset,
+    _require_connected,
+    _trace_unavailable,
+)
 from thytrader.api.strategy_http import snapshot_for_start
-from thytrader.backtest.cost_attribution import BacktestCostAttribution, compute_cost_attribution
+from thytrader.backtest.cost_attribution import compute_cost_attribution
 from thytrader.backtest.metrics import compute_performance_metrics
 from thytrader.backtest.models import (
     BacktestBenchmark,
-    BacktestDiagnostics,
-    BacktestEvaluationWindow,
-    BacktestPerformanceMetrics,
-    BacktestResult,
-    BacktestSummary,
     backtest_benchmark_fingerprint,
-    backtest_evaluation_window,
     backtest_result_fingerprint,
 )
-from thytrader.backtest.projections import BacktestProjection, BacktestProjectionReader
+from thytrader.backtest.projections import BacktestProjectionReader
 from thytrader.backtest.results import (
-    BacktestDiagnosticsReader,
     BacktestResultIntegrityError,
     BacktestResultNotFoundError,
     BacktestResultReader,
-    BacktestResultSummaryView,
     BacktestResultUnavailableError,
 )
 from thytrader.backtest.submission import BacktestStartRequest
-from thytrader.evaluation.models import CostAssumptions, ResearchRunSpecification
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.backtest_benchmarks import (
     BacktestBenchmarkIntegrityError,
@@ -73,7 +91,6 @@ from thytrader.research.bar_explanations import (
     bar_explanation_page,
 )
 from thytrader.research.dataset_binding import (
-    BoundDataset,
     DatasetResolver,
     DatasetsMissingError,
     bind_backtest_datasets,
@@ -85,7 +102,7 @@ from thytrader.research.jobs import (
     ResearchJobStatus,
     ResearchJobStore,
 )
-from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
+from thytrader.research.pagination import encode_offset_cursor
 from thytrader.research.trace_service import (
     SIGNAL_TRACE_PAGE_DEFAULT_LIMIT,
     SIGNAL_TRACE_PAGE_MAX_LIMIT,
@@ -97,224 +114,14 @@ from thytrader.research.trace_service import (
 )
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.library import StrategyStore
-from thytrader.strategies.snapshots import (
-    StrategySnapshotStore,
-)
-
-if TYPE_CHECKING:
-    from thytrader.evaluation.trace import SignalTrace
+from thytrader.strategies.snapshots import StrategySnapshotStore
 
 router = APIRouter(prefix="/api/v1/backtests", tags=["backtests"])
 _logger = logging.getLogger(__name__)
 
-_FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 _BACKTEST_UNAVAILABLE = "Backtest submission is unavailable."
 _MAX_LIMIT = 100
 _BACKTEST_NOT_FOUND_ERRORS = (BacktestBenchmarkNotFoundError, BacktestResultNotFoundError)
-
-
-class BacktestSummaryResponse(BaseModel):
-    """One newest-first immutable result summary safe for browser discovery.
-
-    ``window`` states which bars the result evaluated (ADR 0094); null when its run
-    could not be read.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-    result_fingerprint: str
-    run_fingerprint: str
-    strategy_fingerprint: str
-    strategy_id: UUID | None = None
-    dataset_fingerprint: str
-    published_at: str
-    summary: BacktestSummary
-    window: BacktestEvaluationWindow | None = None
-
-
-class BacktestListResponse(BaseModel):
-    """Bounded page of immutable backtest result summaries."""
-
-    entries: tuple[BacktestSummaryResponse, ...]
-    limit: int
-    offset: int
-    returned: int
-    has_more: bool = False
-    next_cursor: str | None = None
-
-
-class BacktestSubmissionResponse(BaseModel):
-    """Evidence identities of one completed run plus the snapshot and datasets it used.
-
-    ``bound_datasets`` echoes every dataset the run bound, including those the server
-    chose from the catalog because the request omitted them (ADR 0089).
-    """
-
-    run_fingerprint: str
-    result_fingerprint: str
-    strategy_id: UUID
-    strategy_fingerprint: str
-    bound_datasets: tuple[BoundDataset, ...] = ()
-
-
-class BacktestDetailResponse(BaseModel):
-    """One fully reverified immutable simulation result plus published run costs.
-
-    ``diagnostics`` (ADR 0090) is the entry funnel recorded beside the result, or null
-    for results published before it was recorded. ``window`` (ADR 0094) is the evaluated
-    window derived from the source run, outside the fingerprinted result bytes.
-    """
-
-    model_config = ConfigDict(from_attributes=True)
-    result: BacktestResult
-    result_fingerprint: str
-    costs: CostAssumptions | None = None
-    metrics: BacktestPerformanceMetrics | None = None
-    cost_attribution: BacktestCostAttribution | None = None
-    diagnostics: BacktestDiagnostics | None = None
-    window: BacktestEvaluationWindow | None = None
-
-
-class BacktestSummaryDetailResponse(BacktestProjection):
-    """Bounded backtest projection without trades or equity curves.
-
-    ``window`` names the evaluated bars (evaluation_start/end, warmup_bars, first and
-    last evaluated bar), derived from the source run at read time (ADR 0094).
-    """
-
-
-class BacktestMetricsResponse(BaseModel):
-    """One derived ratio-metrics report keyed by result fingerprint."""
-
-    metrics: BacktestPerformanceMetrics
-    result_fingerprint: str
-
-
-class BacktestExportResponse(BaseModel):
-    """One cursor page of small research projections without full simulation ledgers."""
-
-    entries: tuple[BacktestSummaryDetailResponse, ...]
-    returned: int
-    has_more: bool
-    next_cursor: str | None = None
-
-
-async def _bounded_projection(
-    store: BacktestResultReader,
-    result_fingerprint: str,
-    detail: Literal["summary", "full"],
-) -> BacktestSummaryDetailResponse | None:
-    """Use the bounded capability when available; retain verified legacy-store behavior."""
-    if detail != "summary" or not isinstance(store, BacktestProjectionReader):
-        return None
-    projection = (await store.load_projections((result_fingerprint,)))[0]
-    if projection.result_fingerprint != result_fingerprint:
-        raise BacktestResultIntegrityError("Projection returned a different result identity.")
-    return BacktestSummaryDetailResponse.model_validate(projection.model_dump(mode="python"))
-
-
-class BacktestBenchmarkResponse(BaseModel):
-    """One deterministic buy-and-hold comparison derived from an immutable result."""
-
-    benchmark: BacktestBenchmark
-    result_fingerprint: str
-
-
-class BacktestErrorDetail(BaseModel):
-    """Stable redacted response for backtest-result read failures."""
-
-    code: Literal[
-        "backtests_unavailable",
-        "backtest_not_found",
-        "backtest_invalid",
-        "signal_trace_unavailable",
-    ]
-    message: str
-
-
-class BacktestErrorResponse(BaseModel):
-    """FastAPI-compatible error envelope for backtest-result failures."""
-
-    detail: BacktestErrorDetail
-
-
-@runtime_checkable
-class _BacktestSourceRunLoader(Protocol):
-    """Optional store capability used only to project published cost assumptions."""
-
-    async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
-        """Return the verified source run for one loaded result."""
-        ...
-
-
-async def _stored_diagnostics(
-    store: BacktestResultReader, result_fingerprint: str
-) -> BacktestDiagnostics | None:
-    """Best-effort diagnostics: they explain a result and must never hide it."""
-    if not isinstance(store, BacktestDiagnosticsReader):
-        return None
-    try:
-        return await store.load_diagnostics(result_fingerprint)
-    except Exception as error:  # noqa: BLE001 - diagnostics are advisory evidence only.
-        _logger.warning("Backtest diagnostics unavailable: %s", type(error).__name__)
-        return None
-
-
-async def _published_source_projection(
-    store: BacktestResultReader,
-    result: BacktestResult,
-) -> tuple[CostAssumptions | None, BacktestEvaluationWindow | None]:
-    """Copy source-run costs and the evaluated window onto the HTTP wrapper.
-
-    Neither is part of the result bytes, so result identity is unchanged (ADR 0094).
-    """
-    if not isinstance(store, _BacktestSourceRunLoader):
-        return None, None
-    specification = await store.load_source_specification(result)
-    costs = CostAssumptions.model_validate(specification.costs.model_dump(mode="python"))
-    try:
-        window = backtest_evaluation_window(specification, result.summary.evaluation_bars)
-    except ValueError:
-        window = None
-    return costs, window
-
-
-def _raise_client_disconnected() -> None:
-    """Stop building a large backtest payload after the client disconnects."""
-    raise HTTPException(
-        status_code=status.HTTP_499_CLIENT_CLOSED_REQUEST,
-        detail={"code": "backtest_invalid", "message": "Client disconnected."},
-    )
-
-
-async def _require_connected(http_request: Request) -> None:
-    """Avoid fetching further evidence after the requesting client disconnects."""
-    if await http_request.is_disconnected():
-        _raise_client_disconnected()
-
-
-def _fingerprint_or_none(value: str | None) -> str | None:
-    """Validate one optional fingerprint filter, rejecting malformed identities."""
-    if value is None:
-        return None
-    if _FINGERPRINT_PATTERN.fullmatch(value) is None:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "backtest_invalid", "message": "Fingerprint filter is malformed."},
-        )
-    return value
-
-
-def _list_offset(*, offset: int, cursor: str | None) -> int:
-    """Prefer an opaque cursor when present; otherwise use the numeric offset."""
-    if cursor is None:
-        return offset
-    try:
-        return decode_offset_cursor(cursor)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "backtest_invalid", "message": "Pagination cursor is malformed."},
-        ) from None
 
 
 @router.post(
@@ -811,14 +618,6 @@ async def get_backtest_signal_trace(
     )
 
 
-def _trace_unavailable(message: str) -> HTTPException:
-    """Build the 503 envelope for a trace that could not be re-evaluated or verified."""
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail={"code": "signal_trace_unavailable", "message": message},
-    )
-
-
 @router.get(
     "/{result_fingerprint}/bar-explanations",
     response_model=BacktestBarExplanationPage,
@@ -863,120 +662,4 @@ async def get_backtest_bar_explanations(
         offset=offset,
         result_fingerprint=result_fingerprint,
         next_cursor_for=encode_offset_cursor,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class _ExplanationInputs:
-    """Verified trace, immutable result, and derived window for one explanation page."""
-
-    trace: SignalTrace
-    result: BacktestResult
-    window: BacktestEvaluationWindow
-    product_id: str
-
-
-async def _load_explanation_inputs(
-    store: BacktestResultReader,
-    snapshots: StrategySnapshotStore,
-    datasets: DatasetStore,
-    result_fingerprint: str,
-) -> _ExplanationInputs:
-    """Load and verify one result's trace; map store faults to redacted HTTP errors."""
-    try:
-        return await _verified_explanation_inputs(
-            _explanation_store(store), snapshots, datasets, result_fingerprint
-        )
-    except BacktestResultNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={"code": "backtest_not_found", "message": "Backtest result was not found."},
-        ) from None
-    except SignalTraceMismatchError as error:
-        raise _explanations_unavailable(str(error)) from None
-    except Exception as error:  # noqa: BLE001 - redacted boundary for store/dataset faults.
-        _logger.warning("Backtest bar explanations failed: %s", type(error).__name__)
-        raise _explanations_unavailable(
-            "The run's strategy snapshot or verified datasets could not be loaded."
-        ) from None
-
-
-@runtime_checkable
-class _ExplanationStore(Protocol):
-    """A result reader that can also load the verified source run."""
-
-    async def load(self, result_fingerprint: str) -> BacktestResult:
-        """Load one immutable result."""
-        ...
-
-    async def load_source_specification(self, result: BacktestResult) -> ResearchRunSpecification:
-        """Return the verified source run for one loaded result."""
-        ...
-
-
-def _explanation_store(store: BacktestResultReader) -> _ExplanationStore:
-    """Narrow a result reader that can also load its source run."""
-    if isinstance(store, _ExplanationStore):
-        return store
-    raise BacktestResultUnavailableError("Published research runs are unavailable.")
-
-
-async def _verified_explanation_inputs(
-    store: _ExplanationStore,
-    snapshots: StrategySnapshotStore,
-    datasets: DatasetStore,
-    result_fingerprint: str,
-) -> _ExplanationInputs:
-    """Re-evaluate the trace and reject a result whose identity does not match."""
-    result = await store.load(result_fingerprint)
-    _require_result_identity(result, result_fingerprint)
-    specification = await store.load_source_specification(result)
-    evaluated = await evaluate_result_signal_trace(
-        result,
-        specification=specification,
-        strategy_store=snapshots,
-        dataset_store=datasets,
-    )
-    return _ExplanationInputs(
-        trace=evaluated.trace,
-        result=result,
-        window=backtest_evaluation_window(specification, result.summary.evaluation_bars),
-        product_id=evaluated.product_id,
-    )
-
-
-def _require_result_identity(result: BacktestResult, result_fingerprint: str) -> None:
-    """Refuse a store that returns a different result than the one requested."""
-    if backtest_result_fingerprint(result) != result_fingerprint:
-        _logger.warning("Backtest bar explanations returned mismatched result identity")
-        raise BacktestResultIntegrityError("Backtest result identity does not match.")
-
-
-def _explanations_unavailable(message: str) -> HTTPException:
-    """Build the 503 envelope for bar explanations that could not be verified."""
-    return HTTPException(
-        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail={"code": "bar_explanations_unavailable", "message": message},
-    )
-
-
-def _derived_metrics(result: BacktestResult) -> BacktestPerformanceMetrics | None:
-    """Best-effort derived metrics; a failure must not hide the canonical result."""
-    try:
-        return compute_performance_metrics(result)
-    except TypeError, ValueError:
-        return None
-
-
-def _to_summary_response(entry: BacktestResultSummaryView) -> BacktestSummaryResponse:
-    """Map one discovery view into its browser-safe response."""
-    return BacktestSummaryResponse(
-        result_fingerprint=entry.result_fingerprint,
-        run_fingerprint=entry.run_fingerprint,
-        strategy_fingerprint=entry.strategy_fingerprint,
-        strategy_id=None if entry.strategy_id is None else UUID(entry.strategy_id),
-        dataset_fingerprint=entry.dataset_fingerprint,
-        published_at=entry.published_at.isoformat().replace("+00:00", "Z"),
-        summary=entry.summary,
-        window=entry.window,
     )

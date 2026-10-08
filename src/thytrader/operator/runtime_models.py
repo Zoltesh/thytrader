@@ -21,7 +21,7 @@ from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.research.catalog import StudyCatalogSummary
-from thytrader.trading.protection import ProtectionEvidenceResponse
+from thytrader.trading.protection_models import ProtectionEvidenceResponse
 
 
 class StrategySummary(_FrozenModel):

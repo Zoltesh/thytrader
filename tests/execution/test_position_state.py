@@ -33,12 +33,12 @@ from thytrader.trading.models import (
     RuntimePhase,
 )
 from thytrader.trading.protection import (
-    PositionState,
     book_exit_in_flight,
     book_position_state,
     deployment_exit_in_flight,
     deployment_position_state,
 )
+from thytrader.trading.protection_models import PositionState
 
 _NOW = datetime(2026, 10, 1, 12, tzinfo=UTC)
 

@@ -12,11 +12,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution_worker import (
+    bar_journal,
+    between_bars,
     discretionary_step,
     live_sizing,
+    lockstep_step,
     ports,
     service,
+    stopped_step,
     strategy_step,
+    strategy_step_common,
     supervision,
     windows,
 )
@@ -33,6 +38,11 @@ WORKER_CYCLE_MODULES: tuple[ModuleType, ...] = (
     supervision,
     live_sizing,
     strategy_step,
+    strategy_step_common,
+    lockstep_step,
+    between_bars,
+    bar_journal,
+    stopped_step,
     discretionary_step,
 )
 

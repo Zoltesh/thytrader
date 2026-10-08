@@ -47,11 +47,8 @@ from thytrader.trading.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.trading.protection import (
-    ProtectionStatus,
-    book_protection_evidence,
-    book_protection_status,
-)
+from thytrader.trading.protection import book_protection_evidence, book_protection_status
+from thytrader.trading.protection_models import ProtectionStatus
 from thytrader.trading.sizing import SizedEntry
 
 if TYPE_CHECKING:
