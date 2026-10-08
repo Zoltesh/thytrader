@@ -27,12 +27,11 @@ from thytrader.trading.models import (
     RuntimePhase,
 )
 from thytrader.trading.protection import (
-    PositionState,
-    ProtectionStatus,
     book_position_state,
     book_protection_status,
     working_order_count,
 )
+from thytrader.trading.protection_models import PositionState, ProtectionStatus
 
 
 def _at() -> datetime:

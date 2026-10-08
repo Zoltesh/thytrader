@@ -54,13 +54,12 @@ from thytrader.trading.models import (
 )
 from thytrader.trading.overlay import InstrumentScopedStore
 from thytrader.trading.protection import (
-    PositionState,
-    ProtectionStatus,
     book_position_state,
     book_protection_evidence,
     deployment_position_state,
     protection_evidence_response,
 )
+from thytrader.trading.protection_models import PositionState, ProtectionStatus
 
 if TYPE_CHECKING:
     from uuid import UUID

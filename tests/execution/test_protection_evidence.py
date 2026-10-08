@@ -31,12 +31,8 @@ from thytrader.trading.models import (
     PositionSide,
     RuntimePhase,
 )
-from thytrader.trading.protection import (
-    ProtectionEvidence,
-    ProtectionStatus,
-    book_protection_evidence,
-    book_protection_status,
-)
+from thytrader.trading.protection import book_protection_evidence, book_protection_status
+from thytrader.trading.protection_models import ProtectionEvidence, ProtectionStatus
 
 _NOW = datetime(2026, 9, 16, 12, tzinfo=UTC)
 

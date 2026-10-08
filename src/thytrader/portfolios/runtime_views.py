@@ -37,14 +37,13 @@ from thytrader.trading.models import (
     snapshot_positions,
 )
 from thytrader.trading.protection import (
-    PositionState,
-    ProtectionEvidenceResponse,
     book_inventory_reasons,
     book_position_state,
     book_protection_evidence,
     deployment_position_state,
     protection_evidence_response,
 )
+from thytrader.trading.protection_models import PositionState, ProtectionEvidenceResponse
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

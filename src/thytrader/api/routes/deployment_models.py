@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
 from thytrader.trading.day_open import DailyOpeningEvidence
 from thytrader.trading.models import DeploymentMode
-from thytrader.trading.protection import ProtectionEvidenceResponse
+from thytrader.trading.protection_models import ProtectionEvidenceResponse
 from thytrader.trading.twins import DeploymentTwinLink
 
 

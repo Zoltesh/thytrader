@@ -25,7 +25,6 @@ from thytrader.trading.models import (
     visible_instrument_runtimes,
 )
 from thytrader.trading.protection import (
-    PositionState,
     book_exit_in_flight,
     book_position_state,
     book_protection_evidence,
@@ -33,6 +32,7 @@ from thytrader.trading.protection import (
     protection_evidence_response,
     working_order_count,
 )
+from thytrader.trading.protection_models import PositionState
 
 if TYPE_CHECKING:
     from decimal import Decimal

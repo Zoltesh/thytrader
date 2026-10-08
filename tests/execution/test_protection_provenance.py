@@ -19,11 +19,8 @@ from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.trading import protection
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentSnapshot, OrderKind, OrderStatus, PositionSide
-from thytrader.trading.protection import (
-    LOCAL_EVIDENCE_MAX_AGE,
-    ProtectionStatus,
-    book_protection_evidence,
-)
+from thytrader.trading.protection import book_protection_evidence
+from thytrader.trading.protection_models import LOCAL_EVIDENCE_MAX_AGE, ProtectionStatus
 
 
 @pytest.fixture(autouse=True)

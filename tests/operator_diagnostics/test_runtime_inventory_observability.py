@@ -42,12 +42,11 @@ from thytrader.trading.models import (
     RuntimePhase,
 )
 from thytrader.trading.protection import (
-    PositionState,
-    ProtectionStatus,
     book_protection_evidence,
     deployment_position_state,
     missing_occupied_inventory_products,
 )
+from thytrader.trading.protection_models import PositionState, ProtectionStatus
 
 pytestmark = pytest.mark.anyio
 

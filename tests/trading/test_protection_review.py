@@ -23,11 +23,11 @@ from thytrader.trading.models import (
     OrderStatus,
     PositionSide,
 )
-from thytrader.trading.protection import (
+from thytrader.trading.protection import book_protection_evidence, protection_evidence_response
+from thytrader.trading.protection_models import (
     LOCAL_EVIDENCE_MAX_AGE,
+    ProtectionEvidenceResponse,
     ProtectionStatus,
-    book_protection_evidence,
-    protection_evidence_response,
 )
 
 
@@ -313,8 +313,6 @@ def test_strict_evidence_response_rejects_extra_and_nondecimal_quantities() -> N
     ).model_dump()
     for value in ("NaN", "-1", "1e3", 1.5):
         with pytest.raises(ValidationError):
-            protection.ProtectionEvidenceResponse.model_validate(
-                {**payload, "covered_quantity": value}
-            )
+            ProtectionEvidenceResponse.model_validate({**payload, "covered_quantity": value})
     with pytest.raises(ValidationError):
-        protection.ProtectionEvidenceResponse.model_validate({**payload, "not_a_field": True})
+        ProtectionEvidenceResponse.model_validate({**payload, "not_a_field": True})

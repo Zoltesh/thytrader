@@ -15,15 +15,14 @@ from thytrader.execution.decision_journal import (
     prune_decisions,
 )
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
+from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
+from thytrader.execution_worker.stopped_step import _process_stopped, _stopped_strategy_definition
 from thytrader.execution_worker.strategy_step import (
     _advance_strategy,
     _advance_strategy_ready,
-    _journaled_bar,
-    _process_stopped,
-    _stopped_strategy_definition,
     _strategy_definition,
 )
 from thytrader.execution_worker.supervision import (
