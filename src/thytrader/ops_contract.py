@@ -82,7 +82,7 @@ from thytrader.portfolios.models import (
     PORTFOLIO_MODES,
 )
 from thytrader.portfolios.proposals import PROPOSAL_KINDS
-from thytrader.research.parameter_sweep import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
+from thytrader.research.sweep_axes import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
 from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 
 if TYPE_CHECKING:

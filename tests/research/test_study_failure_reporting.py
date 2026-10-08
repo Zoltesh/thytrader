@@ -24,13 +24,13 @@ from thytrader.research.jobs import (
     ResearchJobStatus,
     run_study_job,
 )
-from thytrader.research.parameter_sweep import ParameterAxis
 from thytrader.research.studies import (
     ResearchStudyError,
     ResearchStudyRequest,
     ResearchStudyService,
     StudyKind,
 )
+from thytrader.research.sweep_axes import ParameterAxis
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import (
     StrategySnapshot,

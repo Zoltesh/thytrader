@@ -23,7 +23,7 @@ from thytrader.backtest.submission import (
 from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetManifest, DatasetStore
 from thytrader.research.catalog import InMemoryResearchStudyCatalog
-from thytrader.research.http import find_study_by_request
+from thytrader.research.http_studies import find_study_by_request
 from thytrader.research.jobs import ResearchExecutionMode
 from thytrader.research.studies import (
     ASYNC_STUDY_BUDGET,
@@ -507,7 +507,7 @@ def test_find_study_by_request_reads_back_through_the_real_route() -> None:
             return payload
 
         with patch(
-            "thytrader.research.http.request_json",
+            "thytrader.research.http_studies.request_json",
             side_effect=route_through_test_client,
         ):
             row = json.loads(find_study_by_request("http://127.0.0.1:8000", request_fp))

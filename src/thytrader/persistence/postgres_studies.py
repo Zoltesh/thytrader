@@ -24,7 +24,7 @@ from thytrader.research.catalog import (
     StudyCatalogSummary,
     StudyCatalogUnavailableError,
 )
-from thytrader.research.parameter_sweep import SelectionMetric
+from thytrader.research.sweep_selection import SelectionMetric
 
 if TYPE_CHECKING:
     from uuid import UUID

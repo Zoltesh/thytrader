@@ -25,14 +25,9 @@ from thytrader.backtest.submission import (
     BacktestSubmitter,
 )
 from thytrader.research.dataset_binding import BoundDataset
-from thytrader.research.studies import (
-    ResearchStudyError,
-    ResearchStudyRequest,
-    StudyBudgetError,
-    StudyFailedPhase,
-    StudyPlanningError,
-    plan_fingerprint,
-)
+from thytrader.research.studies import ResearchStudyError, ResearchStudyRequest, StudyFailedPhase
+from thytrader.research.study_identity import plan_fingerprint
+from thytrader.research.study_planning import StudyBudgetError, StudyPlanningError
 
 if TYPE_CHECKING:
     from thytrader.research.studies import ResearchStudyService

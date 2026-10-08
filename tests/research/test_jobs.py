@@ -17,12 +17,9 @@ from thytrader.research.jobs import (
     ResearchJobStatus,
     run_backtest_job,
 )
-from thytrader.research.studies import (
-    ResearchStudyPlan,
-    StudyKind,
-    plan_fingerprint,
-    summarize_research_study_plan,
-)
+from thytrader.research.studies import ResearchStudyPlan, StudyKind
+from thytrader.research.study_identity import plan_fingerprint
+from thytrader.research.study_summaries import summarize_research_study_plan
 
 _STRATEGY_ID = UUID("01985cf0-7b60-7000-8000-00000000abcd")
 

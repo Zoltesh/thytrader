@@ -14,9 +14,10 @@ from thytrader.backtest.submission import (
 )
 from thytrader.evaluation.models import json_number_as_decimal_text
 from thytrader.portfolios.backtest import PortfolioBacktestRequest
-from thytrader.research.parameter_sweep import ParameterAxis
-from thytrader.research.studies import ResearchStudyRequest, request_fingerprint
+from thytrader.research.studies import ResearchStudyRequest
+from thytrader.research.study_identity import request_fingerprint
 from thytrader.research.study_start import ResearchStudyStartRequest
+from thytrader.research.sweep_axes import ParameterAxis
 
 _STRATEGY_ID = UUID("0199aaaa-aaaa-7aaa-aaaa-aaaaaaaaaaaa")
 _STRATEGY = "sha256:" + "a" * 64

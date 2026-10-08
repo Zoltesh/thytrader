@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 
 from thytrader.agent_http import AgentHttpError
-from thytrader.research.http import (
+from thytrader.research.http_studies import (
     ASYNC_SUBMIT_TIMEOUT_SECONDS,
     _ambiguous_study_error,
     find_study_by_request,
@@ -113,7 +113,7 @@ def test_find_study_by_request_returns_matching_row() -> None:
         assert "limit=100" in url
         return catalog
 
-    with patch("thytrader.research.http.request_json", side_effect=fake_request_json):
+    with patch("thytrader.research.http_studies.request_json", side_effect=fake_request_json):
         payload = json.loads(find_study_by_request("http://127.0.0.1:8000", "sha256:" + "r" * 64))
     assert payload["study_fingerprint"] == fingerprint
 
@@ -127,7 +127,7 @@ def test_find_study_by_request_fails_closed_when_absent() -> None:
         return catalog
 
     with (
-        patch("thytrader.research.http.request_json", side_effect=fake_request_json),
+        patch("thytrader.research.http_studies.request_json", side_effect=fake_request_json),
         pytest.raises(Exception, match="No persisted study exists"),
     ):
         find_study_by_request("http://127.0.0.1:8000", "sha256:" + "r" * 64)
@@ -151,7 +151,7 @@ def _submit_timeout(*, async_submission: bool, timeout_seconds: float | None = N
         seen.append(timeout)
         return {"job_id": "job-1", "status": "queued"}
 
-    with patch("thytrader.research.http.request_mutation_json", side_effect=fake_mutation):
+    with patch("thytrader.research.http_studies.request_mutation_json", side_effect=fake_mutation):
         submit_study(
             "http://127.0.0.1:8000",
             _study_request(),

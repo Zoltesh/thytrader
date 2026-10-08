@@ -9,7 +9,7 @@ from pydantic import SecretStr
 
 from thytrader.api.app import create_app
 from thytrader.config import Environment, Settings
-from thytrader.research.http import economics
+from thytrader.research.http_campaigns import economics
 
 if TYPE_CHECKING:
     from urllib.request import Request
