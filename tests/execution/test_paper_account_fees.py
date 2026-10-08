@@ -19,7 +19,7 @@ from thytrader.execution.paper_fees import (
 from thytrader.execution.service import create_deployment
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
-from thytrader.portfolios.models import PortfolioConflictError
+from thytrader.portfolios.errors import PortfolioConflictError
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode

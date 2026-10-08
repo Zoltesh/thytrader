@@ -39,20 +39,19 @@ from pydantic import (
 )
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.portfolios.models import (
+from thytrader.portfolios.errors import PortfolioValidationError
+from thytrader.portfolios.models import PortfolioAggregate, WeightAssignment, require_utc, utc_text
+from thytrader.portfolios.values import (
+    ReserveFractionText,
+    RevisionNumber,
+    SleeveNoteText,
+    WeightFractionText,
+)
+from thytrader.portfolios.vocabulary import (
     MAX_RATIONALE_LENGTH,
     MAX_SLEEVES,
     MAX_SUMMARY_LENGTH,
     JournalChannel,
-    PortfolioAggregate,
-    PortfolioValidationError,
-    ReserveFractionText,
-    RevisionNumber,
-    SleeveNoteText,
-    WeightAssignment,
-    WeightFractionText,
-    require_utc,
-    utc_text,
 )
 
 if TYPE_CHECKING:

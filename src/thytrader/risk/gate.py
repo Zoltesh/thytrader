@@ -1,12 +1,18 @@
-"""Pre-trade risk checks for deployments and entries."""
+"""Pre-trade risk checks for deployments and entries.
+
+The gate admits new deployments and risk-increasing entries and composes the policy's
+checks in a fixed order: membership and slots (``entry_limits``), a sleeve's portfolio
+limits (``portfolio_limits``), optional per-order bounds (``order_bounds``), account
+exposure, unresolved accounting, then the circuit breakers, rate, and collar gates. It
+gates entries only, never protective exits.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.market_data.products import base_currency, is_spot_product_id, quote_currency
+from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.risk.breakers import (
     EntryObservation,
     evaluate_circuit_breakers,
@@ -14,6 +20,16 @@ from thytrader.risk.breakers import (
     quote_scoped_snapshots,
     unresolved_accounting_verdict,
 )
+from thytrader.risk.entry_limits import (
+    _allocation_for,
+    _allocation_membership,
+    _allowlist_verdict,
+    _capital_base,
+    _entry_membership,
+    _exposure_verdict,
+    _occupied,
+)
+from thytrader.risk.gate_common import ProposedEntry, _allow, _deny
 from thytrader.risk.models import (
     RiskDecision,
     RiskPolicyDefinition,
@@ -21,74 +37,15 @@ from thytrader.risk.models import (
     RiskReasonCode,
     RiskVerdict,
 )
-from thytrader.trading.exposure import (
-    product_exposure,
-    risk_bearing_snapshots,
-    working_entry_notional,
-)
-from thytrader.trading.ledger import effective_paper_fee_rates
+from thytrader.risk.order_bounds import _order_bound_verdict
+from thytrader.risk.portfolio_limits import PortfolioRiskBook, evaluate_portfolio_entry
+from thytrader.trading.exposure import risk_bearing_snapshots
 from thytrader.trading.lifecycle import occupies_running_slot
-from thytrader.trading.models import (
-    Deployment,
-    DeploymentMode,
-    DeploymentSnapshot,
-    OrderSide,
-    OrderStatus,
-    PositionSide,
-    RuntimePhase,
-    resolved_product_id,
-    snapshot_positions,
-)
+from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnapshot
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
     from uuid import UUID
-
-_IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
-
-
-@dataclass(frozen=True, slots=True)
-class ProposedEntry:
-    """One sized entry the runtime wants to rest after a matched closed bar."""
-
-    product_id: str
-    strategy_id: UUID | None
-    notional: Decimal
-    is_pyramid_add: bool = False
-    quantity: Decimal | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class PortfolioRiskBook:
-    """One deployed portfolio's shared limits as the entry gate applies them (ADR 0091).
-
-    Bound by the execution worker for every deployment tagged with a ``portfolio_id``.
-    Exposure caps are fractions of the portfolio's ``capital`` (its configured
-    ``capital_quote``) and count every risk-bearing deployment of the same portfolio.
-    ``breaker_reason`` names a latched portfolio breaker (entries stay blocked until an
-    operator reset). ``available=False`` means the worker could not load the portfolio's
-    limits, so its sleeves fail closed. ``live`` marks a live portfolio, whose sleeve
-    allocations count as risk-policy allocation membership for its own deployments.
-    """
-
-    portfolio_id: UUID
-    capital: Decimal
-    max_total_exposure_fraction: Decimal
-    max_per_asset_fraction: Decimal
-    live: bool = False
-    breaker_reason: RiskReasonCode | None = None
-    available: bool = True
-
-    @classmethod
-    def unavailable(cls, portfolio_id: UUID) -> PortfolioRiskBook:
-        """A fail-closed book for a sleeve whose portfolio limits could not be read."""
-        return cls(
-            portfolio_id=portfolio_id,
-            capital=Decimal("0"),
-            max_total_exposure_fraction=Decimal("0"),
-            max_per_asset_fraction=Decimal("0"),
-            available=False,
-        )
 
 
 def evaluate_new_deployment(
@@ -255,301 +212,6 @@ def evaluate_runtime_breakers(
     return tripped
 
 
-def evaluate_portfolio_entry(
-    book: PortfolioRiskBook,
-    *,
-    proposed: ProposedEntry,
-    snapshots: Sequence[DeploymentSnapshot],
-) -> RiskVerdict:
-    """Apply one portfolio's latched breaker and exposure caps to a sleeve's entry.
-
-    ``snapshots`` are the mode's risk-bearing books; only deployments tagged with this
-    portfolio count. Total exposure is every sleeve's position value at entry price plus
-    working entry remainders; per-asset exposure sums every product of the proposed
-    base asset.
-    """
-    if not book.available:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
-            "Portfolio limits could not be loaded; new entries for its sleeves are blocked.",
-        )
-    if book.breaker_reason is not None:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_BREAKER_LATCHED,
-            f"Portfolio breaker {book.breaker_reason.value} is latched until an operator "
-            "resets it.",
-        )
-    exposure = portfolio_exposure(book.portfolio_id, snapshots)
-    total_cap = book.capital * book.max_total_exposure_fraction
-    if exposure.total + proposed.notional > total_cap:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_TOTAL_EXPOSURE_LIMIT,
-            f"Entry of {_quote(proposed.notional)} would take the portfolio's exposure from "
-            f"{_quote(exposure.total)} above its cap of {_quote(total_cap)} "
-            "(max_total_exposure_fraction times capital).",
-        )
-    asset = asset_of(proposed.product_id)
-    held = exposure.assets.get(asset, Decimal("0"))
-    asset_cap = book.capital * book.max_per_asset_fraction
-    if held + proposed.notional > asset_cap:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_ASSET_EXPOSURE_LIMIT,
-            f"Entry of {_quote(proposed.notional)} would take the portfolio's {asset} "
-            f"exposure from {_quote(held)} above its cap of {_quote(asset_cap)} "
-            "(max_per_asset_fraction times capital).",
-        )
-    return _allow()
-
-
-@dataclass(frozen=True, slots=True)
-class PortfolioExposure:
-    """One portfolio's exposure as the entry gate counts it: total and per base asset."""
-
-    total: Decimal
-    assets: Mapping[str, Decimal]
-
-
-def portfolio_exposure(
-    portfolio_id: UUID, snapshots: Sequence[DeploymentSnapshot]
-) -> PortfolioExposure:
-    """Position cost plus working entries of every book tagged with this portfolio."""
-    members = tuple(item for item in snapshots if item.deployment.portfolio_id == portfolio_id)
-    total = sum((_marked_exposure(item) for item in members), Decimal("0"))
-    assets: dict[str, Decimal] = {}
-    for item in members:
-        for asset in sorted({asset_of(product) for product in _book_products(item)}):
-            assets[asset] = assets.get(asset, Decimal("0")) + _asset_exposure(item, asset)
-    return PortfolioExposure(total=total, assets=assets)
-
-
-def asset_of(product_id: str) -> str:
-    """Base asset of one spot product (the whole id when it is not a spot pair)."""
-    return base_currency(product_id) if is_spot_product_id(product_id) else product_id
-
-
-def _book_products(snapshot: DeploymentSnapshot) -> set[str]:
-    """Every product a book holds, works, or runs (its primary product included)."""
-    products = {snapshot.deployment.product_id}
-    products.update(
-        resolved_product_id(position.product_id, snapshot.deployment)
-        for position in snapshot_positions(snapshot)
-    )
-    products.update(runtime.product_id for runtime in snapshot.instrument_runtimes)
-    products.update(
-        resolved_product_id(order.product_id, snapshot.deployment) for order in snapshot.orders
-    )
-    return {product for product in products if product}
-
-
-def _asset_exposure(snapshot: DeploymentSnapshot, asset: str) -> Decimal:
-    """Position cost plus working entry remainders on every product of one base asset."""
-    return sum(
-        (
-            product_exposure(snapshot, product)
-            for product in sorted(_book_products(snapshot))
-            if asset_of(product) == asset
-        ),
-        Decimal("0"),
-    )
-
-
-def _quote(amount: Decimal) -> str:
-    """Render a quote amount for a verdict detail (two decimals, no exponent)."""
-    return f"{amount.quantize(Decimal('0.01')):f}"
-
-
-def _order_bound_verdict(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
-    live_quote_cash: Decimal | None,
-) -> RiskVerdict | None:
-    """Apply optional quantity, notional, and balance-reserve caps when published.
-
-    Unset fields are absent from compiled and legacy policy bytes and do not deny.
-    """
-    quantity = _quantity_bound(policy, proposed)
-    if quantity is not None:
-        return quantity
-    monetary_bound = (
-        policy.max_order_notional_quote is not None
-        or policy.min_available_quote_reserve is not None
-    )
-    if monetary_bound and quote_currency(proposed.product_id) != policy.quote_currency:
-        return _deny(
-            RiskReasonCode.BREAKER_MARK_MISSING,
-            "Optional quote bounds cannot be applied to a different quote currency: "
-            f"policy={policy.quote_currency}, product={proposed.product_id}.",
-        )
-    notional = _notional_bound(policy, proposed)
-    if notional is not None:
-        return notional
-    return _reserve_bound(
-        policy,
-        mode=mode,
-        proposed=proposed,
-        occupied=occupied,
-        live_quote_cash=live_quote_cash,
-    )
-
-
-def _quantity_bound(policy: RiskPolicyDefinition, proposed: ProposedEntry) -> RiskVerdict | None:
-    """Deny when an optional base-quantity cap is set and the entry exceeds it."""
-    cap = policy.max_order_quantity
-    if cap is None:
-        return None
-    if proposed.quantity is None:
-        return _deny(
-            RiskReasonCode.MAX_ORDER_QUANTITY,
-            "Order quantity cap is set but the proposed quantity is missing.",
-        )
-    if proposed.quantity > Decimal(cap):
-        return _deny(
-            RiskReasonCode.MAX_ORDER_QUANTITY,
-            f"Proposed quantity {proposed.quantity} exceeds max_order_quantity {cap}.",
-        )
-    return None
-
-
-def _notional_bound(policy: RiskPolicyDefinition, proposed: ProposedEntry) -> RiskVerdict | None:
-    """Deny when an optional quote-notional cap is set and the entry exceeds it."""
-    cap = policy.max_order_notional_quote
-    if cap is None or proposed.notional <= Decimal(cap):
-        return None
-    return _deny(
-        RiskReasonCode.MAX_ORDER_NOTIONAL,
-        f"Proposed notional {proposed.notional} exceeds max_order_notional_quote {cap}.",
-    )
-
-
-def _reserve_bound(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
-    live_quote_cash: Decimal | None,
-) -> RiskVerdict | None:
-    """Keep optional notional headroom, not a guaranteed post-fill venue balance.
-
-    Live fees/slippage are unknown here and are not invented. Paper fees use the
-    deployment's published schedule. Unknown venue holds fail closed.
-    """
-    reserve = policy.min_available_quote_reserve
-    if reserve is None:
-        return None
-    required = Decimal(reserve)
-    available = _available_after_entry(
-        policy, mode=mode, proposed=proposed, occupied=occupied, live_quote_cash=live_quote_cash
-    )
-    if available is None:
-        return _deny(
-            RiskReasonCode.BALANCE_RESERVE,
-            "Available quote is unknown; the balance reserve cannot be verified.",
-        )
-    if available < required:
-        return _deny(
-            RiskReasonCode.BALANCE_RESERVE,
-            f"Entry notional headroom {available} is below the reserve of {required}; "
-            "live fees and slippage are not included.",
-        )
-    return None
-
-
-def _available_after_entry(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
-    live_quote_cash: Decimal | None,
-) -> Decimal | None:
-    """Quote-scoped admission headroom; never subtract confirmed venue holds twice."""
-    if mode is DeploymentMode.LIVE:
-        if live_quote_cash is None or live_quote_cash < 0:
-            return None
-        reserved = _local_unheld_buy_quote(occupied)
-        if reserved is None:
-            return None
-        return live_quote_cash - reserved - proposed.notional
-    cash_change = Decimal("0")
-    pending = Decimal("0")
-    fee_rate = Decimal("0")
-    for item in occupied:
-        opening = item.deployment.initial_equity
-        if opening is None:
-            opening = item.deployment.paper_starting_cash
-        if opening is None:
-            return None
-        cash_change += item.deployment.cash - opening
-        buys = replace(item, orders=tuple(o for o in item.orders if o.side is OrderSide.BUY))
-        pending += sum(
-            (working_entry_notional(buys, product) for product in _book_products(buys)),
-            Decimal("0"),
-        )
-        _, taker = effective_paper_fee_rates(
-            item.deployment.paper_maker_fee_rate, item.deployment.paper_taker_fee_rate
-        )
-        fee_rate = max(fee_rate, taker)
-    if not occupied:
-        _, fee_rate = effective_paper_fee_rates(None, None)
-    return (
-        Decimal(policy.paper_capital_quote)
-        + cash_change
-        - pending * (1 + fee_rate)
-        - proposed.notional * (1 + fee_rate)
-    )
-
-
-def _local_unheld_buy_quote(books: Sequence[DeploymentSnapshot]) -> Decimal | None:
-    """Local buy remainders without venue holds; ambiguous submissions make holds unknown."""
-    reserved = Decimal("0")
-    for item in books:
-        buys = replace(item, orders=tuple(o for o in item.orders if o.side is OrderSide.BUY))
-        if any(o.status in {OrderStatus.PENDING, OrderStatus.UNKNOWN} for o in buys.orders):
-            return None
-        unheld = replace(buys, orders=tuple(o for o in buys.orders if o.venue_order_id is None))
-        reserved += sum(
-            (working_entry_notional(unheld, product) for product in _book_products(unheld)),
-            Decimal("0"),
-        )
-    return reserved
-
-
-def _entry_membership(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
-    portfolio_member: bool = False,
-) -> RiskVerdict:
-    """Apply allowlist, allocation membership, and open-position slot caps."""
-    allowlisted = _allowlist_verdict(policy, proposed.product_id)
-    if allowlisted.decision is RiskDecision.DENY:
-        return allowlisted
-    allocated = _allocation_membership(
-        policy, proposed.strategy_id, mode=mode, portfolio_member=portfolio_member
-    )
-    if allocated.decision is RiskDecision.DENY:
-        return allocated
-    if proposed.is_pyramid_add and not policy.allow_intra_strategy_pyramiding:
-        return _deny(
-            RiskReasonCode.PYRAMIDING_NOT_ALLOWED,
-            "Intra-strategy pyramiding is disabled on the active risk policy.",
-        )
-    if not proposed.is_pyramid_add:
-        open_count = sum(open_position_slot_count(item) for item in occupied)
-        if open_count >= policy.max_concurrent_open_positions:
-            return _deny(
-                RiskReasonCode.MAX_OPEN_POSITIONS,
-                "Open and pending positions already use every concurrent slot for this mode.",
-            )
-    return _allow()
-
-
 def _entry_breaker_verdict(
     policy: RiskPolicyDefinition,
     *,
@@ -588,21 +250,6 @@ def _entry_breaker_verdict(
     if protected is not None:
         return protected
     return _allow()
-
-
-def open_position_slot_count(snapshot: DeploymentSnapshot) -> int:
-    """Count distinct in-market product books on one deployment."""
-    products: set[str] = set()
-    for position in snapshot_positions(snapshot):
-        products.add(resolved_product_id(position.product_id, snapshot.deployment))
-    if snapshot.instrument_runtimes:
-        for runtime in snapshot.instrument_runtimes:
-            if runtime.phase in _IN_MARKET:
-                products.add(runtime.product_id)
-        return len(products)
-    if snapshot.position is not None or snapshot.deployment.phase in _IN_MARKET:
-        products.add(snapshot.deployment.product_id)
-    return len(products)
 
 
 def _paper_deploy_capital(
@@ -646,130 +293,6 @@ def _paper_deploy_capital(
     return _allow()
 
 
-def _exposure_verdict(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    proposed: ProposedEntry,
-    occupied: Sequence[DeploymentSnapshot],
-    live_quote_cash: Decimal | None,
-) -> RiskVerdict:
-    """Compare proposed plus existing marked exposure to portfolio and product caps."""
-    existing_total = sum((_marked_exposure(item) for item in occupied), Decimal("0"))
-    existing_product = sum(
-        (product_exposure(item, proposed.product_id) for item in occupied),
-        Decimal("0"),
-    )
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
-    if capital <= 0:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
-            "Capital base is missing or non-positive; new entries are blocked.",
-        )
-    portfolio_cap = capital * Decimal(policy.max_portfolio_exposure_fraction)
-    # The absolute quote ceiling protects real money; paper is bounded by paper capital.
-    if policy.max_portfolio_exposure_quote is not None and mode is DeploymentMode.LIVE:
-        portfolio_cap = min(portfolio_cap, Decimal(policy.max_portfolio_exposure_quote))
-    if existing_total + proposed.notional > portfolio_cap:
-        return _deny(
-            RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
-            f"Account exposure exceeded: existing={existing_total}, "
-            f"proposed={proposed.notional}, cap={portfolio_cap}, capital={capital}, "
-            f"fraction={policy.max_portfolio_exposure_fraction}, "
-            f"absolute={policy.max_portfolio_exposure_quote}.",
-        )
-    product_cap = capital * Decimal(policy.per_product_max_exposure_fraction)
-    if existing_product + proposed.notional > product_cap:
-        return _deny(
-            RiskReasonCode.PRODUCT_EXPOSURE_EXCEEDED,
-            f"Product exposure exceeded for {proposed.product_id}: existing={existing_product}, "
-            f"proposed={proposed.notional}, cap={product_cap}, capital={capital}.",
-        )
-    reserved = _allocation_for(policy, proposed.strategy_id)
-    if reserved is None:
-        return _allow()
-    strategy_exposure = sum(
-        (
-            _marked_exposure(item)
-            for item in occupied
-            if item.deployment.strategy_id == proposed.strategy_id
-        ),
-        Decimal("0"),
-    )
-    if strategy_exposure + proposed.notional > reserved:
-        return _deny(
-            RiskReasonCode.ALLOCATION_EXCEEDED,
-            f"Strategy allocation exceeded: existing={strategy_exposure}, "
-            f"proposed={proposed.notional}, allocation={reserved}.",
-        )
-    return _allow()
-
-
-def _allowlist_verdict(policy: RiskPolicyDefinition, product_id: str) -> RiskVerdict:
-    """Deny products absent from a nonempty allowlist."""
-    if not policy.product_allowlist or product_id in policy.product_allowlist:
-        return _allow()
-    return _deny(
-        RiskReasonCode.PRODUCT_NOT_ALLOWLISTED,
-        "Product is not on the risk-policy allowlist.",
-    )
-
-
-def _allocation_membership(
-    policy: RiskPolicyDefinition,
-    strategy_id: UUID | None,
-    *,
-    mode: DeploymentMode,
-    portfolio_member: bool = False,
-) -> RiskVerdict:
-    """When allocations exist, live requires a listed strategy and denies discretionary books.
-
-    Allocations reserve real capital, so membership gates LIVE only. Paper research is not
-    blocked by them: an unlisted paper strategy or discretionary paper book is allowed and
-    sized by paper capital, while a listed strategy's paper starting cash and exposure stay
-    bounded by its allocation (a rehearsal of the live reservation). A sleeve of a live
-    portfolio is a member through its portfolio: the sleeve's weight times the portfolio's
-    capital is its reservation (ADR 0091). Standalone books keep these semantics.
-    """
-    if not policy.allocations or mode is not DeploymentMode.LIVE:
-        return _allow()
-    if portfolio_member and strategy_id is not None:
-        return _allow()
-    if strategy_id is None:
-        return _deny(
-            RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED,
-            "Discretionary orders are denied when risk-policy allocations are in force.",
-        )
-    if any(item.strategy_id == strategy_id for item in policy.allocations):
-        return _allow()
-    return _deny(
-        RiskReasonCode.STRATEGY_NOT_ALLOCATED,
-        "Strategy is not listed in risk-policy allocations.",
-    )
-
-
-def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> Decimal | None:
-    """Return the reserved quote for one strategy, if allocations are in force."""
-    if not policy.allocations or strategy_id is None:
-        return None
-    match = next((item for item in policy.allocations if item.strategy_id == strategy_id), None)
-    if match is None:
-        return None
-    return Decimal(match.allocated_quote)
-
-
-def _occupied(deployments: Sequence[Deployment], mode: DeploymentMode) -> tuple[Deployment, ...]:
-    """Return running and paused deployments in one mode."""
-    return tuple(item for item in deployments if item.mode is mode and occupies_running_slot(item))
-
-
-def _marked_exposure(snapshot: DeploymentSnapshot) -> Decimal:
-    """Position cost plus every working entry remainder, even with a stale FLAT overlay."""
-    return sum(
-        (product_exposure(snapshot, product) for product in _book_products(snapshot)), Decimal("0")
-    )
-
-
 def _paper_committed(occupied: Sequence[Deployment]) -> Decimal:
     """Sum paper starting cash already reserved by occupied deployments."""
     total = Decimal("0")
@@ -777,56 +300,3 @@ def _paper_committed(occupied: Sequence[Deployment]) -> Decimal:
         if item.paper_starting_cash is not None:
             total += item.paper_starting_cash
     return total
-
-
-def _capital_base(
-    policy: RiskPolicyDefinition,
-    *,
-    mode: DeploymentMode,
-    live_quote_cash: Decimal | None,
-    occupied: Sequence[DeploymentSnapshot],
-) -> Decimal:
-    """Use mode capital, never a bot allocation or duplicated live ledger cash.
-
-    Live capital is observed available quote plus managed long inventory cost and
-    working buy-entry reservations. Short sale proceeds are already in venue quote;
-    sell reservations hold base units, so neither contributes quote a second time.
-    """
-    if mode is DeploymentMode.PAPER:
-        return Decimal(policy.paper_capital_quote)
-    if live_quote_cash is None or live_quote_cash < 0:
-        return Decimal("0")
-    return live_quote_cash + sum((_held_quote_capital(item) for item in occupied), Decimal("0"))
-
-
-def _held_quote_capital(snapshot: DeploymentSnapshot) -> Decimal:
-    """Quote held in managed long books and buy entries, excluding exits and short proceeds."""
-    inventory = sum(
-        (
-            position.quantity * position.entry_price
-            for position in snapshot_positions(snapshot)
-            if position.side is PositionSide.LONG
-        ),
-        Decimal("0"),
-    )
-    buys = replace(
-        snapshot, orders=tuple(order for order in snapshot.orders if order.side is OrderSide.BUY)
-    )
-    reserved = sum(
-        (working_entry_notional(buys, product) for product in _book_products(buys)), Decimal("0")
-    )
-    return inventory + reserved
-
-
-def _allow() -> RiskVerdict:
-    """Return a successful gate decision."""
-    return RiskVerdict(
-        decision=RiskDecision.ALLOW,
-        reason_code=RiskReasonCode.ALLOWED,
-        detail="Risk policy allows this action.",
-    )
-
-
-def _deny(reason_code: RiskReasonCode, detail: str) -> RiskVerdict:
-    """Return a fail-closed gate decision."""
-    return RiskVerdict(decision=RiskDecision.DENY, reason_code=reason_code, detail=detail)

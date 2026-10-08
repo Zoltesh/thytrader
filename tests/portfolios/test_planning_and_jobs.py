@@ -22,13 +22,9 @@ from thytrader.backtest.submission import (
 )
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.portfolios.backtest import PortfolioBacktestRequest
+from thytrader.portfolios.errors import PortfolioRevisionConflictError
 from thytrader.portfolios.jobs import PortfolioBacktestRunner
-from thytrader.portfolios.models import (
-    MutationContext,
-    PortfolioCreateRequest,
-    PortfolioRevisionConflictError,
-    SleeveAddRequest,
-)
+from thytrader.portfolios.models import MutationContext, PortfolioCreateRequest, SleeveAddRequest
 from thytrader.portfolios.planning import PortfolioBacktestRejectedError, plan_portfolio_backtest
 from thytrader.portfolios.store import InMemoryPortfolioStore
 from thytrader.research.jobs import ResearchJobStatus

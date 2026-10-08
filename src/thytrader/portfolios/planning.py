@@ -34,14 +34,16 @@ from thytrader.evaluation.models import (
     ReferenceInstrumentDataset,
 )
 from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
+from thytrader.portfolios.allocation import sleeve_capital
 from thytrader.portfolios.backtest import (
     PlannedSleeve,
     PortfolioBacktestPlan,
     PortfolioBacktestRequest,
     SleeveDatasetOverride,
 )
-from thytrader.portfolios.models import PortfolioError, sleeve_issues, utc_text
-from thytrader.portfolios.rules import require_revision, sleeve_capital
+from thytrader.portfolios.errors import PortfolioError
+from thytrader.portfolios.models import sleeve_issues, utc_text
+from thytrader.portfolios.rules import require_revision
 from thytrader.strategies.library import StrategyInvalidError, StrategyNotFoundError
 from thytrader.strategies.models import (
     covered_product_ids,

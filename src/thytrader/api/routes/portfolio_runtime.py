@@ -49,14 +49,15 @@ from thytrader.portfolios.briefing import (
     ManagerBriefing,
     build_manager_briefing,
 )
+from thytrader.portfolios.errors import PortfolioError
 from thytrader.portfolios.manager import ProposalService
-from thytrader.portfolios.models import JournalChannel, PortfolioError, RevisionNumber
 from thytrader.portfolios.proposals import (
     ProposalDecisionRequest,
     ProposalStatus,
     ProposalSubmitRequest,
 )
-from thytrader.portfolios.runtime import FeeAssumptions, PortfolioRuntimeService
+from thytrader.portfolios.runtime import PortfolioRuntimeService
+from thytrader.portfolios.runtime_start import FeeAssumptions
 from thytrader.portfolios.runtime_views import (
     PortfolioActionResponse,
     PortfolioDeploymentResponse,
@@ -66,6 +67,7 @@ from thytrader.portfolios.runtime_views import (
     deployment_response,
 )
 from thytrader.portfolios.store import PortfolioStorage
+from thytrader.portfolios.values import RevisionNumber
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
@@ -78,6 +80,8 @@ from thytrader.trading.store import ExecutionStore  # noqa: TC001 - FastAPI Depe
 
 if TYPE_CHECKING:
     from decimal import Decimal
+
+    from thytrader.portfolios.vocabulary import JournalChannel
 
 router = APIRouter(prefix="/api/v1/portfolios", tags=["portfolio deployment"])
 

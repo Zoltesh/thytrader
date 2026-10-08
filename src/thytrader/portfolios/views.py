@@ -12,6 +12,7 @@ from uuid import UUID
 from pydantic import BaseModel, Field
 
 from thytrader.market_data.products import SpotQuoteCurrency
+from thytrader.portfolios.allocation import AllocationSummary, allocation_summary, sleeve_capital
 from thytrader.portfolios.backtest import (
     PortfolioBacktestJob,
     PortfolioBacktestListing,
@@ -25,13 +26,11 @@ from thytrader.portfolios.models import (
     ManagerSettings,
     PortfolioAggregate,
     PortfolioLimits,
-    PortfolioMode,
-    SleeveIssueCode,
     SleeveView,
     sleeve_issues,
     utc_text,
 )
-from thytrader.portfolios.rules import AllocationSummary, allocation_summary, sleeve_capital
+from thytrader.portfolios.vocabulary import PortfolioMode, SleeveIssueCode
 
 DEPLOYABLE_NOTE = (
     "True when the portfolio has at least one sleeve and no sleeve has issues, so a start "

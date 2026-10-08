@@ -13,18 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from thytrader.portfolios.models import (
-    JournalEntry,
-    JournalPage,
-    MutationContext,
-    PortfolioAggregate,
-    PortfolioDeletion,
-    PortfolioError,
-    PortfolioPage,
-    PortfolioRuntimeState,
-    PortfolioRuntimeView,
-    SleeveStrategy,
-)
+from thytrader.portfolios.errors import PortfolioError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -39,11 +28,20 @@ if TYPE_CHECKING:
         PortfolioBacktestResult,
     )
     from thytrader.portfolios.models import (
+        JournalEntry,
+        JournalPage,
+        MutationContext,
+        PortfolioAggregate,
         PortfolioCreateRequest,
+        PortfolioDeletion,
+        PortfolioPage,
+        PortfolioRuntimeState,
+        PortfolioRuntimeView,
         PortfolioUpdateRequest,
         SetWeightsRequest,
         SleeveAddRequest,
         SleevesAddRequest,
+        SleeveStrategy,
         SleeveUpdateRequest,
     )
     from thytrader.portfolios.proposals import (

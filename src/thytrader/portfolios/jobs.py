@@ -24,7 +24,7 @@ from thytrader.portfolios.combine import (
     basket_sources,
     combine_portfolio,
 )
-from thytrader.portfolios.models import PortfolioError
+from thytrader.portfolios.errors import PortfolioError
 
 if TYPE_CHECKING:
     from uuid import UUID

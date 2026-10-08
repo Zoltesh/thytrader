@@ -23,21 +23,16 @@ from thytrader.persistence.schema import (
     portfolios,
     strategies,
 )
+from thytrader.portfolios.errors import PortfolioNotFoundError, PortfolioRevisionConflictError
 from thytrader.portfolios.models import (
-    JournalActor,
-    JournalChannel,
     JournalDetail,
     JournalEntry,
-    JournalKind,
     ManagerPermissions,
     ManagerSettings,
     MutationContext,
     Portfolio,
     PortfolioAggregate,
     PortfolioLimits,
-    PortfolioMode,
-    PortfolioNotFoundError,
-    PortfolioRevisionConflictError,
     Sleeve,
     SleeveStrategy,
     SleeveView,
@@ -51,6 +46,13 @@ if TYPE_CHECKING:
     from pydantic import JsonValue
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection
+
+    from thytrader.portfolios.vocabulary import (
+        JournalActor,
+        JournalChannel,
+        JournalKind,
+        PortfolioMode,
+    )
 
 
 def portfolio_values(portfolio: Portfolio) -> dict[str, object]:

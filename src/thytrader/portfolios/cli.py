@@ -41,7 +41,6 @@ from thytrader.portfolios.manager_cli import (
     add_manager_commands,
 )
 from thytrader.portfolios.models import (
-    MAX_SLEEVES,
     ManagerPermissions,
     ManagerSettings,
     PortfolioCreateRequest,
@@ -53,6 +52,7 @@ from thytrader.portfolios.models import (
     WeightAssignment,
 )
 from thytrader.portfolios.views import PortfolioResponse
+from thytrader.portfolios.vocabulary import MAX_SLEEVES
 from thytrader.research.jobs import ResearchJobStatus
 
 if TYPE_CHECKING:

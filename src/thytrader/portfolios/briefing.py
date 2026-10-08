@@ -20,15 +20,8 @@ from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.book_marks import marks_by_deployment
 from thytrader.execution.decision_store import DecisionStoreError
 from thytrader.portfolios.backtest import portfolio_backtest_fingerprint
-from thytrader.portfolios.models import (
-    PORTFOLIO_BRIEFING_CONTRACT,
-    JournalEntry,
-    ManagerSettings,
-    PortfolioError,
-    PortfolioLimits,
-    PortfolioMode,
-    utc_text,
-)
+from thytrader.portfolios.errors import PortfolioError
+from thytrader.portfolios.models import JournalEntry, ManagerSettings, PortfolioLimits, utc_text
 from thytrader.portfolios.proposals import (
     REBALANCE_BUDGET_WINDOW,
     Proposal,
@@ -40,6 +33,7 @@ from thytrader.portfolios.runtime_views import (
     SleeveDeploymentResponse,
     deployment_response,
 )
+from thytrader.portfolios.vocabulary import PORTFOLIO_BRIEFING_CONTRACT, PortfolioMode
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

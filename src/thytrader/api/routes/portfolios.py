@@ -42,10 +42,8 @@ from thytrader.portfolios.backtest import (
     downsample_curve,
 )
 from thytrader.portfolios.deployment import members, sleeve_books
-from thytrader.portfolios.models import (
-    MutationContext,
+from thytrader.portfolios.errors import (
     PortfolioConflictError,
-    PortfolioCreateRequest,
     PortfolioError,
     PortfolioLiveAcknowledgementError,
     PortfolioNotFoundError,
@@ -55,8 +53,12 @@ from thytrader.portfolios.models import (
     PortfolioSleeveNotFoundError,
     PortfolioStartRejectedError,
     PortfolioStrategyNotFoundError,
-    PortfolioUpdateRequest,
     PortfolioValidationError,
+)
+from thytrader.portfolios.models import (
+    MutationContext,
+    PortfolioCreateRequest,
+    PortfolioUpdateRequest,
     SetWeightsRequest,
     SleeveAddRequest,
     SleevesAddRequest,

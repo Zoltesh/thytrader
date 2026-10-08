@@ -24,7 +24,7 @@ from thytrader.operator.readiness_models import (
     ReadinessPortfolioSection,
     ReadinessSeverity,
 )
-from thytrader.portfolios.rules import allocation_summary, sleeve_capital
+from thytrader.portfolios.allocation import allocation_summary, sleeve_capital
 from thytrader.trading.exposure import product_exposure, risk_bearing_snapshots
 from thytrader.trading.ledger import effective_paper_fee_rates
 from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnapshot

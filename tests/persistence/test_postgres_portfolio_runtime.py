@@ -29,12 +29,12 @@ from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
+from thytrader.portfolios.errors import PortfolioConflictError
 from thytrader.portfolios.manager import ProposalService
 from thytrader.portfolios.models import (
     ManagerPermissions,
     ManagerSettings,
     MutationContext,
-    PortfolioConflictError,
     PortfolioCreateRequest,
     PortfolioLimits,
     SleeveAddRequest,

@@ -6,7 +6,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from tests.risk.test_loss_scope import _round_trip
-from thytrader.risk.gate import ProposedEntry, evaluate_new_deployment, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import (
     CapitalAllocation,
     RiskDecision,

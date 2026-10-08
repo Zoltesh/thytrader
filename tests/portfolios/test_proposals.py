@@ -10,14 +10,13 @@ from pydantic import ValidationError
 import pytest
 
 from tests.portfolios.runtime_support import World, operator, portfolio, world
-from thytrader.portfolios.models import (
-    ManagerPermissions,
+from thytrader.portfolios.errors import (
     PortfolioConflictError,
     PortfolioLiveAcknowledgementError,
     PortfolioRevisionConflictError,
     PortfolioValidationError,
-    SleeveAddRequest,
 )
+from thytrader.portfolios.models import ManagerPermissions, SleeveAddRequest
 from thytrader.portfolios.proposals import (
     ORDER_AUTHORITY_REFUSAL,
     ProposalDecisionRequest,
@@ -30,7 +29,8 @@ from thytrader.trading.models import DeploymentStatus
 if TYPE_CHECKING:
     from uuid import UUID
 
-    from thytrader.portfolios.models import PortfolioAggregate, PortfolioMode
+    from thytrader.portfolios.models import PortfolioAggregate
+    from thytrader.portfolios.vocabulary import PortfolioMode
 
 pytestmark = pytest.mark.anyio
 

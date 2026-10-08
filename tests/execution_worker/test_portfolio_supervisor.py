@@ -24,8 +24,8 @@ from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.portfolios.models import PortfolioLimits, SetWeightsRequest
 from thytrader.portfolios.store import DisabledPortfolioStore
-from thytrader.risk.gate import PortfolioRiskBook
 from thytrader.risk.models import RiskReasonCode
+from thytrader.risk.portfolio_limits import PortfolioRiskBook
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.trading.memory import InMemoryExecutionStore

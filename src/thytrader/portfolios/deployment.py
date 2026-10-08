@@ -20,9 +20,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal
 
 from thytrader.decimal_text import canonical_decimal
-from thytrader.portfolios.rules import percent_text, quote_text, sleeve_capital
-from thytrader.risk.gate import PortfolioRiskBook
+from thytrader.portfolios.allocation import percent_text, quote_text, sleeve_capital
 from thytrader.risk.models import RiskReasonCode
+from thytrader.risk.portfolio_limits import PortfolioRiskBook
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import Deployment, DeploymentMode, DeploymentStatus
 
@@ -30,12 +30,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from uuid import UUID
 
-    from thytrader.portfolios.models import (
-        BreakerReason,
-        PortfolioAggregate,
-        PortfolioRuntimeState,
-        SleeveView,
-    )
+    from thytrader.portfolios.models import PortfolioAggregate, PortfolioRuntimeState, SleeveView
+    from thytrader.portfolios.vocabulary import BreakerReason
 
 PortfolioDeploymentState = Literal[
     "not_deployed", "running", "partially_running", "paused", "stopped"

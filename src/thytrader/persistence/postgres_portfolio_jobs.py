@@ -15,7 +15,7 @@ from sqlalchemy.dialects.postgresql import Insert, insert
 
 from thytrader.persistence.schema import portfolio_backtest_jobs, published_portfolio_backtests
 from thytrader.portfolios.backtest import PortfolioBacktestJob, job_expiry
-from thytrader.portfolios.models import PortfolioError
+from thytrader.portfolios.errors import PortfolioError
 from thytrader.research.jobs import ResearchJobStatus
 
 if TYPE_CHECKING:

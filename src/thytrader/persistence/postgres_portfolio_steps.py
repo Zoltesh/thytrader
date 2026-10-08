@@ -18,11 +18,10 @@ from thytrader.persistence.postgres_portfolio_rows import (
     insert_journal,
 )
 from thytrader.persistence.schema import portfolios, strategies
+from thytrader.portfolios.errors import PortfolioNotFoundError, PortfolioStrategyNotFoundError
 from thytrader.portfolios.models import (
     MutationContext,
     PortfolioAggregate,
-    PortfolioNotFoundError,
-    PortfolioStrategyNotFoundError,
     SleeveStrategy,
     utc_millisecond,
 )

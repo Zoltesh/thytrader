@@ -74,14 +74,14 @@ from thytrader.evaluation.models import BACKTEST_ENGINE
 from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
-from thytrader.portfolios.models import (
+from thytrader.portfolios.proposals import PROPOSAL_KINDS
+from thytrader.portfolios.vocabulary import (
     BREAKER_REASONS,
     MAX_SLEEVES,
     PORTFOLIO_BACKTEST_CONTRACT,
     PORTFOLIO_BRIEFING_CONTRACT,
     PORTFOLIO_MODES,
 )
-from thytrader.portfolios.proposals import PROPOSAL_KINDS
 from thytrader.research.sweep_axes import MAX_CANDIDATES, MAX_SYNC_CANDIDATES
 from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 

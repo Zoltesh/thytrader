@@ -16,13 +16,16 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.portfolios.deployment import deployment_mode, members, sleeve_books
+from thytrader.portfolios.errors import (
+    PortfolioConflictError,
+    PortfolioError,
+    PortfolioValidationError,
+)
+from thytrader.portfolios.journal_changes import journal_entry
 from thytrader.portfolios.models import (
     JournalDetail,
     JournalEntry,
     MutationContext,
-    PortfolioConflictError,
-    PortfolioError,
-    PortfolioValidationError,
     SetWeightsRequest,
     SleeveAddRequest,
     utc_millisecond,
@@ -43,12 +46,11 @@ from thytrader.portfolios.proposals import (
 )
 from thytrader.portfolios.rules import (
     MutationPlan,
-    journal_entry,
     plan_add_sleeve,
     plan_set_weights,
     require_revision,
 )
-from thytrader.portfolios.runtime import require_live_acknowledgement
+from thytrader.portfolios.runtime_guards import require_live_acknowledgement
 from thytrader.trading.ids import uuid7
 from thytrader.trading.models import DeploymentStatus
 
@@ -56,10 +58,11 @@ if TYPE_CHECKING:
     from decimal import Decimal
     from uuid import UUID
 
-    from thytrader.portfolios.models import JournalChannel, PortfolioAggregate, SleeveStrategy
+    from thytrader.portfolios.models import PortfolioAggregate, SleeveStrategy
     from thytrader.portfolios.proposals import DecidedBy, ProposalPage, ProposalStatus
     from thytrader.portfolios.runtime import PortfolioRuntimeService
     from thytrader.portfolios.store import PortfolioStorage
+    from thytrader.portfolios.vocabulary import JournalChannel
     from thytrader.trading.store import ExecutionStore
 
 MAX_PENDING_PROPOSALS = 20

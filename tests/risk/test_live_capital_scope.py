@@ -10,7 +10,8 @@ import pytest
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.loop import _entry_verdict
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry, evaluate_runtime_breakers
+from thytrader.risk.gate import evaluate_new_entry, evaluate_runtime_breakers
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import (
     CapitalAllocation,
     RiskDecision,

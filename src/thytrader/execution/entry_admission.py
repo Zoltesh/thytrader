@@ -14,7 +14,8 @@ from thytrader.execution.capital import live_capital_base
 from thytrader.execution.decision_scope import note_risk
 from thytrader.memory.trade_reason_scope import current_trade_reason_scope
 from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
+from thytrader.risk.gate import evaluate_new_entry
+from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
 from thytrader.risk.portfolio_scope import portfolio_risk_for
 from thytrader.trading.ids import utc_now

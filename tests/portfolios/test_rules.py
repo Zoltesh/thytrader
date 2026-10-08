@@ -8,36 +8,36 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
+from thytrader.portfolios.allocation import allocation_summary, percent_text, quote_text
+from thytrader.portfolios.errors import (
+    PortfolioRevisionConflictError,
+    PortfolioSleeveExistsError,
+    PortfolioValidationError,
+)
 from thytrader.portfolios.models import (
     ManagerPermissions,
     MutationContext,
     PortfolioAggregate,
     PortfolioCreateRequest,
     PortfolioLimits,
-    PortfolioRevisionConflictError,
-    PortfolioSleeveExistsError,
     PortfolioUpdateRequest,
-    PortfolioValidationError,
     SetWeightsRequest,
     SleeveAddRequest,
     SleeveStrategy,
     SleeveUpdateRequest,
     SleeveView,
-    canonical_decimal_text,
     document_product_ids,
     sleeve_issues,
 )
 from thytrader.portfolios.rules import (
-    allocation_summary,
-    percent_text,
     plan_add_sleeve,
     plan_create,
     plan_remove_sleeve,
     plan_set_weights,
     plan_update,
     plan_update_sleeve,
-    quote_text,
 )
+from thytrader.portfolios.values import canonical_decimal_text
 
 _NOW = datetime(2026, 10, 2, 12, tzinfo=UTC)
 _CONTEXT = MutationContext(actor="operator", channel="api", occurred_at=_NOW)
