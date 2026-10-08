@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from thytrader.audit_events import AuditEvent, AuditEventOutcome
 from thytrader.operator.models import AuditFailureEvidence, ReconciliationFinding
-from thytrader.persistence.audit_events import AuditEvent, AuditEventOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

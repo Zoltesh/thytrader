@@ -8,6 +8,7 @@ from uuid import UUID
 
 import pytest
 
+from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.memory.evidence import StaticEvidenceResolver
 from thytrader.memory.models import (
     ActorOrigin,
@@ -28,7 +29,6 @@ from thytrader.memory.training import (
     experiential_model_fingerprint,
     train_experiential_model,
 )
-from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 
 _NOW = datetime(2026, 9, 16, 12, 0, tzinfo=UTC)
 _BACKTEST = "sha256:" + ("ab" * 32)

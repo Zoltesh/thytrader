@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.attached import filled_attached_entry
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError
@@ -41,7 +42,6 @@ from thytrader.execution.models import (
     with_runtime,
 )
 from thytrader.execution.reconcile import import_attached_children, reconcile_open_orders
-from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

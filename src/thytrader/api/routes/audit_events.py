@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.api.dependencies import get_audit_event_store
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventStore,

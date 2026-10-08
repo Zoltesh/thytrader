@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.alerts.store import AlertStore, DisabledAlertStore
+from thytrader.audit_events import AuditEventStore
 from thytrader.backtest.submission import BacktestSubmitter
 from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
@@ -22,7 +23,6 @@ from thytrader.market_data.worker_state import MarketDataWorkerStateStore
 from thytrader.memory.notify import NotificationSender
 from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.operator_chat.service import OperatorChatService
-from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.backtest_results import BacktestResultReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore

@@ -7,8 +7,8 @@ import asyncio
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.risk.models import compiled_default_active_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore

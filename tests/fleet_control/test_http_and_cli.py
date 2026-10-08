@@ -11,6 +11,7 @@ from pydantic import SecretStr
 import pytest
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Environment, Settings
 from thytrader.execution.entry_latch import clear_entry_inhibition_cache
 from thytrader.execution.ids import uuid7
@@ -23,7 +24,6 @@ from thytrader.execution.models import (
     ExecutionConflictError,
     RuntimePhase,
 )
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.runtime_control.cli import _parser
 from thytrader.runtime_control.client import RuntimeControlError
 from thytrader.runtime_control.fleet_commands import run_fleet_mutation

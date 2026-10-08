@@ -15,6 +15,7 @@ from thytrader.api.dependencies import (
     get_market_data_watchlist_store,
     get_runtime_state,
 )
+from thytrader.audit_events import AuditEventStore
 from thytrader.data_control.models import (
     DataControlError,
     IngestRequest,
@@ -40,7 +41,6 @@ from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import MarketDataWatchlistStore
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
-from thytrader.persistence.audit_events import AuditEventStore
 from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/data", tags=["data"])

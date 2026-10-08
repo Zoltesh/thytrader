@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import SecretStr
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.memory import InMemoryExecutionStore
@@ -21,7 +22,6 @@ from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.diagnostics.runtime import _execution_market_data_components
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.demo import DemoExchangeAccount

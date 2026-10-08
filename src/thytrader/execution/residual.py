@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.exit_guards import (
     FLAT_AFTER_FAULT_DETAIL,
@@ -32,7 +33,6 @@ from thytrader.execution.runtime_ops import (
     _reconcile_stopped_live,
     cancel_resting_orders,
 )
-from thytrader.persistence.audit_events import AuditEventOutcome
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

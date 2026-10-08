@@ -17,7 +17,7 @@ from thytrader.agent_orchestration.service import (
     record_skipped_confirmation,
 )
 from thytrader.api.dependencies import get_audit_event_store, get_runtime_state
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEventStore,
     AuditEventUnavailableError,
 )

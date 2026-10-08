@@ -18,6 +18,11 @@ from decimal import Decimal
 import logging
 from typing import TYPE_CHECKING, Literal
 
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+)
 from thytrader.execution.ids import utc_now, uuid7
 from thytrader.execution.ledger import resolve_paper_fee_schedule
 from thytrader.execution.lifecycle import occupies_running_slot
@@ -38,11 +43,6 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-)
 from thytrader.portfolios.deployment import (
     PortfolioBooks,
     SleeveBook,
@@ -81,9 +81,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+    from thytrader.audit_events import AuditEventStore
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.execution.store import ExecutionStore
-    from thytrader.persistence.audit_events import AuditEventStore
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
     from thytrader.portfolios.store import PortfolioStorage
     from thytrader.risk.store import RiskPolicyStore

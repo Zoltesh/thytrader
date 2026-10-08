@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.credentials.reload import CoinbaseCredentialReloadStore
 from thytrader.credentials.service import settings_with_coinbase
@@ -26,14 +27,13 @@ from thytrader.execution_worker.venue import (
 from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from thytrader.persistence.audit_events import AuditEventStore
+    from thytrader.audit_events import AuditEventStore
 
 _KEY = "organizations/test/apiKeys/one"
 _PEM = "-----BEGIN EC PRIVATE KEY-----\nfake\n-----END EC PRIVATE KEY-----"

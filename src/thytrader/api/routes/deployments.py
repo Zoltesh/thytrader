@@ -38,6 +38,12 @@ from thytrader.api.routes.deployment_serializers import (
     summary_response,
 )
 from thytrader.api.strategy_http import snapshot_for_start
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.book_marks import (
     entry_fees_by_product,
@@ -71,12 +77,6 @@ from thytrader.execution.store import ExecutionStore
 from thytrader.fleet_control.inventory import read_stable_inventory
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
-)
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
 )
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState

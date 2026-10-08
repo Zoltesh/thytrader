@@ -6,8 +6,8 @@ import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.portfolio.models import (
     Money,

@@ -10,6 +10,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.memory.evidence import LocalEvidenceResolver
 from thytrader.memory.models import (
@@ -30,7 +31,6 @@ from thytrader.memory.trade_reasons import (
     TradeReasonSignalKind,
     TradeReasonStrategy,
 )
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 
 def test_memory_status_reports_unavailable_storage_without_database() -> None:

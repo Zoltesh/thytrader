@@ -18,6 +18,7 @@ from thytrader.api.dependencies import (
     get_execution_store,
     get_fleet_control_store,
 )
+from thytrader.audit_events import AuditEventStore
 from thytrader.execution.models import ExecutionConflictError, ExecutionStoreError
 from thytrader.execution.store import ExecutionStore
 from thytrader.fleet_control.models import (
@@ -33,7 +34,6 @@ from thytrader.fleet_control.models import (
 )
 from thytrader.fleet_control.service import execute_fleet, preview_fleet
 from thytrader.fleet_control.store import FleetControlStore
-from thytrader.persistence.audit_events import AuditEventStore
 
 router = APIRouter(prefix="/api/v1/fleet-control", tags=["fleet-control"])
 

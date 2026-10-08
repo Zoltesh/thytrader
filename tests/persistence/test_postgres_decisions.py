@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from tests.execution.decision_support import RSI_AT_LEAST_50
 from tests.execution.test_decision_store import make_decision
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import DecisionStoreError
@@ -40,7 +41,6 @@ from thytrader.execution.service import create_deployment
 from thytrader.execution_worker.service import _run_cycle
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore

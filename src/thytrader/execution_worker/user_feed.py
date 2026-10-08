@@ -19,9 +19,9 @@ from thytrader.execution.user_feed_state import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from thytrader.audit_events import AuditEventStore
     from thytrader.exchanges.ws.models import WebSocketConnectionState
     from thytrader.exchanges.ws.user_feed import UserOrderObservation
-    from thytrader.persistence.audit_events import AuditEventStore
 
 _logger = logging.getLogger(__name__)
 _SNAPSHOT_INTERVAL_SECONDS = 5.0

@@ -6,9 +6,9 @@ import json
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
+from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
 from thytrader.exchanges.ws.models import WebSocketConnectionState
 from thytrader.exchanges.ws.user_feed import CoinbaseUserFeed, UserOrderObservation
-from thytrader.persistence.audit_events import AuditEventCategory, InMemoryAuditEventStore
 
 
 @pytest.mark.anyio

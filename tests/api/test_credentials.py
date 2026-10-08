@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.credentials.models import INVALID_CREDENTIALS_PAYLOAD
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.settings_yaml import SettingsStore

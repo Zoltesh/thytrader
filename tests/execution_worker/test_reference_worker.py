@@ -16,6 +16,7 @@ import pytest
 
 from tests.execution.decision_support import Catalog
 from tests.strategies.reference_support import reference_payload, reference_strategy
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
@@ -34,7 +35,6 @@ from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore, MarketDataWatchTarget
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 
 if TYPE_CHECKING:

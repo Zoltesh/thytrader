@@ -22,6 +22,12 @@ from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_models import DeploymentResponse
 from thytrader.api.routes.deployment_serializers import snapshot_response
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker
@@ -36,12 +42,6 @@ from thytrader.market_data.products import (
 )
 from thytrader.market_data.service import MarketDataService
 from thytrader.memory.store import ExperientialMemoryStore
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
-)
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 

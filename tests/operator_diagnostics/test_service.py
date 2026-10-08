@@ -8,6 +8,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.models import (
@@ -25,7 +26,6 @@ from thytrader.execution.store import DisabledExecutionStore
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
 from thytrader.operator.models import SCHEMA_VERSION, ReportStatus
 from thytrader.operator.service import OperatorDiagnostics
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.persistence.backtest_results import DisabledBacktestResultStore
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
 from thytrader.persistence.worker_heartbeats import (

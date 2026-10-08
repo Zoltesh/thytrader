@@ -12,7 +12,7 @@ from pydantic import SecretStr
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,

@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import pytest
 
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.entry_latch import (
     clear_entry_inhibition_cache,
     process_entry_inhibited,
@@ -46,7 +47,6 @@ from thytrader.fleet_control.models import (
 )
 from thytrader.fleet_control.service import execute_fleet, preview_fleet
 from thytrader.fleet_control.store import InMemoryFleetControlStore
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 
 def _book(index: int, *, mode: DeploymentMode = DeploymentMode.PAPER) -> Deployment:

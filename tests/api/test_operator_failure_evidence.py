@@ -14,16 +14,16 @@ from tests.exchanges.test_coinbase_read_errors import _FailedAccountClient
 from tests.operator_diagnostics.test_service import _diagnostics
 from thytrader.api.app import create_app
 from thytrader.api.routes.operator import get_operator_diagnostics
-from thytrader.config import Settings
-from thytrader.exchanges.coinbase import CoinbaseAccount
-from thytrader.execution.memory import InMemoryExecutionStore
-from thytrader.operator.models import ExchangeReport, ReconciliationReport
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     InMemoryAuditEventStore,
 )
+from thytrader.config import Settings
+from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.execution.memory import InMemoryExecutionStore
+from thytrader.operator.models import ExchangeReport, ReconciliationReport
 from thytrader.portfolio.service import PortfolioService
 
 if TYPE_CHECKING:

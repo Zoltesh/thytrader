@@ -17,8 +17,8 @@ from thytrader.market_data.feed_state import (
 )
 
 if TYPE_CHECKING:
+    from thytrader.audit_events import AuditEventStore
     from thytrader.exchanges.ws.models import WebSocketConnectionState
-    from thytrader.persistence.audit_events import AuditEventStore
 
 _logger = logging.getLogger(__name__)
 _SNAPSHOT_INTERVAL_SECONDS = 5.0

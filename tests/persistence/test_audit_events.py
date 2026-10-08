@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventUnavailableError,
     DisabledAuditEventStore,

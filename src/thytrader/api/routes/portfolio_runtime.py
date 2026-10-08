@@ -33,6 +33,7 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.portfolios import mutation_context, portfolio_http_error
+from thytrader.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.data_control.service import ingestion_provider
 from thytrader.execution.book_marks import marks_by_deployment
 from thytrader.execution.decision_store import (
@@ -44,7 +45,6 @@ from thytrader.execution.store import ExecutionStore  # noqa: TC001 - FastAPI De
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
 )
-from thytrader.persistence.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.portfolios.briefing import (
     DEFAULT_DECISIONS_PER_SLEEVE,
     DEFAULT_JOURNAL_ENTRIES,

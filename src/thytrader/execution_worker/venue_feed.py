@@ -7,22 +7,22 @@ import contextlib
 import logging
 from typing import TYPE_CHECKING, Protocol
 
-from thytrader.execution.ids import utc_now
-from thytrader.execution_worker.user_feed import run_user_order_feed
-from thytrader.execution_worker.venue import venue_transition_detail
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventUnavailableError,
 )
+from thytrader.execution.ids import utc_now
+from thytrader.execution_worker.user_feed import run_user_order_feed
+from thytrader.execution_worker.venue import venue_transition_detail
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from thytrader.audit_events import AuditEventStore
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.execution_worker.venue import ExecutionVenue
-    from thytrader.persistence.audit_events import AuditEventStore
 
 _logger = logging.getLogger(__name__)
 _GENERATION_POLL_SECONDS = 1.0

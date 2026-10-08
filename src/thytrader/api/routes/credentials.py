@@ -16,6 +16,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from thytrader.api.dependencies import get_audit_event_store, get_runtime_state
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+)
 from thytrader.credentials.envfile import (
     CredentialsEnvError,
     clear_coinbase_env,
@@ -29,12 +35,6 @@ from thytrader.credentials.models import (
 )
 from thytrader.credentials.service import coinbase_status, settings_with_coinbase
 from thytrader.execution.ids import utc_now
-from thytrader.persistence.audit_events import (
-    AuditEvent,
-    AuditEventCategory,
-    AuditEventOutcome,
-    AuditEventStore,
-)
 from thytrader.runtime import RuntimeState
 
 router = APIRouter(prefix="/api/v1/credentials", tags=["credentials"])

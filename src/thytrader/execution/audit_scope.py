@@ -14,18 +14,18 @@ from contextvars import ContextVar
 import logging
 from typing import TYPE_CHECKING
 
-from thytrader.execution.ids import utc_now
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     AuditEventUnavailableError,
 )
+from thytrader.execution.ids import utc_now
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from thytrader.persistence.audit_events import AuditEventStore
+    from thytrader.audit_events import AuditEventStore
 
 _logger = logging.getLogger(__name__)
 _SCOPE: ContextVar[AuditEventStore | None] = ContextVar("execution_audit_scope", default=None)

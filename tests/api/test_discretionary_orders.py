@@ -12,13 +12,13 @@ from pydantic import SecretStr
 
 from tests.execution.test_discretionary import _LiveFillBroker, _TimeoutBroker
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.exchanges.models import ExchangeBalance
 from thytrader.execution.memory import InMemoryExecutionStore
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 from thytrader.risk.models import CapitalAllocation, compiled_default_risk_policy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore

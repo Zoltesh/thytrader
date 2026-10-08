@@ -10,14 +10,14 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
-from thytrader.config import Settings
-from thytrader.persistence.audit_events import (
+from thytrader.audit_events import (
     AuditEvent,
     AuditEventCategory,
     AuditEventOutcome,
     DisabledAuditEventStore,
     InMemoryAuditEventStore,
 )
+from thytrader.config import Settings
 
 if TYPE_CHECKING:
     from typing import Any

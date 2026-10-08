@@ -8,10 +8,10 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.observability.logging import set_extra_redacted_secrets
 from thytrader.operator_chat.models import LlmCompletion, LlmToolCall
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

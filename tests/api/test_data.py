@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from thytrader.api.app import create_app
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
 from thytrader.market_data.models import (
@@ -24,7 +25,6 @@ from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore
 from thytrader.market_data.worker_state import InMemoryMarketDataWorkerStateStore
 from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.operator.models import SCHEMA_VERSION
-from thytrader.persistence.audit_events import InMemoryAuditEventStore
 
 if TYPE_CHECKING:
     from pathlib import Path
