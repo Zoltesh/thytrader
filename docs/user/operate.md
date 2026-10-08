@@ -46,7 +46,8 @@ means unknown age/possible clock skew, not proof that protection maintenance ran
 Repeated failures without verified recovery can pause new entries using a fenced
 book write. User pauses, stop commands, latches, and unrelated mismatches remain
 intact. A persisted supervision pause survives restart; reconciliation and exits
-continue. After review, control belongs to the separate confirmation-gated runtime
+continue. The pause note and its alert name the last error type (for example
+`last error: HTTPError`) so the cause survives a worker restart. After review, control belongs to the separate confirmation-gated runtime
 lane, not the read-only operator lane. No automatic resume is performed.
 
 Alerts are durable even with `notify_provider=none`: delivery is explicitly

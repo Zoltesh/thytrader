@@ -439,11 +439,18 @@ def verified_worker_recovery(previous: Deployment, current: Deployment) -> bool:
     )
 
 
+_FAILURE_ERROR_MARKER = " Error: "
+
+
 def worker_book_failure_finding(deployment: Deployment, *, error_type: str) -> SupervisionFinding:
-    """Build the per-book finding recorded when one worker cycle raised."""
+    """Build the per-book finding recorded when one worker cycle raised.
+
+    Only the exception type is recorded; messages can carry provider detail and stay redacted.
+    """
     detail = (
         f"Execution cycle failed for {deployment.mode.value} book on {deployment.product_id} "
-        f"({deployment.kind.value}); the cycle retries next interval. Error: {error_type}."
+        f"({deployment.kind.value}); the cycle retries next interval."
+        f"{_FAILURE_ERROR_MARKER}{error_type}."
     )
     return SupervisionFinding(
         code=AlertCode.WORKER_BOOK_FAILURES,
@@ -454,6 +461,15 @@ def worker_book_failure_finding(deployment: Deployment, *, error_type: str) -> S
         deployment_id=deployment.id,
         product_id=deployment.product_id or None,
     )
+
+
+def failure_error_type(detail: str) -> str | None:
+    """Return the exception type a ``worker_book_failure_finding`` detail recorded, if any."""
+    _, marker, tail = detail.rpartition(_FAILURE_ERROR_MARKER)
+    error_type = tail.removesuffix(".")
+    if not marker or not error_type.isidentifier():
+        return None
+    return error_type
 
 
 def _row_findings(deployment: Deployment) -> tuple[SupervisionFinding, ...]:
@@ -480,7 +496,9 @@ def _row_findings(deployment: Deployment) -> tuple[SupervisionFinding, ...]:
                     scope=AlertScope.DEPLOYMENT,
                     subject=str(deployment.id),
                     severity=AlertSeverity.WARNING,
-                    detail="Entries remain paused after worker failures; manual review required.",
+                    # The pause note carries the last error type; repeat it so re-observing
+                    # the pause never replaces the only durable failure evidence.
+                    detail=mismatch,
                     deployment_id=deployment.id,
                     product_id=deployment.product_id or None,
                     count_occurrence=False,
