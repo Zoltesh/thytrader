@@ -15,6 +15,9 @@ from typing import TYPE_CHECKING
 from thytrader.execution import (
     breaker_pause,
     entry,
+    entry_admission,
+    entry_reprice,
+    entry_sizing,
     exits,
     live_protection,
     loop,
@@ -35,6 +38,9 @@ LOOP_MODULES: tuple[ModuleType, ...] = (
     live_protection,
     residual,
     entry,
+    entry_sizing,
+    entry_admission,
+    entry_reprice,
 )
 
 

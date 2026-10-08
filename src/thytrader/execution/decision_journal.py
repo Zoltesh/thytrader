@@ -18,11 +18,8 @@ from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
-from thytrader.execution.decision_builder import (
-    BarContext,
-    build_bar_decision,
-    build_gate_skip_decision,
-)
+from thytrader.execution.decision_builder import build_bar_decision, build_gate_skip_decision
+from thytrader.execution.decision_context import BarContext
 from thytrader.execution.decision_scope import decision_observation_scope
 from thytrader.execution.decisions import (
     DECISION_RETENTION_MAX_AGE,

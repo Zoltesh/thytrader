@@ -1,10 +1,6 @@
 {
   "src/thytrader/alerts/supervision.py": 976,
   "src/thytrader/api/routes/backtests.py": 982,
-  "src/thytrader/execution/decision_builder.py": 976,
-  "src/thytrader/execution/discretionary.py": 1006,
-  "src/thytrader/execution/entry.py": 953,
-  "src/thytrader/execution/execution_quality.py": 1069,
   "src/thytrader/execution_worker/strategy_step.py": 1187,
   "src/thytrader/market_data/datasets.py": 902,
   "src/thytrader/operator/models.py": 1096,

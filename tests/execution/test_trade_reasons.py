@@ -7,7 +7,8 @@ from decimal import Decimal
 import pytest
 
 from tests.execution.test_loop import _always_entry_strategy, _candles, _product, _running_snapshot
-from thytrader.execution.discretionary import parse_discretionary_request, place_discretionary_order
+from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.discretionary_request import parse_discretionary_request
 from thytrader.execution.loop import process_closed_bar
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.demo import DemoMarketData

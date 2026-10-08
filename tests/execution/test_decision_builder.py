@@ -11,13 +11,9 @@ import pytest
 
 from tests.execution.decision_support import strategy
 from thytrader.evaluation.trace import EntryConditionOutcome
-from thytrader.execution.decision_builder import (
-    USER_FEED_GATE_DETAIL,
-    BarContext,
-    build_bar_decision,
-    build_gate_skip_decision,
-    pause_skip_reason,
-)
+from thytrader.execution.decision_builder import build_bar_decision, build_gate_skip_decision
+from thytrader.execution.decision_classify import USER_FEED_GATE_DETAIL, pause_skip_reason
+from thytrader.execution.decision_context import BarContext
 from thytrader.execution.decision_scope import DecisionObservations
 from thytrader.execution.decisions import (
     DecisionAction,

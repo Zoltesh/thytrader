@@ -16,9 +16,9 @@ from thytrader.execution.execution_quality import (
     JournaledDecisionClose,
     TwinComparisonReason,
     build_execution_quality_report,
-    build_execution_twin_comparison,
-    load_journaled_close_evidence,
 )
+from thytrader.execution.execution_quality_journal import load_journaled_close_evidence
+from thytrader.execution.execution_quality_twin import build_execution_twin_comparison
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot

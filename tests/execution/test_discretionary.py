@@ -10,11 +10,10 @@ from uuid import uuid4
 import pytest
 
 from thytrader.execution.broker import SubmitResult
-from thytrader.execution.discretionary import (
+from thytrader.execution.discretionary import place_discretionary_order, process_discretionary_bar
+from thytrader.execution.discretionary_request import (
     DiscretionaryOrderRequest,
     parse_discretionary_request,
-    place_discretionary_order,
-    process_discretionary_bar,
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.demo import DemoMarketData

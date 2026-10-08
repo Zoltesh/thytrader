@@ -1,27 +1,21 @@
-"""Entries of the closed-bar execution loop: admission, sizing, submit, reprice.
+"""New entries of the closed-bar execution loop: gates, signal, and sized submit.
 
-Entry gates and risk verdicts, sizing (including pyramid adds), sized and repriced
-entry submission, working-entry management, and the fail-closed split pending-entry
-state check.
+Decides whether a bar may open a book or add to one, evaluates the entry signal and
+its freshness, and rests the sized post-only entry once risk admits it. Also holds
+the fail-closed split pending-entry state check. Sizing lives in ``entry_sizing``,
+risk admission in ``entry_admission``, and working-entry repricing in ``entry_reprice``.
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
-import inspect
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.evaluation.multi_timeframe import htf_bars_closed_at_or_before, ltf_close
 from thytrader.evaluation.signal_evaluator import SignalEvaluationError
 from thytrader.evaluation.trace import EntryConditionOutcome
-from thytrader.execution.attached import remaining_quantity
-from thytrader.execution.breaker_pause import (
-    _bar_observation,
-    _pause_for_breaker,
-    _portfolio_with_current,
-)
+from thytrader.execution.breaker_pause import _bar_observation, _pause_for_breaker
 from thytrader.execution.broker import BrokerError
-from thytrader.execution.capital import live_capital_base, live_sizing_cash
+from thytrader.execution.capital import live_sizing_cash
 from thytrader.execution.decision_scope import (
     decision_observation_active,
     note_entry_block,
@@ -30,45 +24,31 @@ from thytrader.execution.decision_scope import (
     note_evaluation,
     note_evaluation_error,
     note_freshness,
-    note_risk,
 )
 from thytrader.execution.decisions import DecisionSkipReason
-from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
-from thytrader.execution.runtime_ops import (
-    _active_entry,
-    _cancel_one_order,
-    _flatten_pending,
-    _pause,
+from thytrader.execution.entry_admission import _entry_verdict
+from thytrader.execution.entry_sizing import (
+    _await_maker_limit,
+    _runtime_for_admitted_entry,
+    _signal_intent_key,
+    _size_entry_or_add,
 )
+from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
+from thytrader.execution.runtime_ops import _active_entry, _flatten_pending, _pause
 from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.models import parse_candle_interval
-from thytrader.memory.trade_reason_scope import current_trade_reason_scope
-from thytrader.risk.breakers import EntryObservation
-from thytrader.risk.gate import ProposedEntry, evaluate_new_entry
-from thytrader.risk.models import (
-    RiskDecision,
-    RiskReasonCode,
-    RiskVerdict,
-    compiled_default_risk_policy,
-    pauses_risk_increasing,
-)
-from thytrader.risk.portfolio_scope import portfolio_risk_for
-from thytrader.strategies.models import atr_trailing_stop, can_pyramid_add
+from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
+from thytrader.strategies.models import can_pyramid_add
 from thytrader.trading.geometry import EntrySkipReason, entry_order_side
 from thytrader.trading.ids import utc_now
-from thytrader.trading.ledger import PAPER_MAKER_FEE_RATE, effective_paper_fee_rates
-from thytrader.trading.lifecycle import can_reprice_risk_up, entries_allowed
+from thytrader.trading.lifecycle import entries_allowed
 from thytrader.trading.models import (
-    Deployment,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
-    ExecutionStoreError,
     IntentPurpose,
-    Order,
     OrderKind,
-    OrderSide,
     OrderStatus,
     PositionSide,
     RuntimePhase,
@@ -77,12 +57,10 @@ from thytrader.trading.models import (
     snapshot_positions,
     with_runtime,
 )
-from thytrader.trading.sizing import SizedEntry, size_entry_or_skip, size_pyramid_add_or_skip
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from datetime import datetime
-    from uuid import UUID
+    from decimal import Decimal
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
@@ -145,276 +123,6 @@ async def _fail_closed_on_split_state(
         store=store,
         detail=_split_state_detail(snapshot),
     )
-
-
-async def _manage_working_entry(
-    snapshot: DeploymentSnapshot,
-    *,
-    strategy: StrategyDefinition,
-    candles: Sequence[Candle],
-    candle: Candle,
-    product: MarketProduct,
-    broker: Broker,
-    store: ExecutionStore,
-    marks: Mapping[str, Decimal] | None,
-    live_base_available: Decimal | None,
-    risk_policy: RiskPolicyDefinition | None,
-    portfolio: Sequence[DeploymentSnapshot],
-    fee_profile: FeeProfile | None = None,
-) -> DeploymentSnapshot:
-    """Wait, cancel, or reprice a working entry remainder in any phase."""
-    deployment = snapshot.deployment
-    waited = deployment.pending_entry_bars + 1
-    open_entry = _active_entry(snapshot)
-    has_position = snapshot.position is not None
-    if open_entry is None:
-        if has_position:
-            cleared = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=0)
-            await store.save_deployment(cleared)
-            return await store.get_deployment(deployment.id)
-        return await _flatten_pending(snapshot, store=store, cooldown_bars=1)
-    if open_entry.status is not OrderStatus.OPEN or open_entry.venue_order_id is None:
-        return await _pause(
-            snapshot,
-            store=store,
-            detail="Entry order is unconfirmed; reconcile before retrying.",
-        )
-    if waited < strategy.execution.max_entry_wait_bars:
-        waited_state = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=waited)
-        await store.save_deployment(waited_state)
-        return await store.get_deployment(deployment.id)
-    if strategy.execution.on_unfilled_entry == "reprice" and not can_reprice_risk_up(deployment):
-        return snapshot
-    snapshot = await _cancel_one_order(open_entry, broker=broker, store=store)
-    remaining = _active_entry(snapshot)
-    if remaining is not None and remaining.status is not OrderStatus.CANCELED:
-        return await _pause(
-            snapshot,
-            store=store,
-            detail="Unfilled entry could not be canceled before retrying.",
-        )
-    if strategy.execution.on_unfilled_entry == "reprice" and can_reprice_risk_up(
-        snapshot.deployment
-    ):
-        phase = RuntimePhase.OPEN if has_position else RuntimePhase.PENDING_ENTRY
-        return await _reprice_entry(
-            snapshot,
-            strategy=strategy,
-            candles=candles,
-            candle=candle,
-            product=product,
-            broker=broker,
-            store=store,
-            prior=open_entry,
-            marks=marks,
-            live_base_available=live_base_available,
-            phase=phase,
-            risk_policy=risk_policy,
-            portfolio=portfolio,
-            fee_profile=fee_profile,
-        )
-    if has_position:
-        abandoned = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
-        await store.save_deployment(abandoned)
-        return await store.get_deployment(snapshot.deployment.id)
-    return await _flatten_pending(
-        snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
-    )
-
-
-async def _reprice_entry(
-    snapshot: DeploymentSnapshot,
-    *,
-    strategy: StrategyDefinition,
-    candles: Sequence[Candle],
-    candle: Candle,
-    product: MarketProduct,
-    broker: Broker,
-    store: ExecutionStore,
-    prior: Order,
-    marks: Mapping[str, Decimal] | None = None,
-    live_base_available: Decimal | None = None,
-    phase: RuntimePhase = RuntimePhase.PENDING_ENTRY,
-    risk_policy: RiskPolicyDefinition | None = None,
-    portfolio: Sequence[DeploymentSnapshot] = (),
-    fee_profile: FeeProfile | None = None,
-) -> DeploymentSnapshot:
-    """Submit a replacement post-only entry at remaining qty after sizing and risk re-admission."""
-    remaining_qty = remaining_quantity(prior)
-    if remaining_qty <= 0 or not can_reprice_risk_up(snapshot.deployment):
-        return snapshot
-    is_pyramid = phase is RuntimePhase.OPEN or snapshot.position is not None
-    try:
-        entry_price = await _await_maker_limit(
-            broker, product_id=product.product_id, mark=candle.close, side=prior.side
-        )
-    except BrokerError:
-        if is_pyramid:
-            abandoned = with_runtime(
-                snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0
-            )
-            await store.save_deployment(abandoned)
-            return await store.get_deployment(snapshot.deployment.id)
-        return await _pause(
-            snapshot,
-            store=store,
-            detail="Maker entry price is unavailable for repricing.",
-            phase=RuntimePhase.FLAT,
-        )
-    atr = latest_atr(strategy, candles)
-    if atr is None:
-        return snapshot
-    side = PositionSide(strategy.entry.side)
-    sized = _size_entry_or_add(
-        snapshot,
-        strategy=strategy,
-        product=product,
-        entry_price=entry_price,
-        atr=atr,
-        side=side,
-        is_pyramid_add=is_pyramid,
-        # Preserve legacy reprice sizing when the strategy has not enabled the new guard.
-        fee_profile=fee_profile if strategy.entry.economic_guard is not None else None,
-    )
-    if isinstance(sized, EntrySkipReason):
-        note_entry_skip(sized)
-        return snapshot
-    stop_price, target_price = _legal_reprice_geometry(
-        side=side,
-        entry_price=entry_price,
-        stop_price=sized.stop_price,
-        target_price=sized.target_price,
-    )
-    policy = risk_policy or compiled_default_risk_policy()
-    admitted = await _entry_verdict(
-        snapshot,
-        store=store,
-        product_id=product.product_id,
-        notional=entry_price * remaining_qty,
-        quantity=remaining_qty,
-        risk_policy=policy,
-        portfolio=portfolio,
-        observation=_bar_observation(
-            product_id=product.product_id,
-            candle=candle,
-            proposed_price=entry_price,
-            marks=marks,
-        ),
-        is_pyramid_add=is_pyramid,
-    )
-    if admitted.decision is RiskDecision.DENY:
-        if pauses_risk_increasing(admitted.reason_code):
-            return await _pause_for_breaker(
-                snapshot, store=store, portfolio=portfolio, verdict=admitted
-            )
-        return snapshot
-    if (
-        side is PositionSide.SHORT
-        and snapshot.deployment.mode is DeploymentMode.LIVE
-        and (live_base_available is None or live_base_available < remaining_qty)
-    ):
-        return await _pause(
-            snapshot,
-            store=store,
-            detail=(
-                "INSUFFICIENT_BASE_FOR_SPOT_SHORT: Coinbase spot shorts require available base."
-            ),
-        )
-    return await _submit_repriced_entry(
-        snapshot,
-        broker=broker,
-        store=store,
-        product=product,
-        candle=candle,
-        prior=prior,
-        remaining_qty=remaining_qty,
-        entry_price=entry_price,
-        stop_price=stop_price,
-        target_price=target_price,
-        is_pyramid=is_pyramid,
-        phase=phase,
-        attach=(
-            not is_pyramid
-            and target_price is not None
-            and atr_trailing_stop(strategy.exits) is None
-        ),
-    )
-
-
-async def _submit_repriced_entry(
-    snapshot: DeploymentSnapshot,
-    *,
-    broker: Broker,
-    store: ExecutionStore,
-    product: MarketProduct,
-    candle: Candle,
-    prior: Order,
-    remaining_qty: Decimal,
-    entry_price: Decimal,
-    stop_price: Decimal,
-    target_price: Decimal | None,
-    is_pyramid: bool,
-    phase: RuntimePhase,
-    attach: bool,
-) -> DeploymentSnapshot:
-    """Persist pending levels and rest the replacement maker order."""
-    reset = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
-    if not is_pyramid:
-        reset = _with_pending_levels(reset, stop_price=stop_price, target_price=target_price)
-    await store.save_deployment(reset)
-    order = await submit_intent(
-        store=store,
-        broker=broker,
-        deployment_id=snapshot.deployment.id,
-        product_id=product.product_id,
-        purpose=IntentPurpose.ENTRY,
-        side=prior.side,
-        kind=OrderKind.POST_ONLY_LIMIT,
-        quantity=remaining_qty,
-        price=entry_price,
-        candle=candle,
-        stop_trigger_price=stop_price if attach else None,
-        take_profit_price=target_price if attach else None,
-        pyramid_add=is_pyramid,
-        idempotency_key=_signal_intent_key(
-            snapshot.deployment.id, IntentPurpose.ENTRY, candle.starts_at, product.product_id
-        ),
-    )
-    if order.status is OrderStatus.UNKNOWN:
-        return await _pause(
-            await store.get_deployment(snapshot.deployment.id),
-            store=store,
-            detail="Repriced entry submit is unconfirmed.",
-        )
-    pending = with_runtime(reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0)
-    await store.save_deployment(pending)
-    return await store.get_deployment(snapshot.deployment.id)
-
-
-def _legal_reprice_geometry(
-    *,
-    side: PositionSide,
-    entry_price: Decimal,
-    stop_price: Decimal,
-    target_price: Decimal | None,
-) -> tuple[Decimal, Decimal | None]:
-    """Preserve remaining qty's legal stop/target; drop an obsolete target below a new buy.
-
-    A strategy without a take-profit keeps ``None``: there is no target to repair.
-    """
-    if target_price is None:
-        return stop_price, None
-    if side is PositionSide.LONG and target_price <= entry_price:
-        width = entry_price - stop_price
-        if width <= 0:
-            width = entry_price * Decimal("0.01")
-        return stop_price, entry_price + width
-    if side is PositionSide.SHORT and target_price >= entry_price:
-        width = stop_price - entry_price
-        if width <= 0:
-            width = entry_price * Decimal("0.01")
-        return stop_price, entry_price - width
-    return stop_price, target_price
 
 
 def _entry_attempt_mode(
@@ -591,98 +299,6 @@ def _note_pyramid_refusal(strategy: StrategyDefinition) -> None:
     )
 
 
-def _size_entry_or_add(
-    snapshot: DeploymentSnapshot,
-    *,
-    strategy: StrategyDefinition,
-    product: MarketProduct,
-    entry_price: Decimal,
-    atr: Decimal,
-    side: PositionSide,
-    is_pyramid_add: bool,
-    fee_profile: FeeProfile | None = None,
-) -> SizedEntry | EntrySkipReason:
-    """Size a new book or a same-side add against remaining quote cash, or name the skip."""
-    if (
-        strategy.entry.economic_guard is not None
-        and snapshot.deployment.mode is DeploymentMode.LIVE
-        and fee_profile is None
-    ):
-        return EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE
-    fee_rate = _entry_fee_rate(snapshot.deployment, fee_profile=fee_profile)
-    sizing_cash = live_sizing_cash(snapshot.deployment)
-    if sizing_cash is None:
-        return EntrySkipReason.SIZING_CASH_UNAVAILABLE
-    if not is_pyramid_add:
-        return size_entry_or_skip(
-            strategy=strategy,
-            cash=sizing_cash,
-            entry_price=entry_price,
-            atr=atr,
-            product=product,
-            fee_rate=fee_rate,
-            side=side,
-        )
-    position = snapshot.position
-    if position is None:
-        return EntrySkipReason.NO_OPEN_POSITION
-    return size_pyramid_add_or_skip(
-        strategy=strategy,
-        cash=sizing_cash,
-        entry_price=entry_price,
-        existing_stop=position.stop_price,
-        existing_target=position.target_price,
-        product=product,
-        fee_rate=fee_rate,
-        side=side,
-    )
-
-
-def _runtime_for_admitted_entry(
-    deployment: Deployment,
-    *,
-    sized: SizedEntry,
-    strategy: StrategyDefinition,
-    is_pyramid_add: bool,
-) -> tuple[Deployment, bool]:
-    """Stamp pending-entry or keep OPEN, and decide whether live brackets attach.
-
-    A Coinbase attached ``trigger_bracket_gtc`` needs a take-profit limit, so an entry
-    without a target never attaches; its stop-only protection rests after the fill.
-    """
-    if is_pyramid_add:
-        pending = with_runtime(
-            deployment,
-            updated_at=utc_now(),
-            phase=RuntimePhase.OPEN,
-            pending_entry_bars=0,
-        )
-        return pending, False
-    pending = with_runtime(
-        _with_pending_levels(
-            deployment, stop_price=sized.stop_price, target_price=sized.target_price
-        ),
-        updated_at=utc_now(),
-        phase=RuntimePhase.PENDING_ENTRY,
-        pending_entry_bars=0,
-    )
-    attach = sized.target_price is not None and atr_trailing_stop(strategy.exits) is None
-    return pending, attach
-
-
-def _with_pending_levels(
-    deployment: Deployment, *, stop_price: Decimal, target_price: Decimal | None
-) -> Deployment:
-    """Replace both pending levels; a None target (no take-profit) clears any stale one."""
-    cleared = with_runtime(deployment, updated_at=utc_now(), clear_pending_levels=True)
-    return with_runtime(
-        cleared,
-        updated_at=utc_now(),
-        pending_stop_price=stop_price,
-        pending_target_price=target_price,
-    )
-
-
 async def _submit_sized_entry(
     snapshot: DeploymentSnapshot,
     *,
@@ -804,89 +420,6 @@ async def _submit_sized_entry(
     return snapshot
 
 
-async def _entry_admitted(
-    snapshot: DeploymentSnapshot,
-    *,
-    store: ExecutionStore,
-    product_id: str,
-    notional: Decimal,
-    risk_policy: RiskPolicyDefinition,
-    portfolio: Sequence[DeploymentSnapshot],
-    observation: EntryObservation | None = None,
-    is_pyramid_add: bool = False,
-    quantity: Decimal | None = None,
-) -> bool:
-    """Return whether the active risk policy allows this sized entry."""
-    verdict = await _entry_verdict(
-        snapshot,
-        store=store,
-        product_id=product_id,
-        notional=notional,
-        quantity=quantity,
-        risk_policy=risk_policy,
-        portfolio=portfolio,
-        observation=observation,
-        is_pyramid_add=is_pyramid_add,
-    )
-    return verdict.decision is RiskDecision.ALLOW
-
-
-async def _entry_verdict(
-    snapshot: DeploymentSnapshot,
-    *,
-    store: ExecutionStore,
-    product_id: str,
-    notional: Decimal,
-    risk_policy: RiskPolicyDefinition,
-    portfolio: Sequence[DeploymentSnapshot],
-    observation: EntryObservation | None = None,
-    is_pyramid_add: bool = False,
-    quantity: Decimal | None = None,
-) -> RiskVerdict:
-    """Admit only against fresh full accounting, never the product view or cache."""
-    observation = observation or EntryObservation(
-        as_of=utc_now(), proposed_price=None, reference_price=None, marks={}
-    )
-    try:
-        current_portfolio = await _portfolio_with_current(portfolio, snapshot, store=store)
-    except ExecutionStoreError:
-        return RiskVerdict(
-            decision=RiskDecision.DENY,
-            reason_code=RiskReasonCode.BREAKER_MARK_MISSING,
-            detail="Fresh complete risk accounting evidence is unavailable; entries are disabled.",
-        )
-    current = next(
-        item for item in current_portfolio if item.deployment.id == snapshot.deployment.id
-    )
-    live_cash = live_capital_base(current.deployment)
-    if snapshot.deployment.mode is DeploymentMode.LIVE and live_cash is None:
-        return RiskVerdict(
-            decision=RiskDecision.DENY,
-            reason_code=RiskReasonCode.VENUE_BALANCE_UNKNOWN,
-            detail="Venue quote balance is unknown; new entries are disabled.",
-        )
-    verdict = evaluate_new_entry(
-        risk_policy,
-        mode=snapshot.deployment.mode,
-        proposed=ProposedEntry(
-            product_id=product_id,
-            strategy_id=snapshot.deployment.strategy_id,
-            notional=notional,
-            is_pyramid_add=is_pyramid_add,
-            quantity=quantity,
-        ),
-        snapshots=current_portfolio,
-        live_quote_cash=live_cash,
-        observation=observation,
-        portfolio=portfolio_risk_for(snapshot.deployment),
-    )
-    scope = current_trade_reason_scope()
-    if scope is not None:
-        scope.remember_risk(verdict)
-    note_risk(verdict)
-    return verdict
-
-
 def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:
     """Count distinct product books and pending entries inside this document."""
     products: set[str] = set()
@@ -908,46 +441,3 @@ def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:
     }:
         products.add(snapshot.deployment.product_id)
     return len(products)
-
-
-async def _await_maker_limit(
-    broker: Broker,
-    *,
-    product_id: str,
-    mark: Decimal,
-    side: OrderSide,
-) -> Decimal:
-    """Await maker_limit_price whether the broker implements it as async or sync.
-
-    CoinbaseRestBroker keeps a sync implementation (owned by a sibling slice); paper
-    and tests may be sync or async. Network I/O wrapping stays outside this helper.
-    """
-    result = broker.maker_limit_price(product_id=product_id, mark=mark, side=side)
-    if inspect.isawaitable(result):
-        awaited = await result
-        if isinstance(awaited, Decimal):
-            return awaited
-        raise BrokerError("Maker entry price is unavailable.")
-    if isinstance(result, Decimal):
-        return result
-    raise BrokerError("Maker entry price is unavailable.")
-
-
-def _signal_intent_key(
-    deployment_id: UUID, purpose: IntentPurpose, candle_starts_at: datetime, product_id: str
-) -> str:
-    """Stable command/signal identity used to deduplicate order intents."""
-    stamp = candle_starts_at.strftime("%Y%m%dT%H%M")
-    return f"{deployment_id}:{purpose.value}:{product_id}:{stamp}"[:128]
-
-
-def _entry_fee_rate(deployment: Deployment, *, fee_profile: FeeProfile | None = None) -> Decimal:
-    """Size entries with paper assumptions or the live Coinbase maker tier when available."""
-    if deployment.mode is DeploymentMode.PAPER:
-        maker_fee_rate, _taker_fee_rate = effective_paper_fee_rates(
-            deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
-        )
-        return maker_fee_rate
-    if fee_profile is not None:
-        return fee_profile.maker_fee_rate
-    return PAPER_MAKER_FEE_RATE
