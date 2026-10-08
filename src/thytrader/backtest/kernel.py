@@ -65,6 +65,7 @@ from thytrader.backtest.research_validity import (
     ResearchValidityLimitCode,
     collect_backtest_validity_limits,
 )
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.economics import target_guard_allows
 from thytrader.execution.geometry import EntrySkipReason, entry_levels
 from thytrader.execution.models import PositionSide as RuntimePositionSide
@@ -76,7 +77,6 @@ from thytrader.market_data.quality import (
     validate_candle_timestamp,
     validate_candle_values,
 )
-from thytrader.research.indicators import canonical_decimal
 from thytrader.research.models import (
     BACKTEST_ENGINE,
     ResearchRunSpecification,

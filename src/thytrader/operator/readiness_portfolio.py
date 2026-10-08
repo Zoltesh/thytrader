@@ -5,6 +5,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, Protocol
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.ledger import effective_paper_fee_rates
 from thytrader.execution.models import Deployment, DeploymentMode, DeploymentSnapshot
 from thytrader.market_data.products import SpotQuoteCurrency, base_currency
@@ -26,7 +27,6 @@ from thytrader.operator.readiness_models import (
     ReadinessSeverity,
 )
 from thytrader.portfolios.rules import allocation_summary, sleeve_capital
-from thytrader.research.indicators import canonical_decimal
 from thytrader.risk.exposure import product_exposure, risk_bearing_snapshots
 
 if TYPE_CHECKING:

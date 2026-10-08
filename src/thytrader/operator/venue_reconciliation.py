@@ -32,6 +32,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader import __version__
+from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailure
 from thytrader.execution.models import (
     DeploymentMode,
@@ -57,7 +58,6 @@ from thytrader.operator.models import (
     ReportStatus,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

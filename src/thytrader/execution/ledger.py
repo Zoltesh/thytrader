@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.fill_ledger import (
     unprojected_inventory_products,
     unsettled_fill_evidence,
@@ -27,7 +28,6 @@ from thytrader.execution.protection import (
     book_inventory_reasons,
     missing_occupied_inventory_products,
 )
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

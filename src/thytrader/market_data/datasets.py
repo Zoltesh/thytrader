@@ -18,6 +18,7 @@ from uuid import uuid4
 
 import polars as pl
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.market_data.models import (
     Candle,
     CandleInterval,
@@ -31,7 +32,6 @@ from thytrader.market_data.quality import (
     analyze_range,
     validate_candle_values,
 )
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from thytrader.market_data.freshness import FreshnessStatus, evaluate_freshness
+from thytrader.market_data.hole_settlement import settle_cutoff
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
@@ -17,9 +18,6 @@ from thytrader.market_data.models import (
 )
 from thytrader.market_data.worker_state import (
     MarketDataWorkerError,
-)
-from thytrader.market_data_worker.pages import (
-    settle_cutoff,
 )
 
 # How far past the lookback ceiling a listing search looks: one page of daily candles.

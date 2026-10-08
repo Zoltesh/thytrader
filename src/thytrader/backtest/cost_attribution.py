@@ -11,7 +11,7 @@ from typing import Annotated, Literal, Self
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from thytrader.backtest.models import BacktestResult, backtest_result_fingerprint
-from thytrader.research.indicators import canonical_decimal
+from thytrader.decimal_text import canonical_decimal
 from thytrader.research.models import FingerprintText
 
 _PLACEHOLDER = "sha256:" + "0" * 64

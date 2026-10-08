@@ -27,10 +27,10 @@ from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.data_control.cli import main as data_main
+from thytrader.exit_codes import EXIT_DEGRADED, EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.operator.cli import main as operator_main
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
-from thytrader.operator.status import EXIT_DEGRADED, EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE
 from thytrader.research.mutation_cli import main as research_main
 from thytrader.runtime_control.cli import main as runtime_main
 

@@ -38,6 +38,7 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.portfolios.models import (
     MAX_RATIONALE_LENGTH,
     MAX_SLEEVES,
@@ -53,7 +54,6 @@ from thytrader.portfolios.models import (
     require_utc,
     utc_text,
 )
-from thytrader.research.indicators import canonical_decimal
 
 if TYPE_CHECKING:
     from thytrader.portfolios.models import JournalEntry

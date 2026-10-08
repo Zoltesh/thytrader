@@ -19,10 +19,10 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Final, Literal
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.execution.lifecycle import occupies_running_slot
 from thytrader.execution.models import Deployment, DeploymentMode, DeploymentStatus
 from thytrader.portfolios.rules import percent_text, quote_text, sleeve_capital
-from thytrader.research.indicators import canonical_decimal
 from thytrader.risk.gate import PortfolioRiskBook
 from thytrader.risk.models import RiskReasonCode
 

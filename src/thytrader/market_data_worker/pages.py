@@ -13,24 +13,25 @@ from datetime import timedelta
 from itertools import pairwise
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.hole_settlement import HOLE_SETTLE_MINIMUM, settle_cutoff
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
     from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 
+__all__ = [
+    "HOLE_SETTLE_MINIMUM",
+    "CandlePage",
+    "CandleRun",
+    "merge_confirmed_pages",
+    "run_end",
+    "settle_cutoff",
+    "split_page",
+]
+
 type CandleRun = tuple[Candle, ...]
-
-# Coinbase can publish the newest candles a little late. A missing bar newer than this
-# window (or one bar, whichever is longer) is unsettled: the worker waits for it instead
-# of treating it as a permanent provider hole.
-HOLE_SETTLE_MINIMUM = timedelta(minutes=15)
-
-
-def settle_cutoff(closed_end: datetime, interval: CandleInterval) -> datetime:
-    """Return the instant from which a missing bar is not yet a confirmed hole."""
-    window = interval.duration if interval.duration > HOLE_SETTLE_MINIMUM else HOLE_SETTLE_MINIMUM
-    return closed_end - window
 
 
 def run_end(run: Sequence[Candle], interval: CandleInterval) -> datetime:
