@@ -129,6 +129,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0122](0122-paper-fees-default-to-account-rates.md) | New paper books default to the account's Coinbase fee rates; unreadable rates refuse the start | Accepted |
 | [0123](0123-package-layering.md) | Declared package layers with shrink-only upward imports; shared `evaluation` package below every mode | Accepted |
 | [0124](0124-inventory-adoption.md) | Live books adopt coins already held at the venue in kind (never routed); live-only; Alembic 0070 | Accepted |
+| [0125](0125-correlation-aware-risk-limits.md) | Opt-in BTC-beta-weighted exposure cap and fleet entry clustering cap; fail closed on missing or stale beta; correlation clusters deferred | Accepted |
 
 ## Status values
 
