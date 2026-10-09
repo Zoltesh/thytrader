@@ -110,6 +110,10 @@ foreign-quote paper books deny new funding rather than reuse or convert that bud
 stopped flat loss evidence does not occupy funding. Concurrent multi-quote paper funding is not
 supported by the current scalar paper-capital policy.
 
+`--max-concurrent-running-deployments` and `--max-concurrent-open-positions` accept 1–128 per mode
+(running and paused bots occupy a running slot), and `--product-allowlist` up to 256 products.
+Exposure caps, not these counts, bound the capital at risk.
+
 Optional `set-risk-policy` flags `--max-order-quantity`, `--max-order-notional-quote`, and
 `--min-available-quote-reserve` are unset by default; compiled defaults and old stored policy
 hashes stay unchanged. Publication replaces the policy, not patches it: resupply any configured

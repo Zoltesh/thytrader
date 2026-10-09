@@ -119,6 +119,17 @@ class CapitalAllocation(_FrozenModel):
         return value
 
 
+MAX_CONCURRENT_LIMIT = 128
+"""Upper bound for the running-deployment and open-position counts a policy may allow.
+
+Raised from 32 (ADR 0033) so a fleet of many slow bots fits; the exposure caps, not the
+counts, bound the capital at risk.
+"""
+
+MAX_ALLOWLISTED_PRODUCTS = 256
+"""Upper bound on ``product_allowlist`` entries (was 32)."""
+
+
 class RiskPolicyDefinition(_FrozenModel):
     """One immutable portfolio risk policy shared by paper and live."""
 
@@ -126,9 +137,9 @@ class RiskPolicyDefinition(_FrozenModel):
     policy_id: UUID
     version: int = Field(ge=1)
     quote_currency: SpotQuoteCurrency = "USDC"
-    product_allowlist: tuple[str, ...] = Field(default=(), max_length=32)
-    max_concurrent_running_deployments: int = Field(ge=1, le=32)
-    max_concurrent_open_positions: int = Field(ge=1, le=32)
+    product_allowlist: tuple[str, ...] = Field(default=(), max_length=MAX_ALLOWLISTED_PRODUCTS)
+    max_concurrent_running_deployments: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
+    max_concurrent_open_positions: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
     max_portfolio_exposure_fraction: DecimalText
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
@@ -246,9 +257,9 @@ class RiskPolicyWrite(_FrozenModel):
     """Operator-authored fields for publishing the next immutable policy version."""
 
     quote_currency: SpotQuoteCurrency = "USDC"
-    product_allowlist: tuple[str, ...] = Field(default=(), max_length=32)
-    max_concurrent_running_deployments: int = Field(ge=1, le=32)
-    max_concurrent_open_positions: int = Field(ge=1, le=32)
+    product_allowlist: tuple[str, ...] = Field(default=(), max_length=MAX_ALLOWLISTED_PRODUCTS)
+    max_concurrent_running_deployments: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
+    max_concurrent_open_positions: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
     max_portfolio_exposure_fraction: DecimalText
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
