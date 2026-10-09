@@ -133,10 +133,8 @@ Every module holds one concern, and every package sits in one architectural laye
   package in a layer before using it. `uv run python -m tests.test_package_layers` prints
   any upward imports.
 - **Size budget.** Python modules should stay near 600 lines and TS/Svelte near 400. CI enforces
-  hard budgets of 800 and 600 (`tests/test_module_size_budget.py`). Files already over budget
-  are listed in `tests/module_size_allowlist.json` with a ceiling that may only go down. Never
-  raise a ceiling or add an entry: split the module. When a listed file drops within budget,
-  delete its entry.
+  hard budgets of 800 and 600 (`tests/test_module_size_budget.py`). Every file is within budget
+  and `tests/module_size_allowlist.json` is empty. Never add an entry: split the module.
 - **Check concern spread before adding code to a file.** A file whose symbols belong to many
   communities mixes concerns:
 
@@ -158,12 +156,23 @@ Every module holds one concern, and every package sits in one architectural laye
   node .gitnexus/run.cjs cypher "MATCH (c:Community) WHERE c.cohesion < 0.8 AND c.symbolCount >= 10 RETURN c.id, c.label, c.cohesion, c.symbolCount ORDER BY c.cohesion" --repo .
   ```
 
-- **Split move-only.** Splitting a module is its own PR with no logic change. Verify every moved
-  definition is AST-identical, keep old import paths working through explicit `__all__`
-  re-exports, keep imports one-way with no new cycles, and keep logger names unchanged.
-  A monkeypatch only applies in the module that looks a name up: retarget string patches, using
-  `tests/worker_patching.py` / `tests/loop_patching.py` for the worker and loop, and prove they
-  still fire. Re-index GitNexus after the split.
+- **Split move-only.** Splitting a module is its own PR with no logic change.
+  - Verify every moved definition is AST-identical, and that OpenAPI, the operator schema,
+    CLI help and fingerprints are byte-identical.
+  - Retarget importers to the new module. Keep a facade or barrel with an explicit `__all__`
+    only where the old module is a deliberate public surface, such as `strategies.models`,
+    `research.studies`, `market_data.datasets` or `web/src/lib/backtests.ts`.
+  - Keep imports one-way with no new cycles, and keep logger names unchanged: a moved
+    function keeps its logger by passing the original module name as a string to
+    `logging.getLogger`.
+  - When one class alone exceeds the budget, extract verbatim helpers or statement builders
+    and prove they are equivalent (for example, by compiling the SQL); never change a
+    statement.
+  - A monkeypatch only applies in the module that looks a name up. Retarget string patches,
+    using `tests/worker_patching.py` and `tests/loop_patching.py` (add new worker or loop
+    modules to them) for the worker and loop, and prove the patches still fire.
+  - Web splits must render an identical DOM across the e2e states they touch.
+  - Re-index GitNexus after the split.
 - **Delete dead code** in the same change that makes it dead. Confirm zero references with
   GitNexus and a whole-repo text search; an empty caller set alone is not proof.
 
