@@ -12,8 +12,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
+    get_inventory_adoption_store,
+    get_market_data_service,
     get_market_data_watchlist_store,
+    get_memory_store,
     get_optional_decision_journal_store,
+    get_quote_reader,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_snapshot_store,
@@ -21,6 +25,7 @@ from thytrader.api.dependencies import (
 )
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
+from thytrader.api.routes.deployment_adoption import start_adopting
 from thytrader.api.routes.deployment_models import (
     CreateDeploymentRequest,
     DeploymentListResponse,
@@ -45,6 +50,8 @@ from thytrader.audit_events import (
     AuditEventStore,
 )
 from thytrader.data_control.service import ingestion_provider
+from thytrader.exchanges.protocols import ExchangeAccount
+from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.book_marks import (
     entry_fees_by_product,
     last_bar_marks,
@@ -62,9 +69,11 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.fleet_control.inventory import read_stable_inventory
+from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
+from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.library import StrategyStore
@@ -85,7 +94,7 @@ from thytrader.trading.models import (
     resolved_product_id,
     summary_as_snapshot,
 )
-from thytrader.trading.store import ExecutionStore
+from thytrader.trading.store import ExecutionStore, InventoryAdoptionStore
 
 if TYPE_CHECKING:
     from thytrader.execution.book_marks import BookMark
@@ -116,8 +125,16 @@ async def post_deployment(
     strategies: Annotated[StrategyStore, Depends(get_strategy_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     paper_fee_source: Annotated[PaperFeeSource, Depends(get_paper_fee_source)],
+    adoption_store: Annotated[InventoryAdoptionStore | None, Depends(get_inventory_adoption_store)],
+    market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
+    quote_reader: Annotated[ExchangeAccount | None, Depends(get_quote_reader)],
+    memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
 ) -> DeploymentResponse:
     """Snapshot the strategy's current rules and start a running paper or live book.
+
+    With ``adopt_holdings`` (live only, ADR 0124) the bot starts already holding that
+    quantity, or all, of the account's unmanaged coins; the book and the adoption commit
+    together, and the worker's next cycle places the strategy's protection.
 
     A paper start that omits both fee rates uses the Coinbase account's rates, and is
     refused (409) when those cannot be read.
@@ -128,22 +145,40 @@ async def post_deployment(
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
+    reference_watches = ReferenceWatchlist(
+        store=watchlist, provider=ingestion_provider(runtime.settings)
+    )
     try:
-        deployment = await create_deployment(
-            store=store,
-            publication_store=publication_store,
-            strategy_fingerprint=snapshot.strategy_fingerprint,
-            mode=body.mode,
-            paper_starting_cash=parse_decimal(body.paper_starting_cash),
-            paper_maker_fee_rate=parse_decimal(body.maker_fee_rate, field="maker_fee_rate"),
-            paper_taker_fee_rate=parse_decimal(body.taker_fee_rate, field="taker_fee_rate"),
-            live_allowed=runtime.settings.coinbase_api_key_name is not None,
-            risk_store=risk_store,
-            reference_watches=ReferenceWatchlist(
-                store=watchlist, provider=ingestion_provider(runtime.settings)
-            ),
-            paper_fee_source=paper_fee_source,
-        )
+        if body.adopt_holdings is not None:
+            with execution_audit_scope(audit):
+                deployment = await start_adopting(
+                    mode=body.mode,
+                    adopt_holdings=body.adopt_holdings,
+                    snapshot=snapshot,
+                    store=store,
+                    publication_store=publication_store,
+                    live_allowed=runtime.settings.coinbase_api_key_name is not None,
+                    risk_store=risk_store,
+                    reference_watches=reference_watches,
+                    adoption_store=adoption_store,
+                    market_data=market_data,
+                    quote_reader=quote_reader,
+                    memory_store=memory_store,
+                )
+        else:
+            deployment = await create_deployment(
+                store=store,
+                publication_store=publication_store,
+                strategy_fingerprint=snapshot.strategy_fingerprint,
+                mode=body.mode,
+                paper_starting_cash=parse_decimal(body.paper_starting_cash),
+                paper_maker_fee_rate=parse_decimal(body.maker_fee_rate, field="maker_fee_rate"),
+                paper_taker_fee_rate=parse_decimal(body.taker_fee_rate, field="taker_fee_rate"),
+                live_allowed=runtime.settings.coinbase_api_key_name is not None,
+                risk_store=risk_store,
+                reference_watches=reference_watches,
+                paper_fee_source=paper_fee_source,
+            )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
     except ExecutionStoreError as error:

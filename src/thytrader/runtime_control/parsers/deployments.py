@@ -145,6 +145,18 @@ def add_start_parser(
         default=None,
         help="Paper taker fee assumption as a decimal string. See --maker-fee-rate.",
     )
+    start.add_argument(
+        "--adopt-holdings",
+        default=None,
+        metavar="N|all",
+        help=(
+            "Live only: start the bot already holding this base quantity, or 'all', of the "
+            "coins the Coinbase account holds unmanaged (see adoption-preview). Nothing is "
+            "bought; the stop and target come from the strategy's exits at the mark and the "
+            "worker places them on its next cycle. Single-instrument long strategies only. "
+            "Always needs --confirm (YOLO never skips it)."
+        ),
+    )
     start.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     start.add_argument("--i-understand-live", action="store_true", help=_LIVE_HELP)
 

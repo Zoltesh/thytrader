@@ -19,11 +19,11 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
-from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.adoption import (
     ADOPTION_BOOK_OCCUPIED,
     AdoptionAction,
     adopted_quantity,
+    journal_adoption,
     live_accounting_books,
     occupied_discretionary_book,
     read_balances_or_refuse,
@@ -31,10 +31,8 @@ from thytrader.execution.adoption import (
     venue_minimum_refusal,
     venue_rows,
 )
-from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.live_protection import _ensure_exit_protection
 from thytrader.execution.mark_context import closed_mark_context
-from thytrader.memory.recording import maybe_record_submitted_intent
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
@@ -120,7 +118,7 @@ async def adopt_held_inventory(
         managed_base_claims(books, base_currency(request.product_id)),
         base_increment=product.base_increment,
     )
-    quantity = adopted_quantity(request, availability=availability, product=product)
+    quantity = adopted_quantity(request.quantity, availability=availability, product=product)
     refusal = venue_minimum_refusal(product, quantity=quantity, mark=candle.close)
     if refusal is not None:
         raise refusal
@@ -385,26 +383,13 @@ def _reason_scope(
 
 
 async def _journal(context: _Context, commit: AdoptionCommit) -> None:
-    """One why-trade record for the adoption intent and one audit event with the figures."""
-    await maybe_record_submitted_intent(intent=commit.records.intent, snapshot=commit.snapshot)
-    figures = commit.availability
-    claims = figures.claims
-    await record_execution_audit(
-        action="inventory_adopted",
-        outcome=AuditEventOutcome.SUCCESS,
-        detail=(
-            f"deployment_id={commit.snapshot.deployment.id} "
-            f"action={context.request.action.value} "
-            f"client_order_id={commit.records.order.client_order_id} "
-            f"quantity={commit.records.order.quantity} mark={context.mark} "
-            f"mark_source=closed_candle timeframe={context.request.timeframe} "
-            f"candle_starts_at={context.candle.starts_at.isoformat()} "
-            f"balance_total={figures.total} balance_available={figures.available} "
-            f"claimed={claims.claimed} managed_long={claims.managed_long} "
-            f"working_buys={claims.working_buys} "
-            f"working_short_entry_sells={claims.working_short_entry_sells} "
-            f"adoptable={figures.adoptable}"
-        ),
+    """The why-trade record and ``inventory_adopted`` audit event of one adoption."""
+    await journal_adoption(
+        commit,
+        action=context.request.action.value,
+        mark=context.mark,
+        timeframe=context.request.timeframe,
+        candle_starts_at=context.candle.starts_at,
         product_id=context.request.product_id,
     )
 

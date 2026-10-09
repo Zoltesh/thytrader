@@ -88,7 +88,9 @@ RUNTIME_TOOLS: tuple[ChatTool, ...] = (
             "Start paper or live from a strategy's current rules (by strategy_id). "
             "Live needs understand-live. "
             "Paper may pass maker_fee_rate and taker_fee_rate together (documented assumptions; "
-            "omitted paper uses 0.001 / 0.002). Live rejects those fields."
+            "omitted paper uses 0.001 / 0.002). Live rejects those fields. Live may pass "
+            "adopt_holdings (a base quantity or 'all') to start already holding coins the "
+            "account holds unmanaged (single-instrument long strategies; always confirmed)."
         ),
         lane=ChatLane.RUNTIME,
         method="POST",
@@ -106,6 +108,9 @@ RUNTIME_TOOLS: tuple[ChatTool, ...] = (
             ),
             "taker_fee_rate": _opt_string(
                 "Paper taker fee assumption. Pass with maker_fee_rate. Live rejects."
+            ),
+            "adopt_holdings": _opt_string(
+                "Live only: base quantity or 'all' of held unmanaged coins to adopt."
             ),
         },
         required=("strategy_id", "mode"),

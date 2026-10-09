@@ -84,3 +84,16 @@ async def test_only_the_operator_can_acknowledge_live() -> None:
     assert unticked is not None and "i_understand_live" not in unticked
     assert ticked is not None and ticked["i_understand_live"] is True
     assert ticked["action"] == "protect" and ticked["quantity"] == "all"
+
+
+@pytest.mark.anyio
+async def test_runtime_start_with_adopt_holdings_is_never_yolo() -> None:
+    """runtime_start under YOLO live skips confirmation, but not when it adopts holdings."""
+    settings = Settings(_env_file=None, yolo_enabled=True, yolo_tiers=("paper", "live"))
+    tool = _tool("runtime_start")
+    assert "adopt_holdings" in tool.properties
+    plain = await _gate(FastAPI(), settings, tool, {"mode": "live", "strategy_id": "s"})
+    adopting = await _gate(
+        FastAPI(), settings, tool, {"mode": "live", "strategy_id": "s", "adopt_holdings": "all"}
+    )
+    assert plain == (False, True) and adopting == (True, True)

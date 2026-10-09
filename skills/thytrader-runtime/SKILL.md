@@ -8,7 +8,7 @@ description: >-
   (fleet-preview/status/disarm/stop/flatten/rearm), link paper/live twins, set
   YAML settings, show/set/clear write-only Coinbase credentials, and adopt or sell
   coins already held in the Coinbase account (adoption-preview, place-order
-  --entry-kind adopt, sell-holdings), through the
+  --entry-kind adopt, sell-holdings, start --adopt-holdings), through the
   confirmation-gated thytrader-runtime CLI. Use when the user
   explicitly asks to deploy, pause, resume, stop, place an on-demand order, protect
   or sell held coins, set the risk policy, or manage Coinbase API secrets. Requires
@@ -503,6 +503,30 @@ uv run thytrader-runtime sell-holdings --product-id DOGE-USDC --quantity all \
 - If no traded closed candle is available, the detail says flatten is waiting for a price; the
   next traded bar sells.
 
+**Start a strategy bot already holding them:**
+
+```bash
+uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings all \
+  --confirm --i-understand-live
+```
+
+- The live bot starts OPEN with the adopted coins and buys nothing. The book and the
+  adoption commit together: if the adoption is refused, no bot exists. Live only; v1 accepts
+  single-instrument, long-side strategies (otherwise `ADOPTION_STRATEGY_UNSUPPORTED`).
+- The mark is the newest closed bar of the strategy's own clock. The stop and target come from
+  the strategy's exits at that mark, using the initial-stop ATR of the same deploy-anchored
+  window the worker evaluates. There is no target when the strategy declares no take-profit.
+  An undefined ATR or illegal geometry is refused with `ADOPTION_LEVELS_UNAVAILABLE`, and a
+  missing or stale bar with `ADOPTION_MARK_UNAVAILABLE`.
+- The worker's next cycle rests the protection. From the first bar after the adoption bar,
+  the strategy's exits manage the position: stop, trail, take-profit, signal exit and time exit.
+- Admission is the normal live start (published policy, allowlist, allocations, slots), then
+  the entry gate in kind. With allocations in force, the strategy's allocation must cover the
+  adopted notional (`ALLOCATION_EXCEEDED` otherwise). Performance capital is max(allocation,
+  adopted notional).
+- A disarmed fleet refuses it like any live start (`ENTRY_INHIBITED`). `--confirm` is always
+  required; YOLO never skips it.
+
 **Both actions:**
 
 - Repeating the same `--idempotency-key` returns the original book and never adopts twice.
@@ -555,6 +579,7 @@ uv run thytrader-runtime sell-holdings --product-id DOGE-USDC --quantity all \
 | Preview held coins (read-only) | `uv run thytrader-runtime adoption-preview --product-id DOGE-USDC [--timeframe 5m]` |
 | Protect held coins (adopt, live) | `uv run thytrader-runtime place-order --mode live --entry-kind adopt --product-id DOGE-USDC --quantity all --stop-price 0.15 --take-profit-price 0.30 --idempotency-key KEY --confirm --i-understand-live` |
 | Sell held coins (live) | `uv run thytrader-runtime sell-holdings --product-id DOGE-USDC --quantity all --idempotency-key KEY --confirm --i-understand-live` |
+| Start a live bot holding held coins | `uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings all --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
@@ -743,7 +768,8 @@ Underlying HTTP:
   live-capable flatten also `i_understand_live: true`; disarm/rearm also require
   `expected_inhibition` preview revisions for every scoped mode)
 - `GET /api/v1/deployments/{id}/fills?limit=&cursor=` and `/orders?limit=&cursor=`
-- `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428)
+- `POST /api/v1/deployments` (mode `live` requires `"i_understand_live": true`, else 428; optional
+  `adopt_holdings` (a quantity or `"all"`, live only) starts the bot holding adopted coins)
 - `POST /api/v1/deployments/{id}/pause`
 - `POST /api/v1/deployments/{id}/resume` (live books require body `{"i_understand_live": true}`, else 428)
 - `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)

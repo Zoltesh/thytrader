@@ -161,15 +161,27 @@ later.
     `inventory_adopted` audit event. The event records the mark source and candle, the venue
     balance, every claim and the adoptable quantity.
 - **Strategy start with adoption.**
-  - v1 covers single-instrument, long-only strategies.
+  - `start --adopt-holdings N|all` / `adopt_holdings` on `POST /api/v1/deployments`, live only.
+    v1 covers single-instrument, long-only strategies; others are refused with
+    `ADOPTION_STRATEGY_UNSUPPORTED`.
+  - Every normal start check runs first. `create_deployment` was split into
+    `prepare_deployment` plus the insert, so the start reuses them unchanged.
   - The deployment insert and the adoption commit in one transaction, so a FLAT running bot
     can never start buying with its allocation after a failed adoption.
   - Strategy adoption respects the fleet latch like an entry.
-  - The stop and target come from the strategy's exits and the ATR of the deploy-anchored
-    window the worker evaluates. The shared closed-window loader moved to
-    `execution/closed_windows.py` for this.
+  - The mark is the newest bar of the deploy-anchored closed window the worker evaluates
+    (`execution/closed_windows.py`, anchored at the new book's `created_at`). A missing or
+    stale bar is refused with `ADOPTION_MARK_UNAVAILABLE`.
+  - The stop and target are `entry_levels` at that close, with the strategy's initial-stop
+    ATR and reward multiple, exactly as the worker sizes an entry. There is no target without
+    a take-profit, and an undefined ATR or illegal geometry is refused with
+    `ADOPTION_LEVELS_UNAVAILABLE`.
   - Performance capital is pinned to max(allocation, adopted notional), so ADR 0107
     percentages stay meaningful.
+  - The API places no order. The worker's next cycle rests the protection. The strategy's
+    exits manage the lot from the first bar after the adoption bar, as after a live entry fill.
+  - The CLI and the chat `runtime_start` tool treat an adopting start as hard-gated, so YOLO
+    live never skips its confirmation.
 - **Risk.** `ProposedEntry.funding` is `quote` or `in_kind`. An in-kind entry adds its
   notional to capital and skips order bounds, the rate limits and the price collar, because
   nothing goes to the venue and no quote is spent. It keeps the membership, exposure,
@@ -192,7 +204,7 @@ later.
     `live_ack="always"`.
   - Trade-page and Holdings actions in the web UI come later.
   - Each surface ships with its skills, operator schema and CLI help. The ops contract
-    moves to v70 with the HTTP surface.
+    moves to v70 with the HTTP surface and to v71 with `adopt_holdings`.
 
 ### Persistence
 

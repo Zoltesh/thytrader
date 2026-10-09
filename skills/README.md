@@ -98,7 +98,8 @@ Confirmation-gated paper and live deployment control (single bots and whole port
 controls (`fleet-preview/status/disarm/stop/flatten/rearm`;
 [ADR 0117](../docs/decisions/0117-truthful-inventory-and-fleet-controls.md)), paper/live twin
 links, on-demand `place-order`, live adoption of coins already held at Coinbase
-(`adoption-preview`, `place-order --entry-kind adopt`, `sell-holdings`;
+(`adoption-preview`, `place-order --entry-kind adopt`, `sell-holdings`,
+`start --adopt-holdings`;
 [ADR 0124](../docs/decisions/0124-inventory-adoption.md)), risk-policy publication, YAML
 non-secret settings (including YOLO), and write-only Coinbase credential show/set/clear. Read-only
 `list`, `show`, `decisions`, `show-twin`, `adoption-preview`, `fleet-preview`, and `fleet-status`

@@ -14,9 +14,12 @@ from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from thytrader.audit_events import AuditEventOutcome
+from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.mark_context import closed_mark_context
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
+from thytrader.memory.recording import maybe_record_submitted_intent
 from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.trading.adoption_write import (
     ADOPTION_QUANTITY_UNAVAILABLE,
@@ -43,11 +46,12 @@ from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from thytrader.exchanges.models import ExchangeBalance
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
-    from thytrader.trading.adoption_write import BalanceReader
+    from thytrader.trading.adoption_write import AdoptionCommit, BalanceReader
     from thytrader.trading.models import Deployment, DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
 
@@ -263,7 +267,7 @@ def reusable_discretionary_book(
 
 
 def adopted_quantity(
-    request: AdoptionRequest, *, availability: BaseAvailability, product: MarketProduct
+    requested: Decimal | None, *, availability: BaseAvailability, product: MarketProduct
 ) -> Decimal:
     """Resolve "all" or round the request down to the base increment; refuse the impossible.
 
@@ -279,8 +283,8 @@ def adopted_quantity(
     adoptable = availability.adoptable
     quantity = (
         adoptable
-        if request.quantity is None
-        else quantize_to_increment(request.quantity, product.base_increment, rounding=ROUND_DOWN)
+        if requested is None
+        else quantize_to_increment(requested, product.base_increment, rounding=ROUND_DOWN)
     )
     if quantity <= 0 or quantity > adoptable:
         raise AdoptionRefusedError(
@@ -354,3 +358,38 @@ def read_balances_or_refuse(
 async def venue_rows(read_balances: BalanceReader) -> tuple[ExchangeBalance, ...]:
     """Read the venue balances once for the pre-lock quantity and admission check."""
     return await read_venue_balances(read_balances, timeout_seconds=BALANCE_READ_TIMEOUT_SECONDS)
+
+
+async def journal_adoption(
+    commit: AdoptionCommit,
+    *,
+    action: str,
+    mark: Decimal,
+    timeframe: str,
+    candle_starts_at: datetime,
+    product_id: str,
+) -> None:
+    """One why-trade record for the adoption intent and one audit event with the figures.
+
+    The why-trade record is written only when a trade-reason scope is bound.
+    """
+    await maybe_record_submitted_intent(intent=commit.records.intent, snapshot=commit.snapshot)
+    figures = commit.availability
+    claims = figures.claims
+    await record_execution_audit(
+        action="inventory_adopted",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={commit.snapshot.deployment.id} action={action} "
+            f"client_order_id={commit.records.order.client_order_id} "
+            f"quantity={commit.records.order.quantity} mark={mark} "
+            f"mark_source=closed_candle timeframe={timeframe} "
+            f"candle_starts_at={candle_starts_at.isoformat()} "
+            f"balance_total={figures.total} balance_available={figures.available} "
+            f"claimed={claims.claimed} managed_long={claims.managed_long} "
+            f"working_buys={claims.working_buys} "
+            f"working_short_entry_sells={claims.working_short_entry_sells} "
+            f"adoptable={figures.adoptable}"
+        ),
+        product_id=product_id,
+    )
