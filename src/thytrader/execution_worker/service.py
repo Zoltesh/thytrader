@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.alerts.supervision_rows import worker_book_failure_finding
 from thytrader.execution.audit_scope import execution_audit_scope
+from thytrader.execution.closed_windows import _closed_window, _closed_window_for
 from thytrader.execution.decision_journal import (
     PRUNE_INTERVAL,
     decision_journal_scope,
@@ -38,8 +39,6 @@ from thytrader.execution_worker.windows import (
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
-    _closed_window,
-    _closed_window_for,
     _required_clock_warmup_bars,
     _shared_clock_union_warmup,
     _signal_exit_windows,

@@ -17,6 +17,7 @@ from thytrader.alerts.supervision_rows import failure_error_type, verified_worke
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import record_execution_audit
+from thytrader.execution.closed_windows import _closed_window_for
 from thytrader.execution.decision_journal import record_gate_skip
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
@@ -25,7 +26,6 @@ from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.stopped import load_verified_exit_context, stopped_product_ids
 from thytrader.execution.user_feed_state import UserOrderFeedState, UserOrderFeedUnavailableError
 from thytrader.execution_worker.ports import _logger
-from thytrader.execution_worker.windows import _closed_window_for
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.strategies.models import lockstep_product_ids
 from thytrader.trading.ids import utc_now
