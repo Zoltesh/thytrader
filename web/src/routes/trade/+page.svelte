@@ -9,7 +9,9 @@
 	 * ticked; only then is `i_understand_live: true` sent.
 	 *
 	 * This page owns the ticket state and the order submission; the Review aside,
-	 * the live confirmation and the outcome panels render in `$lib/trade`.
+	 * the live confirmation and the outcome panels render in `$lib/trade`. The
+	 * "Adopt holdings" order type (live only, ADR 0124) hands the ticket to
+	 * `TradeAdopt`, which buys nothing and owns its own preview and confirmation.
 	 */
 	import { onMount } from 'svelte';
 	import PageHead from '$lib/PageHead.svelte';
@@ -23,6 +25,7 @@
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
 	import type { RiskPolicySnapshot } from '$lib/strategy-workspace';
 	import PaperAssumptions from '$lib/trade/PaperAssumptions.svelte';
+	import TradeAdopt from '$lib/trade/TradeAdopt.svelte';
 	import TradeBooks from '$lib/trade/TradeBooks.svelte';
 	import TradeLiveDialog from '$lib/trade/TradeLiveDialog.svelte';
 	import TradeReview from '$lib/trade/TradeReview.svelte';
@@ -33,7 +36,7 @@
 	let mode = $state<'paper' | 'live'>('paper');
 	let side = $state<'long' | 'short'>('long');
 	let timeframe = $state<ExecutionTimeframe>('5m');
-	let entryKind = $state<'post_only_limit' | 'marketable'>('post_only_limit');
+	let entryKind = $state<'post_only_limit' | 'marketable' | 'adopt'>('post_only_limit');
 	let limitPrice = $state('');
 	let quantity = $state('');
 	let quoteNotional = $state('');
@@ -56,11 +59,12 @@
 	let liveAcknowledged = $state(false);
 
 	const isLive = $derived(mode === 'live');
+	const adopting = $derived(entryKind === 'adopt');
 	const review = $derived(
 		tradeReview({
 			productId,
 			side,
-			entryKind,
+			entryKind: entryKind === 'adopt' ? 'marketable' : entryKind,
 			limitPrice,
 			quantity,
 			quoteNotional,
@@ -118,13 +122,21 @@
 		if ((quantity === '') === (quoteNotional === '')) {
 			return 'Provide exactly one of quantity or quote notional.';
 		}
+		if (entryKind === 'adopt') return 'Use Review adoption to adopt held coins.';
 		if (entryKind === 'post_only_limit' && limitPrice === '') {
 			return 'Post-only entries require a limit price.';
 		}
 		return null;
 	}
 
+	async function onAdopted(deployment: Deployment): Promise<void> {
+		result = deployment;
+		await refreshBooks();
+		await refreshReasons(deployment.id);
+	}
+
 	function onSubmitClick(): void {
+		if (adopting) return;
 		error = null;
 		const invalid = validationError();
 		if (invalid !== null) {
@@ -156,7 +168,7 @@
 				take_profit_price: takeProfitPrice,
 				idempotency_key: crypto.randomUUID(),
 				origin: 'human',
-				entry_kind: entryKind,
+				entry_kind: entryKind === 'adopt' ? undefined : entryKind,
 				timeframe,
 				quantity: quantity === '' ? undefined : quantity,
 				quote_notional: quoteNotional === '' ? undefined : quoteNotional,
@@ -238,26 +250,29 @@
 					<input bind:value={productId} required pattern={'[A-Z0-9]{2,20}-(?:USD|USDC)'} />
 					<small>Coinbase product id, e.g. BTC-USDC</small>
 				</label>
-				<div class="field">
-					<span class="field-label" aria-hidden="true">Side</span>
-					<Segmented
-						label="Side"
-						options={[
-							{ id: 'long', label: 'Buy / long' },
-							{ id: 'short', label: 'Sell / short' }
-						]}
-						value={side}
-						onchange={(next) => (side = next)}
-						testId="discretionary-side"
-					/>
-				</div>
+				{#if !adopting}
+					<div class="field">
+						<span class="field-label" aria-hidden="true">Side</span>
+						<Segmented
+							label="Side"
+							options={[
+								{ id: 'long', label: 'Buy / long' },
+								{ id: 'short', label: 'Sell / short' }
+							]}
+							value={side}
+							onchange={(next) => (side = next)}
+							testId="discretionary-side"
+						/>
+					</div>
+				{/if}
 				<div class="field">
 					<span class="field-label" aria-hidden="true">Order type</span>
 					<Segmented
 						label="Order type"
 						options={[
 							{ id: 'post_only_limit', label: 'Post-only limit' },
-							{ id: 'marketable', label: 'Marketable' }
+							{ id: 'marketable', label: 'Marketable' },
+							{ id: 'adopt', label: 'Adopt holdings', live: true }
 						]}
 						value={entryKind}
 						onchange={(next) => (entryKind = next)}
@@ -272,32 +287,42 @@
 						{/each}
 					</select>
 				</label>
-				<label>
-					Limit price
-					<input
-						bind:value={limitPrice}
-						inputmode="decimal"
-						placeholder={entryKind === 'post_only_limit' ? 'Required for maker' : 'Not used'}
-					/>
-				</label>
-				<label>
-					Quantity
-					<input bind:value={quantity} inputmode="decimal" placeholder="Base amount" />
-				</label>
-				<label>
-					Quote notional
-					<input bind:value={quoteNotional} inputmode="decimal" placeholder="Or a quote amount" />
-				</label>
-				<label>
-					Stop loss
-					<input bind:value={stopPrice} required inputmode="decimal" />
-				</label>
-				<label>
-					Take profit
-					<input bind:value={takeProfitPrice} required inputmode="decimal" />
-				</label>
+				{#if !adopting}
+					<label>
+						Limit price
+						<input
+							bind:value={limitPrice}
+							inputmode="decimal"
+							placeholder={entryKind === 'post_only_limit' ? 'Required for maker' : 'Not used'}
+						/>
+					</label>
+					<label>
+						Quantity
+						<input bind:value={quantity} inputmode="decimal" placeholder="Base amount" />
+					</label>
+					<label>
+						Quote notional
+						<input bind:value={quoteNotional} inputmode="decimal" placeholder="Or a quote amount" />
+					</label>
+					<label>
+						Stop loss
+						<input bind:value={stopPrice} required inputmode="decimal" />
+					</label>
+					<label>
+						Take profit
+						<input bind:value={takeProfitPrice} required inputmode="decimal" />
+					</label>
+				{/if}
 			</div>
-			{#if mode === 'paper'}
+			{#if adopting}
+				<TradeAdopt
+					{isLive}
+					{productId}
+					{timeframe}
+					{note}
+					onresult={(next) => void onAdopted(next)}
+				/>
+			{:else if mode === 'paper'}
 				<PaperAssumptions bind:paperCash bind:paperMakerFee bind:paperTakerFee />
 			{/if}
 			<label class="note">
@@ -310,16 +335,18 @@
 			</label>
 		</form>
 
-		<TradeReview
-			{isLive}
-			{market}
-			{side}
-			{review}
-			{sizeText}
-			{riskPolicy}
-			{submitting}
-			onsubmit={onSubmitClick}
-		/>
+		{#if !adopting}
+			<TradeReview
+				{isLive}
+				{market}
+				{side}
+				{review}
+				{sizeText}
+				{riskPolicy}
+				{submitting}
+				onsubmit={onSubmitClick}
+			/>
+		{/if}
 	</div>
 
 	{#if error && !liveConfirmOpen}

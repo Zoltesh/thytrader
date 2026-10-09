@@ -126,6 +126,8 @@ export async function createDeployment(input: {
 	paper_starting_cash?: string;
 	maker_fee_rate?: string;
 	taker_fee_rate?: string;
+	/** Live only (ADR 0124): start holding this quantity, or "all", of unmanaged coins. */
+	adopt_holdings?: string;
 	i_understand_live?: boolean;
 }): Promise<Deployment> {
 	return request<Deployment>('/api/v1/deployments', {

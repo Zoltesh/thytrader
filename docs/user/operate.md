@@ -171,7 +171,18 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
 - **Holdings.** Your balances, largest first; click a column header to sort (ascending,
   descending, unsorted). The ten largest show by default, with **Show all**. Balances under $0.10
   collapse into one expandable line. **Refresh balances** re-reads Coinbase; a failed refresh keeps
-  the last snapshot with the redacted error.
+  the last snapshot with the redacted error. With a connected account, each coin row (not USD, USDC
+  or USDT) offers two live actions for coins no bot manages
+  ([ADR 0124](../decisions/0124-inventory-adoption.md)):
+  - **Sell to USDC** shows the coin's balance, how much bots already manage, and how much is
+    unmanaged and adoptable. After you choose a quantity (all, or an amount) and tick the live
+    acknowledgement, ThyTrader adopts the coins into a stopped book that the execution worker
+    sells at market on its next cycle. No stop or take profit is placed. **Open the book** follows
+    the sale.
+  - **Adopt into bot** lists your valid strategies for that coin. Pick one, choose a quantity and
+    tick the acknowledgement: the strategy starts **live** already holding the coins, buying
+    nothing. The worker rests the strategy's own stop and target on its next cycle, and its exits
+    manage the position from there.
 - **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
 - **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
   datasets with coverage, newest candle, watch and worker state, and the same problem words as
@@ -692,6 +703,16 @@ target sits on the wrong side of the entry. **Live** turns on the live chrome an
 understand this places real orders on Coinbase with real money". ThyTrader never borrows: live
 shorts need available base. A timeout is reconciled by client order id, never re-sent. Recent
 why-trade records stay below the ticket.
+
+The order type **Adopt holdings** (live only) takes over coins you already hold instead of buying.
+The ticket shows the Coinbase balance of the product's coin, how much bots already manage, how much
+is unmanaged and adoptable now, and the closed-candle mark; reasons that block the adoption (an
+occupied discretionary book on the product, unresolved accounting, too little to meet the venue
+minimum) disable **Review adoption…**. Enter a quantity or keep **All unmanaged**, plus a stop loss
+below the mark and a take profit above it. The confirmation's **Adopt and protect** stays disabled
+until you tick the live acknowledgement. A discretionary book then adopts the coins at the mark and
+rests your stop and take profit on Coinbase. The agent equivalent is
+`thytrader-runtime place-order --mode live --entry-kind adopt` (see the runtime skill).
 
 ### Why
 

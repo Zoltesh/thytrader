@@ -5,6 +5,8 @@
 	 * trimming, so the compact view always shows the globally largest rows; dust
 	 * collapses into an expandable summary; unvalued assets are disclosed. A
 	 * failed refresh keeps the last snapshot on screen with the redacted error.
+	 * Connected (non-demo) coin rows offer "Sell to USDC" and "Adopt into bot" (ADR 0124),
+	 * each behind a live confirmation in `HoldingActions`.
 	 */
 	import {
 		nextAssetSort,
@@ -15,6 +17,10 @@
 	} from '$lib/asset-table';
 	import { analyzeDust, formatQuantityDisplay } from '$lib/money';
 	import { formatUsd, type Portfolio, type PortfolioAsset } from '$lib/portfolio';
+	import { resolve } from '$app/paths';
+	import type { Deployment } from '$lib/deployments';
+	import HoldingActions from './HoldingActions.svelte';
+	import { holdingActionsAvailable, type HoldingAction } from './holding-actions';
 	import { formatAge } from './home-format';
 	import { STALE_SNAPSHOT_MS } from './home-kpis';
 	import type { Load } from './load';
@@ -42,6 +48,9 @@
 	let sort = $state<AssetSort | null>({ key: 'value', direction: 'desc' });
 	let showAll = $state(false);
 	let dustOpen = $state(false);
+	let actionAsset = $state<string | null>(null);
+	let actionKind = $state<HoldingAction>('sell');
+	let done = $state<{ deployment: Deployment; action: HoldingAction } | null>(null);
 
 	const current = $derived(portfolio.data);
 	const dust = $derived(current === null ? null : analyzeDust(current.assets));
@@ -58,6 +67,17 @@
 	function ariaSort(key: AssetSortKey): 'ascending' | 'descending' | 'none' {
 		if (sort?.key !== key) return 'none';
 		return sort.direction === 'asc' ? 'ascending' : 'descending';
+	}
+
+	function openAction(currency: string, kind: HoldingAction): void {
+		actionKind = kind;
+		actionAsset = currency;
+	}
+
+	function onActionDone(deployment: Deployment): void {
+		done = { deployment, action: actionKind };
+		actionAsset = null;
+		onrefresh();
 	}
 
 	function valueText(asset: PortfolioAsset): string {
@@ -90,6 +110,15 @@
 			{refreshing ? 'Refreshing…' : 'Refresh balances'}
 		</button>
 	</div>
+
+	{#if done !== null}
+		<p class="action-done" role="status" data-testid="holding-action-done">
+			{done.action === 'sell'
+				? 'Sell book created; the worker sells it on its next cycle.'
+				: 'Live bot started holding the coins; the worker places its protection next cycle.'}
+			<a href={resolve(`/deployments/${done.deployment.id}`)}>Open the book</a>
+		</p>
+	{/if}
 
 	{#if portfolio.status === 'error'}
 		<div class="error-banner inline-error" role="alert">
@@ -131,6 +160,7 @@
 								</button>
 							</th>
 						{/each}
+						<th scope="col"><span class="visually-hidden">Actions</span></th>
 					</tr>
 				</thead>
 				<tbody>
@@ -149,6 +179,20 @@
 							<td class="num" title={hold.title}>{hold.text}</td>
 							<td class="num" title={total.title}>{total.text}</td>
 							<td class="num asset-value">{valueText(asset)}</td>
+							<td class="actions">
+								{#if holdingActionsAvailable(current.demo, asset.currency)}
+									<button
+										type="button"
+										class="btn ghost small"
+										onclick={() => openAction(asset.currency, 'sell')}>Sell to USDC</button
+									>
+									<button
+										type="button"
+										class="btn ghost small"
+										onclick={() => openAction(asset.currency, 'adopt')}>Adopt into bot</button
+									>
+								{/if}
+							</td>
 						</tr>
 					{/each}
 				</tbody>
@@ -197,6 +241,14 @@
 		{/if}
 	{/if}
 </section>
+
+<HoldingActions
+	open={actionAsset !== null}
+	currency={actionAsset ?? ''}
+	action={actionKind}
+	oncancel={() => (actionAsset = null)}
+	ondone={onActionDone}
+/>
 
 <style>
 	.holdings {
@@ -288,5 +340,28 @@
 	}
 	.table-empty {
 		margin: 0;
+	}
+	.actions {
+		white-space: nowrap;
+		text-align: right;
+	}
+	.btn.small {
+		min-height: 26px;
+		padding: 0 8px;
+		font-size: var(--fs-xs);
+	}
+	.action-done {
+		margin: 0;
+		padding: 10px 16px;
+		border-bottom: 1px solid var(--line);
+		font-size: var(--fs-sm);
+	}
+	.visually-hidden {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip: rect(0 0 0 0);
+		white-space: nowrap;
 	}
 </style>
