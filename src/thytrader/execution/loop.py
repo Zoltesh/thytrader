@@ -133,12 +133,23 @@ async def cancel_risk_increasing_orders(
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Cancel working entries while leaving protective brackets and stop-limits in place."""
-    entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    """Cancel working entries while leaving protective brackets and stop-limits in place.
+
+    An order whose intent is known and is not an ENTRY is never cancelled here, even on
+    a book with no ENTRY intent at all (an adopted book, ADR 0124): a working marketable
+    exit is risk-reducing. Only when no ENTRY intent is known does an order with an
+    unknown intent still count as a possible entry.
+    """
+    purposes = {intent.id: intent.purpose for intent in snapshot.intents}
+    entry_ids = {
+        intent_id for intent_id, purpose in purposes.items() if purpose is IntentPurpose.ENTRY
+    }
     for order in tuple(snapshot.orders):
         if order.status not in _ACTIVE:
             continue
         if is_venue_protection(order.kind):
+            continue
+        if purposes.get(order.intent_id, IntentPurpose.ENTRY) is not IntentPurpose.ENTRY:
             continue
         if entry_ids and order.intent_id not in entry_ids:
             continue

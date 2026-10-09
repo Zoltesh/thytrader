@@ -438,7 +438,11 @@ def _order_configuration(
 
     ``STOP_LIMIT`` is the stop-only protective exit (ADR 0090): a sell stop triggers on
     a fall (``STOP_DIRECTION_STOP_DOWN``), a buy-to-cover stop on a rise (``STOP_UP``).
+    ``ADOPTION`` is refused before any request is built: an unrecognised kind would
+    otherwise fall through to a real post-only limit order (ADR 0124).
     """
+    if kind is OrderKind.ADOPTION:
+        raise BrokerError("Inventory adoption is never routed to the venue.")
     size = format(quantity, "f")
     if kind is OrderKind.MARKETABLE:
         return {"market_market_ioc": {"base_size": size}}

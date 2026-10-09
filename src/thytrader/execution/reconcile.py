@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError, ClientOrderLookup
+from thytrader.trading.adoption import ADOPTION_EVIDENCE_INCOMPLETE, adoption_evidence_complete
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
     fill_economics_complete,
@@ -37,6 +38,10 @@ if TYPE_CHECKING:
 UNCONFIRMED_SUBMIT_PREFIX = "Order submit is unconfirmed"
 FILLED_WITHOUT_REST_FILLS_DETAIL = "Filled order has no REST fills."
 RECONCILE_UNCONFIRMED_PREFIX = "Order reconciliation is unconfirmed"
+ADOPTION_EVIDENCE_INCOMPLETE_DETAIL = (
+    f"{ADOPTION_EVIDENCE_INCOMPLETE}: an inventory adoption lacks one applied fill "
+    "covering its full quantity."
+)
 
 _WATCH = {
     OrderStatus.OPEN,
@@ -214,7 +219,46 @@ async def _reconcile_one_order(
     known: set[str],
     cooldown_bars: int,
 ) -> DeploymentSnapshot:
-    """Refresh one watched order from REST JSON and apply unseen fills."""
+    """Refresh one watched order from REST JSON and apply unseen fills.
+
+    An adoption order never went to the venue (ADR 0124), so it is never looked up
+    there. Its evidence is only checked locally, and incomplete evidence is a fault.
+    """
+    if order.kind is OrderKind.ADOPTION:
+        return await _check_adoption_evidence(snapshot, order=order, store=store)
+    return await _reconcile_venue_order(
+        snapshot,
+        order=order,
+        broker=broker,
+        store=store,
+        product_id=product_id,
+        known=known,
+        cooldown_bars=cooldown_bars,
+    )
+
+
+async def _check_adoption_evidence(
+    snapshot: DeploymentSnapshot, *, order: Order, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Keep a fully evidenced adoption; fault one whose applied fill is missing or partial."""
+    if adoption_evidence_complete(snapshot, order):
+        return snapshot
+    return await _record_reconcile_fault(
+        snapshot, store=store, detail=ADOPTION_EVIDENCE_INCOMPLETE_DETAIL
+    )
+
+
+async def _reconcile_venue_order(
+    snapshot: DeploymentSnapshot,
+    *,
+    order: Order,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str,
+    known: set[str],
+    cooldown_bars: int,
+) -> DeploymentSnapshot:
+    """Read one watched venue order and apply its unseen fills."""
     if not _needs_reconcile(order, snapshot):
         return snapshot
     try:
@@ -364,8 +408,11 @@ async def _pause_unconfirmed_submit(
 
 
 def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:
-    """Return whether local fill coverage is still incomplete for this order."""
-    if order.status not in _WATCH:
+    """Return whether local fill coverage is still incomplete for this order.
+
+    Never for an adoption: it has no venue order to read (ADR 0124).
+    """
+    if order.kind is OrderKind.ADOPTION or order.status not in _WATCH:
         return False
     if order.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}:
         return True

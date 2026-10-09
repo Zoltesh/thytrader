@@ -125,9 +125,9 @@ export type DecisionPosition = {
 	target_price?: string | null;
 };
 
-/** Why the runtime created an order intent. */
+/** Why the runtime created an order intent; `adoption` took over coins already held (ADR 0124). */
 export type IntentPurpose =
-	'entry' | 'take_profit' | 'stop' | 'time_exit' | 'bracket' | 'signal_exit';
+	'entry' | 'take_profit' | 'stop' | 'time_exit' | 'bracket' | 'signal_exit' | 'adoption';
 
 export type DecisionOrder = {
 	order_id: string;

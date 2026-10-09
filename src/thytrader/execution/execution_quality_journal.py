@@ -16,7 +16,7 @@ from thytrader.execution.execution_quality_models import (
     JournaledCloseEvidence,
     JournaledDecisionClose,
 )
-from thytrader.trading.models import DeploymentSnapshot, resolved_product_id
+from thytrader.trading.models import DeploymentSnapshot, OrderKind, resolved_product_id
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -90,12 +90,15 @@ def _earliest_fill_bars(
     deployment: Deployment,
     orders: Mapping[UUID, Order],
 ) -> dict[str, datetime]:
-    """Find the earliest decision bar needed by applied fills, not their later fill bars."""
+    """Find the earliest decision bar needed by applied fills, not their later fill bars.
+
+    Adoption fills (ADR 0124) need no journaled close: they have no slippage benchmark.
+    """
     earliest: dict[str, datetime] = {}
     intents = {intent.id: intent for intent in snapshot.intents}
     for fill in snapshot.fills:
         order = orders.get(fill.order_id)
-        if order is None or fill.economics_applied_at is None:
+        if order is None or fill.economics_applied_at is None or order.kind is OrderKind.ADOPTION:
             continue
         product_id = resolved_product_id(order.product_id, deployment)
         intent = intents.get(order.intent_id)

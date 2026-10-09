@@ -116,6 +116,8 @@ class ExecutionQualityFill(_FrozenQualityModel):
     The bar must have closed by intent creation, order creation, and fill time. This
     is an original-intent benchmark, not a contemporaneous quote at a later reprice.
     Missing or noncausal references are null, never replaced with a fill-bar close.
+    ``adopted`` marks an in-kind adoption fill (ADR 0124): the mark at which a live book
+    took ownership of coins already held, not an execution, so it has neither.
     """
 
     fill_id: UUID
@@ -131,6 +133,7 @@ class ExecutionQualityFill(_FrozenQualityModel):
     reference_intent_id: UUID | None = None
     reference_bar_starts_at: datetime | None = None
     reference_bar_closes_at: datetime | None = None
+    adopted: bool = False
 
     @field_serializer("reference_bar_starts_at", "reference_bar_closes_at", when_used="json")
     def serialize_reference_time(self, value: datetime | None) -> str | None:
@@ -219,11 +222,16 @@ class JournaledCloseCoverage(_FrozenQualityModel):
 
 
 class ExecutionQualityTotals(_FrozenQualityModel):
-    """Deployment-wide sums over closed round trips, plus disclosure deltas."""
+    """Deployment-wide sums over closed round trips, plus disclosure deltas.
+
+    ``applied_fill_count`` includes in-kind adoption fills (ADR 0124);
+    ``adopted_fill_count`` says how many, and the slippage fill counts exclude them.
+    """
 
     closed_trade_count: int = Field(ge=0)
     open_cycle_count: int = Field(ge=0)
     applied_fill_count: int = Field(ge=0)
+    adopted_fill_count: int = Field(default=0, ge=0)
     fill_price_pnl_before_fees: QualityDecimalText
     entry_fees: QualityDecimalText
     exit_fees: QualityDecimalText
@@ -334,8 +342,9 @@ class ExecutionFeeNormalization(_FrozenQualityModel):
     """Counterfactual fee normalization; realized amounts are never rewritten.
 
     Both amounts describe ALL applied lifetime live fills exactly once, independently
-    of twin overlap. Unknown liquidity or excluded unapplied/orphan fills make the
-    counterfactual and delta null, never a partial-subset number or an implied zero.
+    of twin overlap, except in-kind adoption fills (ADR 0124), which were never executed.
+    Unknown liquidity or excluded unapplied/orphan fills make the counterfactual and
+    delta null, never a partial-subset number or an implied zero.
     """
 
     maker_fee_rate: QualityDecimalText

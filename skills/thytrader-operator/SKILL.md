@@ -75,9 +75,13 @@ or a quote at later repricing. Each book's `recorded_fills` includes partial exi
 once. Twin `population=recorded_fill_lifetime` summaries are **context only** when
 `summaries_context_only=true`; intersecting dates do not prove equal histories or rules.
 Different strategy fingerprints need the server's pinned-rule proof (ADR 0105). Fee
-normalization always covers all applied lifetime live fills, independent of overlap;
+normalization always covers all applied lifetime live fills except adoptions, independent of overlap;
 unknown liquidity or missing fill coverage makes counterfactual fees and delta **null**,
-never zero. Keep the observed fees and PnL separate from those assumptions.
+never zero. Keep the observed fees and PnL separate from those assumptions. A fill with
+`adopted: true` is an in-kind inventory adoption (ADR 0124): coins already held that a live
+book took over at a mark. It opens its round trip but has no liquidity, slippage or fee to
+re-price. `totals.adopted_fill_count` counts them, and they are left out of the slippage
+fill counts and the twin fee normalization.
 
 `--format text` is a short summary. Parent flags such as `--format` may follow the subcommand.
 
@@ -299,7 +303,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v68`, schema revision `0069`) and exits on any
+   this checkout's (`thytrader-ops-contract-v69`, schema revision `0070`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

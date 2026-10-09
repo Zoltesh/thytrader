@@ -4260,14 +4260,15 @@
       "type": "object"
     },
     "IntentPurpose": {
-      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093).",
+      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing.",
       "enum": [
         "entry",
         "take_profit",
         "stop",
         "time_exit",
         "bracket",
-        "signal_exit"
+        "signal_exit",
+        "adoption"
       ],
       "title": "IntentPurpose",
       "type": "string"
@@ -5959,12 +5960,13 @@
       "type": "object"
     },
     "OrderKind": {
-      "description": "Maker, marketable, venue-native OCO, or venue stop-limit execution style.\n\n``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit\n(ADR 0090); paper never submits it.",
+      "description": "Maker, marketable, venue-native OCO, or venue stop-limit execution style.\n\n``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit\n(ADR 0090); paper never submits it. ``ADOPTION`` is never routed to any broker: it\nrecords coins already held in the venue account that a live book took ownership of\nat a mark (ADR 0124), and every broker refuses it.",
       "enum": [
         "post_only_limit",
         "marketable",
         "trigger_bracket",
-        "stop_limit"
+        "stop_limit",
+        "adoption"
       ],
       "title": "OrderKind",
       "type": "string"
@@ -10640,7 +10642,8 @@
             "stop",
             "time_exit",
             "bracket",
-            "signal_exit"
+            "signal_exit",
+            "adoption"
           ],
           "title": "Purpose",
           "type": "string"
@@ -10791,7 +10794,7 @@
       "type": "object"
     },
     "TradeReasonSignalKind": {
-      "description": "Why the runtime or operator created this intent. Not a reconstructed indicator dump.",
+      "description": "Why the runtime or operator created this intent. Not a reconstructed indicator dump.\n\n``ADOPTION`` records a live book taking ownership of coins already held at the venue\n(ADR 0124); it is not a strategy signal and was never submitted.",
       "enum": [
         "strategy_entry",
         "discretionary",
@@ -10799,7 +10802,8 @@
         "stop",
         "time_exit",
         "bracket",
-        "signal_exit"
+        "signal_exit",
+        "adoption"
       ],
       "title": "TradeReasonSignalKind",
       "type": "string"

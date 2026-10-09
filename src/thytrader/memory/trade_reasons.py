@@ -32,7 +32,11 @@ class TradeReasonNoteOrigin(StrEnum):
 
 
 class TradeReasonSignalKind(StrEnum):
-    """Why the runtime or operator created this intent. Not a reconstructed indicator dump."""
+    """Why the runtime or operator created this intent. Not a reconstructed indicator dump.
+
+    ``ADOPTION`` records a live book taking ownership of coins already held at the venue
+    (ADR 0124); it is not a strategy signal and was never submitted.
+    """
 
     STRATEGY_ENTRY = "strategy_entry"
     DISCRETIONARY = "discretionary"
@@ -41,6 +45,7 @@ class TradeReasonSignalKind(StrEnum):
     TIME_EXIT = "time_exit"
     BRACKET = "bracket"
     SIGNAL_EXIT = "signal_exit"
+    ADOPTION = "adoption"
 
 
 class _FrozenModel(BaseModel):
@@ -176,7 +181,9 @@ class TradeReasonRecord(_FrozenModel):
     deployment_kind: Literal["strategy", "discretionary"]
     mode: Literal["paper", "live"]
     product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
-    purpose: Literal["entry", "take_profit", "stop", "time_exit", "bracket", "signal_exit"]
+    purpose: Literal[
+        "entry", "take_profit", "stop", "time_exit", "bracket", "signal_exit", "adoption"
+    ]
     side: Literal["buy", "sell"]
     strategy: TradeReasonStrategy | None = None
     signal: TradeReasonSignal

@@ -128,6 +128,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0121](0121-execution-write-boundaries.md) | Atomic conditional parent/runtime writes, narrow breaker metadata and serialized same-book fill projection | Accepted |
 | [0122](0122-paper-fees-default-to-account-rates.md) | New paper books default to the account's Coinbase fee rates; unreadable rates refuse the start | Accepted |
 | [0123](0123-package-layering.md) | Declared package layers with shrink-only upward imports; shared `evaluation` package below every mode | Accepted |
+| [0124](0124-inventory-adoption.md) | Live books adopt coins already held at the venue in kind (never routed); live-only; Alembic 0070 | Accepted |
 
 ## Status values
 

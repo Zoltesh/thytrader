@@ -365,7 +365,13 @@ def _active_side(orders: Sequence[Order], side: OrderSide) -> Order | None:
 
 
 def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
-    """Return the working entry order, preferring purpose-tagged intents."""
+    """Return the working entry order, preferring purpose-tagged intents.
+
+    Without any ENTRY intent the fallback considers only orders whose intent is unknown,
+    so a working exit on a book opened by adoption (ADR 0124) is never managed as an
+    entry.
+    """
+    known = {intent.id for intent in snapshot.intents}
     entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
     if entry_ids:
         return next(
@@ -382,6 +388,7 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
             for order in snapshot.orders
             if order.status in _ACTIVE
             and order.kind in {OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE}
+            and order.intent_id not in known
         ),
         None,
     )
