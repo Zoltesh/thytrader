@@ -103,7 +103,13 @@ def _exposure_verdict(
         (product_exposure(item, proposed.product_id) for item in occupied),
         Decimal("0"),
     )
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
+    capital = _capital_base(
+        policy,
+        mode=mode,
+        live_quote_cash=live_quote_cash,
+        occupied=occupied,
+        in_kind_notional=proposed.in_kind_capital,
+    )
     if capital <= 0:
         return _deny(
             RiskReasonCode.PORTFOLIO_EXPOSURE_EXCEEDED,
@@ -212,18 +218,23 @@ def _capital_base(
     mode: DeploymentMode,
     live_quote_cash: Decimal | None,
     occupied: Sequence[DeploymentSnapshot],
+    in_kind_notional: Decimal = Decimal(0),
 ) -> Decimal:
     """Use mode capital, never a bot allocation or duplicated live ledger cash.
 
     Live capital is observed available quote plus managed long inventory cost and
     working buy-entry reservations. Short sale proceeds are already in venue quote;
     sell reservations hold base units, so neither contributes quote a second time.
+    An in-kind adoption's notional joins live capital (ADR 0124): the coins were held
+    outside every book and become managed inventory without spending quote. Paper
+    capital is the policy's paper capital alone; paper never adopts.
     """
     if mode is DeploymentMode.PAPER:
         return Decimal(policy.paper_capital_quote)
     if live_quote_cash is None or live_quote_cash < 0:
         return Decimal("0")
-    return live_quote_cash + sum((_held_quote_capital(item) for item in occupied), Decimal("0"))
+    held = sum((_held_quote_capital(item) for item in occupied), Decimal("0"))
+    return live_quote_cash + held + in_kind_notional
 
 
 def _held_quote_capital(snapshot: DeploymentSnapshot) -> Decimal:

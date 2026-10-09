@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
 from thytrader.trading.exposure import product_exposure
@@ -19,15 +19,36 @@ if TYPE_CHECKING:
     from uuid import UUID
 
 
+type EntryFunding = Literal["quote", "in_kind"]
+"""How an entry is paid for: quote spent at the venue, or coins already held (ADR 0124)."""
+
+
 @dataclass(frozen=True, slots=True)
 class ProposedEntry:
-    """One sized entry the runtime wants to rest after a matched closed bar."""
+    """One sized entry the runtime wants to rest after a matched closed bar.
+
+    ``funding="in_kind"`` is an inventory adoption (ADR 0124): no quote is spent and
+    nothing goes to the venue. Its notional joins the live capital base, and the order
+    bounds, rate limits and price collar do not apply. Membership, slots, exposure,
+    allocation, unresolved accounting and the daily-loss and drawdown breakers still do.
+    """
 
     product_id: str
     strategy_id: UUID | None
     notional: Decimal
     is_pyramid_add: bool = False
     quantity: Decimal | None = None
+    funding: EntryFunding = "quote"
+
+    @property
+    def in_kind(self) -> bool:
+        """True for an adoption of coins already held."""
+        return self.funding == "in_kind"
+
+    @property
+    def in_kind_capital(self) -> Decimal:
+        """Quote value an in-kind entry adds to the live capital base; 0 when quote-funded."""
+        return self.notional if self.in_kind else Decimal(0)
 
 
 def _book_products(snapshot: DeploymentSnapshot) -> set[str]:

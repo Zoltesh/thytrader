@@ -4,7 +4,9 @@ The gate admits new deployments and risk-increasing entries and composes the pol
 checks in a fixed order: membership and slots (``entry_limits``), a sleeve's portfolio
 limits (``portfolio_limits``), optional per-order bounds (``order_bounds``), account
 exposure, unresolved accounting, then the circuit breakers, rate, and collar gates. It
-gates entries only, never protective exits.
+gates entries only, never protective exits. An in-kind adoption (ADR 0124) sends nothing
+to the venue, so it skips the order bounds, rate and collar gates and adds its notional
+to live capital; every other check applies.
 """
 
 from __future__ import annotations
@@ -143,12 +145,16 @@ def evaluate_new_entry(
         limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=quote_books)
         if limited.decision is RiskDecision.DENY:
             return limited
-    bounded = _order_bound_verdict(
-        policy,
-        mode=mode,
-        proposed=proposed,
-        occupied=quote_books,
-        live_quote_cash=live_quote_cash,
+    bounded = (
+        None
+        if proposed.in_kind
+        else _order_bound_verdict(
+            policy,
+            mode=mode,
+            proposed=proposed,
+            occupied=quote_books,
+            live_quote_cash=live_quote_cash,
+        )
     )
     if bounded is not None:
         return bounded
@@ -226,12 +232,17 @@ def _entry_breaker_verdict(
     """Apply loss, drawdown, rate, and collar gates when observation is present.
 
     Rate limits stay on risk-bearing books. Circuit breakers see the full snapshot list
-    so a stopped flat book's loss and latch are not filtered out first.
+    so a stopped flat book's loss and latch are not filtered out first. An in-kind entry
+    keeps the breakers (on capital including its notional) but skips rate and collar.
     """
     if observation is None:
         return _allow()
     capital = _capital_base(
-        policy, mode=mode, live_quote_cash=live_quote_cash, occupied=quote_books
+        policy,
+        mode=mode,
+        live_quote_cash=live_quote_cash,
+        occupied=quote_books,
+        in_kind_notional=proposed.in_kind_capital,
     )
     tripped = evaluate_circuit_breakers(
         policy,
@@ -244,6 +255,8 @@ def _entry_breaker_verdict(
     )
     if tripped is not None:
         return tripped
+    if proposed.in_kind:
+        return _allow()
     protected = evaluate_rate_and_collar(
         policy, mode=mode, snapshots=risk_bearing, observation=observation
     )
