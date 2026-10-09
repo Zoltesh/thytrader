@@ -80,3 +80,28 @@ def test_put_risk_policy_publishes_an_immutable_version() -> None:
     assert fetched.json()["policy_fingerprint"] == body["policy_fingerprint"]
     events = asyncio.run(audit.list_recent(limit=20))
     assert any(event.action == "set_risk_policy" for event in events)
+
+
+def test_put_risk_policy_accepts_large_fleet_counts_up_to_the_model_bound() -> None:
+    """The HTTP body admits the same 128-slot bound as the policy model, and rejects 129."""
+    app = create_app(
+        Settings(_env_file=None),
+        risk_policy_store=InMemoryRiskPolicyStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+        strategy_store=DisabledStrategyStore(),
+    )
+    payload = {
+        "max_concurrent_running_deployments": 128,
+        "max_concurrent_open_positions": 128,
+        "max_portfolio_exposure_fraction": "1",
+        "per_product_max_exposure_fraction": "1",
+        "paper_capital_quote": "40000",
+    }
+    with TestClient(app) as client:
+        accepted = client.put("/api/v1/risk-policy", json=payload)
+        rejected = client.put(
+            "/api/v1/risk-policy", json={**payload, "max_concurrent_running_deployments": 129}
+        )
+    assert accepted.status_code == 200
+    assert accepted.json()["max_concurrent_running_deployments"] == 128
+    assert rejected.status_code == 422
