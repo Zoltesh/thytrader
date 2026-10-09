@@ -39,9 +39,9 @@ one policy.
 | `policy_id` | Stable UUID across versions |
 | `version` | Integer ≥ 1, incremented on publish |
 | `quote_currency` | `USD` |
-| `product_allowlist` | 0–32 unique `BASE-USD` ids; empty means no extra product restriction |
-| `max_concurrent_running_deployments` | 1–32 per mode (`paper` and `live` counted separately); running and paused occupy a slot |
-| `max_concurrent_open_positions` | 1–32 per mode; open, pending-entry, and pending-exit occupy a slot |
+| `product_allowlist` | 0–256 unique (0–32 until 2026-10-09) `BASE-USD` ids; empty means no extra product restriction |
+| `max_concurrent_running_deployments` | 1–128 per mode (1–32 until 2026-10-09) (`paper` and `live` counted separately); running and paused occupy a slot |
+| `max_concurrent_open_positions` | 1–128 per mode (1–32 until 2026-10-09); open, pending-entry, and pending-exit occupy a slot |
 | `max_portfolio_exposure_fraction` | Plain decimal `> 0` and `≤ 1` of the mode capital base |
 | `per_product_max_exposure_fraction` | Plain decimal `> 0` and `≤ 1` of the mode capital base |
 | `paper_capital_quote` | Positive USD string; sum of occupied paper `paper_starting_cash` cannot exceed it |

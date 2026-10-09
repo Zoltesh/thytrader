@@ -149,3 +149,24 @@ def test_omitted_pyramiding_flag_preserves_compiled_fingerprint() -> None:
     assert risk_policy_fingerprint(enabled) != risk_policy_fingerprint(default)
     assert b"allow_intra_strategy_pyramiding" not in canonical_risk_policy_bytes(default)
     assert b"allow_intra_strategy_pyramiding" in canonical_risk_policy_bytes(enabled)
+
+
+def test_count_limits_allow_large_fleets_up_to_their_bounds() -> None:
+    """Running and open-position counts accept 128; the allowlist accepts 256 products."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    widened = RiskPolicyDefinition.model_validate(
+        {
+            **payload,
+            "max_concurrent_running_deployments": 128,
+            "max_concurrent_open_positions": 128,
+            "product_allowlist": tuple(f"C{index}-USD" for index in range(256)),
+        }
+    )
+    assert widened.max_concurrent_running_deployments == 128
+    for field in ("max_concurrent_running_deployments", "max_concurrent_open_positions"):
+        with pytest.raises(ValidationError):
+            RiskPolicyDefinition.model_validate({**payload, field: 129})
+    with pytest.raises(ValidationError):
+        RiskPolicyDefinition.model_validate(
+            {**payload, "product_allowlist": tuple(f"C{index}-USD" for index in range(257))}
+        )
