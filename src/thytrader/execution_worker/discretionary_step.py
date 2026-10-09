@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.execution.closed_windows import _closed_window_for
 from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.live_sizing import _prepare_live
@@ -14,7 +15,7 @@ from thytrader.execution_worker.supervision import (
     _pause_running_for_missing_candles,
     _supervise_warming_window,
 )
-from thytrader.execution_worker.windows import _closed_window_for, new_closed_bars
+from thytrader.execution_worker.windows import new_closed_bars
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.memory.trade_reason_scope import (

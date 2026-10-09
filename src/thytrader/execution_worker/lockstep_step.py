@@ -11,6 +11,7 @@ from functools import partial
 from typing import TYPE_CHECKING
 
 from thytrader.execution.candle_wait import newest_bar_settling
+from thytrader.execution.closed_windows import _closed_window_for
 from thytrader.execution.decision_journal import record_gate_skip
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.loop import process_closed_bar
@@ -30,7 +31,6 @@ from thytrader.execution_worker.windows import (
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
-    _closed_window_for,
     new_closed_bars,
 )
 from thytrader.market_data.models import parse_candle_interval

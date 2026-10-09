@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.execution import closed_windows
 from thytrader.execution_worker import (
     bar_journal,
     between_bars,
@@ -31,6 +32,8 @@ if TYPE_CHECKING:
 
     import pytest
 
+# ``execution.closed_windows`` owns the closed-window loaders the cycle calls; it is listed
+# so a patch of ``_closed_window_for`` also reaches ``_closed_window``'s lookup there.
 WORKER_CYCLE_MODULES: tuple[ModuleType, ...] = (
     service,
     ports,
@@ -44,6 +47,7 @@ WORKER_CYCLE_MODULES: tuple[ModuleType, ...] = (
     bar_journal,
     stopped_step,
     discretionary_step,
+    closed_windows,
 )
 
 

@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.execution.closed_windows import _closed_window_for
 from thytrader.execution.stopped import supervise_stopped_deployment
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.windows import (
     _closed_reference_windows,
-    _closed_window_for,
     _signal_exit_windows,
 )
 from thytrader.strategies.models import signal_exit_condition
