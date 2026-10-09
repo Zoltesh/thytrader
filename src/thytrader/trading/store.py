@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.adoption_write import AdoptionCommit, AdoptionWrite, BalanceReader
     from thytrader.trading.twins import DeploymentTwinLink
 
 
@@ -173,6 +174,25 @@ class ExecutionStore(Protocol):
 
     async def get_intent_by_idempotency_key(self, idempotency_key: str) -> OrderIntent | None:
         """Return the intent recorded under one client idempotency key, if any."""
+        ...
+
+
+@runtime_checkable
+class InventoryAdoptionStore(Protocol):
+    """Commit in-kind inventory adoptions under a per-base lock (ADR 0124).
+
+    Separate from :class:`ExecutionStore`, so the overlay, leased and disabled wrappers
+    never forward an adoption. One call takes the exclusive lock on the live base, reads
+    every live book's claims, then calls ``read_balances``, then writes the intent, the
+    FILLED order, the applied fill, the position, the runtime and the next revision (and
+    ``write.new_deployment``, when given) in one transaction. Live entry intents take the
+    same lock shared, so no entry is written mid-section.
+    """
+
+    async def adopt_inventory(
+        self, write: AdoptionWrite, *, read_balances: BalanceReader
+    ) -> AdoptionCommit:
+        """Adopt or refuse; refusals raise ``AdoptionRefusedError`` and write nothing."""
         ...
 
 

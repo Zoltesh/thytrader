@@ -20,7 +20,7 @@ from thytrader.execution_worker.between_bars import (
     _maintain_between_bars,
     _maintain_multi_between_bars,
 )
-from thytrader.execution_worker.live_sizing import _currency_available, _prepare_live
+from thytrader.execution_worker.live_sizing import _prepare_live, _short_sellable_base
 from thytrader.execution_worker.strategy_step_common import (
     _latest_due_bar_may_enter,
     _portfolio_marks,
@@ -398,8 +398,12 @@ async def _evaluate_lockstep_bar(
         focused = await scoped.get_deployment(deployment_id)
         live_base_available = None
         if focused.deployment.mode is DeploymentMode.LIVE and quote_reader is not None:
-            live_base_available = await _currency_available(
-                quote_reader, base_currency(product.product_id)
+            live_base_available = await _short_sellable_base(
+                quote_reader,
+                base_currency(product.product_id),
+                portfolio=portfolio,
+                # Unscoped and fresh: an earlier covered product may have just traded.
+                current=await store.get_deployment(deployment_id),
             )
         with trade_reason_scope(
             strategy_trade_reason_scope(

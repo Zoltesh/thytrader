@@ -18,7 +18,7 @@ from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.loop import process_closed_bar
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.between_bars import _maintain_between_bars
-from thytrader.execution_worker.live_sizing import _currency_available, _prepare_live
+from thytrader.execution_worker.live_sizing import _prepare_live, _short_sellable_base
 from thytrader.execution_worker.lockstep_step import _advance_multi_instrument
 from thytrader.execution_worker.strategy_step_common import (
     _latest_due_bar_may_enter,
@@ -373,8 +373,11 @@ async def _evaluate_strategy_due_bars(
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
         live_base_available = None
         if current.deployment.mode is DeploymentMode.LIVE and quote_reader is not None:
-            live_base_available = await _currency_available(
-                quote_reader, base_currency(product.product_id)
+            live_base_available = await _short_sellable_base(
+                quote_reader,
+                base_currency(product.product_id),
+                portfolio=portfolio,
+                current=current,
             )
         marks = await _portfolio_marks(
             market_data,

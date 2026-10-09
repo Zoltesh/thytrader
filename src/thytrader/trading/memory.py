@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
+from thytrader.market_data.products import is_spot_product_id
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
     fill_projection_deployment,
     project_fill_economics,
 )
+from thytrader.trading.geometry import base_currency
 from thytrader.trading.ids import utc_now
 from thytrader.trading.ledger import (
     MAX_POSITION_FEE_FILLS,
@@ -20,6 +23,7 @@ from thytrader.trading.ledger import (
 from thytrader.trading.models import (
     Deployment,
     DeploymentBookTotals,
+    DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     DeploymentSummarySnapshot,
@@ -77,6 +81,7 @@ class InMemoryExecutionStore:
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
         # Database-free test backend starts with an explicitly clear memory latch.
         self._entry_gate: EntryGate | None = None
+        self._inventory_locks: dict[tuple[DeploymentMode, str], asyncio.Lock] = {}
 
     def bind_entry_gate(self, gate: EntryGate) -> None:
         """Bind the fleet latch that must be held across a start insert."""
@@ -424,12 +429,31 @@ class InMemoryExecutionStore:
         self.deployments[deployment_id] = saved
         return saved
 
+    def inventory_lock(self, mode: DeploymentMode, base: str) -> asyncio.Lock:
+        """The lock that serialises adoptions on one base (ADR 0124)."""
+        return self._inventory_locks.setdefault((mode, base), asyncio.Lock())
+
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
         """Insert one order intent before venue submission.
 
         Entry intents consult the bound fleet latch. Exit and protection intents
-        do not, so disarm cannot block a risk-reducing order.
+        do not, so disarm cannot block a risk-reducing order. A live entry waits for
+        any adoption in progress on its base, like PostgreSQL's shared lock.
         """
+        deployment = self.deployments.get(intent.deployment_id)
+        if (
+            intent.purpose is IntentPurpose.ENTRY
+            and deployment is not None
+            and deployment.mode is DeploymentMode.LIVE
+        ):
+            product_id = resolved_product_id(intent.product_id, deployment)
+            if is_spot_product_id(product_id):
+                async with self.inventory_lock(deployment.mode, base_currency(product_id)):
+                    return await self._insert_intent(intent)
+        return await self._insert_intent(intent)
+
+    async def _insert_intent(self, intent: OrderIntent) -> OrderIntent:
+        """Check the idempotency key and the fleet latch, then insert the intent."""
         if intent.idempotency_key is not None:
             existing = await self.get_intent_by_idempotency_key(intent.idempotency_key)
             if existing is not None:

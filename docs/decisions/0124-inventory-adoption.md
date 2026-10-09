@@ -95,6 +95,10 @@ later.
 - **Adoptable quantity.**
   - unmanaged = venue total − Σ managed long quantity − Σ unfilled remainder of working
     buy orders on the base − Σ unfilled remainder of working short-entry sells.
+  - Only opening orders (entry or adoption purpose, or an unknown purpose) are claimed. A
+    short's cover buy restores unmanaged base and a long's protective sell is already
+    covered by the long, so neither is claimed. An entry intent whose order row is not
+    written yet claims its whole quantity, because its order may reach the venue first.
   - adoptable = min(available, unmanaged), rounded down to the product's base increment.
   - Coinbase `available` already excludes base held by resting protective sells, so those
     are not subtracted twice.
@@ -112,7 +116,9 @@ later.
 - **Store.** Claims are computed by a pure `trading/inventory_claims.py`, because the
   operator package sits above execution. Adoption writes go through a separate
   `InventoryAdoptionStore` protocol with an `AdoptionWrite` model, kept off the overlay,
-  leased and disabled store wrappers. The PostgreSQL implementation lives in its own module.
+  leased and disabled store wrappers. The PostgreSQL (`postgres_adoption.py`) and
+  in-memory implementations are their own classes. Both take the base lock before the
+  fleet latch row, and so does a live entry intent, so the two writers never deadlock.
 - **Mark.** The mark is the last closed candle of the book's timeframe, checked with the same
   freshness prerequisites as a discretionary entry. An `inventory_adopted` audit event
   records the mark source, the candle start and the balance figures.
