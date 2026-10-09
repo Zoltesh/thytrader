@@ -7,19 +7,25 @@
 	 * chrome, and a live submit goes through the live confirmation dialog whose
 	 * confirm stays disabled until "I understand this places real orders" is
 	 * ticked; only then is `i_understand_live: true` sent.
+	 *
+	 * This page owns the ticket state and the order submission; the Review aside,
+	 * the live confirmation and the outcome panels render in `$lib/trade`.
 	 */
 	import { onMount } from 'svelte';
-	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import PageHead from '$lib/PageHead.svelte';
 	import Segmented from '$lib/Segmented.svelte';
 	import TradeReasonReview from '$lib/TradeReasonReview.svelte';
 	import { marketLabel } from '$lib/deployment-detail';
 	import { listDeployments, placeDiscretionaryOrder, type Deployment } from '$lib/deployments';
-	import { PAPER_FEE_ENGINE_NOTE, optionalFeeRate } from '$lib/fees';
+	import { optionalFeeRate } from '$lib/fees';
 	import { declareLiveContext } from '$lib/live-context.svelte';
 	import { fetchTradeReasons, type TradeReasonRecord } from '$lib/memory';
 	import { EXECUTION_TIMEFRAMES, type ExecutionTimeframe } from '$lib/strategies';
 	import type { RiskPolicySnapshot } from '$lib/strategy-workspace';
+	import PaperAssumptions from '$lib/trade/PaperAssumptions.svelte';
+	import TradeBooks from '$lib/trade/TradeBooks.svelte';
+	import TradeLiveDialog from '$lib/trade/TradeLiveDialog.svelte';
+	import TradeReview from '$lib/trade/TradeReview.svelte';
 	import { tradeReview } from '$lib/trade-review';
 	import { fetchRiskPolicySnapshot } from '$lib/workspace-data';
 
@@ -70,22 +76,6 @@
 				? `${quoteNotional} ${productId.split('-')[1] ?? 'quote'}`
 				: 'Not set'
 	);
-	const riskPolicyText = $derived.by((): { text: string; attention: boolean } => {
-		if (riskPolicy === null) return { text: 'Reading…', attention: false };
-		if (riskPolicy === 'unknown') return { text: 'Unknown', attention: false };
-		if (riskPolicy.source === 'published') {
-			return {
-				text: `Published v${riskPolicy.version} · checked again on submit`,
-				attention: false
-			};
-		}
-		return isLive
-			? {
-					text: 'Compiled default · live orders are refused until a policy is published',
-					attention: true
-				}
-			: { text: 'Compiled default · checked on submit', attention: false };
-	});
 
 	$effect(() => {
 		// Composing a live order: the shell shows the amber strip and inset frame.
@@ -308,24 +298,7 @@
 				</label>
 			</div>
 			{#if mode === 'paper'}
-				<fieldset class="paper-fields">
-					<legend>Paper assumptions</legend>
-					<div class="fields">
-						<label>
-							Paper cash
-							<input bind:value={paperCash} required inputmode="decimal" />
-						</label>
-						<label>
-							Maker fee rate
-							<input bind:value={paperMakerFee} placeholder="Account rate" inputmode="decimal" />
-						</label>
-						<label>
-							Taker fee rate
-							<input bind:value={paperTakerFee} placeholder="Account rate" inputmode="decimal" />
-						</label>
-					</div>
-					<p class="hint">{PAPER_FEE_ENGINE_NOTE}</p>
-				</fieldset>
+				<PaperAssumptions bind:paperCash bind:paperMakerFee bind:paperTakerFee />
 			{/if}
 			<label class="note">
 				Why note
@@ -337,56 +310,16 @@
 			</label>
 		</form>
 
-		<aside
-			class="card review"
-			class:live={isLive}
-			aria-labelledby="review-title"
-			data-testid="trade-review"
-		>
-			<h2 id="review-title">Review</h2>
-			<div class="check"><span>Mode</span><b>{isLive ? 'LIVE · real money' : 'Paper'}</b></div>
-			<div class="check"><span>Market</span><b>{market}</b></div>
-			<div class="check">
-				<span>Side</span><b>{side === 'long' ? 'Buy / long' : 'Sell / short'}</b>
-			</div>
-			<div class="check"><span>Entry</span><b data-testid="review-entry">{review.entry}</b></div>
-			<div class="check"><span>Size</span><b>{sizeText}</b></div>
-			<div class="check">
-				<span>Max loss at stop</span><b data-testid="review-max-loss">{review.maxLoss}</b>
-			</div>
-			<div class="check">
-				<span>Reward : risk</span><b data-testid="review-reward-risk">{review.rewardRisk}</b>
-			</div>
-			<div class="check">
-				<span>Risk policy</span><b
-					class:attention={riskPolicyText.attention}
-					data-testid="review-risk-policy">{riskPolicyText.text}</b
-				>
-			</div>
-			{#each review.warnings as warning, index (index)}
-				<p class="warning" role="status">{warning}</p>
-			{/each}
-			<p class="hint">
-				Fees and slippage are not included. Sizing, caps, and data health are checked by the server.
-			</p>
-			{#if isLive}
-				<button type="button" class="btn live submit" disabled={submitting} onclick={onSubmitClick}
-					>Review live order…</button
-				>
-			{:else}
-				<button
-					type="button"
-					class="btn primary submit"
-					disabled={submitting}
-					onclick={onSubmitClick}
-					>{submitting
-						? 'Submitting…'
-						: side === 'short'
-							? 'Place paper short'
-							: 'Place paper long'}</button
-				>
-			{/if}
-		</aside>
+		<TradeReview
+			{isLive}
+			{market}
+			{side}
+			{review}
+			{sizeText}
+			{riskPolicy}
+			{submitting}
+			onsubmit={onSubmitClick}
+		/>
 	</div>
 
 	{#if error && !liveConfirmOpen}
@@ -398,29 +331,7 @@
 		</div>
 	{/if}
 
-	{#if result}
-		<section class="card panel" data-testid="discretionary-result">
-			<p class="label">Last snapshot</p>
-			<p>{result.id}</p>
-			<p>{result.mode} · {result.status} · {result.phase}</p>
-			<p>{result.orders.length} orders · {result.fills.length} fills</p>
-		</section>
-	{/if}
-
-	<section class="card panel">
-		<p class="label">Discretionary books</p>
-		{#if booksError !== null}
-			<p class="empty" data-testid="discretionary-books-incomplete">{booksError}</p>
-		{:else if books.length === 0}
-			<p class="empty">No discretionary books yet.</p>
-		{:else}
-			<ul>
-				{#each books as book (book.id)}
-					<li>{book.product_id} · {book.mode} · {book.status} · {book.phase}</li>
-				{/each}
-			</ul>
-		{/if}
-	</section>
+	<TradeBooks {result} {books} {booksError} />
 
 	<TradeReasonReview
 		records={tradeReasons}
@@ -428,42 +339,22 @@
 	/>
 </main>
 
-<ConfirmDialog
+<TradeLiveDialog
 	open={liveConfirmOpen}
-	title="Send live order?"
-	tone="live"
-	confirmLabel={side === 'short' ? 'Send live short' : 'Send live long'}
-	pendingLabel="Sending…"
-	pending={submitting}
-	confirmDisabled={!liveAcknowledged}
-	confirmDisabledReason="Tick the acknowledgement to continue."
+	{side}
+	{market}
+	{timeframe}
+	{productId}
+	{review}
+	{sizeText}
+	{stopPrice}
+	{takeProfitPrice}
+	{submitting}
 	{error}
-	testId="live-order-dialog"
+	bind:liveAcknowledged
 	oncancel={() => (liveConfirmOpen = false)}
 	onconfirm={() => void submitOrder(liveAcknowledged)}
->
-	<p>
-		This submits a real {side === 'short' ? 'sell-to-open (short)' : 'buy (long)'} spot order on Coinbase
-		using your API keys, with the stop loss and take profit attached when possible. You are solely responsible
-		for all trades and market risk.
-	</p>
-	<div class="row"><span>Market</span><span>{market} · {timeframe}</span></div>
-	<div class="row"><span>Coinbase product record</span><code>{productId}</code></div>
-	<div class="row"><span>Entry</span><span>{review.entry}</span></div>
-	<div class="row"><span>Size</span><span>{sizeText}</span></div>
-	<div class="row">
-		<span>Stop / take profit</span><span>{stopPrice || '—'} / {takeProfitPrice || '—'}</span>
-	</div>
-	<div class="row"><span>Max loss at stop</span><span>{review.maxLoss}</span></div>
-	<p>
-		Shorts never borrow: they need available base. If the request times out, ThyTrader reconciles by
-		client order id instead of re-sending.
-	</p>
-	<label class="live-ack">
-		<input type="checkbox" bind:checked={liveAcknowledged} />
-		<span>I understand this places real orders on Coinbase with real money.</span>
-	</label>
-</ConfirmDialog>
+/>
 
 <style>
 	.trade-grid {
@@ -518,24 +409,6 @@
 		padding: 8px 10px;
 		resize: vertical;
 	}
-	.paper-fields {
-		margin: 0;
-		padding: 10px 12px 12px;
-		border: 1px solid var(--line);
-		border-radius: var(--radius-md);
-	}
-	.paper-fields legend {
-		padding: 0 4px;
-		color: var(--faint);
-		font-size: var(--fs-xs);
-		text-transform: uppercase;
-		letter-spacing: 0.05em;
-	}
-	.hint {
-		margin: 8px 0 0;
-		color: var(--faint);
-		font-size: var(--fs-sm);
-	}
 	.live-note {
 		display: flex;
 		align-items: center;
@@ -544,85 +417,12 @@
 		color: var(--text);
 		font-size: var(--fs-sm);
 	}
-	.review {
-		position: sticky;
-		top: calc(var(--topbar-height) + 50px);
-		padding: 16px;
-	}
-	.review.live {
-		border: 2px solid var(--live);
-	}
-	.check {
-		display: flex;
-		gap: 10px;
-		padding: 9px 0;
-		border-bottom: 1px solid var(--line);
-	}
-	.check span {
-		flex: 1;
-		color: var(--muted);
-	}
-	.check b {
-		font-weight: 500;
-		text-align: right;
-	}
-	.check b.attention,
-	.warning {
-		color: var(--warn);
-	}
-	.warning {
-		margin: 8px 0 0;
-		font-size: var(--fs-sm);
-	}
-	.submit {
-		width: 100%;
-		margin-top: 14px;
-	}
-	.panel {
-		margin-top: 16px;
-		padding: 14px 16px;
-	}
-	.label {
-		margin: 0 0 6px;
-		color: var(--muted);
-		font-size: var(--fs-sm);
-	}
-	.panel p,
-	.panel li {
-		margin: 0;
-		color: var(--text);
-	}
-	.panel ul {
-		margin: 0;
-		padding-left: 18px;
-	}
-	.empty {
-		color: var(--muted);
-	}
 	.error-banner {
 		margin-top: 16px;
-	}
-	.live-ack {
-		flex-direction: row;
-		align-items: flex-start;
-		gap: 10px;
-		padding: 12px;
-		border-radius: var(--radius-md);
-		background: var(--live-soft);
-		color: var(--text);
-		font-size: var(--fs-base);
-		cursor: pointer;
-	}
-	.live-ack input {
-		min-height: 0;
-		margin-top: 2px;
 	}
 	@media (max-width: 1000px) {
 		.trade-grid {
 			grid-template-columns: minmax(0, 1fr);
-		}
-		.review {
-			position: static;
 		}
 	}
 </style>
