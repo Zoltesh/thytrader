@@ -280,6 +280,8 @@ def _needs_live_ack(
     """
     if tool.live_ack == "never":
         return False
+    if tool.live_ack == "always":
+        return True
     if tool.live_ack == "when_deployment_live":
         return deployment_mode is None or deployment_mode.lower() == "live"
     return str(arguments.get("mode", "")).lower() == "live"

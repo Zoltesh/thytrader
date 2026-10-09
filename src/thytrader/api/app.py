@@ -33,6 +33,7 @@ from thytrader.api.routes.execution_quality import router as execution_quality_r
 from thytrader.api.routes.fees import router as fees_router
 from thytrader.api.routes.fleet_control import router as fleet_control_router
 from thytrader.api.routes.health import router as health_router
+from thytrader.api.routes.inventory_adoption import router as inventory_adoption_router
 from thytrader.api.routes.market_data import router as market_data_router
 from thytrader.api.routes.market_data_ingestion import router as market_data_ingestion_router
 from thytrader.api.routes.memory import router as memory_router
@@ -440,6 +441,7 @@ def create_app(
     app.include_router(decisions_router)
     app.include_router(execution_quality_router)
     app.include_router(discretionary_orders_router)
+    app.include_router(inventory_adoption_router)
     app.include_router(risk_policy_router)
     app.include_router(portfolios_router)
     app.include_router(portfolio_runtime_router)

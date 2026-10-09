@@ -7,12 +7,13 @@ from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.discretionary_book import _book_for_entry
-from thytrader.execution.freshness import entry_prerequisites, marketable_quote_mark
+from thytrader.execution.freshness import marketable_quote_mark
 from thytrader.execution.live_protection import (
     _ensure_exit_protection,
     _ensure_live_bracket,
     _ensure_take_profit,
 )
+from thytrader.execution.mark_context import closed_mark_context
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.runtime_ops import (
@@ -26,9 +27,7 @@ from thytrader.execution.runtime_ops import (
     apply_fill,
 )
 from thytrader.execution.submit import submit_intent
-from thytrader.market_data.models import parse_candle_interval
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
-from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.geometry import (
     bracket_error_detail,
@@ -246,23 +245,9 @@ async def _mark_context(
     request: DiscretionaryOrderRequest,
 ) -> tuple[MarketProduct, Candle]:
     """Load product increments and the latest closed mark used for SL/TP validation."""
-    interval = parse_candle_interval(request.timeframe)
-    preview = await market_data.get_preview(request.product_id, interval)
-    if preview.product.product_id != request.product_id or not preview.product.trading_enabled:
-        raise ExecutionConflictError("Product is not a tradable USD spot market.")
-    candles = preview.quality.candles
-    if not candles:
-        raise ExecutionConflictError("A closed mark candle is required before placing an order.")
-    mark_candle = candles[-1]
-    verdict = entry_prerequisites(
-        product=preview.product,
-        candle=mark_candle,
-        now=utc_now(),
-        timeframe=request.timeframe,
+    return await closed_mark_context(
+        market_data, product_id=request.product_id, timeframe=request.timeframe
     )
-    if verdict.decision is RiskDecision.DENY:
-        raise ExecutionConflictError(verdict.detail)
-    return preview.product, mark_candle
 
 
 def _size_entry(

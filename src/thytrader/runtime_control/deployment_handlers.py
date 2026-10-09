@@ -13,6 +13,7 @@ from thytrader.agent_http import require_matching_ops_contract
 from thytrader.agent_orchestration.confirmation import require_paper_runtime_confirmation
 from thytrader.config import YoloTier
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT
+from thytrader.runtime_control.adoption_commands import adopt_via_place_order
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     link_twin,
@@ -116,6 +117,8 @@ def _strategy_uuid(value: str) -> UUID:
 
 def _place_order(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Place one paper (YOLO-eligible) or live (confirm hard-gated) discretionary order."""
+    if arguments.entry_kind == "adopt":
+        return adopt_via_place_order(arguments, base_url, settings)
     live = arguments.mode == "live"
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(

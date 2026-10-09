@@ -18,6 +18,7 @@ from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.config import Settings
 from thytrader.exit_codes import EXIT_HEALTHY, EXIT_USAGE
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
+from thytrader.runtime_control.adoption_commands import ADOPTION_COMMANDS, run_adoption_command
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     set_risk_policy,
@@ -92,7 +93,14 @@ def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) 
         return _place_order(arguments, base_url, settings)
     if command in {"pause", "resume", "stop", "reset-breaker-latches"}:
         return _runtime_mutation(arguments, base_url, settings)
-    if command in {*PORTFOLIO_COMMANDS, "show-twin", "link-twin", "unlink-twin", *FLEET_MUTATIONS}:
+    if command in {
+        *PORTFOLIO_COMMANDS,
+        *ADOPTION_COMMANDS,
+        "show-twin",
+        "link-twin",
+        "unlink-twin",
+        *FLEET_MUTATIONS,
+    }:
         return _extended_runtime_command(arguments, base_url, settings)
     if command == "show-risk-policy":
         require_matching_ops_contract(base_url)
@@ -148,7 +156,9 @@ def main(argv: Sequence[str] | None = None) -> None:
 def _extended_runtime_command(
     arguments: argparse.Namespace, base_url: str, settings: Settings
 ) -> object:
-    """Route portfolio lifecycle and separately gated comparison metadata controls."""
+    """Route portfolio lifecycle, adoption, fleet and comparison metadata controls."""
+    if arguments.command in ADOPTION_COMMANDS:
+        return run_adoption_command(arguments, base_url, settings)
     if arguments.command in PORTFOLIO_COMMANDS:
         return run_portfolio_command(arguments, base_url, settings)
     if arguments.command in FLEET_MUTATIONS:

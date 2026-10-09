@@ -97,9 +97,12 @@ No paper, live, arming, or cancellation authority.
 Confirmation-gated paper and live deployment control (single bots and whole portfolios), fleet
 controls (`fleet-preview/status/disarm/stop/flatten/rearm`;
 [ADR 0117](../docs/decisions/0117-truthful-inventory-and-fleet-controls.md)), paper/live twin
-links, on-demand `place-order`, risk-policy publication, YAML non-secret settings (including YOLO),
-and write-only Coinbase credential show/set/clear. Read-only `list`, `show`, `decisions`,
-`show-twin`, `fleet-preview`, and `fleet-status` need no `--confirm`. YOLO `live` may skip
+links, on-demand `place-order`, live adoption of coins already held at Coinbase
+(`adoption-preview`, `place-order --entry-kind adopt`, `sell-holdings`;
+[ADR 0124](../docs/decisions/0124-inventory-adoption.md)), risk-policy publication, YAML
+non-secret settings (including YOLO), and write-only Coinbase credential show/set/clear. Read-only
+`list`, `show`, `decisions`, `show-twin`, `adoption-preview`, `fleet-preview`, and `fleet-status`
+need no `--confirm`. YOLO `live` may skip
 `--confirm` on start/pause/resume/stop only. Setting credentials does not arm live trading. Not an
 extension of operator or research.
 
@@ -107,6 +110,7 @@ extension of operator or research.
 - CLI: `uv run thytrader-runtime`
 - HTTP: `/api/v1/deployments` (incl. `/{id}/decisions`, `/{id}/twin`, `/{id}/execution-quality`),
   `/api/v1/strategies/{id}/decisions`, `/api/v1/fleet-control`, `/api/v1/discretionary-orders`,
+  `/api/v1/inventory-adoptions` (incl. `/preview`),
   `/api/v1/risk-policy`, `/api/v1/settings`, `/api/v1/credentials/coinbase`, and portfolio
   deployment `/api/v1/portfolios/{id}/start|pause|resume|stop|breaker/reset` (also per sleeve)
 
