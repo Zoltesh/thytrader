@@ -21,6 +21,7 @@ from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.research.catalog import StudyCatalogSummary
+from thytrader.risk.models import MAX_CONCURRENT_LIMIT
 from thytrader.trading.protection_models import ProtectionEvidenceResponse
 
 
@@ -183,8 +184,8 @@ class RiskPayload(_FrozenModel):
     risk_policy_registry: Literal["available"]
     policy_source: Literal["compiled_default", "published"]
     policy_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    max_concurrent_running_deployments: int = Field(ge=1, le=32)
-    max_concurrent_open_positions: int = Field(ge=1, le=32)
+    max_concurrent_running_deployments: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
+    max_concurrent_open_positions: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
     product_allowlist: tuple[str, ...] = ()
     paper_running_deployments: int = Field(ge=0)
     live_running_deployments: int = Field(ge=0)

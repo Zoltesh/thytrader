@@ -9470,13 +9470,13 @@
           "type": "string"
         },
         "max_concurrent_running_deployments": {
-          "maximum": 32,
+          "maximum": 128,
           "minimum": 1,
           "title": "Max Concurrent Running Deployments",
           "type": "integer"
         },
         "max_concurrent_open_positions": {
-          "maximum": 32,
+          "maximum": 128,
           "minimum": 1,
           "title": "Max Concurrent Open Positions",
           "type": "integer"

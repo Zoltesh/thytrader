@@ -16,6 +16,7 @@ from thytrader.audit_events import (
     AuditEventStore,
 )
 from thytrader.risk.models import (
+    MAX_CONCURRENT_LIMIT,
     ActiveRiskPolicy,
     CapitalAllocation,
     RiskPolicyWrite,
@@ -39,8 +40,8 @@ class RiskPolicyWriteBody(BaseModel):
 
     quote_currency: Literal["USD", "USDC", "USDT"] = "USDC"
     product_allowlist: tuple[str, ...] = ()
-    max_concurrent_running_deployments: int = Field(ge=1, le=32)
-    max_concurrent_open_positions: int = Field(ge=1, le=32)
+    max_concurrent_running_deployments: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
+    max_concurrent_open_positions: int = Field(ge=1, le=MAX_CONCURRENT_LIMIT)
     max_portfolio_exposure_fraction: str
     per_product_max_exposure_fraction: str
     paper_capital_quote: str
