@@ -202,7 +202,9 @@ later.
   - Operator chat: `runtime_adoption_preview`, plus `runtime_adopt_holdings` and
     `runtime_sell_holdings`. Both mutating tools are hard-gated with the new
     `live_ack="always"`.
-  - Trade-page and Holdings actions in the web UI come later.
+  - Web UI: Trade's order type "Adopt holdings" (protect) and the Home holdings actions
+    "Sell to USDC" and "Adopt into bot". Each shows the preview's managed and unmanaged
+    quantities and sends `i_understand_live` only after the live checkbox.
   - Each surface ships with its skills, operator schema and CLI help. The ops contract
     moves to v70 with the HTTP surface and to v71 with `adopt_holdings`.
 

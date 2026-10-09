@@ -447,6 +447,10 @@ them: it takes ownership at the mark without buying anything
 
 The product you name chooses the quote: `DOGE-USDC` sells DOGE into USDC, `DOGE-USD` into USD.
 
+In the browser, Trade's order type **Adopt holdings** protects held coins, and each Home
+holdings row offers **Sell to USDC** and **Adopt into bot**. All of them go through a live
+confirmation; agents use the commands below.
+
 Always run the read-only preview first:
 
 ```bash
