@@ -43,6 +43,7 @@ from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.trading.geometry import base_currency
+from thytrader.trading.inventory_claims import unmanaged_available_base
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.trading.store import ExecutionStore
 
@@ -180,10 +181,8 @@ async def _place(
         live_quote_cash=await _currency_available(
             quote_reader, mode=request.mode, currency=spot_quote_currency(request.product_id)
         ),
-        live_base_available=await _currency_available(
-            quote_reader,
-            mode=request.mode,
-            currency=base_currency(request.product_id),
+        live_base_available=await _unmanaged_base_available(
+            quote_reader, store=store, mode=request.mode, product_id=request.product_id
         ),
         memory_store=memory_store,
         paper_fee_source=paper_fee_source,
@@ -202,6 +201,32 @@ def _broker_for_request(
     if live_broker is None:
         raise ExecutionConflictError("Live trading requires configured Coinbase credentials.")
     return live_broker
+
+
+async def _unmanaged_base_available(
+    quote_reader: ExchangeAccount | None,
+    *,
+    store: ExecutionStore,
+    mode: DeploymentMode,
+    product_id: str,
+) -> Decimal | None:
+    """Base a live short may sell: available base no live book claims (ADR 0124).
+
+    Raw ``available`` includes base a managed long owns but has not yet protected.
+    Any unreadable live book leaves the quantity unknown, which refuses the short.
+    """
+    if mode is not DeploymentMode.LIVE or quote_reader is None:
+        return None
+    balances: tuple[ExchangeBalance, ...] = await quote_reader.list_balances()
+    books: list[DeploymentSnapshot] = []
+    for deployment in await store.list_deployments():
+        if deployment.mode is not DeploymentMode.LIVE:
+            continue
+        try:
+            books.append(await store.get_accounting_snapshot(deployment.id))
+        except ExecutionStoreError:
+            return None
+    return unmanaged_available_base(balances, books, base_currency(product_id))
 
 
 async def _currency_available(

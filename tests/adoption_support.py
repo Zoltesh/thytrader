@@ -13,7 +13,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader.exchanges.models import ExchangeBalance
 from thytrader.trading.adoption import AdoptionRecords, adoption_records, project_adoption
+from thytrader.trading.adoption_write import AdoptionWrite
 from thytrader.trading.fill_ledger import fill_projection_deployment, project_fill_economics
 from thytrader.trading.ids import uuid7
 from thytrader.trading.models import (
@@ -35,6 +37,7 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
+    from thytrader.trading.adoption_write import BalanceReader
     from thytrader.trading.store import ExecutionStore
 
 ADOPTED_AT = datetime(2026, 10, 9, 14, 20, tzinfo=UTC)
@@ -192,3 +195,98 @@ def executed_fill(
     )
     projected, _stamped = project_fill_economics(staged, fill=fill, order=order)
     return projected
+
+
+def balance(currency: str, available: str, hold: str = "0") -> ExchangeBalance:
+    """One exact venue balance row."""
+    return ExchangeBalance(currency, currency, Decimal(available), Decimal(hold))
+
+
+def balance_reader(*rows: ExchangeBalance) -> BalanceReader:
+    """A venue reader returning fixed rows."""
+
+    async def read() -> tuple[ExchangeBalance, ...]:
+        """Return the scripted listing."""
+        return rows
+
+    return read
+
+
+def adoption_write(
+    book: Deployment,
+    *,
+    quantity: Decimal | None = Decimal(100),
+    mark: Decimal = Decimal("0.2"),
+    stop_price: Decimal = Decimal("0.15"),
+    target_price: Decimal | None = Decimal("0.3"),
+    new: bool = False,
+    respect_entry_latch: bool = False,
+    idempotency_key: str | None = None,
+) -> AdoptionWrite:
+    """One adoption of ``quantity`` (None adopts all) into ``book`` at ``mark``."""
+    return AdoptionWrite(
+        deployment_id=book.id,
+        product_id=book.product_id,
+        quantity=quantity,
+        mark=mark,
+        mark_bar_starts_at=MARK_BAR,
+        now=ADOPTED_AT,
+        origin=IntentOrigin.HUMAN,
+        stop_price=stop_price,
+        target_price=target_price,
+        base_increment=Decimal(1),
+        idempotency_key=idempotency_key,
+        new_deployment=book if new else None,
+        respect_entry_latch=respect_entry_latch,
+    )
+
+
+def entry_intent(
+    book: Deployment,
+    *,
+    side: OrderSide = OrderSide.BUY,
+    quantity: Decimal = Decimal(30),
+    purpose: IntentPurpose = IntentPurpose.ENTRY,
+    minutes: int = 1,
+) -> OrderIntent:
+    """One PENDING intent on ``book`` written just after the adoption instant."""
+    at = ADOPTED_AT + timedelta(minutes=minutes)
+    return OrderIntent(
+        id=uuid7(at),
+        deployment_id=book.id,
+        client_order_id=f"{purpose.value}-{book.id}-{minutes}",
+        purpose=purpose,
+        side=side,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=quantity,
+        created_at=at,
+        candle_starts_at=MARK_BAR,
+        price=Decimal("0.2"),
+        product_id=book.product_id,
+    )
+
+
+def working_order(
+    intent: OrderIntent,
+    *,
+    kind: OrderKind = OrderKind.POST_ONLY_LIMIT,
+    status: OrderStatus = OrderStatus.OPEN,
+    filled: Decimal = Decimal(0),
+) -> Order:
+    """The venue order of ``intent``, resting with ``filled`` already executed."""
+    return Order(
+        id=uuid7(intent.created_at),
+        deployment_id=intent.deployment_id,
+        intent_id=intent.id,
+        client_order_id=intent.client_order_id,
+        side=intent.side,
+        kind=kind,
+        quantity=intent.quantity,
+        status=status,
+        created_at=intent.created_at,
+        updated_at=intent.created_at,
+        price=Decimal("0.2"),
+        filled_quantity=filled,
+        venue_order_id=f"venue-{intent.client_order_id}",
+        product_id=intent.product_id,
+    )

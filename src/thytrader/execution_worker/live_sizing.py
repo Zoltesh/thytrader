@@ -8,9 +8,11 @@ from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.trading.ids import utc_now
+from thytrader.trading.inventory_claims import unmanaged_available_base
 from thytrader.trading.models import DeploymentStatus, with_runtime
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from decimal import Decimal
 
     from thytrader.exchanges.fees import FeeProfile
@@ -82,3 +84,24 @@ async def _currency_available(reader: QuoteBalanceReader, currency: str) -> Deci
         if balance.currency == currency:
             return balance.available
     return None
+
+
+async def _short_sellable_base(
+    reader: QuoteBalanceReader,
+    base: str,
+    *,
+    portfolio: Sequence[DeploymentSnapshot],
+    current: DeploymentSnapshot,
+) -> Decimal | None:
+    """Base a live short may sell: available base no live book claims (ADR 0124).
+
+    ``portfolio`` is the cycle's full risk snapshots; ``current`` replaces this book's
+    older row. Raw ``available`` includes base a managed long owns but has not yet
+    protected, so it is never the answer on its own. Unknown claims refuse the short.
+    """
+    balances = await reader.list_balances()
+    books = (
+        *(item for item in portfolio if item.deployment.id != current.deployment.id),
+        current,
+    )
+    return unmanaged_available_base(balances, books, base)

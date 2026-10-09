@@ -48,6 +48,7 @@ from thytrader.persistence.postgres_execution_statements import (
     _worker_lease_update,
 )
 from thytrader.persistence.postgres_fleet_admission import refuse_postgres_entry
+from thytrader.persistence.postgres_inventory_lock import lock_entry_base
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -535,6 +536,8 @@ class PostgresExecutionStore:
                         raise ExecutionStoreError(
                             "Entry deployment mode is unavailable; refusing risk."
                         )
+                    # Shared base lock first (ADR 0124): no entry lands mid-adoption.
+                    await lock_entry_base(connection, intent, mode=mode)
                     await refuse_postgres_entry(connection, mode=mode, action="entry")
                 await connection.execute(statement)
         except ExecutionConflictError:
