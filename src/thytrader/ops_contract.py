@@ -61,7 +61,8 @@ comparison in the operator ``portfolios`` report; ADR 0097), or the library orig
 paper ``protection_status``, last-bar book marks, and per-portfolio fill comparisons (ADR
 0098), or operand-level indicator offsets across research, paper, and live (ADR 0099), or
 the ``adoption`` order kind, intent purpose and why-trade signal kind of in-kind
-inventory adoption (ADR 0124, Alembic 0070) change. Concurrency is the
+inventory adoption (ADR 0124, Alembic 0070), or the inventory-adoption HTTP surface
+(``/api/v1/inventory-adoptions`` preview, protect and sell; ADR 0124) change. Concurrency is the
 deployment's ``research_worker_count`` and is reported by operator health, not compiled
 into this contract.
 """
@@ -89,7 +90,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v69"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v70"
 EXPECTED_SCHEMA_REVISION = "0070"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

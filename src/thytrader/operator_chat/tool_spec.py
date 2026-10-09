@@ -14,7 +14,8 @@ if TYPE_CHECKING:
     from thytrader.operator_chat.models import ChatLane
 
 YoloBinding = Literal["none", "data", "research", "paper", "live", "deployment_mode"]
-LiveAck = Literal["never", "when_mode_live", "when_deployment_live"]
+LiveAck = Literal["never", "when_mode_live", "when_deployment_live", "always"]
+"""``always`` is for tools that only act on live, such as inventory adoption (ADR 0124)."""
 
 
 @dataclass(frozen=True, slots=True)

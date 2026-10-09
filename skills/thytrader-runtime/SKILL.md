@@ -6,12 +6,15 @@ description: >-
   portfolio-reset-breaker), read their per-bar decision timeline (read-only
   `decisions`), publish the risk-policy registry, run fleet controls
   (fleet-preview/status/disarm/stop/flatten/rearm), link paper/live twins, set
-  YAML settings, and show/set/clear write-only Coinbase credentials, through the
+  YAML settings, show/set/clear write-only Coinbase credentials, and adopt or sell
+  coins already held in the Coinbase account (adoption-preview, place-order
+  --entry-kind adopt, sell-holdings), through the
   confirmation-gated thytrader-runtime CLI. Use when the user
-  explicitly asks to deploy, pause, resume, stop, place an on-demand order, set
-  the risk policy, or manage Coinbase API secrets. Requires --confirm on every
-  mutation unless YOLO covers that tier. Live start, live resume, and live
-  place-order also require --i-understand-live (sent as HTTP i_understand_live=true).
+  explicitly asks to deploy, pause, resume, stop, place an on-demand order, protect
+  or sell held coins, set the risk policy, or manage Coinbase API secrets. Requires
+  --confirm on every mutation unless YOLO covers that tier. Live start, live resume,
+  live place-order, and sell-holdings also require --i-understand-live (sent as HTTP
+  i_understand_live=true).
   YOLO live may skip --confirm on start/pause/resume/stop
   only. Credential set/clear always need --confirm; YOLO never covers them.
   Publishing a risk policy or setting credentials does not arm live trading.
@@ -428,6 +431,90 @@ clears it, re-baselining the day open and the peak at current equity; sleeves st
 `portfolio-resume`. YOLO covers `portfolio-start/pause/resume/stop` by the portfolio's mode tier, like
 single bots; `--i-understand-live` is never skipped.
 
+## Holdings already in the account (inventory adoption, live only)
+
+Coins held at Coinbase that no bot manages (bought by hand, left by a retired bot) show as
+`external_inventory` in `thytrader-operator venue-reconciliation`. A live book can **adopt**
+them: it takes ownership at the mark without buying anything
+([ADR 0124](../../docs/decisions/0124-inventory-adoption.md)). Two actions:
+
+- **Protect** keeps the coins and has the platform guard them. They go into a running
+  discretionary long book, which rests the stop and take-profit you give exactly as after a
+  live entry fill.
+- **Sell** converts them to the product's quote currency. They go into a book created
+  STOPPED with lifecycle `flatten`, and the execution worker sells them marketably on its next
+  cycle. No protective order is ever placed on that book.
+
+The product you name chooses the quote: `DOGE-USDC` sells DOGE into USDC, `DOGE-USD` into USD.
+
+Always run the read-only preview first:
+
+```bash
+uv run thytrader-runtime adoption-preview --product-id DOGE-USDC
+```
+
+**Preview fields.**
+
+| Field | Meaning |
+|---|---|
+| `balance_total` / `balance_available` | The venue's base balance. `available` excludes base on hold under resting orders. |
+| `claims` | What live books already own or will own of the base: `managed_long`, unfilled opening `working_buys`, and `working_short_entry_sells`. |
+| `adoptable` | `min(available, total − claims)`, rounded down to the base increment. This is the most `--quantity all` can take. |
+| `mark` / `mark_bar_starts_at` | The close of the last closed candle on `--timeframe` (default `5m`). It is the adoption price and the price your stop and take-profit are checked against. For a thinly traded coin whose latest 5m bar is stale (`ADOPTION_MARK_UNAVAILABLE`), use `--timeframe 1h`. The book keeps that clock, so a sell waits for a traded bar on it. |
+| `protect_blocking_reasons` / `sell_blocking_reasons` | Empty means that action can proceed. |
+
+A null figure is unknown, never zero. `unresolved_reasons` (an UNKNOWN order, unsettled fills,
+unresolved accounting, or a missing or duplicate balance row) refuses both actions with
+`ADOPTION_BASE_UNRESOLVED` until reconciliation settles.
+
+**Protect:**
+
+```bash
+uv run thytrader-runtime place-order --mode live --entry-kind adopt --product-id DOGE-USDC \
+  --quantity all --stop-price 0.15 --take-profit-price 0.30 --idempotency-key KEY \
+  --confirm --i-understand-live
+```
+
+- `--quantity` is a base amount or `all`. The stop must be below the mark and the take-profit
+  above it; both are required.
+- Adopt never buys, so `--side short`, `--quote-notional`, `--limit-price`, `--cash` and the fee
+  flags are refused.
+- It reuses a flat running discretionary book for the product. It refuses with
+  `ADOPTION_BOOK_OCCUPIED` while a discretionary book on that product is open, pending or paused.
+- The entry gate admits it **in kind**: the adopted notional joins live capital, and order
+  bounds, rate limits and the price collar do not apply. Allowlist, allocations (discretionary
+  books are denied while allocations are in force), slots, exposure caps and the daily-loss and
+  drawdown breakers do apply.
+- It is allowed under fleet disarm, because it only adds protection.
+
+**Sell:**
+
+```bash
+uv run thytrader-runtime sell-holdings --product-id DOGE-USDC --quantity all \
+  --idempotency-key KEY --confirm --i-understand-live
+```
+
+- It is not entry-gated by the risk policy (it reduces risk) and is allowed under fleet disarm.
+- The response is the new book: `status: stopped`, `lifecycle_command: flatten`, an open
+  position, and a sentinel stop of one price increment that is never placed.
+- Follow it with `uv run thytrader-runtime show UUID` (or
+  `thytrader-operator runtime --deployment-id UUID`) until it is flat. The sale's fills reconcile
+  like any live exit.
+- If no traded closed candle is available, the detail says flatten is waiting for a price; the
+  next traded bar sells.
+
+**Both actions:**
+
+- Repeating the same `--idempotency-key` returns the original book and never adopts twice.
+  After a timeout, `show` the book and repeat the identical command.
+- A quantity above `adoptable` is refused with `ADOPTION_QUANTITY_UNAVAILABLE`.
+- A lot below the venue's base or quote minimum is refused with `ADOPTION_BELOW_VENUE_MINIMUM`.
+- Paper answers `ADOPTION_LIVE_ONLY`.
+- Each adoption writes one why-trade record (purpose and signal kind `adoption`) and an
+  `inventory_adopted` audit event with the mark, the balance and the claims.
+- Adopted losses count toward the daily-loss and drawdown breakers.
+- Execution-quality reports flag adopted fills `adopted: true`.
+
 ## Commands
 
 | Need | Command |
@@ -465,6 +552,9 @@ single bots; `--i-understand-live` is never skipped.
 | Place paper short | `uv run thytrader-runtime place-order --mode paper --product-id BTC-USDC --timeframe 5m --side short --entry-kind post_only_limit --limit-price 100000 --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --cash 10000 --confirm` |
 | Place live long | `uv run thytrader-runtime place-order --mode live --product-id BTC-USDC --timeframe 1h --entry-kind marketable --quantity 0.01 --stop-price 90000 --take-profit-price 120000 --idempotency-key KEY --confirm --i-understand-live` |
 | Place live short | `uv run thytrader-runtime place-order --mode live --product-id BTC-USDC --timeframe 1h --side short --entry-kind marketable --quantity 0.01 --stop-price 110000 --take-profit-price 90000 --idempotency-key KEY --confirm --i-understand-live` |
+| Preview held coins (read-only) | `uv run thytrader-runtime adoption-preview --product-id DOGE-USDC [--timeframe 5m]` |
+| Protect held coins (adopt, live) | `uv run thytrader-runtime place-order --mode live --entry-kind adopt --product-id DOGE-USDC --quantity all --stop-price 0.15 --take-profit-price 0.30 --idempotency-key KEY --confirm --i-understand-live` |
+| Sell held coins (live) | `uv run thytrader-runtime sell-holdings --product-id DOGE-USDC --quantity all --idempotency-key KEY --confirm --i-understand-live` |
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
@@ -659,6 +749,12 @@ Underlying HTTP:
 - `POST /api/v1/deployments/{id}/stop` (optional `?flatten=true`; default is managed shutdown)
 - `POST /api/v1/deployments/{id}/reset-breaker-latches`
 - `POST /api/v1/discretionary-orders` (mode `live` requires `"i_understand_live": true`, else 428)
+- `GET /api/v1/inventory-adoptions/preview?product_id=&timeframe=` (read-only)
+- `POST /api/v1/inventory-adoptions` (`mode: live`, `action: protect|sell`, `quantity` decimal or
+  `"all"`, `stop_price` and `take_profit_price` for protect only, `idempotency_key`, `origin`,
+  optional `timeframe` and `note`; requires `"i_understand_live": true`, else 428; paper 409
+  `ADOPTION_LIVE_ONLY`; refusals 409 with the code first; shape errors 422; replay returns
+  the original book with 201)
 - `GET/PUT /api/v1/risk-policy`
 - `GET/PUT /api/v1/settings` (YAML non-secrets and YOLO; no secret echo; [ADR 0055](../../docs/decisions/0055-yaml-settings-runtime-reloadable-yolo.md))
 - `GET/PUT/DELETE /api/v1/credentials/coinbase`
@@ -668,10 +764,11 @@ Underlying HTTP:
 - Never mutate unless the user explicitly asked **and** `--confirm` is present, unless the user
   explicitly asked to operate under YOLO **and** operator `configuration` /
   `thytrader-playbook status` shows the matching tier (`paper` or `live`) enabled.
-- Never start live, resume a live deployment, or place a live order without
-  `--i-understand-live`. YOLO never skips that flag. Live start/pause/resume/stop may omit `--confirm` only when the `live` tier is enabled
-  and the skip audit succeeds. Live `place-order`, `set-risk-policy`, `set-settings`, and Coinbase
-  credential set/clear never YOLO.
+- Never start live, resume a live deployment, place a live order, adopt held coins, or sell
+  holdings without `--i-understand-live`. YOLO never skips that flag. Live start/pause/resume/stop
+  may omit `--confirm` only when the `live` tier is enabled and the skip audit succeeds. Live
+  `place-order` (including `--entry-kind adopt`), `sell-holdings`, `set-risk-policy`,
+  `set-settings`, and Coinbase credential set/clear never YOLO.
 - Fail closed if YOLO is off, the needed tier is absent, or the skip audit is unavailable.
   Do not retry with extra flags unless the user asked you to.
 - Successful mutations print JSON identities (`id`, `mode`, `status`, `kind`, optional

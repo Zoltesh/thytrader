@@ -483,6 +483,7 @@ async def test_actual_pg_reuse_read_boundary_and_pending_cas(
 
     monkeypatch.setattr(postgres_execution, "_snapshot", late_fill_between_selects)
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.mark_context.utc_now", lambda: _TODAY)
     monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     broker = _QuantityVenue()
     request = parse_discretionary_request(

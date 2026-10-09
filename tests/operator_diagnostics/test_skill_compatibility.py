@@ -77,7 +77,7 @@ def test_operator_skill_matches_application_schema_and_routes() -> None:
     assert "books" in schemas
     assert "protection_status" in schemas
     assert "0060-multi-book-deployment-api" in skill or "0060-multi-book-deployment-api" in schemas
-    assert "thytrader-ops-contract-v69" in skill
+    assert "thytrader-ops-contract-v70" in skill
     assert "capital_normalized_performance" in skill
     assert "performance_capital_quote" in schemas
     assert "performance_maximum_drawdown_fraction" in schemas
@@ -200,6 +200,16 @@ def test_runtime_skill_requires_confirm_and_live_ack() -> None:
     assert "/api/v1/risk-policy" in skill
     assert "place-order" in skill
     assert "/api/v1/discretionary-orders" in skill
+    for adoption in (
+        "adoption-preview",
+        "--entry-kind adopt",
+        "sell-holdings",
+        "/api/v1/inventory-adoptions",
+        "ADOPTION_LIVE_ONLY",
+        "ADOPTION_BASE_UNRESOLVED",
+        "0124-inventory-adoption",
+    ):
+        assert adoption in skill, adoption
     assert "--timeframe" in skill
     assert "--side" in skill
     assert "short" in skill.lower()

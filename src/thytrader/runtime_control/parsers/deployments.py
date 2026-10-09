@@ -157,7 +157,12 @@ def add_place_order_parser(
     place = subparsers.add_parser(
         "place-order",
         parents=[trailing],
-        help="Place one long or short discretionary order with required SL/TP.",
+        help=(
+            "Place one long or short discretionary order with required SL/TP. "
+            "--entry-kind adopt (live only) buys nothing: it adopts coins already held at "
+            "Coinbase (--quantity N or all, see adoption-preview) into a discretionary "
+            "long book and rests the given stop and take-profit."
+        ),
     )
     place.add_argument("--mode", required=True, choices=("paper", "live"))
     place.add_argument("--product-id", required=True)
@@ -169,7 +174,11 @@ def add_place_order_parser(
     place.add_argument(
         "--entry-kind",
         default="post_only_limit",
-        choices=("post_only_limit", "marketable"),
+        choices=("post_only_limit", "marketable", "adopt"),
+        help=(
+            "post_only_limit (default) or marketable buy/sell at the venue; adopt (live "
+            "only) takes over coins already held instead of buying (ADR 0124)."
+        ),
     )
     place.add_argument(
         "--timeframe",
@@ -180,7 +189,11 @@ def add_place_order_parser(
             "(1m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 1d)."
         ),
     )
-    place.add_argument("--quantity", default=None)
+    place.add_argument(
+        "--quantity",
+        default=None,
+        help="Base quantity. With --entry-kind adopt: a quantity or 'all' unmanaged held coins.",
+    )
     place.add_argument("--quote-notional", default=None)
     place.add_argument("--limit-price", default=None)
     place.add_argument("--cash", default=None, help="Paper starting cash decimal string.")

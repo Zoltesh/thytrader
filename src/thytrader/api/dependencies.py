@@ -25,8 +25,10 @@ from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.operator_chat.service import OperatorChatService
 from thytrader.persistence.backtest_benchmarks import BacktestBenchmarkReader
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore
+from thytrader.persistence.postgres_adoption import PostgresInventoryAdoptionStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
@@ -41,7 +43,9 @@ from thytrader.runtime import RuntimeState
 from thytrader.security.boundary import TrustBoundary
 from thytrader.strategies.library import StrategyStore
 from thytrader.strategies.snapshots import StrategySnapshotStore
-from thytrader.trading.store import ExecutionStore
+from thytrader.trading.memory import InMemoryExecutionStore
+from thytrader.trading.memory_adoption import InMemoryInventoryAdoptionStore
+from thytrader.trading.store import ExecutionStore, InventoryAdoptionStore
 
 if TYPE_CHECKING:
     from thytrader.fleet_control.store import FleetControlStore
@@ -243,6 +247,23 @@ def get_execution_store(request: Request) -> ExecutionStore:
         message = "Execution store is unavailable."
         raise TypeError(message)
     return store
+
+
+def get_inventory_adoption_store(request: Request) -> InventoryAdoptionStore | None:
+    """Return the adoption store paired with the execution store, or None (ADR 0124).
+
+    It is the PostgreSQL adoption store on the same engine, or the in-memory one sharing
+    the execution store's per-base locks. A disabled or unknown store cannot adopt.
+    """
+    attached = getattr(request.app.state, "inventory_adoption_store", None)
+    if isinstance(attached, InventoryAdoptionStore):
+        return attached
+    store = getattr(request.app.state, "execution_store", None)
+    if isinstance(store, PostgresExecutionStore):
+        return PostgresInventoryAdoptionStore(store.fleet_database_engine)
+    if isinstance(store, InMemoryExecutionStore):
+        return InMemoryInventoryAdoptionStore(store)
+    return None
 
 
 def get_alert_store(request: Request) -> AlertStore:

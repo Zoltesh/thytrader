@@ -494,6 +494,7 @@ async def test_actual_discretionary_reuse_fences_pending_after_authoritative_sel
     )
     broker = _QuantityVenue()
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.mark_context.utc_now", lambda: _TODAY)
     monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     with pytest.raises(ExecutionConflictError, match="revision"):
         await place_discretionary_order(
@@ -541,6 +542,7 @@ async def test_actual_reuse_denies_authoritative_recorded_loss(
     await risk_store.publish(_policy())
     broker = _QuantityVenue()
     monkeypatch.setattr("thytrader.execution.discretionary.utc_now", lambda: _TODAY)
+    monkeypatch.setattr("thytrader.execution.mark_context.utc_now", lambda: _TODAY)
     monkeypatch.setattr("thytrader.execution.discretionary_book.utc_now", lambda: _TODAY)
     request = parse_discretionary_request(
         mode="live",

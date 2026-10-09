@@ -205,6 +205,88 @@ RUNTIME_TOOLS: tuple[ChatTool, ...] = (
         ),
     ),
     ChatTool(
+        name="runtime_adoption_preview",
+        description=(
+            "Read-only: Coinbase balance of a product's base coin, what live books already "
+            "claim of it, the adoptable (unmanaged) quantity, the closed-candle mark, and "
+            "protect_blocking_reasons / sell_blocking_reasons. Run before adopting or selling."
+        ),
+        lane=ChatLane.RUNTIME,
+        method="GET",
+        path="/api/v1/inventory-adoptions/preview",
+        mutation=False,
+        yolo="none",
+        hard_gate=False,
+        live_ack="never",
+        properties={"product_id": _PRODUCT, "timeframe": _TIMEFRAME},
+        required=("product_id",),
+    ),
+    ChatTool(
+        name="runtime_adopt_holdings",
+        description=(
+            "LIVE: adopt coins already held at Coinbase (quantity N or 'all' unmanaged) into "
+            "a discretionary long book and rest the stop and take-profit; buys nothing. "
+            "Pass mode=live and action=protect. Refused while an occupied discretionary book "
+            "trades the product. Always needs confirm and understand-live."
+        ),
+        lane=ChatLane.RUNTIME,
+        method="POST",
+        path="/api/v1/inventory-adoptions",
+        mutation=True,
+        yolo="none",
+        hard_gate=True,
+        live_ack="always",
+        properties={
+            "mode": {"type": "string", "enum": ["live"], "description": "Always live."},
+            "action": {"type": "string", "enum": ["protect"], "description": "protect."},
+            "product_id": _PRODUCT,
+            "quantity": _string("Base quantity, or 'all' unmanaged held coins."),
+            "stop_price": _string("Stop below the mark."),
+            "take_profit_price": _string("Take-profit above the mark."),
+            "idempotency_key": _string("Unique key; a repeat returns the original book."),
+            "origin": _string("human or agent."),
+            "timeframe": _TIMEFRAME,
+            "note": _opt_string("Optional why-note on the trade reason."),
+        },
+        required=(
+            "mode",
+            "action",
+            "product_id",
+            "quantity",
+            "stop_price",
+            "take_profit_price",
+            "idempotency_key",
+            "origin",
+        ),
+    ),
+    ChatTool(
+        name="runtime_sell_holdings",
+        description=(
+            "LIVE: sell coins already held at Coinbase (quantity N or 'all' unmanaged) into "
+            "the product's quote currency. They are adopted into a stopped FLATTEN book that "
+            "the worker sells marketably; no protective order is placed. Pass mode=live and "
+            "action=sell. Always needs confirm and understand-live."
+        ),
+        lane=ChatLane.RUNTIME,
+        method="POST",
+        path="/api/v1/inventory-adoptions",
+        mutation=True,
+        yolo="none",
+        hard_gate=True,
+        live_ack="always",
+        properties={
+            "mode": {"type": "string", "enum": ["live"], "description": "Always live."},
+            "action": {"type": "string", "enum": ["sell"], "description": "sell."},
+            "product_id": _PRODUCT,
+            "quantity": _string("Base quantity, or 'all' unmanaged held coins."),
+            "idempotency_key": _string("Unique key; a repeat returns the original book."),
+            "origin": _string("human or agent."),
+            "timeframe": _TIMEFRAME,
+            "note": _opt_string("Optional why-note on the trade reason."),
+        },
+        required=("mode", "action", "product_id", "quantity", "idempotency_key", "origin"),
+    ),
+    ChatTool(
         name="runtime_show_risk_policy",
         description="Read the effective risk-policy document.",
         lane=ChatLane.RUNTIME,

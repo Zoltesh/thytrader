@@ -126,16 +126,40 @@ later.
 ### Surfaces
 
 - **Discretionary protect.**
-  - Takes a quantity (a number or `all`), a stop, an optional take-profit and an
-    idempotency key, with the live acknowledgement.
-  - It is refused while an occupied discretionary book exists for the product.
-  - It is allowed under fleet disarm, because it only adds protection.
+  - Takes a quantity (a number or `all`), a stop and a take-profit, both required, and an
+    idempotency key, with the live acknowledgement. The mark is the close of the last
+    closed candle on the request's clock (default `5m`), checked for freshness like a
+    discretionary entry. The stop must be below it and the take-profit above it.
+  - It reuses a flat running discretionary book for the product. Otherwise it creates a new
+    one in the same transaction as the adoption. It is refused with `ADOPTION_BOOK_OCCUPIED`
+    while a discretionary book on the product is open, pending or paused.
+  - A new adoption book starts at cash 0 and initial equity 0 (ADR 0106). Its performance
+    capital is pinned to the adopted notional (ADR 0107). A reused book keeps its own ledger.
+  - New books pass `evaluate_new_deployment`, then the entry gate with in-kind funding. A
+    denial refuses the adoption and pauses no book.
+  - The API rests protection with `_ensure_exit_protection`, exactly as after a live entry
+    fill. It is allowed under fleet disarm, because it only adds protection.
 - **Sell holdings.**
-  - Creates the book STOPPED with lifecycle FLATTEN in the same write.
+  - Always a new discretionary book, created STOPPED with lifecycle FLATTEN in the same write
+    as the adoption. Stopped books are not occupied, so it can coexist with a protect book.
   - A sentinel stop of one price increment satisfies the NOT NULL stop. FLATTEN takes
     priority over protection, so no protective order is ever submitted.
-  - The stopped-residual flatten then sells the coins.
-  - It reduces risk, so it is not entry-gated.
+  - The API submits no sale itself. The execution worker's stopped-book flatten sells the
+    coins on its next cycle, exactly as after `stop --flatten`. An API-side sale could race
+    the worker's flatten of the same book into a double sell.
+  - It reduces risk, so it is not entry-gated and is allowed under fleet disarm.
+- **Shared request rules.**
+  - The quantity is resolved before admission from a venue read taken without the lock:
+    "all" becomes the adoptable amount, and an explicit amount is rounded down to the base
+    increment. The store then re-checks that exact quantity under the base lock, so a
+    shrunken balance refuses rather than adopting more than was admitted.
+  - A lot below the venue's base or quote minimum is refused with
+    `ADOPTION_BELOW_VENUE_MINIMUM`, because it could be neither protected nor sold.
+  - A replayed idempotency key returns its book. A key already used by a non-adoption order,
+    or by an adoption of another product, conflicts.
+  - Each adoption writes one why-trade record (its verdict, plus the operator's note) and an
+    `inventory_adopted` audit event. The event records the mark source and candle, the venue
+    balance, every claim and the adoptable quantity.
 - **Strategy start with adoption.**
   - v1 covers single-instrument, long-only strategies.
   - The deployment insert and the adoption commit in one transaction, so a FLAT running bot
@@ -154,12 +178,21 @@ later.
   quantity instead of raw `available`. A short can then no longer sell base that a managed
   long owns but has not yet protected.
 - **Agent and UI.**
-  - HTTP: a read-only preview, a confirmation-gated POST, and `adopt_holdings` on deployment
-    create.
-  - CLI: `place-order --entry-kind adopt`, `sell-holdings`, `start --adopt-holdings` and
-    `adoption-preview`.
-  - Operator-chat tools, plus Trade-page and Holdings actions in the web UI.
-  - Each surface ships with its skills, operator schema and CLI help.
+  - HTTP:
+    - `GET /api/v1/inventory-adoptions/preview` (read-only);
+    - `POST /api/v1/inventory-adoptions` with `action: protect|sell`, live only. It returns
+      428 without `i_understand_live`, 409 `ADOPTION_LIVE_ONLY` for paper, 409 for refusals
+      (code first) and 422 for shape errors;
+    - `adopt_holdings` on deployment create, later.
+  - CLI: `adoption-preview`, `place-order --entry-kind adopt`, `sell-holdings` and later
+    `start --adopt-holdings`. Every mutation needs `--confirm` (never YOLO) and
+    `--i-understand-live`.
+  - Operator chat: `runtime_adoption_preview`, plus `runtime_adopt_holdings` and
+    `runtime_sell_holdings`. Both mutating tools are hard-gated with the new
+    `live_ack="always"`.
+  - Trade-page and Holdings actions in the web UI come later.
+  - Each surface ships with its skills, operator schema and CLI help. The ops contract
+    moves to v70 with the HTTP surface.
 
 ### Persistence
 
