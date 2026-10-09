@@ -224,7 +224,7 @@ order_intents = Table(
     UniqueConstraint("idempotency_key", name="ux_order_intents_idempotency_key"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_order_intents_side"),
     CheckConstraint(
-        "kind IN ('post_only_limit', 'marketable', 'trigger_bracket', 'stop_limit')",
+        "kind IN ('post_only_limit', 'marketable', 'trigger_bracket', 'stop_limit', 'adoption')",
         name="ck_order_intents_kind",
     ),
     CheckConstraint(

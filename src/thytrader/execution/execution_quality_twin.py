@@ -310,7 +310,9 @@ def _fee_normalization(
     """Re-price recorded live fills at the paper book's fee assumptions.
 
     Realized live fees stay untouched; this is a disclosed counterfactual over the
-    entire applied-fill lifetime. Unknown liquidity makes the total unavailable.
+    entire applied-fill lifetime. Unknown liquidity makes the total unavailable. An
+    adoption fill (ADR 0124) was never executed and has no fee to re-price, so it is
+    left out of both sums and of ``fill_count``.
     """
     deployment = paper_snapshot.deployment
     maker, taker = effective_paper_fee_rates(
@@ -324,6 +326,8 @@ def _fee_normalization(
     without_evidence = 0
     for book in live_report.books:
         for fill in _iter_report_fills(book):
+            if fill.adopted:
+                continue
             observed.append(Decimal(fill.fee))
             if fill.liquidity is None:
                 without_evidence += 1

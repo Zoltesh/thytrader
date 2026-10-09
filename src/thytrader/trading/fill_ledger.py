@@ -12,12 +12,13 @@ if TYPE_CHECKING:
 from thytrader.trading.geometry import entry_bar_bucket
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
+    INVENTORY_OPENING_PURPOSES,
     Deployment,
     DeploymentSnapshot,
     DeploymentStatus,
     Fill,
-    IntentPurpose,
     Order,
+    OrderKind,
     OrderSide,
     OrderStatus,
     Position,
@@ -104,13 +105,16 @@ def unprojected_inventory_products(snapshot: DeploymentSnapshot) -> tuple[str, .
     """Identify owned applied inventory not represented by the position projection.
 
     Retained orders/fills, not a mutable mismatch string, are the durable evidence.
-    Only products with applied entry evidence are anchored; legacy seeded positions
-    without an entry ledger are not reconstructed or assigned invented geometry.
+    Only products with applied inventory-opening evidence (an entry or an in-kind
+    adoption, ADR 0124) are anchored; legacy seeded positions without an entry ledger
+    are not reconstructed or assigned invented geometry.
     A larger same-side legacy position is allowed, but cannot hide recorded inventory
     on the opposite side or a recorded balance larger than the projected position.
     This predicate never supplies an executable quantity or repairs historical fills.
     """
-    entries = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    entries = {
+        intent.id for intent in snapshot.intents if intent.purpose in INVENTORY_OPENING_PURPOSES
+    }
     orders = {order.id: order for order in snapshot.orders}
     anchors: dict[str, datetime] = {}
     for fill in snapshot.fills:
@@ -531,12 +535,18 @@ async def replay_unapplied_fills(
     cooldown_bars: int = 0,
     timeframe: str | None = None,
 ) -> DeploymentSnapshot:
-    """Apply any persisted fills whose economics were never committed."""
+    """Apply any persisted fills whose economics were never committed.
+
+    An adoption fill is committed already applied with its projection (ADR 0124). One
+    found unapplied is corrupt evidence, not a late fill: it is never projected here,
+    where the book's current pending levels would become its stop, and reconcile
+    reports it as ``ADOPTION_EVIDENCE_INCOMPLETE`` instead.
+    """
     current = snapshot
     pending = tuple(fill for fill in current.fills if fill.economics_applied_at is None)
     for fill in pending:
         order = next((item for item in current.orders if item.id == fill.order_id), None)
-        if order is None:
+        if order is None or order.kind is OrderKind.ADOPTION:
             continue
         result = await ingest_fill(
             current,

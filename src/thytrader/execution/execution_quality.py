@@ -14,6 +14,11 @@ closes; fee-allocation rounding and over-cover clamping can add differences too.
 residual versus closed-cycle totals is disclosed as
 ``ledger_realized_delta`` exactly like the backtest cost attribution's
 ``summary_net_pnl_delta``; it is never silently attributed to fees.
+
+An in-kind adoption fill (ADR 0124) opens its cycle at the mark like any buy, so the
+round trip and the ledger agree, but it is no execution: it carries no liquidity and no
+slippage benchmark, adds no evidence reason, is flagged ``adopted`` and is left out of
+the slippage fill counts. ``adopted_fill_count`` reports how many there are.
 """
 
 from __future__ import annotations
@@ -54,6 +59,7 @@ from thytrader.trading.ledger import DeploymentLedger, ledger_from_snapshot
 from thytrader.trading.models import (
     DeploymentSnapshot,
     IntentPurpose,
+    OrderKind,
     OrderSide,
     PositionSide,
     resolved_product_id,
@@ -90,6 +96,7 @@ class _RecordedFill:
     liquidity: MakerTakerEvidence | None
     slippage_bps: Decimal | None
     reference: _DecisionReference | None = None
+    adopted: bool = False
 
 
 @dataclass(slots=True)
@@ -271,6 +278,13 @@ def _fold_books(
     for fill, order in applied:
         product_id = resolved_product_id(order.product_id, deployment)
         book = books.setdefault(product_id, _BookFold(product_id=product_id))
+        if order.kind is OrderKind.ADOPTION:
+            adopted = _RecordedFill(
+                fill=fill, order_side=order.side, liquidity=None, slippage_bps=None, adopted=True
+            )
+            book.recorded_fills.append(adopted)
+            _apply_fill(book, adopted, reasons)
+            continue
         liquidity = _liquidity_evidence(order)
         if liquidity is None:
             reasons.append(ExecutionQualityEvidenceReason.LIQUIDITY_NOT_RECORDED)
@@ -359,6 +373,7 @@ def _apply_fill(
                 liquidity=recorded.liquidity,
                 slippage_bps=recorded.slippage_bps,
                 reference=recorded.reference,
+                adopted=recorded.adopted,
             )
         )
     cycle.quantity -= covered
@@ -412,6 +427,7 @@ def _fill_response(recorded: _RecordedFill) -> ExecutionQualityFill:
         reference_bar_closes_at=None
         if recorded.reference is None
         else recorded.reference.bar_closes_at,
+        adopted=recorded.adopted,
     )
 
 
@@ -441,7 +457,7 @@ def _trip_response(cycle: _CycleFold, closed_at: datetime) -> ExecutionQualityRo
         net_pnl=canonical_decimal(net),
         slippage_bps=None if weighted is None else canonical_decimal(weighted),
         slippage_fills_journaled=sum(1 for item in fills if item.slippage_bps is not None),
-        slippage_fills_total=len(fills),
+        slippage_fills_total=sum(1 for item in fills if not item.adopted),
     )
 
 
@@ -548,7 +564,7 @@ def _totals_response(
         reasons.append(ExecutionQualityEvidenceReason.LEDGER_REALIZATION_DELTA)
     recorded = [fill for book in books for fill in book.recorded_fills]
     journaled = sum(fill.slippage_bps is not None for fill in recorded)
-    total_fills = len(recorded)
+    total_fills = sum(not fill.adopted for fill in recorded)
     weighted = _weighted_slippage(
         [
             (
@@ -563,6 +579,7 @@ def _totals_response(
         closed_trade_count=len(trips),
         open_cycle_count=sum(1 for book in books if book.open_cycle is not None),
         applied_fill_count=len(applied),
+        adopted_fill_count=sum(order.kind is OrderKind.ADOPTION for _fill, order in applied),
         fill_price_pnl_before_fees=canonical_decimal(
             _sum_exact(Decimal(trip.fill_price_pnl_before_fees) for trip in trips)
         ),

@@ -482,3 +482,34 @@ def test_a_no_trade_bar_is_evaluated_and_named_on_its_record() -> None:
         flat.summary
         == "Exit (stop): sell 0.5 @ 95 (no-trade bar: no trades, flat at the prior close)"
     )
+
+
+def test_adoption_inside_a_bar_window_is_holding_not_an_entry() -> None:
+    """An in-kind adoption (ADR 0124) is no entry signal; the bar reads as holding."""
+    adoption = replace(
+        _intent(IntentPurpose.ADOPTION, side=OrderSide.BUY),
+        kind=OrderKind.ADOPTION,
+        price=Decimal("100"),
+    )
+    order = replace(
+        _order(adoption, OrderStatus.FILLED, price=Decimal("100")),
+        stop_trigger_price=None,
+        take_profit_price=None,
+        filled_quantity=adoption.quantity,
+    )
+    fill = replace(
+        _fill(order, price="100", applied_at=_BAR + timedelta(minutes=30)), fee=Decimal(0)
+    )
+    before = DeploymentSnapshot(deployment=_deployment(), position=None)
+    after = replace(
+        before,
+        deployment=_deployment(phase=RuntimePhase.OPEN),
+        position=_position(),
+        intents=(adoption,),
+        orders=(order,),
+        fills=(fill,),
+    )
+    decision = build_bar_decision(_context(before, after, previous_evaluated_at=_BAR))
+    assert decision.outcome is DecisionOutcome.HOLDING
+    assert decision.intent_id is None and decision.exit_reason is None
+    assert [item.purpose for item in decision.orders] == [IntentPurpose.ADOPTION]

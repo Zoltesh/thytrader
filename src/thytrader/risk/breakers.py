@@ -19,6 +19,7 @@ from thytrader.trading.models import (
     DeploymentSnapshot,
     DeploymentStatus,
     IntentPurpose,
+    OrderKind,
     OrderStatus,
     resolved_product_id,
     snapshot_positions,
@@ -299,7 +300,9 @@ def _rate_verdict(
     exhaust the entry budget and block an unrelated new entry. This function is only
     ever called while admitting a new risk-increasing entry (see risk/gate.py); it
     never gates a cancellation or protective submission itself, so risk-reducing work
-    keeps flowing even while an exhausted cap denies a new entry.
+    keeps flowing even while an exhausted cap denies a new entry. An in-kind adoption
+    (ADR 0124) never reaches the venue, so it is no venue action and no entry order;
+    protection placed for the adopted coins afterwards counts normally.
     """
     since = as_of - _RATE_WINDOW
     entry_orders = 0
@@ -310,6 +313,8 @@ def _rate_verdict(
             intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY
         }
         for order in snapshot.orders:
+            if order.kind is OrderKind.ADOPTION:
+                continue
             if order.created_at >= since:
                 venue_actions += 1
                 if _is_entry_purpose(order.intent_id, entry_intent_ids, snapshot.intents):

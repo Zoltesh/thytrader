@@ -22,6 +22,7 @@ from thytrader.memory.trade_reasons import (
 )
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
+    INVENTORY_OPENING_PURPOSES,
     DeploymentKind,
     ExecutionStoreError,
     Fill,
@@ -45,7 +46,11 @@ if TYPE_CHECKING:
 def signal_kind_for(
     purpose: IntentPurpose, deployment_kind: DeploymentKind
 ) -> TradeReasonSignalKind:
-    """Map intent purpose and book kind onto a review signal kind."""
+    """Map intent purpose and book kind onto a review signal kind.
+
+    Every non-entry purpose, including ``ADOPTION`` (ADR 0124), maps to the signal kind
+    of the same value.
+    """
     if purpose is IntentPurpose.ENTRY:
         if deployment_kind is DeploymentKind.DISCRETIONARY:
             return TradeReasonSignalKind.DISCRETIONARY
@@ -183,8 +188,11 @@ def _risk_from_scope(scope: TradeReasonScope) -> TradeReasonRisk:
 
 
 def _notes_from_scope(scope: TradeReasonScope, intent: OrderIntent) -> tuple[TradeReasonNote, ...]:
-    """Capture an optional place-order note on the entry intent only."""
-    if intent.purpose is not IntentPurpose.ENTRY:
+    """Capture an optional place-order note on the inventory-opening intent only.
+
+    That is the entry, or the adoption that opened the book in kind (ADR 0124).
+    """
+    if intent.purpose not in INVENTORY_OPENING_PURPOSES:
         return ()
     if not scope.discretionary_note or not scope.note_origin:
         return ()

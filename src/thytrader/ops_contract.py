@@ -59,8 +59,9 @@ start; ADR 0096), or runtime parity and observability (paper's backtest same-bar
 precedence, ``position_state`` / ``exit_in_flight``, and the paper/live entry-fill
 comparison in the operator ``portfolios`` report; ADR 0097), or the library origin filter,
 paper ``protection_status``, last-bar book marks, and per-portfolio fill comparisons (ADR
-0098), or operand-level indicator offsets across research, paper, and live (ADR 0099)
-change. Concurrency is the
+0098), or operand-level indicator offsets across research, paper, and live (ADR 0099), or
+the ``adoption`` order kind, intent purpose and why-trade signal kind of in-kind
+inventory adoption (ADR 0124, Alembic 0070) change. Concurrency is the
 deployment's ``research_worker_count`` and is reported by operator health, not compiled
 into this contract.
 """
@@ -88,8 +89,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v68"
-EXPECTED_SCHEMA_REVISION = "0069"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v69"
+EXPECTED_SCHEMA_REVISION = "0070"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",

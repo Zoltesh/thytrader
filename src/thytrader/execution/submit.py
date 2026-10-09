@@ -51,7 +51,13 @@ async def submit_intent(
     idempotency_key: str | None = None,
     pyramid_add: bool = False,
 ) -> Order:
-    """Record intent, submit, then persist the venue snapshot and any immediate fill."""
+    """Record intent, submit, then persist the venue snapshot and any immediate fill.
+
+    Inventory adoption never reaches a broker (ADR 0124). It is refused here before any
+    intent is written, so a misrouted adoption leaves no PENDING or UNKNOWN order behind.
+    """
+    if kind is OrderKind.ADOPTION or purpose is IntentPurpose.ADOPTION:
+        raise ValueError("Inventory adoption is recorded in-kind and is never submitted.")
     now = utc_now()
     stamp = candle.starts_at.strftime("%Y%m%dT%H%M")
     client_order_id = f"{deployment_id}:{purpose.value}:{stamp}:{uuid7(now)}"[:128]

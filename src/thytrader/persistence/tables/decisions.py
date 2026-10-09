@@ -55,13 +55,15 @@ trade_reason_records = Table(
     CheckConstraint("mode IN ('paper', 'live')", name="ck_trade_reason_mode"),
     CheckConstraint("side IN ('buy', 'sell')", name="ck_trade_reason_side"),
     CheckConstraint(
-        "purpose IN ('entry', 'take_profit', 'stop', 'time_exit', 'bracket', 'signal_exit')",
+        "purpose IN ("
+        "'entry', 'take_profit', 'stop', 'time_exit', 'bracket', 'signal_exit', 'adoption'"
+        ")",
         name="ck_trade_reason_purpose",
     ),
     CheckConstraint(
         "signal_kind IN ("
         "'strategy_entry', 'discretionary', 'take_profit', 'stop', 'time_exit', 'bracket', "
-        "'signal_exit'"
+        "'signal_exit', 'adoption'"
         ")",
         name="ck_trade_reason_signal_kind",
     ),

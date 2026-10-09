@@ -72,13 +72,16 @@ class OrderKind(StrEnum):
     """Maker, marketable, venue-native OCO, or venue stop-limit execution style.
 
     ``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit
-    (ADR 0090); paper never submits it.
+    (ADR 0090); paper never submits it. ``ADOPTION`` is never routed to any broker: it
+    records coins already held in the venue account that a live book took ownership of
+    at a mark (ADR 0124), and every broker refuses it.
     """
 
     POST_ONLY_LIMIT = "post_only_limit"
     MARKETABLE = "marketable"
     TRIGGER_BRACKET = "trigger_bracket"
     STOP_LIMIT = "stop_limit"
+    ADOPTION = "adoption"
 
 
 VENUE_PROTECTION_KINDS: frozenset[OrderKind] = frozenset(
@@ -106,7 +109,9 @@ class IntentPurpose(StrEnum):
     """Why the runtime created one order intent.
 
     ``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``
-    rule matched on a closed bar (ADR 0093).
+    rule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the
+    venue account already held (ADR 0124); it is not an entry, so it never consumes the
+    entry-rate cap and is never cancelled as risk-increasing.
     """
 
     ENTRY = "entry"
@@ -115,6 +120,13 @@ class IntentPurpose(StrEnum):
     TIME_EXIT = "time_exit"
     BRACKET = "bracket"
     SIGNAL_EXIT = "signal_exit"
+    ADOPTION = "adoption"
+
+
+INVENTORY_OPENING_PURPOSES: frozenset[IntentPurpose] = frozenset(
+    {IntentPurpose.ENTRY, IntentPurpose.ADOPTION}
+)
+"""Purposes whose fills open or add inventory: a venue entry or an in-kind adoption."""
 
 
 class LifecycleCommand(StrEnum):
