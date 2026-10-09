@@ -258,7 +258,8 @@ async def _gate(
         return False, False
     mode = await _deployment_mode(app, tool, arguments)
     needs_live = _needs_live_ack(tool, arguments, deployment_mode=mode)
-    if tool.hard_gate:
+    # Adopting held coins (ADR 0124) is never YOLO, whichever tool carries it.
+    if tool.hard_gate or arguments.get("adopt_holdings") is not None:
         return True, needs_live
     tier = yolo_tier_for(tool.yolo, mode=mode)
     status = orchestration_status(settings)

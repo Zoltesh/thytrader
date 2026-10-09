@@ -188,7 +188,7 @@ async def post_inventory_adoption(
                 market_data=market_data,
                 broker=live_broker,
                 read_balances=None if quote_reader is None else quote_reader.list_balances,
-                live_quote_cash=await _quote_available(quote_reader, body.product_id),
+                live_quote_cash=await quote_available(quote_reader, body.product_id),
                 risk_store=risk_store,
                 memory_store=memory_store,
             )
@@ -237,7 +237,7 @@ def _parsed(body: InventoryAdoptionRequest) -> AdoptionRequest:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
 
 
-async def _quote_available(quote_reader: ExchangeAccount | None, product_id: str) -> Decimal | None:
+async def quote_available(quote_reader: ExchangeAccount | None, product_id: str) -> Decimal | None:
     """Available quote of the product's currency, for the live capital base.
 
     An unreadable venue is unknown quote, which the entry gate treats as no capital.

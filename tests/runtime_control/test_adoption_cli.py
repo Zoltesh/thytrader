@@ -61,17 +61,13 @@ class _Recorder:
         path = urlparse(url).path
         if path == "/health/ready":
             return json_urlopen_response(matching_ready_payload())
-        if path.startswith("/api/v1/inventory-adoptions"):
+        if path.startswith("/api/v1/inventory-adoptions") or path == "/api/v1/deployments":
             return json_urlopen_response({"id": "book", "status": "running"})
         raise AssertionError(f"unexpected agent HTTP request: {method} {path}")
 
-    def posts(self) -> list[object]:
-        """Bodies of every adoption POST."""
-        return [
-            body
-            for method, url, body in self.requests
-            if method == "POST" and "/inventory-adoptions" in url
-        ]
+    def posts(self, route: str = "/inventory-adoptions") -> list[object]:
+        """Bodies of every POST to ``route``."""
+        return [body for method, url, body in self.requests if method == "POST" and route in url]
 
 
 def _run(argv: list[str]) -> tuple[_Recorder, int | str | None]:
@@ -198,3 +194,50 @@ def test_adoption_preview_reads_without_mutating() -> None:
     query = parse_qs(urlparse(preview).query)
     assert query == {"product_id": ["DOGE-USDC"], "timeframe": ["1h"]}
     assert recorder.posts() == []
+
+
+_START = ["start", "--strategy-id", "11111111-1111-1111-1111-111111111111", "--mode", "live"]
+
+
+def test_start_with_adopt_holdings_posts_it() -> None:
+    """--adopt-holdings is forwarded on the live start body."""
+    recorder, code = _run([*_START, "--adopt-holdings", "all", "--confirm", "--i-understand-live"])
+    assert code == 0
+    assert recorder.posts("/api/v1/deployments") == [
+        {
+            "strategy_id": "11111111-1111-1111-1111-111111111111",
+            "mode": "live",
+            "i_understand_live": True,
+            "adopt_holdings": "all",
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (
+            [
+                "start",
+                "--strategy-id",
+                "11111111-1111-1111-1111-111111111111",
+                "--mode",
+                "paper",
+                "--cash",
+                "100",
+                "--adopt-holdings",
+                "all",
+                "--confirm",
+            ],
+            "ADOPTION_LIVE_ONLY",
+        ),
+        ([*_START, "--adopt-holdings", "all", "--i-understand-live"], "--confirm"),
+    ],
+)
+def test_start_with_adoption_is_live_only_and_always_confirmed(
+    argv: list[str], message: str
+) -> None:
+    """Paper is refused locally; without --confirm nothing is sent, whatever YOLO says."""
+    recorder, code = _run(argv)
+    assert isinstance(code, str) and message in code
+    assert recorder.posts("/api/v1/deployments") == []

@@ -133,12 +133,14 @@ def start_deployment(
     taker_fee_rate: str | None = None,
     settings: Settings | None = None,
     i_understand_live: bool = False,
+    adopt_holdings: str | None = None,
 ) -> object:
     """Start one paper or live deployment from a strategy's current rules.
 
     The server snapshots the strategy and returns the snapshot
     ``strategy_fingerprint`` the bot runs. ``i_understand_live`` is forwarded
-    only for live; the API rejects live without it.
+    only for live; the API rejects live without it. ``adopt_holdings`` (a quantity or
+    ``all``) starts the live bot already holding coins the account holds (ADR 0124).
     """
     payload: dict[str, str | bool] = {
         "strategy_id": strategy_id,
@@ -152,6 +154,8 @@ def start_deployment(
         payload["maker_fee_rate"] = maker_fee_rate
     if taker_fee_rate is not None:
         payload["taker_fee_rate"] = taker_fee_rate
+    if adopt_holdings is not None:
+        payload["adopt_holdings"] = adopt_holdings
     return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}",

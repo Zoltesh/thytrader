@@ -26,6 +26,15 @@ class CreateDeploymentRequest(BaseModel):
     paper_starting_cash: str | None = None
     maker_fee_rate: str | None = None
     taker_fee_rate: str | None = None
+    adopt_holdings: str | None = Field(
+        default=None,
+        pattern=r"^(all|\d+(\.\d+)?)$",
+        description=(
+            "Live only (ADR 0124): start the bot already holding this base quantity, or "
+            "'all', of the coins the Coinbase account holds unmanaged. The book and the "
+            "adoption commit together; single-instrument long strategies only."
+        ),
+    )
     i_understand_live: StrictBool = Field(
         default=False,
         description=(

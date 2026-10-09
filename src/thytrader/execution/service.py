@@ -44,6 +44,15 @@ if TYPE_CHECKING:
     from thytrader.trading.store import ExecutionStore
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedDeployment:
+    """A checked, admitted, not yet persisted book plus what admission read."""
+
+    deployment: Deployment
+    definition: StrategyDefinition
+    deployments: tuple[Deployment, ...]
+
+
 async def create_deployment(
     *,
     store: ExecutionStore,
@@ -72,6 +81,43 @@ async def create_deployment(
     refused with the ``thytrader-data watch-add`` command for each missing series. A
     paper start that omits both fee rates takes the account's rates from
     ``paper_fee_source`` and is refused when they cannot be read.
+    """
+    prepared = await prepare_deployment(
+        store=store,
+        publication_store=publication_store,
+        strategy_fingerprint=strategy_fingerprint,
+        mode=mode,
+        paper_starting_cash=paper_starting_cash,
+        live_allowed=live_allowed,
+        risk_store=risk_store,
+        paper_maker_fee_rate=paper_maker_fee_rate,
+        paper_taker_fee_rate=paper_taker_fee_rate,
+        portfolio_sleeve=portfolio_sleeve,
+        reference_watches=reference_watches,
+        paper_fee_source=paper_fee_source,
+    )
+    return await store.create_deployment(prepared.deployment)
+
+
+async def prepare_deployment(
+    *,
+    store: ExecutionStore,
+    publication_store: StrategySnapshotReader,
+    strategy_fingerprint: str,
+    mode: DeploymentMode,
+    paper_starting_cash: Decimal | None,
+    live_allowed: bool,
+    risk_store: RiskPolicyStore | None = None,
+    paper_maker_fee_rate: Decimal | None = None,
+    paper_taker_fee_rate: Decimal | None = None,
+    portfolio_sleeve: PortfolioSleeveStart | None = None,
+    reference_watches: ReferenceWatchlist | None = None,
+    paper_fee_source: PaperFeeSource | None = None,
+) -> PreparedDeployment:
+    """Run every start check and build the book without persisting it.
+
+    ``create_deployment`` inserts the result; strategy start with adoption (ADR 0124)
+    inserts it in the same transaction as the adoption instead.
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     if mode is DeploymentMode.PAPER:
@@ -132,7 +178,7 @@ async def create_deployment(
         utc_day_open_at=now if initial is not None else None,
         portfolio_id=None if portfolio_sleeve is None else portfolio_sleeve.portfolio_id,
     )
-    return await store.create_deployment(deployment)
+    return PreparedDeployment(deployment=deployment, definition=definition, deployments=existing)
 
 
 @dataclass(frozen=True, slots=True)

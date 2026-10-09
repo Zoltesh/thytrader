@@ -62,9 +62,10 @@ paper ``protection_status``, last-bar book marks, and per-portfolio fill compari
 0098), or operand-level indicator offsets across research, paper, and live (ADR 0099), or
 the ``adoption`` order kind, intent purpose and why-trade signal kind of in-kind
 inventory adoption (ADR 0124, Alembic 0070), or the inventory-adoption HTTP surface
-(``/api/v1/inventory-adoptions`` preview, protect and sell; ADR 0124) change. Concurrency is the
-deployment's ``research_worker_count`` and is reported by operator health, not compiled
-into this contract.
+(``/api/v1/inventory-adoptions`` preview, protect and sell; ADR 0124), or live strategy start
+with ``adopt_holdings`` (an older API would ignore the field and start a buying bot) change.
+Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
+not compiled into this contract.
 """
 
 from __future__ import annotations
@@ -90,7 +91,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v70"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v71"
 EXPECTED_SCHEMA_REVISION = "0070"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

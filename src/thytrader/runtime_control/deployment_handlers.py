@@ -48,13 +48,23 @@ def _deployment_mode(payload: object) -> str:
 
 
 def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
-    """Start paper or live; live still requires `--i-understand-live`."""
+    """Start paper or live; live still requires `--i-understand-live`.
+
+    ``--adopt-holdings`` (live only) is confirmation-hard-gated: YOLO never covers an
+    adoption of held coins (ADR 0124).
+    """
     live = arguments.mode == "live"
+    adopting = arguments.adopt_holdings is not None
+    if adopting and not live:
+        raise RuntimeControlError(
+            "ADOPTION_LIVE_ONLY: --adopt-holdings adopts coins held at Coinbase; pass --mode live."
+        )
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
         arguments.confirm,
         base_url=base_url,
         command="start",
+        hard_gate=adopting,
         tier=YoloTier.LIVE if live else YoloTier.PAPER,
     )
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
@@ -73,6 +83,7 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         taker_fee_rate=taker,
         settings=settings,
         i_understand_live=live and arguments.i_understand_live,
+        adopt_holdings=arguments.adopt_holdings,
     )
 
 
