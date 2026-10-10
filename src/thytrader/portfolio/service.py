@@ -19,6 +19,7 @@ from thytrader.portfolio.models import (
 )
 
 if TYPE_CHECKING:
+    from thytrader.exchanges.coinbase_cfm_preview import FuturesFeePreview
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
     from thytrader.exchanges.protocols import ExchangeAccount
@@ -123,6 +124,22 @@ class PortfolioService:
                 )
             )
         return await reader()
+
+    async def preview_futures_fee(self, product_id: str) -> FuturesFeePreview:
+        """Quote one futures contract's commission without placing an order (P1-3b).
+
+        Optional on the account boundary: an adapter without it (demo) fails closed with
+        a typed ``unsupported`` read error.
+        """
+        preview = getattr(self._exchange, "preview_futures_fee", None)
+        if preview is None:  # getattr is unavoidable: the protocol member is optional.
+            raise ExchangeReadError(
+                ExchangeReadFailure(
+                    operation=ExchangeReadOperation.FUTURES_FEES,
+                    kind=ExchangeReadFailureKind.UNSUPPORTED,
+                )
+            )
+        return await preview(product_id)
 
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
         """Fetch the venue's resting open orders through the neutral boundary.

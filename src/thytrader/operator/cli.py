@@ -231,10 +231,22 @@ def _parser() -> argparse.ArgumentParser:
         parents=[trailing],
         help="Current Coinbase or demo balances without credentials.",
     )
-    subparsers.add_parser(
+    fees = subparsers.add_parser(
         "fees",
         parents=[trailing],
-        help="Current fee tier and research-only suggested maker/taker rates.",
+        help=(
+            "Current fee tier and research-only suggested maker/taker rates, plus the "
+            "separate futures fee tier (payload.futures)."
+        ),
+    )
+    fees.add_argument(
+        "--futures-preview-product-id",
+        default=None,
+        help=(
+            "Also quote one contract of this CDE futures product through Coinbase "
+            "orders/preview (a POST that places no order) and report its commission as "
+            "payload.futures.fee_per_contract."
+        ),
     )
     subparsers.add_parser(
         "portfolios",
@@ -413,6 +425,8 @@ async def _argument_report(
         return await diagnostics.venue_reconciliation_report()
     if command == "funding":
         return await diagnostics.funding(product_id=arguments.product_id, hours=arguments.hours)
+    if command == "fees":
+        return await diagnostics.fees_report(arguments.futures_preview_product_id)
     return None
 
 
@@ -445,27 +459,13 @@ def _uuid_or_none(value: str | None) -> UUID | None:
 
 def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     """Collect optional GET query parameters for HTTP mode."""
-    query: dict[str, str | tuple[str, ...]] = {}
     if arguments.command == "decisions":
         return _decision_query(arguments)
-    product_id = getattr(arguments, "product_id", None)
-    if isinstance(product_id, str) and product_id:
-        query["product_id"] = product_id
-    timeframe = getattr(arguments, "timeframe", None)
-    if isinstance(timeframe, str) and timeframe:
-        query["timeframe"] = timeframe
-    result_fingerprint = getattr(arguments, "result_fingerprint", None)
-    if isinstance(result_fingerprint, str) and result_fingerprint:
-        query["result_fingerprint"] = result_fingerprint
-    deployment_id = getattr(arguments, "deployment_id", None)
-    if isinstance(deployment_id, str) and deployment_id:
-        query["deployment_id"] = deployment_id
-    intent_id = getattr(arguments, "intent_id", None)
-    if isinstance(intent_id, str) and intent_id:
-        query["intent_id"] = intent_id
-    portfolio_id = getattr(arguments, "portfolio_id", None)
-    if isinstance(portfolio_id, str) and portfolio_id:
-        query["portfolio_id"] = portfolio_id
+    query: dict[str, str | tuple[str, ...]] = {}
+    for name in _TEXT_QUERY_FLAGS:
+        value = getattr(arguments, name, None)
+        if isinstance(value, str) and value:
+            query[name] = value
     kind = getattr(arguments, "kind", None)
     if isinstance(kind, str) and kind != "spot":
         query["kind"] = kind
@@ -473,6 +473,17 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     if isinstance(hours, int):
         query["hours"] = str(hours)
     return query
+
+
+_TEXT_QUERY_FLAGS = (
+    "product_id",
+    "timeframe",
+    "result_fingerprint",
+    "deployment_id",
+    "intent_id",
+    "portfolio_id",
+    "futures_preview_product_id",
+)
 
 
 def _decision_query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:

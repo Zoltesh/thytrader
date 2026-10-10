@@ -135,8 +135,13 @@ pinned by goldens):
   - Fee evidence is the GET `transaction_summary?product_type=FUTURE`, shown as the operator
     `fees` report's `futures` block. It reports rates, not the per-contract fee, so
     `futures.fee_per_contract` is required operator input on every futures submission.
-  - The 1-contract `orders/preview` probe is a POST. It ships separately behind its own
-    allowlist for review (slice P1-3b) and is not part of this slice.
+  - The 1-contract `orders/preview` probe is a POST and ships as slice P1-3b, reviewed
+    separately. `exchanges/coinbase_cfm_preview.py` can send only that one path; its
+    transport type exposes `post` alone and the body is a fixed one-contract
+    `market_market_ioc`. It runs only when the operator asks for it
+    (`fees --futures-preview-product-id`) and fills `fee_per_contract` with source
+    `orders_preview`. It is never called automatically and never feeds a run without the
+    operator copying the value into `futures.fee_per_contract`.
   - The submission binds the latest recorded catalog observation (contract, overnight margin,
     `observed_at` = last seen) and every settled funding hour of the window. An unsettled hour
     counts as missing. The execution fingerprint covers the binding.

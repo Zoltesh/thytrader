@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from requests import HTTPError, RequestException, Timeout
 
+from thytrader.exchanges.coinbase_cfm_preview import CoinbaseCfmFeePreview, FuturesFeePreview
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.exchanges.read_errors import (
@@ -20,7 +21,11 @@ from thytrader.exchanges.read_errors import (
     ExchangeReadFailureKind,
     ExchangeReadOperation,
 )
-from thytrader.exchanges.rest_transport import http_status_error, json_object
+from thytrader.exchanges.rest_transport import (
+    RestClientTransport,
+    http_status_error,
+    json_object,
+)
 from thytrader.market_data.instrument_ids import is_futures_product_id
 
 if TYPE_CHECKING:
@@ -211,6 +216,15 @@ class CoinbaseAccount:
             partial(self._client.get_transaction_summary, product_type="FUTURE"),
         )
         return self._parse_fee_profile(payload)
+
+    async def preview_futures_fee(self, product_id: str) -> FuturesFeePreview:
+        """Quote one contract's commission via the allowlisted ``orders/preview`` POST.
+
+        Places no order (ADR 0128, P1-3b): the probe adapter can only reach the preview
+        path. Failures raise ``FuturesFeePreviewError`` with a reason token.
+        """
+        probe = CoinbaseCfmFeePreview(RestClientTransport(self._client))
+        return await probe.preview_fee(product_id)
 
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
         """Page spot order history and retain every recognized nonterminal order.

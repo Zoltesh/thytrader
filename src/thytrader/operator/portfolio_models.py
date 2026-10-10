@@ -183,9 +183,11 @@ class FuturesFeesPayload(_FrozenModel):
     """CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).
 
     The rates are what Coinbase reports for the futures product type. Coinbase also bills
-    futures per contract; no read-only endpoint reports that amount, so
-    ``fee_per_contract`` stays null and a futures backtest's ``futures.fee_per_contract``
-    is operator input (there is no compiled futures fee).
+    futures per contract and no read-only endpoint reports that amount: ``fee_per_contract``
+    is null (``operator_input``) unless the report was asked to preview one contract of
+    ``preview_product_id`` through ``orders/preview`` (P1-3b; places no order), in which
+    case it is the quoted commission per contract (``orders_preview``). A failed preview
+    leaves it null with ``preview_unavailable_reason``.
     """
 
     status: Literal["available", "unavailable"]
@@ -194,11 +196,15 @@ class FuturesFeesPayload(_FrozenModel):
     usd_volume_30d: str | None = None
     fee_tier: str | None = None
     as_of: datetime | None = None
-    fee_per_contract: None = None
-    fee_per_contract_source: Literal["operator_input"] = "operator_input"
+    fee_per_contract: str | None = None
+    fee_per_contract_source: Literal["operator_input", "orders_preview"] = "operator_input"
     unavailable_reason: Literal["unsupported", "read_failed"] | None = None
+    preview_product_id: str | None = None
+    preview_commission_total: str | None = None
+    preview_observed_at: datetime | None = None
+    preview_unavailable_reason: str | None = None
 
-    @field_validator("as_of")
+    @field_validator("as_of", "preview_observed_at")
     @classmethod
     def require_utc(cls, value: datetime | None) -> datetime | None:
         """Keep the evidence timestamp timezone-aware UTC."""

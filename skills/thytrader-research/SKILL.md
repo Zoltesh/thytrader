@@ -135,7 +135,9 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   (both or neither; replaces the observed overnight rates), and `funding_constant_rate` (per
   hour, ±0.01; replaces recorded funding). `initial_quote_balance` is USD. Use
   `maker_fee_rate` / `taker_fee_rate` from `thytrader-operator fees` → `payload.futures` (the
-  futures tier; `fee_per_contract` there is always null). The server binds the contract and
+  futures tier). For `fee_per_contract`, run `thytrader-operator fees
+  --futures-preview-product-id <CDE id>` (one `orders/preview` POST that places no order) and use
+  `payload.futures.fee_per_contract` when `fee_per_contract_source` is `orders_preview`. The server binds the contract and
   overnight margin from the latest catalog observation and, for perps, the settled funding of
   every hour in the window. Rejections name the gap: `FUTURES_ASSUMPTIONS_REQUIRED`,
   `FUTURES_CONTRACT_UNOBSERVED`, `FUTURES_UNDERLYING_MISMATCH`, `FUTURES_MARGIN_UNKNOWN`,
