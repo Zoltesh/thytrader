@@ -26,6 +26,8 @@ export type BacktestSummary = {
 	total_spread_cost?: string | null;
 	/** Modeling limits this result discloses. */
 	validity_limits?: ValidityLimitCode[] | null;
+	/** Perp futures runs only: signed funding cash flow of every trade (ADR 0128). */
+	total_funding?: string | null;
 };
 
 export type CostAssumptions = {
@@ -69,9 +71,18 @@ export type BacktestFill = {
 	spread_cost?: string | null;
 };
 
-/** Why a simulated position closed; `signal` is the `exits.signal_exit` rule (ADR 0093). */
+/**
+ * Why a simulated position closed; `signal` is the `exits.signal_exit` rule (ADR 0093).
+ * `liquidation` and `expiry` close futures positions only (ADR 0128).
+ */
 export type BacktestExitReason =
-	'stop_loss' | 'take_profit' | 'time_exit' | 'signal' | 'evaluation_end';
+	| 'stop_loss'
+	| 'take_profit'
+	| 'time_exit'
+	| 'signal'
+	| 'evaluation_end'
+	| 'liquidation'
+	| 'expiry';
 
 export type BacktestTrade = {
 	entry: BacktestFill;
@@ -81,6 +92,8 @@ export type BacktestTrade = {
 	gross_pnl: string;
 	net_pnl: string;
 	holding_bars: number;
+	/** Perp futures trades only: signed funding cash flow, included in `net_pnl`. */
+	funding?: string | null;
 };
 
 export type EquityPoint = {

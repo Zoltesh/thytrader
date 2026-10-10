@@ -144,7 +144,12 @@ export type ValidityLimitCode =
 	| 'spot_short_synthetic'
 	| 'signal_exit_at_close'
 	| 'synthetic_no_trade_bars'
-	| 'execution_stress';
+	| 'execution_stress'
+	| 'futures_constant_margin'
+	| 'futures_conservative_liquidation'
+	| 'futures_shared_usdc_collateral'
+	| 'futures_constant_funding'
+	| 'futures_funding_at_bar_close';
 
 const VALIDITY_LIMIT_TEXT: Record<ValidityLimitCode, string> = {
 	execution_stress:
@@ -155,7 +160,15 @@ const VALIDITY_LIMIT_TEXT: Record<ValidityLimitCode, string> = {
 	maker_touch_full_fill: 'A touched maker limit is assumed to fill completely (no queue position).',
 	stop_before_tp_same_bar:
 		'When one candle touches both the stop and the take-profit, the stop is assumed (conservative).',
-	spot_short_synthetic: 'Spot shorts are synthetic: no borrow, margin, or funding is modeled.'
+	spot_short_synthetic: 'Spot shorts are synthetic: no borrow, margin, or funding is modeled.',
+	futures_constant_margin:
+		'Futures margin rates are held constant across the window (no margin history exists).',
+	futures_conservative_liquidation:
+		'Liquidation is checked at each bar extreme and fills there, before stops (the venue liquidates at mark).',
+	futures_shared_usdc_collateral:
+		'This USD futures book is modeled alone; in reality its collateral is the USDC spot balance shared with spot books.',
+	futures_constant_funding: 'Funding uses a declared constant hourly rate, not recorded history.',
+	futures_funding_at_bar_close: 'Every funding hour inside a bar is charged at that bar close.'
 };
 
 /** Plain text for one disclosed modeling limit; unknown codes are shown verbatim. */

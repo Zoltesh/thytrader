@@ -64,7 +64,15 @@ class BarExplanationEntry(BarExplanationFill):
 class BarExplanationExit(BarExplanationFill):
     """One simulated exit filled on this bar, with its deterministic reason."""
 
-    reason: Literal["stop_loss", "take_profit", "time_exit", "signal", "evaluation_end"]
+    reason: Literal[
+        "stop_loss",
+        "take_profit",
+        "time_exit",
+        "signal",
+        "evaluation_end",
+        "liquidation",
+        "expiry",
+    ]
     gross_pnl: str
     net_pnl: str
     holding_bars: int = Field(ge=0)

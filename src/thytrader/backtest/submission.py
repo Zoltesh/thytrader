@@ -404,7 +404,7 @@ def _utc_millisecond(value: datetime) -> datetime:
 
 
 def _require_spot_backtest(definition: StrategyDefinition) -> None:
-    """Refuse futures documents until the kernel simulates them (ADR 0128)."""
+    """Refuse futures documents until submission binds contract, margin and funding (ADR 0128)."""
     if definition.instrument.is_future:
         raise BacktestSubmissionRejectedError(
             "FUTURES_BACKTEST_UNSUPPORTED: futures backtests are not available yet."

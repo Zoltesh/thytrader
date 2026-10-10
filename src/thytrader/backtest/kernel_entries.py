@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.backtest.kernel_atr import _indicator_value
 from thytrader.backtest.kernel_fills import _fill_resting_entry
+from thytrader.backtest.kernel_futures import _size_contracts
 from thytrader.backtest.kernel_state import (
     PositionSide,
     _Book,
@@ -30,6 +31,7 @@ from thytrader.trading.geometry import EntrySkipReason, entry_levels
 from thytrader.trading.models import PositionSide as RuntimePositionSide
 
 if TYPE_CHECKING:
+    from thytrader.backtest.kernel_state import _FuturesTerms
     from thytrader.market_data.models import Candle
 
 
@@ -117,12 +119,14 @@ def _maybe_rest_entry(
     limit_price: Decimal,
     may_open_book: bool,
     tally: _Tally,
+    expiry_window: bool = False,
 ) -> None:
     """Rest a post-only entry at the signal bar close when matched, off cooldown, and allowed.
 
     Every matched signal either rests an entry or is counted under exactly one skip
     reason, so a zero-trade result explains itself (ADR 0090). The checks are pure and
-    decide exactly as before; only the counting is new.
+    decide exactly as before; only the counting is new. ``expiry_window`` is True when the
+    fill bar would start at or after a dated contract's flatten time (ADR 0128).
     """
     if record.entry_condition is EntryConditionOutcome.UNDEFINED:
         tally.warmup_bars += 1
@@ -131,7 +135,11 @@ def _maybe_rest_entry(
         return
     tally.signals_matched += 1
     gate = _entry_gate(
-        book, strategy=strategy, limit_price=limit_price, may_open_book=may_open_book
+        book,
+        strategy=strategy,
+        limit_price=limit_price,
+        may_open_book=may_open_book,
+        expiry_window=expiry_window,
     )
     if gate is not None:
         tally.skip(gate)
@@ -144,6 +152,7 @@ def _maybe_rest_entry(
             cash=cash,
             limit_price=limit_price,
             maker_fee_rate=costs.maker_fee_rate,
+            futures=costs.futures,
         )
         if position is None
         else _size_pyramid_add(
@@ -168,8 +177,11 @@ def _entry_gate(
     strategy: StrategyDefinition,
     limit_price: Decimal,
     may_open_book: bool,
+    expiry_window: bool = False,
 ) -> BacktestGateReason | None:
     """Name the book state that prevents resting an entry, or None when sizing may proceed."""
+    if expiry_window:
+        return BacktestGateReason.EXPIRY_WINDOW
     if book.pending is not None:
         return BacktestGateReason.PENDING_ENTRY
     if book.cooldown_bars > 0:
@@ -224,11 +236,13 @@ def _size_entry(
     cash: Decimal,
     limit_price: Decimal,
     maker_fee_rate: Decimal,
+    futures: _FuturesTerms | None = None,
 ) -> _PendingEntry | EntrySkipReason:
     """Size a resting entry at the signal close using ATR risk, without filling yet.
 
     Geometry is the shared ``entry_levels`` that paper and live use (without venue
     increments): a short whose target would be at or below zero is ``target_not_positive``.
+    A futures entry is whole contracts within the leverage, buffer, and margin bounds.
     """
     atr = _indicator_value(signal, strategy.exits.initial_stop.atr_indicator)
     stop_distance = atr * Decimal(strategy.exits.initial_stop.multiple)
@@ -249,24 +263,42 @@ def _size_entry(
         fee=maker_fee_rate,
     ):
         return EntrySkipReason.NET_TARGET_BELOW_MINIMUM
-    sized = _bounded_notional(
-        strategy,
-        cash=cash,
-        stop_distance=stop_distance,
-        limit_price=limit_price,
-        maker_fee_rate=maker_fee_rate,
-    )
-    if isinstance(sized, EntrySkipReason):
-        return sized
+    if futures is not None:
+        contracts = _size_contracts(
+            futures,
+            strategy,
+            cash=cash,
+            side=side,
+            limit_price=limit_price,
+            requested_notional=cash
+            * Decimal(strategy.sizing.risk_fraction)
+            / stop_distance
+            * limit_price,
+            maker_fee_rate=maker_fee_rate,
+        )
+        if isinstance(contracts, EntrySkipReason):
+            return contracts
+        quantity, capped = contracts
+    else:
+        sized = _bounded_notional(
+            strategy,
+            cash=cash,
+            stop_distance=stop_distance,
+            limit_price=limit_price,
+            maker_fee_rate=maker_fee_rate,
+        )
+        if isinstance(sized, EntrySkipReason):
+            return sized
+        quantity, capped = sized.notional / limit_price, sized.capped
     return _PendingEntry(
         signal=signal,
         limit_price=limit_price,
-        quantity=sized.notional / limit_price,
+        quantity=quantity,
         stop_price=levels.stop_price,
         target_price=levels.target_price,
         waited_bars=0,
         side=side,
-        size_capped=sized.capped,
+        size_capped=capped,
     )
 
 

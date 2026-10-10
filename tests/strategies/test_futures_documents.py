@@ -250,10 +250,22 @@ def test_futures_strategies_cannot_be_deployed(mode: DeploymentMode, code: RiskR
     assert verdict.reason_code is code
 
 
-def test_kernel_refuses_futures_until_it_simulates_them() -> None:
-    """The backtest kernel names the gap instead of simulating futures as spot."""
+def test_kernel_refuses_a_futures_strategy_with_a_spot_run_spec() -> None:
+    """The kernel never simulates a futures strategy without its contract and margin."""
     future = StrategyDefinition.model_validate(_future_document())
     payload = _spec(strategy_fingerprint=strategy_fingerprint(future))
     spec = _validate_spec(payload)
-    with pytest.raises(BacktestSimulationError, match="FUTURES_BACKTEST_UNSUPPORTED"):
+    with pytest.raises(BacktestSimulationError, match="FUTURES_SPEC_MISMATCH"):
         simulate_backtest(spec, future, ())
+
+
+def test_futures_documents_cannot_pyramid() -> None:
+    """One position per futures book in P1."""
+    document = _future_document()
+    document["entry"] = {
+        **document["entry"],
+        "max_open_positions": 2,
+        "pyramiding": {"enabled": True},
+    }
+    with pytest.raises(ValidationError, match="cannot pyramid"):
+        StrategyDefinition.model_validate(document)

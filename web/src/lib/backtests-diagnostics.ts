@@ -30,6 +30,7 @@ const SKIP_REASON_LABELS: Record<string, string> = {
 	cooldown: 'Cooling down after an exit',
 	max_positions: 'Max concurrent positions reached',
 	in_position: 'Already in a position (no pyramiding add allowed)',
+	expiry_window: 'Too close to the futures contract expiry',
 	entry_price_not_positive: 'Entry price not positive',
 	stop_distance_not_positive: 'ATR stop distance was zero',
 	stop_not_positive: 'Long stop would be at or below zero',
@@ -41,7 +42,8 @@ const SKIP_REASON_LABELS: Record<string, string> = {
 	insufficient_cash: 'Not enough cash to fund the order',
 	notional_below_minimum: 'Risk-sized order below min_quote_notional',
 	quantity_below_venue_minimum: 'Quantity below the venue minimum',
-	notional_below_venue_minimum: 'Notional below the venue minimum'
+	notional_below_venue_minimum: 'Notional below the venue minimum',
+	below_one_contract: 'Futures size rounds down to zero contracts'
 };
 
 const EXIT_REASON_LABELS: Record<BacktestExitReason, string> = {
@@ -49,7 +51,9 @@ const EXIT_REASON_LABELS: Record<BacktestExitReason, string> = {
 	take_profit: 'take profit',
 	time_exit: 'time exit',
 	signal: 'signal exit',
-	evaluation_end: 'evaluation end'
+	evaluation_end: 'evaluation end',
+	liquidation: 'liquidation',
+	expiry: 'contract expiry'
 };
 
 /** Human label for one trade exit reason (`signal` reads `signal exit`). */

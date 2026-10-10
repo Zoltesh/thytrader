@@ -23,6 +23,10 @@ and can stop on the fill bar. This kernel reproduces that loop over completed OH
    liquidates open inventory at its **open** as a taker (``evaluation_end``); no entry,
    take-profit, or stop is processed there.
 
+Futures runs (ADR 0128) keep this loop and ledger with whole-contract sizing under margin
+bounds, a liquidation check before the stop, hourly funding at the bar close, and a
+dated-contract flatten; ``kernel_futures`` holds those rules and spot runs never reach them.
+
 Multi-instrument documents evaluate covered products in lexicographic ``product_id``
 order on each shared bar against one quote book. The optional ``costs.spread_bps``
 stress applies half the spread to every taker leg, to stop triggers, and to open-position
@@ -61,12 +65,21 @@ from thytrader.backtest.kernel_exits import (
     _taker_exit_quote,
 )
 from thytrader.backtest.kernel_fills import _close_position
+from thytrader.backtest.kernel_futures import (
+    _charge_funding,
+    _flatten_for_expiry,
+    _futures_terms,
+    _futures_validity_limits,
+    _in_expiry_window,
+    _liquidate,
+)
 from thytrader.backtest.kernel_results import _equity_point, _evaluated_no_trade_bars, _summary
 from thytrader.backtest.kernel_state import (
     BacktestSimulationError,
     PositionSide,
     _Book,
     _Costs,
+    _FuturesTerms,
     _Tally,
 )
 from thytrader.backtest.models import (
@@ -91,7 +104,7 @@ from thytrader.strategies.models import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from datetime import timedelta
+    from datetime import datetime, timedelta
 
     from thytrader.market_data.models import Candle
 
@@ -125,6 +138,7 @@ def simulate_backtest(
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
     *,
     reference_candles: Mapping[str, Sequence[Candle]] | None = None,
+    funding_rates: Mapping[datetime, Decimal] | None = None,
 ) -> BacktestResult:
     """Simulate under a private Decimal64 context that ignores ambient process settings."""
     result, _diagnostics = simulate_backtest_with_diagnostics(
@@ -137,6 +151,7 @@ def simulate_backtest(
         additional_htf_candles,
         additional_indicator_candles,
         reference_candles=reference_candles,
+        funding_rates=funding_rates,
     )
     return result
 
@@ -152,11 +167,14 @@ def simulate_backtest_with_diagnostics(
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]] | None = None,
     *,
     reference_candles: Mapping[str, Sequence[Candle]] | None = None,
+    funding_rates: Mapping[datetime, Decimal] | None = None,
 ) -> tuple[BacktestResult, BacktestDiagnostics]:
     """Simulate and also return the entry-funnel counters kept outside the canonical result.
 
     ``reference_candles`` (ADR 0096) are read-only reference-instrument bars by reference
     id. They feed indicator values only; they never change fill semantics.
+    ``funding_rates`` (ADR 0128) are the settled hourly funding rates of a perp run by
+    funding hour, exactly the rows whose fingerprint the run bound.
     """
     try:
         with localcontext(_SIMULATION_CONTEXT):
@@ -170,6 +188,7 @@ def simulate_backtest_with_diagnostics(
                 additional_htf_candles or {},
                 additional_indicator_candles or {},
                 reference_candles or {},
+                funding_rates,
             )
     except (DecimalException, ValueError) as error:
         if isinstance(error, BacktestSimulationError):
@@ -189,12 +208,14 @@ def _simulate_backtest(
     additional_htf_candles: Mapping[str, Sequence[Candle]],
     additional_indicator_candles: Mapping[str, Mapping[str, Sequence[Candle]]],
     reference_candles: Mapping[str, Sequence[Candle]],
+    funding_rates: Mapping[datetime, Decimal] | None,
 ) -> tuple[BacktestResult, BacktestDiagnostics]:
     """Verify inputs, evaluate every covered product's trace, and run the shared-cash loop.
 
     Every covered product's trace reads the same reference-instrument bars.
     """
     specification, strategy = _validated_inputs(specification, strategy)
+    futures = _futures_terms(specification, strategy, funding_rates)
     primary = strategy.instrument.product_id
     product_ids = lockstep_product_ids(strategy)
     if any(
@@ -229,7 +250,7 @@ def _simulate_backtest(
             raise BacktestSimulationError(
                 "Backtest signal inputs could not be verified."
             ) from error
-    return _simulate_books(specification, strategy, candles_by_product, traces)
+    return _simulate_books(specification, strategy, candles_by_product, traces, futures)
 
 
 def _simulate_books(
@@ -237,6 +258,7 @@ def _simulate_books(
     strategy: StrategyDefinition,
     candles_by_product: Mapping[str, Sequence[Candle]],
     traces: Mapping[str, SignalTrace],
+    futures: _FuturesTerms | None = None,
 ) -> tuple[BacktestResult, BacktestDiagnostics]:
     """Run every product book in lexicographic order on each shared bar with one quote book."""
     tally = _Tally()
@@ -257,6 +279,7 @@ def _simulate_books(
         slippage_bps=Decimal(specification.costs.fixed_slippage_bps),
         fill_model=FillModel(Decimal(specification.costs.spread_bps)),
         execution_stress=specification.costs.execution_stress,
+        futures=futures,
     )
     initial_cash = Decimal(specification.capital.initial_quote_balance)
     cash = initial_cash
@@ -290,6 +313,7 @@ def _simulate_books(
                 limit_price=book.candle_by_start[starts_at].close,
                 may_open_book=sum(1 for item in books.values() if item.is_open) < max_books,
                 tally=tally,
+                expiry_window=_in_expiry_window(costs, starts_at + bar),
             )
         equity_curve.append(
             _equity_point(
@@ -347,6 +371,7 @@ def _simulate_books(
             trades,
             equity_curve,
             include_spread_cost=costs.fill_model.spread_stressed,
+            include_funding=futures is not None and futures.perpetual,
             evaluation_bars=evaluation_bars,
             validity_limits=collect_backtest_validity_limits(
                 strategy,
@@ -357,6 +382,7 @@ def _simulate_books(
                     bar,
                     evaluation_bars,
                 ),
+                futures_limits=_futures_validity_limits(futures, bar),
             ),
         ),
     )
@@ -379,13 +405,23 @@ def _process_bar(
 
     When one bar touches both the stop and a resting take-profit, the candle cannot say
     which traded first, so the stop wins: ``_manage_position`` runs before the target.
+    Futures (ADR 0128) first flatten a dated contract past its flatten time, check
+    liquidation before the stop, and charge funding to a position still open at the close.
     """
     if book.cooldown_bars > 0:
         book.cooldown_bars -= 1
+    if _in_expiry_window(costs, candle.starts_at):
+        trade, cash = _flatten_for_expiry(
+            book, candle, costs=costs, cash=cash, bar_duration=bar_duration, tally=tally
+        )
+        _record_close(book, trade, strategy=strategy, trades=trades, tally=tally)
+        return cash
     cash = _match_entry(
         book, candle, offset=offset, strategy=strategy, costs=costs, cash=cash, tally=tally
     )
-    trade, cash = _stop_out(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
+    trade, cash = _liquidate(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
+    if trade is None:
+        trade, cash = _stop_out(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
     if trade is None:
         trade, cash = _match_take_profit(
             book, candle, costs=costs, cash=cash, bar_duration=bar_duration
@@ -400,11 +436,23 @@ def _process_bar(
             cash=cash,
             bar_duration=bar_duration,
         )
+    _record_close(book, trade, strategy=strategy, trades=trades, tally=tally)
+    return _charge_funding(book, candle, costs=costs, cash=cash, bar_duration=bar_duration)
+
+
+def _record_close(
+    book: _Book,
+    trade: BacktestTrade | None,
+    *,
+    strategy: StrategyDefinition,
+    trades: list[BacktestTrade],
+    tally: _Tally,
+) -> None:
+    """Record one closed trade and start the strategy's cooldown."""
     if trade is not None:
         trades.append(trade)
         tally.closed(trade)
         book.cooldown_bars = strategy.entry.cooldown_bars
-    return cash
 
 
 def _validated_inputs(
@@ -423,8 +471,4 @@ def _validated_inputs(
         raise BacktestSimulationError("Backtest inputs are invalid.") from error
     if strategy_fingerprint(validated_strategy) != validated_specification.strategy_fingerprint:
         raise BacktestSimulationError("Backtest strategy identity failed verification.")
-    if validated_strategy.instrument.is_future or validated_specification.instrument_contract:
-        raise BacktestSimulationError(
-            "FUTURES_BACKTEST_UNSUPPORTED: the kernel does not simulate futures yet."
-        )
     return validated_specification, validated_strategy

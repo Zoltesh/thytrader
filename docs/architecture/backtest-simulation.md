@@ -193,7 +193,8 @@ fingerprint): `signals_matched`, `entries_rested`, `entries_filled`, `entries_ex
 `entries_repriced`, `entries_refused_at_fill` (shared cash no longer covered a fill),
 `entries_unfilled_at_end`, `entries_size_capped` (a notional cap clamped the size; caps never skip),
 `warmup_bars` (evaluation bars whose rule was undefined), `skipped[{reason, count}]` with the
-gates `pending_entry`, `cooldown`, `max_positions`, `in_position` and every geometry/sizing reason,
+gates `pending_entry`, `cooldown`, `max_positions`, `in_position`, `expiry_window` (futures) and
+every geometry/sizing reason (futures add `below_one_contract`),
 and `exit_reasons[{reason, count}]` (closed trades per exit reason, summing to the trade count;
 `null` on diagnostics recorded before [ADR 0093](../decisions/0093-signal-based-exits.md)).
 The model rejects an incoherent funnel: `signals_matched = entries_rested + Σ skipped` and
@@ -203,8 +204,9 @@ Alembic 0055 report `diagnostics: null` until an identical run is published agai
 ## Result fields
 
 Every closed trade has exact entry/exit fills, notional, fee, fee rate, exit reason
-(`stop_loss`, `take_profit`, `time_exit`, `signal`, `evaluation_end`), gross PnL, net PnL, and
-holding bars. The equity curve holds cash, base quantity (negative for shorts, `0` when several books
+(`stop_loss`, `take_profit`, `time_exit`, `signal`, `evaluation_end`, and for futures
+`liquidation` and `expiry`), gross PnL, net PnL, and holding bars; perp futures trades add
+`funding` (signed, included in net PnL) and their summary adds `total_funding`. The equity curve holds cash, base quantity (negative for shorts, `0` when several books
 are open), mark price, and equity at every evaluation close plus one terminal point at
 `evaluation.ends_at` after liquidation.
 
@@ -216,12 +218,50 @@ show queue position, so a touched limit is assumed to fill completely) and
 `stop_before_tp_same_bar`, plus `spot_short_synthetic` for short strategies,
 `signal_exit_at_close` for strategies that declare `exits.signal_exit`, and
 `synthetic_no_trade_bars` when the evaluation window holds flat zero-volume bars for intervals
-without trades ([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). Those bars are evaluated like any other: the price
+without trades, and the `futures_*` limits of a futures run (see below) ([ADR 0095](../decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)). Those bars are evaluated like any other: the price
 stays at the previous close, so no stop or target can trigger on them, and volume indicators read
 them as undefined. It does not invent
 annualization or Sharpe-like statistics inside canonical bytes; those live on the derived
 `thytrader-performance-metrics-v1` report ([ADR 0077](../decisions/0077-derived-performance-metrics.md)),
 and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.
+
+## Futures runs
+
+[ADR 0128](../decisions/0128-futures-backtest-model.md). A futures strategy
+(`instrument.kind: future`) needs a run spec with `instrument_contract` and `margin` (and
+`funding` for perps); a mismatch either way fails `FUTURES_SPEC_MISMATCH`. The loop and the
+cash-and-inventory ledger are the spot ones, because quantities are base units (contracts ×
+`contract_size`); `src/thytrader/backtest/kernel_futures.py` holds the futures-only rules and spot
+runs never reach them, so spot result bytes are unchanged.
+
+- **Sizing.** ATR risk sizing requests a notional; the entry is the floor of whole contracts
+  within four bounds that hold after the entry fee (rate × notional + `fee_per_contract` ×
+  contracts): notional ≤ `max_leverage` × equity, maintenance ≤ (1 − buffer) × equity, initial
+  margin ≤ `max_strategy_exposure_fraction` × equity, and notional ≤ `max_quote_notional`. Zero
+  contracts skips with `below_one_contract`. Initial margin uses the stressed side rate;
+  maintenance is `maintenance_fraction_of_initial` of it. The spot cash check does not apply, so a
+  levered long's cash goes negative while equity stays cash plus marked inventory. Futures
+  documents cannot pyramid.
+- **Per bar.** (1) A dated contract at or past `expires_at − flatten_before_expiry_hours`
+  cancels its resting entry and closes at the bar open as a taker (`expiry`); nothing else runs
+  on that bar, and entries whose fill bar would start there skip with `expiry_window`. (2) The
+  resting entry is matched. (3) Liquidation: if equity at the bar's adverse extreme (low for
+  longs, high for shorts) is below maintenance, the position closes at that extreme as a taker
+  (`liquidation`), before stops and targets. (4) Stops, targets, trails, signal and time exits as
+  for spot. (5) Funding: every funding hour T with bar start < T ≤ bar end is charged at the bar
+  close while the position is still open (cash −= signed quantity × close × rate).
+- **Funding input.** A recorded series is passed to the kernel as `funding_rates` (funding hour →
+  rate). It must hold exactly the funding hours in (`evaluation.starts_at`,
+  `evaluation.ends_at`], match `funding.settled_hours`, and hash to `funding.series_fingerprint`
+  (`funding_series_fingerprint`), or the run fails `FUNDING_HISTORY_MISSING` (naming the first
+  missing hour) or `FUNDING_SERIES_MISMATCH`. A declared `constant_rate` takes no series.
+- **Refusals.** A window ending after a dated contract's expiry fails
+  `FUTURES_WINDOW_PAST_EXPIRY`; a dated strategy without `flatten_before_expiry_hours` fails
+  `FUTURES_EXPIRY_UNSET`.
+- **Limits.** Every futures result lists `futures_constant_margin`,
+  `futures_conservative_liquidation` and `futures_shared_usdc_collateral`; a declared constant
+  rate adds `futures_constant_funding`, and perps on bars longer than one hour add
+  `futures_funding_at_bar_close`. Futures shorts are real and never list `spot_short_synthetic`.
 
 ## Persistence
 
@@ -272,7 +312,8 @@ optional spread stress, and a "How backtests simulate" disclosure summarizes the
 - queue position, partial fills, or post-only rejection of resting limits (a touched limit fills
   completely);
 - observed bid/ask data or calibration of the spread stress to venue microstructure;
-- margin, leverage, borrow, or funding for shorts;
+- margin, leverage, borrow, or funding for spot shorts (futures runs model margin, leverage,
+  funding and liquidation as above);
 - cross-strategy portfolio allocation;
 - the account risk policy's entry gate, including the opt-in fleet entry clustering cap and
   BTC-beta-weighted exposure cap

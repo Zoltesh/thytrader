@@ -174,6 +174,7 @@ class OpsContractPayload(_FrozenModel):
             "readiness_reconciliation",
             "live_spot_collateral_gate",
             "futures_strategy_documents",
+            "futures_backtest_kernel",
         ],
         ...,
     ]

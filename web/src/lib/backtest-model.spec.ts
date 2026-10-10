@@ -51,4 +51,12 @@ describe('backtest model disclosure', () => {
 		expect(formatValidityLimit('spot_short_synthetic')).toContain('synthetic');
 		expect(formatValidityLimit('new_code')).toBe('Modeling limit: new_code');
 	});
+
+	it('explains the futures modeling limits (ADR 0128)', () => {
+		expect(formatValidityLimit('futures_constant_margin')).toContain('constant');
+		expect(formatValidityLimit('futures_conservative_liquidation')).toContain('before stops');
+		expect(formatValidityLimit('futures_shared_usdc_collateral')).toContain('USDC');
+		expect(formatValidityLimit('futures_constant_funding')).toContain('constant hourly rate');
+		expect(formatValidityLimit('futures_funding_at_bar_close')).toContain('bar close');
+	});
 });

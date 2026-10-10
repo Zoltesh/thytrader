@@ -123,8 +123,13 @@ class BacktestFill(_FrozenBacktestModel):
         return value.isoformat().replace("+00:00", "Z")
 
 
-BacktestExitReason = Literal["stop_loss", "take_profit", "time_exit", "signal", "evaluation_end"]
-"""Why a modeled position closed. ``signal`` is the ``exits.signal_exit`` rule (ADR 0093)."""
+BacktestExitReason = Literal[
+    "stop_loss", "take_profit", "time_exit", "signal", "evaluation_end", "liquidation", "expiry"
+]
+"""Why a modeled position closed. ``signal`` is the ``exits.signal_exit`` rule (ADR 0093).
+
+``liquidation`` and ``expiry`` close futures positions only (ADR 0128).
+"""
 
 
 class BacktestExitFill(BacktestFill):
@@ -134,13 +139,19 @@ class BacktestExitFill(BacktestFill):
 
 
 class BacktestTrade(_FrozenBacktestModel):
-    """One fully closed long-only modeled trade with exact accounting evidence."""
+    """One fully closed modeled trade with exact accounting evidence.
+
+    ``funding`` is the signed funding cash flow of a perp-style futures trade (negative
+    when the position paid); it is included in ``net_pnl`` and omitted for every other
+    trade, so spot result bytes are unchanged (ADR 0128).
+    """
 
     entry: BacktestFill
     exit: BacktestExitFill
     gross_pnl: ResultDecimalText
     net_pnl: ResultDecimalText
     holding_bars: int = Field(ge=0)
+    funding: ResultDecimalText | None = None
 
     @model_validator(mode="after")
     def require_ordered_fills(self) -> Self:
@@ -186,6 +197,7 @@ class BacktestSummary(_FrozenBacktestModel):
     evaluation_bars: int = Field(ge=1)
     total_spread_cost: ResultDecimalText | None = None
     validity_limits: tuple[ResearchValidityLimitCode, ...] | None = None
+    total_funding: ResultDecimalText | None = None
 
     @model_validator(mode="after")
     def require_wins_within_trade_count(self) -> Self:
@@ -279,6 +291,7 @@ class BacktestGateReason(StrEnum):
     COOLDOWN = "cooldown"
     MAX_POSITIONS = "max_positions"
     IN_POSITION = "in_position"
+    EXPIRY_WINDOW = "expiry_window"
 
 
 class BacktestSkipCount(_FrozenBacktestModel):
@@ -306,7 +319,8 @@ class BacktestDiagnostics(_FrozenBacktestModel):
     matched signals. Counts aggregate every covered product.
 
     ``exit_reasons`` counts closed trades per exit reason (``stop_loss``, ``take_profit``,
-    ``time_exit``, ``signal``, ``evaluation_end``) in lexicographic order; their sum is the
+    ``time_exit``, ``signal``, ``evaluation_end``, and for futures ``liquidation`` and
+    ``expiry``) in lexicographic order; their sum is the
     result's trade count. It is None on diagnostics recorded before ADR 0093, which never
     counted exits.
     """
