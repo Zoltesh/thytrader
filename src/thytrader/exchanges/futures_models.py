@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from thytrader.exchanges.models import ExchangeBalance
 
 FUTURES_ACCOUNT_CURRENCY = "USD"
-# Observed 2026-10-10 on the live account (ADR 0127): futures buying power 514.24 with
-# cbi_usd_balance 0.01 and cfm_usd_balance 0, so Coinbase counts the USDC spot balance as
-# CFM collateral. Futures margin and USDC spot books draw on one collateral pool.
+# ADR 0127 §8: a futures-enabled account with no CFM USD balance reports futures buying power
+# equal to its spot USDC balance, so Coinbase counts the USDC spot balance as CFM collateral.
+# Futures margin and USDC spot books draw on one collateral pool.
 SHARED_COLLATERAL_NOTE = (
     "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): "
     "futures buying power is shared with USDC spot capital, not additional money. Amounts "

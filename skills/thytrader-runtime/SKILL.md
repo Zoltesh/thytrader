@@ -147,7 +147,7 @@ never gated. The denial does not pause the bot: that bar's signal is skipped and
 `decisions`. The detail names the count, window, cap, the oldest counted entry, and when a slot
 frees. Which bots win a crowded bar depends on worker order, which is not a priority. API and
 worker admissions racing can exceed the cap by one. Resupply both flags on every publication to
-keep the cap. Starting point for a ~500 USDC fleet whose bars close together on 2h boundaries:
+keep the cap. Starting point for a fleet whose bars close together on 2h boundaries:
 `--max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120`. Backtests do not apply it.
 
 Optional BTC-beta-weighted exposure cap ([ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)):
@@ -171,7 +171,7 @@ lockstep, portfolio-sleeve and discretionary entries, pyramid adds, reprices (on
 notional) and in-kind adoption (`--entry-kind adopt`, `start --adopt-holdings`). It never
 applies to exits or `sell-holdings`. It does not pause the bot: that bar's entry is skipped and
 recorded in `decisions`. Resupply the flag on every publication to keep the cap. Starting point
-for a ~500 USDC fleet of alts: `--max-btc-beta-exposure-fraction 0.6`, with no absolute cap.
+for a fleet of long alt bots: `--max-btc-beta-exposure-fraction 0.6`, with no absolute cap.
 Revisit after 30 days of `BTC_BETA_EXPOSURE_EXCEEDED` counts in `decisions`. Backtests do not
 apply it.
 

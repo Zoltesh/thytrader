@@ -76,7 +76,7 @@ def _live_usdc(
 
 
 def test_incident_blocks_live_usdc_and_names_the_legacy_order() -> None:
-    """The exact 2026-10-10 failure is a fleet-wide evidence block naming order and sums."""
+    """The incident failure is a fleet-wide evidence block naming order and sums."""
     books = incident()
     scope = _live_usdc(books.snapshots)
     assert scope.entries_admissible == "blocked"

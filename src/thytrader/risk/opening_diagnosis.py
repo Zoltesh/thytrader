@@ -3,7 +3,7 @@
 The daily-loss breaker (``risk.breakers``) needs a book's UTC-day equity change, which
 ``risk.opening_accounting`` proves from applied fills. When that proof fails the breaker only
 says the evidence is missing. This module replays the same rules and names every failed one,
-for example ``order X FILLED with filled_quantity 0 but fills sum 0.00014174``, so an
+for example ``order X FILLED with filled_quantity 0 but fills sum 0.0002``, so an
 operator can repair the record that blocks the fleet. It never decides admission: the gate's
 own functions do, and this only explains a ``None`` they already returned.
 """

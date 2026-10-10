@@ -1688,17 +1688,17 @@ function futuresReport(
 			balance: enabled
 				? {
 						currency: 'USD',
-						futures_buying_power: '514.24',
-						total_usd_balance: '0.01',
-						cbi_usd_balance: '0.01',
+						futures_buying_power: '1000.00',
+						total_usd_balance: '0',
+						cbi_usd_balance: '0',
 						cfm_usd_balance: '0',
 						total_open_orders_hold_amount: '0',
 						unrealized_pnl: '0',
 						daily_realized_pnl: '0',
 						initial_margin: '0',
-						available_margin: '514.24',
+						available_margin: '1000.00',
 						liquidation_threshold: '0',
-						liquidation_buffer_amount: '514.24',
+						liquidation_buffer_amount: '1000.00',
 						liquidation_buffer_percentage: '100',
 						total_pending_transfers_amount: '0',
 						funding_pnl: '0',
@@ -1733,7 +1733,7 @@ test('futures card shows buying power shared with USDC and no positions', async 
 	const card = page.getByTestId('futures-card');
 	await expect(card.getByTestId('futures-enablement')).toHaveText('Enabled');
 	await expect(card).toContainText('Buying power');
-	await expect(card).toContainText('$514.24');
+	await expect(card).toContainText('$1,000.00');
 	await expect(card).toContainText('Margin ratio');
 	await expect(card).toContainText('No open positions');
 	await expect(card.getByTestId('futures-shared-note')).toContainText(

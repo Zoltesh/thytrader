@@ -1,7 +1,7 @@
-"""The 2026-10-10 fleet entry block, rebuilt record for record (ADR 0130 regression).
+"""A synthetic fleet entry block of the kind ADR 0130 fixes (regression fixture).
 
-A legacy order of the stopped 5m BTC-USDC plumbing-test book was FILLED with
-``filled_quantity`` ``0`` but had one applied fill of 0.00014174. The opening-accounting
+A legacy order of a stopped 5m BTC-USDC test book is FILLED with ``filled_quantity`` ``0``
+but has one applied fill of 0.0002. The opening-accounting
 replay rejected the book, ``reconstruct_day_open`` returned ``None``, and the daily-loss
 breaker failed closed with ``BREAKER_MARK_MISSING`` for every live USDC entry while every
 operator report looked healthy.
@@ -31,22 +31,22 @@ from thytrader.trading.models import (
 )
 
 INCIDENT_AT = datetime(2026, 10, 10, 12, 0, tzinfo=UTC)
-LEGACY_DEPLOYMENT_ID = UUID("01a0f90a-9834-7d0e-afad-ef0b538fee40")
-LEGACY_ORDER_ID = UUID("01a0f93b-9591-7ee1-b037-eae7b079c1b6")
-LEGACY_EXIT_ORDER_ID = UUID("01a0f93b-9591-7ee1-b037-eae7b079c1b7")
+LEGACY_DEPLOYMENT_ID = UUID("01a10000-0000-7000-8000-00000000ea00")
+LEGACY_ORDER_ID = UUID("01a10000-0000-7000-8000-00000000eb01")
+LEGACY_EXIT_ORDER_ID = UUID("01a10000-0000-7000-8000-00000000eb02")
 NEAR_DEPLOYMENT_ID = UUID("01a10000-0000-7000-8000-00000000ea01")
 JTO_DEPLOYMENT_ID = UUID("01a10000-0000-7000-8000-00000000ea02")
-QUANTITY = Decimal("0.00014174")
-BUY_PRICE = Decimal("84660.06")
-SELL_PRICE = Decimal("84599.54")
-BUY_FEE = Decimal("0.06")
-SELL_FEE = Decimal("0.11")
+QUANTITY = Decimal("0.0002")
+BUY_PRICE = Decimal("60000.00")
+SELL_PRICE = Decimal("59950.00")
+BUY_FEE = Decimal("0.05")
+SELL_FEE = Decimal("0.10")
 LEGACY_OPENED = datetime(2026, 10, 1, 14, 0, tzinfo=UTC)
-EXPECTED_GAP = f"order {LEGACY_ORDER_ID} FILLED with filled_quantity 0 but fills sum 0.00014174"
+EXPECTED_GAP = f"order {LEGACY_ORDER_ID} FILLED with filled_quantity 0 but fills sum 0.0002"
 
 
 def incident_policy() -> RiskPolicyDefinition:
-    """The live USDC envelope of policy v13 that mattered: 25 USDC daily loss."""
+    """A live USDC envelope whose daily-loss limit applies: 25 USDC daily loss."""
     return compiled_default_risk_policy().model_copy(
         update={"max_daily_loss_quote": "25", "daily_loss_limit_fraction": "0.2"}
     )
@@ -66,12 +66,12 @@ class Incident:
 
 
 def incident(*, repaired: bool = False) -> Incident:
-    """Build the books; ``repaired`` applies the guarded single-row fix of 2026-10-10."""
+    """Build the books; ``repaired`` applies the guarded single-row fix."""
     cash_change = -QUANTITY * BUY_PRICE - BUY_FEE + QUANTITY * SELL_PRICE - SELL_FEE
     legacy = Deployment(
         id=LEGACY_DEPLOYMENT_ID,
         strategy_fingerprint="sha256:" + "b" * 64,
-        strategy_id=UUID("01a0f900-0000-7000-8000-000000000001"),
+        strategy_id=UUID("01a10000-0000-7000-8000-00000000ec01"),
         kind=DeploymentKind.STRATEGY,
         product_id="BTC-USDC",
         mode=DeploymentMode.LIVE,
@@ -86,7 +86,7 @@ def incident(*, repaired: bool = False) -> Incident:
     buy = Order(
         id=LEGACY_ORDER_ID,
         deployment_id=legacy.id,
-        intent_id=UUID("01a0f93b-0000-7000-8000-000000000001"),
+        intent_id=UUID("01a10000-0000-7000-8000-00000000ed01"),
         client_order_id="plumbing-buy",
         product_id="BTC-USDC",
         side=OrderSide.BUY,
@@ -101,7 +101,7 @@ def incident(*, repaired: bool = False) -> Incident:
     sell = replace(
         buy,
         id=LEGACY_EXIT_ORDER_ID,
-        intent_id=UUID("01a0f93b-0000-7000-8000-000000000002"),
+        intent_id=UUID("01a10000-0000-7000-8000-00000000ed02"),
         client_order_id="plumbing-sell",
         side=OrderSide.SELL,
         kind=OrderKind.MARKETABLE,
@@ -135,7 +135,7 @@ async def seeded_store(*, repaired: bool = False) -> InMemoryExecutionStore:
 
 
 async def repair_legacy_order(store: InMemoryExecutionStore) -> None:
-    """Apply the 2026-10-10 repair: the legacy order's filled quantity becomes its fills."""
+    """Apply the repair: the legacy order's filled quantity becomes its fills."""
     order = store.orders[LEGACY_ORDER_ID]
     await store.save_order(replace(order, filled_quantity=QUANTITY))
 

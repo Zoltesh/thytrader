@@ -8,19 +8,20 @@
 
 ## Context
 
-ADR 0131's timing, deployed on 2026-10-10, measured the live execution worker (47 running, 9
-paused and 58 stopped books; 30 s interval). Two consecutive steady-state cycles took 143 s and
-141 s:
+ADR 0131's timing measured an execution worker with on the order of a hundred running, paused
+and stopped books on a 30 s interval. Steady-state cycles took well over two minutes, split
+roughly evenly between two phases:
 
-- `risk_snapshots` 67.7 s: the cycle reloads every book's full snapshot before and after each
-  book it processes, so the entry gate's fleet evidence stays current. That is 115 reloads of
-  114 books with six statements each: 78,660 SQL statements (25 s of database time, the rest
-  per-statement overhead) on a table set holding about 300 rows.
-- `books` 70 s, of which 60 s was 317–430 sequential Coinbase REST requests: product metadata
-  (`/products/{id}`, 113–171 per cycle) and candles (113–171) dominated, read twice per window
-  (once by the recent preview, once by the range tail) and repeated for every book on the same
-  product; the fee tier (`/transaction_summary`) was read once per live book (31).
-- Supervision phases took about 3 s.
+- `risk_snapshots`: the cycle reloads every book's full snapshot before and after each book it
+  processes, so the entry gate's fleet evidence stays current. For N books that is N + 1
+  reloads of N books with six statements each, so the statement count grows with N² (tens of
+  thousands per cycle at this size) on a table set holding only a few hundred rows; most of the
+  time was per-statement overhead, not database work.
+- `books`: mostly hundreds of sequential Coinbase REST requests. Product metadata
+  (`/products/{id}`) and candles dominated, read twice per window (once by the recent preview,
+  once by the range tail) and repeated for every book on the same product; the fee tier
+  (`/transaction_summary`) was read once per live book.
+- Supervision phases took a few seconds.
 
 ## Decision
 

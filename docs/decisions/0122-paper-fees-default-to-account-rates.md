@@ -11,9 +11,10 @@
 A paper start that omitted fee rates stored nothing, and the ledger applied the documented
 `0.001` maker / `0.002` taker assumptions. The browser start and ticket forms also prefilled
 those values and sent them explicitly whenever the account suggestion had not loaded, and
-"Update bot" copied the old book's rates forward. The account in use pays `0.005` / `0.009`
-(Coinbase Intro tier), so readiness reported 13 paper books modeling fees up to 4.5 times
-cheaper than live fills, making paper results look better than live could achieve.
+"Update bot" copied the old book's rates forward. An account on Coinbase's Intro tier pays
+`0.005` / `0.009`, so on such an account readiness reported every such paper book modeling
+fees up to 4.5 times cheaper than live fills, making paper results look better than live could
+achieve.
 
 ## Decision
 

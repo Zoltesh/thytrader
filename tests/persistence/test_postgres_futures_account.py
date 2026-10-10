@@ -95,9 +95,9 @@ def test_unknown_reads_stay_unknown_after_storage() -> None:
 
 
 _SPOT = SpotCollateralBalances(
-    usdc_available=Decimal("514.23"),
+    usdc_available=Decimal("999.99"),
     usdc_hold=Decimal("12.50"),
-    usd_available=Decimal("0.01"),
+    usd_available=Decimal("1.00"),
     usd_hold=Decimal(0),
 )
 

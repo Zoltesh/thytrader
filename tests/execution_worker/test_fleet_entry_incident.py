@@ -1,8 +1,8 @@
-"""Regression: the 2026-10-10 fleet entry block is visible everywhere (ADR 0130).
+"""Regression: a fleet-wide entry block is visible everywhere (ADR 0130).
 
 One legacy order of a stopped live book (FILLED with ``filled_quantity`` 0 but one applied
-fill of 0.00014174) made the daily-loss breaker fail closed for every live USDC entry, while
-``health``, ``risk`` and ``readiness`` looked healthy. Rebuilt record for record, it must now
+fill) makes the daily-loss breaker fail closed for every live USDC entry, while ``health``,
+``risk`` and ``readiness`` looked healthy before ADR 0130. Rebuilt synthetically, it must now
 show up in the worker's durable alert, the ``fleet-health`` report, the ``risk`` and
 ``readiness`` sections and the ``health`` status, and clear everywhere after the repair.
 """

@@ -141,8 +141,8 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   overnight margin from the latest catalog observation and, for perps, the settled funding of
   every hour in the window. Rejections name the gap: `FUTURES_ASSUMPTIONS_REQUIRED`,
   `FUTURES_CONTRACT_UNOBSERVED`, `FUTURES_UNDERLYING_MISMATCH`, `FUTURES_MARGIN_UNKNOWN`,
-  `FUNDING_HISTORY_MISSING` (names the first missing hour; funding history starts when the
-  poller started on 2026-10-10, so pick a later window or declare `funding_constant_rate`).
+  `FUNDING_HISTORY_MISSING` (names the first missing hour; funding history starts when this
+  install's funding poller started, so pick a later window or declare `funding_constant_rate`).
   `thytrader-operator funding` shows which hours exist. The run spec records
   `instrument_contract`, `margin` and `funding`; a new observation or funding hour is a new run.
   The derived buy-and-hold benchmark of a futures run is an unlevered long at the rate fees,

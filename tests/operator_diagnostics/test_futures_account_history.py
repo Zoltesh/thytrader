@@ -39,9 +39,9 @@ if TYPE_CHECKING:
 
 _START = datetime(2026, 10, 12, 19, 55, tzinfo=UTC)
 _SPOT = SpotCollateralBalances(
-    usdc_available=Decimal("514.23"),
+    usdc_available=Decimal("999.99"),
     usdc_hold=Decimal(0),
-    usd_available=Decimal("0.01"),
+    usd_available=Decimal("1.00"),
     usd_hold=Decimal(0),
 )
 
@@ -133,8 +133,8 @@ def test_every_cycle_carries_the_measurement_fields() -> None:
     assert row.margin_window_type == "MARGIN_WINDOW_TYPE_INTRADAY"
     assert row.spot_collateral is not None
     assert (row.spot_collateral.usdc_available, row.spot_collateral.usd_available) == (
-        "514.23",
-        "0.01",
+        "999.99",
+        "1.00",
     )
     assert payload.orderable is False
     assert "never added to USDC" in payload.collateral_note
@@ -220,7 +220,7 @@ def test_latest_report_shows_the_cycle_spot_collateral() -> None:
     cycle = _cycle(0)
     known = asyncio.run(build_futures_account_report(_Latest(cycle), now=cycle.observed_at))
     assert known.payload.spot_collateral is not None
-    assert known.payload.spot_collateral.usdc_available == "514.23"
+    assert known.payload.spot_collateral.usdc_available == "999.99"
     unknown = replace(cycle, spot_balances=None)
     report = asyncio.run(build_futures_account_report(_Latest(unknown), now=cycle.observed_at))
     assert report.payload.spot_collateral is None

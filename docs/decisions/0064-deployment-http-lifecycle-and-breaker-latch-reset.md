@@ -8,7 +8,7 @@
 ## Context
 
 Ops-log issue **11 (runtime observability mismatch)** from the 17 Sep portfolio-research agent
-run: the verified UNI paper deployment (`01a0ad72-11b2-7102-b300-4780a96aaf0d`) reported
+run: a verified UNI paper deployment reported
 `timeframe=null` on `thytrader-runtime list` even though the immutable strategy source is `2h`.
 `create_deployment` omitted the published strategy clock on the deployment row, and HTTP
 serialization echoed the null instead of copying the strategy clock like operator runtime

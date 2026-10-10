@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-Paper deployment `01a0bb90-1eed-7b81-bea9-1826d2cf86c8` (UNI-USDC 1h Bollinger,
+A paper deployment (UNI-USDC 1h Bollinger,
 ops contract v36 build) matched its entry signal and `PaperBroker` produced a
 fill, but `_match_resting_orders` (`src/thytrader/execution/loop.py`) persisted
 the order as `filled` via a separate `save_order` before `ingest_fill` ran. When

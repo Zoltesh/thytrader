@@ -24,7 +24,7 @@ Facts that shape the model:
 - Sizes are in **contracts**; one contract is `contract_size` of the underlying (0.01 BTC for
   `BIP`, 0.1 ETH for `ETP`). The minimum order is one contract.
 - Perp-style contracts charge funding every hour; longs pay a positive rate. History exists only
-  from 2026-10-10 (the poller's start); there is no venue backfill.
+  from the day an install's funding poller started; there is no venue backfill.
 - Margin rates move with volatility. Overnight rates (about 21–30% for BTC/ETH, short higher than
   long) apply from 16:00 ET and all weekend; intraday rates are opt-in. No historical margin
   rates exist.
@@ -104,8 +104,8 @@ pinned by goldens):
 
 - Futures research becomes reproducible from a fingerprinted catalog binding, funding series and
   margin assumption.
-- Perp backtests cover only windows after 2026-10-10 unless a constant funding rate is declared;
-  results say so.
+- Perp backtests cover only windows after the funding poller started unless a constant funding
+  rate is declared; results say so.
 - A futures result is a USD book in isolation. It cannot show the effect of the shared USDC
   collateral pool on spot books; ADR 0129's paper rehearsal and risk rules carry that.
 - Liquidation and maintenance are modelled conservatively; real fills can be better.
