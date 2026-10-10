@@ -20,7 +20,8 @@ from tests.adoption_support import (
 )
 from tests.execution.test_lifecycle_safety import _restart
 from tests.execution.test_live_bracket import _candle, _product, _RecordingBroker, _strategy
-from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker, _order_configuration
+from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
+from thytrader.exchanges.coinbase_order_json import _order_configuration
 from thytrader.execution.broker import BrokerError, SubmitResult
 from thytrader.execution.execution_quality import build_execution_quality_report
 from thytrader.execution.execution_quality_journal import _earliest_fill_bars
