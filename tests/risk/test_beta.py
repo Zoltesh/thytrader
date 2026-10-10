@@ -13,6 +13,7 @@ from thytrader.risk.beta import (
     BETA_STALE_AFTER,
     MIN_BETA_RETURNS,
     BetaEstimate,
+    BetaEvidence,
     BetaUnavailable,
     BetaUnavailableReason,
     beta_reference,
@@ -253,3 +254,15 @@ def test_fresh_beta_passes_unavailable_through() -> None:
 
     assert fresh_beta(missing, as_of=_START) is missing
     assert missing.describe() == "fetch_failed"
+
+
+def test_evidence_reports_unloaded_products_and_the_reference() -> None:
+    """A product the loader was not asked about is NOT_LOADED; the reference is always β 1."""
+    evidence = BetaEvidence(results={})
+
+    missing = evidence.result_for("SOL-USDC")
+
+    assert isinstance(missing, BetaUnavailable)
+    assert missing.reason is BetaUnavailableReason.NOT_LOADED
+    assert missing.describe() == "not_loaded"
+    assert evidence.result_for("BTC-USDC") == reference_beta("BTC-USDC")

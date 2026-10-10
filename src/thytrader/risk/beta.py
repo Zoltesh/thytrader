@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from thytrader.market_data.products import quote_currency
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from thytrader.market_data.models import Candle
@@ -47,6 +47,7 @@ class BetaUnavailableReason(StrEnum):
     INVALID_HISTORY = "invalid_history"
     STALE = "stale"
     FETCH_FAILED = "fetch_failed"
+    NOT_LOADED = "not_loaded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,11 +83,34 @@ class BetaUnavailable:
             case BetaUnavailableReason.STALE:
                 stamp = "unknown" if self.last_close is None else self.last_close.isoformat()
                 return f"stale last_close={stamp}"
-            case BetaUnavailableReason.INVALID_HISTORY | BetaUnavailableReason.FETCH_FAILED:
+            case (
+                BetaUnavailableReason.INVALID_HISTORY
+                | BetaUnavailableReason.FETCH_FAILED
+                | BetaUnavailableReason.NOT_LOADED
+            ):
                 return self.reason.value
 
 
 type BetaResult = BetaEstimate | BetaUnavailable
+
+
+@dataclass(frozen=True, slots=True)
+class BetaEvidence:
+    """β results loaded for one entry decision, keyed by product id.
+
+    A product the loader was not asked about is ``NOT_LOADED``, never a default β.
+    """
+
+    results: Mapping[str, BetaResult]
+
+    def result_for(self, product_id: str) -> BetaResult:
+        """Return the loaded result for ``product_id`` (the reference is always β 1)."""
+        loaded = self.results.get(product_id)
+        if loaded is not None:
+            return loaded
+        if product_id == beta_reference(product_id):
+            return reference_beta(product_id)
+        return _unavailable(product_id, BetaUnavailableReason.NOT_LOADED)
 
 
 def beta_reference(product_id: str) -> str:
