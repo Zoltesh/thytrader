@@ -409,6 +409,9 @@ def test_set_risk_policy_help_lists_breaker_flags(
     assert "--max-daily-loss-quote" in output
     assert "--max-portfolio-exposure-quote" in output
     assert "--max-venue-order-actions-per-minute" in output
+    assert "--max-fleet-entries-per-window" in output
+    assert "--fleet-entry-window-minutes" in output
+    assert "FLEET_ENTRY_CLUSTER_LIMIT" in output
     assert "--quote-currency" in output
 
 
@@ -454,6 +457,48 @@ def test_set_risk_policy_forwards_optional_absolute_caps_and_venue_budget() -> N
     assert payload["max_portfolio_exposure_quote"] == "50000"
     assert payload["max_venue_order_actions_per_minute"] == 90
     assert payload["quote_currency"] == "USDC"
+    assert payload["max_fleet_entries_per_window"] is None
+    assert payload["fleet_entry_window_minutes"] is None
+
+
+def test_set_risk_policy_forwards_the_fleet_clustering_cap() -> None:
+    """The ADR 0125 clustering flags reach the HTTP payload as integers."""
+    handlers = {
+        "GET /health/ready": matching_ready_payload(),
+    }
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
+        patch(
+            "thytrader.runtime_control.cli.set_risk_policy",
+            return_value={"policy_fingerprint": "sha256:" + "a" * 64},
+        ) as request,
+        pytest.raises(SystemExit) as raised,
+    ):
+        main(
+            [
+                "set-risk-policy",
+                "--max-concurrent-running-deployments",
+                "8",
+                "--max-concurrent-open-positions",
+                "8",
+                "--max-portfolio-exposure-fraction",
+                "1",
+                "--per-product-max-exposure-fraction",
+                "1",
+                "--paper-capital-quote",
+                "100000",
+                "--max-fleet-entries-per-window",
+                "4",
+                "--fleet-entry-window-minutes",
+                "120",
+                "--confirm",
+            ]
+        )
+    assert raised.value.code == 0
+    request.assert_called_once()
+    _base_url, payload = request.call_args.args
+    assert payload["max_fleet_entries_per_window"] == 4
+    assert payload["fleet_entry_window_minutes"] == 120
 
 
 def test_place_order_help_lists_venue_clocks(

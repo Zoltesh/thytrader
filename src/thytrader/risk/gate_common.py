@@ -31,6 +31,10 @@ class ProposedEntry:
     nothing goes to the venue. Its notional joins the live capital base, and the order
     bounds, rate limits and price collar do not apply. Membership, slots, exposure,
     allocation, unresolved accounting and the daily-loss and drawdown breakers still do.
+
+    ``readmits_working_entry`` marks a reprice of a working entry that was already admitted:
+    the fleet clustering cap counted it when it was first placed and does not gate it again
+    (ADR 0125). Every other check, exposure included, applies to the remaining notional.
     """
 
     product_id: str
@@ -39,6 +43,7 @@ class ProposedEntry:
     is_pyramid_add: bool = False
     quantity: Decimal | None = None
     funding: EntryFunding = "quote"
+    readmits_working_entry: bool = False
 
     @property
     def in_kind(self) -> bool:

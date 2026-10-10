@@ -126,6 +126,13 @@ Runtime capital separately exposes qualified `risk_day_open_evidence` (`source`,
 `equity`, `fills_fingerprint`, `marks[]`); legacy `utc_day_open_equity` remains preserved but
 unverified. Current-day validity requires complete accounting, not just a same-day timestamp.
 
+Optional fleet entry clustering fields `max_fleet_entries_per_window` (1–128) and
+`fleet_entry_window_minutes` (1–1440) are nullable integers in the primary `risk` payload, set
+together or both null ([ADR 0125](../../../docs/decisions/0125-correlation-aware-risk-limits.md)).
+When set, the entry gate denies with reason code `FLEET_ENTRY_CLUSTER_LIMIT` once that many
+distinct bot/product entries in the mode fall inside the trailing window, stopped bots included.
+The denial appears as a decision `risk` row; it never pauses a book or becomes a finding.
+
 Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement), plus `settings_file`, `yaml_loaded`, and `yaml_source_of_truth` (always true), and `effective_api_base_url` — the loopback origin agent CLIs resolve for this checkout (`THYTRADER_API_BASE_URL` / settings). Non-secret knobs including YOLO live in `thytrader.yaml` and apply without restart; leftover `THYTRADER_YOLO_TIERS=paper` is valid. Those flags never grant playbook live authority. YOLO `live` may skip `--confirm` on runtime start/pause/resume/stop; live start, live resume, and live place-order still require `--i-understand-live`
 (HTTP `i_understand_live: true`). Live place-order, `set-risk-policy`, and `set-settings` still require `--confirm`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
 

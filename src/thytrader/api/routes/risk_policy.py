@@ -17,6 +17,8 @@ from thytrader.audit_events import (
 )
 from thytrader.risk.models import (
     MAX_CONCURRENT_LIMIT,
+    MAX_FLEET_ENTRIES_PER_WINDOW,
+    MAX_FLEET_ENTRY_WINDOW_MINUTES,
     ActiveRiskPolicy,
     CapitalAllocation,
     RiskPolicyWrite,
@@ -58,6 +60,12 @@ class RiskPolicyWriteBody(BaseModel):
     max_order_quantity: str | None = None
     max_order_notional_quote: str | None = None
     min_available_quote_reserve: str | None = None
+    max_fleet_entries_per_window: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRIES_PER_WINDOW
+    )
+    fleet_entry_window_minutes: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
+    )
 
 
 class RiskPolicyResponse(BaseModel):
@@ -88,6 +96,8 @@ class RiskPolicyResponse(BaseModel):
     max_order_quantity: str | None = None
     max_order_notional_quote: str | None = None
     min_available_quote_reserve: str | None = None
+    max_fleet_entries_per_window: int | None = None
+    fleet_entry_window_minutes: int | None = None
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -156,6 +166,8 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         max_order_quantity=body.max_order_quantity,
         max_order_notional_quote=body.max_order_notional_quote,
         min_available_quote_reserve=body.min_available_quote_reserve,
+        max_fleet_entries_per_window=body.max_fleet_entries_per_window,
+        fleet_entry_window_minutes=body.fleet_entry_window_minutes,
     )
 
 
@@ -191,4 +203,6 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         max_order_quantity=definition.max_order_quantity,
         max_order_notional_quote=definition.max_order_notional_quote,
         min_available_quote_reserve=definition.min_available_quote_reserve,
+        max_fleet_entries_per_window=definition.max_fleet_entries_per_window,
+        fleet_entry_window_minutes=definition.fleet_entry_window_minutes,
     )

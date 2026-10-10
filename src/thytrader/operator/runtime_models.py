@@ -21,7 +21,11 @@ from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.research.catalog import StudyCatalogSummary
-from thytrader.risk.models import MAX_CONCURRENT_LIMIT
+from thytrader.risk.models import (
+    MAX_CONCURRENT_LIMIT,
+    MAX_FLEET_ENTRIES_PER_WINDOW,
+    MAX_FLEET_ENTRY_WINDOW_MINUTES,
+)
 from thytrader.trading.protection_models import ProtectionEvidenceResponse
 
 
@@ -203,6 +207,12 @@ class RiskPayload(_FrozenModel):
     max_order_quantity: str | None = None
     max_order_notional_quote: str | None = None
     min_available_quote_reserve: str | None = None
+    max_fleet_entries_per_window: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRIES_PER_WINDOW
+    )
+    fleet_entry_window_minutes: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
+    )
     findings: tuple[RiskFinding, ...]
 
 

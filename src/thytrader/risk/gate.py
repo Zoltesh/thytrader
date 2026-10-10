@@ -3,10 +3,12 @@
 The gate admits new deployments and risk-increasing entries and composes the policy's
 checks in a fixed order: membership and slots (``entry_limits``), a sleeve's portfolio
 limits (``portfolio_limits``), optional per-order bounds (``order_bounds``), account
-exposure, unresolved accounting, then the circuit breakers, rate, and collar gates. It
-gates entries only, never protective exits. An in-kind adoption (ADR 0124) sends nothing
-to the venue, so it skips the order bounds, rate and collar gates and adds its notional
-to live capital; every other check applies.
+exposure, unresolved accounting, then the circuit breakers, rate, and collar gates and the
+optional fleet entry clustering cap (``entry_clustering``, ADR 0125). It gates entries only,
+never protective exits. An in-kind adoption (ADR 0124) sends nothing to the venue, so it
+skips the order bounds, rate, collar and clustering gates and adds its notional to live
+capital; every other check applies. A reprice of an admitted working entry skips only the
+clustering cap.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from thytrader.risk.breakers import (
     quote_scoped_snapshots,
     unresolved_accounting_verdict,
 )
+from thytrader.risk.entry_clustering import cluster_verdict
 from thytrader.risk.entry_limits import (
     _allocation_for,
     _allocation_membership,
@@ -229,14 +232,18 @@ def _entry_breaker_verdict(
     live_quote_cash: Decimal | None,
     observation: EntryObservation | None,
 ) -> RiskVerdict:
-    """Apply loss, drawdown, rate, and collar gates when observation is present.
+    """Apply loss, drawdown, rate, collar, and fleet clustering gates.
 
-    Rate limits stay on risk-bearing books. Circuit breakers see the full snapshot list
-    so a stopped flat book's loss and latch are not filtered out first. An in-kind entry
-    keeps the breakers (on capital including its notional) but skips rate and collar.
+    Rate limits stay on risk-bearing books. Circuit breakers and the clustering cap see the
+    full snapshot list so a stopped book's loss, latch, and recent entries are not filtered
+    out first. An in-kind entry keeps the breakers (on capital including its notional) but
+    skips rate, collar, and clustering. Without an observation only the clustering cap is
+    evaluated, and a set cap denies because its window has no anchor.
     """
     if observation is None:
-        return _allow()
+        return _clustered_or_allow(
+            policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=None
+        )
     capital = _capital_base(
         policy,
         mode=mode,
@@ -262,7 +269,24 @@ def _entry_breaker_verdict(
     )
     if protected is not None:
         return protected
-    return _allow()
+    return _clustered_or_allow(
+        policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+    )
+
+
+def _clustered_or_allow(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+    observation: EntryObservation | None,
+) -> RiskVerdict:
+    """Return the fleet clustering denial, or allow when the cap does not object."""
+    clustered = cluster_verdict(
+        policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+    )
+    return _allow() if clustered is None else clustered
 
 
 def _paper_deploy_capital(

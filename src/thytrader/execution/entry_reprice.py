@@ -211,6 +211,7 @@ async def _reprice_entry(
             marks=marks,
         ),
         is_pyramid_add=is_pyramid,
+        readmits_working_entry=True,
     )
     if admitted.decision is RiskDecision.DENY:
         if pauses_risk_increasing(admitted.reason_code):

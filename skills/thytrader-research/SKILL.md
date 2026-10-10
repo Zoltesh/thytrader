@@ -182,6 +182,13 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   before any deployment claim.
   Trade exit reasons are `stop_loss`, `take_profit`, `time_exit`, `signal`, and `evaluation_end`. Backtests are
   simulated research evidence, never paper or live fills.
+- **No account risk policy.** Backtests never apply the paper/live risk gate. With the opt-in
+  fleet entry clustering cap (`max_fleet_entries_per_window`,
+  [ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)) published, paper and live
+  skip entries on crowded bar closes that a fleet of backtests still counts. Fleet backtests then
+  overstate trade counts, and paper/live twin comparisons diverge from them. Count
+  `FLEET_ENTRY_CLUSTER_LIMIT` rows in runtime `decisions` before reading that gap as strategy
+  decay.
 
 ## Commands
 
