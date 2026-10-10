@@ -78,7 +78,7 @@ def test_a_path_outside_the_allowlist_is_refused_before_any_request() -> None:
 
 
 def test_one_contract_market_preview_reports_the_commission() -> None:
-    """The fixed body previews one contract; the commission is the per-contract fee."""
+    """The fixed body previews one contract and keeps its all-in commission."""
     transport = _PostOnly()
     preview = asyncio.run(CoinbaseCfmFeePreview(transport).preview_fee("BIP-20DEC30-CDE"))
 
@@ -92,8 +92,83 @@ def test_one_contract_market_preview_reports_the_commission() -> None:
             },
         )
     ]
-    assert preview.fee_per_contract == Decimal("0.15")
+    assert preview.commission_total == Decimal("0.15")
     assert preview.contracts == Decimal(1)
+    assert preview.price is None
+    assert preview.fixed_commission is None
+
+
+# A one-contract BUY preview of a 0.1 ETH perp-style contract (illustrative prices).
+_ITEMIZED_PREVIEW = {
+    "order_total": "60.8",
+    "commission_total": "0.36",
+    "errs": [],
+    "quote_size": "2505.5",
+    "base_size": "1",
+    "best_bid": "2504.5",
+    "best_ask": "2505.5",
+    "order_margin_total": "60.44",
+    "est_average_filled_price": "2505.5",
+    "commission_detail_total": {
+        "total_commission": "0.36",
+        "gst_commission": "0",
+        "withholding_commission": "0",
+        "client_commission": "0.2505",
+        "venue_commission": "0.1",
+        "regulatory_commission": "0",
+        "clearing_commission": "0.01",
+    },
+}
+
+
+def test_the_preview_keeps_its_price_and_itemized_fixed_commission() -> None:
+    """Venue + clearing + regulatory is the fixed part; the client (rate) part is not summed."""
+    transport = _PostOnly(_ITEMIZED_PREVIEW)
+    preview = asyncio.run(CoinbaseCfmFeePreview(transport).preview_fee("ETP-20DEC30-CDE"))
+
+    assert preview.commission_total == Decimal("0.36")
+    assert preview.price == Decimal("2505.5")
+    assert preview.fixed_commission == Decimal("0.11")
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        None,
+        "x",
+        {"venue_commission": "0.1", "clearing_commission": "0.01"},
+        {"venue_commission": "-0.1", "clearing_commission": "0", "regulatory_commission": "0"},
+        {"venue_commission": "1", "clearing_commission": "0", "regulatory_commission": "0"},
+        {
+            "client_commission": "0.36",
+            "venue_commission": "0.1",
+            "clearing_commission": "0.01",
+            "regulatory_commission": "0",
+        },
+        {"venue_commission": "0.1", "clearing_commission": "0.01", "regulatory_commission": "0"},
+        {
+            "client_commission": "0.2505",
+            "venue_commission": "0.1",
+            "clearing_commission": "0.01",
+            "regulatory_commission": "0",
+            "gst_commission": "x",
+        },
+    ],
+)
+def test_a_missing_or_implausible_itemization_is_unknown(detail: object) -> None:
+    """Absent, partial, negative or unreconciled itemizations never yield a fixed part."""
+    response = {**_ITEMIZED_PREVIEW, "commission_detail_total": detail}
+    preview = asyncio.run(CoinbaseCfmFeePreview(_PostOnly(response)).preview_fee("ETP-20DEC30-CDE"))
+    assert preview.fixed_commission is None
+    assert preview.commission_total == Decimal("0.36")
+
+
+@pytest.mark.parametrize("price", ["", "0", "x", None])
+def test_a_missing_or_non_positive_price_is_unknown(price: object) -> None:
+    """The estimated fill price is never guessed."""
+    response = {**_ITEMIZED_PREVIEW, "est_average_filled_price": price}
+    preview = asyncio.run(CoinbaseCfmFeePreview(_PostOnly(response)).preview_fee("ETP-20DEC30-CDE"))
+    assert preview.price is None
 
 
 @pytest.mark.parametrize(

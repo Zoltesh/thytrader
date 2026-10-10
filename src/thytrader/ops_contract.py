@@ -93,7 +93,10 @@ and settled funding series, the ``FUTURES_*`` / ``FUNDING_HISTORY_MISSING`` reje
 the ``fees`` report ``futures`` evidence (``futures_fees`` read; ADR 0128, P1-3),
 or the opt-in futures fee probe (``fees --futures-preview-product-id``: one allowlisted
 ``orders/preview`` POST for one contract that places no order, filling
-``payload.futures.fee_per_contract`` from ``orders_preview``; ADR 0128, P1-3b),
+``payload.futures.fee_per_contract`` from ``orders_preview``; ADR 0128, P1-3b) and its
+split of the all-in preview commission into the taker rate part and the fixed
+``fee_per_contract`` (``orders_preview_itemized`` / ``orders_preview_less_taker_rate``,
+``fee_per_contract_unavailable_reason`` and the ``preview_*`` decomposition fields; ADR 0133),
 or paper futures books (Alembic 0073 contract bindings and funding entries, the
 ``futures.paper_capital_usd`` / ``futures.daily_loss_limit_fraction`` policy fields, the
 ``LIQUIDATION`` intent purpose, the ``CFM-USD`` breaker scope, linked
@@ -145,7 +148,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v92"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v93"
 EXPECTED_SCHEMA_REVISION = "0075"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

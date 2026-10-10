@@ -73,8 +73,10 @@
 		quoteError = null;
 		try {
 			await loadEvidence(model.product_id);
-			if (evidence?.fee_per_contract === null && evidence.preview_unavailable_reason) {
-				quoteError = `Coinbase could not quote it (${evidence.preview_unavailable_reason}).`;
+			const reason =
+				evidence?.preview_unavailable_reason ?? evidence?.fee_per_contract_unavailable_reason;
+			if (evidence?.fee_per_contract === null && reason) {
+				quoteError = `Coinbase could not quote it (${reason}).`;
 			}
 		} finally {
 			quoting = false;

@@ -369,7 +369,8 @@ async def get_operator_fees(
     """Return the current fee tier and research-only suggested maker/taker rates.
 
     ``futures_preview_product_id`` opts into one ``orders/preview`` POST for one contract
-    of that futures product (places no order) to report its per-contract fee.
+    of that futures product (places no order) to report its fixed per-contract fee
+    (the all-in commission minus the taker rate part; ADR 0133).
     """
     return await diagnostics.fees_report(futures_preview_product_id)
 

@@ -208,7 +208,9 @@ Portfolio sleeves cannot start futures books (no per-contract fee). Setup and st
 - `start --mode paper --cash USD --maker-fee-rate M --taker-fee-rate T --fee-per-contract F`.
   All three fees are required (`FUTURES_FEE_REQUIRED`); take M and T from
   `thytrader-operator fees` → `payload.futures` and F from `fees --futures-preview-product-id`
-  when available. `--cash` beyond the envelope is `FUTURES_PAPER_CAPITAL_EXCEEDED`.
+  → `payload.futures.fee_per_contract` when available. F is the **fixed** USD part per contract
+  (e.g. 0.11 at the Intro tier, confirmed by live fills; ADR 0133); the book adds the
+  maker/taker rate itself, so never pass `preview_commission_total` (all-in) as F. `--cash` beyond the envelope is `FUTURES_PAPER_CAPITAL_EXCEEDED`.
 - The start binds the contract from the latest catalog observation and never re-reads it.
   Perp-style contracts only (`FUTURES_PAPER_UNSUPPORTED` for dated ones);
   `FUTURES_CONTRACT_UNOBSERVED` / `FUTURES_UNDERLYING_MISMATCH` name a catalog problem.
@@ -702,7 +704,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
 | Start paper with operator-chosen fee rates (omit them to use the account's rates) | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-id UUID --mode live --confirm --i-understand-live` |
-| Start a paper futures book | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 5000 --maker-fee-rate 0 --taker-fee-rate 0.0005 --fee-per-contract 0.15 --confirm` |
+| Start a paper futures book | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 5000 --maker-fee-rate 0.00095 --taker-fee-rate 0.001 --fee-per-contract 0.11 --confirm` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume paper | `uv run thytrader-runtime resume UUID --confirm` |
 | Resume live (re-arms orders) | `uv run thytrader-runtime resume UUID --confirm --i-understand-live` |

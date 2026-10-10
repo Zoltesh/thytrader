@@ -331,6 +331,7 @@ const futuresEvidence = {
 	as_of: '2026-10-10T00:00:00Z',
 	fee_per_contract: null,
 	fee_per_contract_source: 'operator_input',
+	fee_per_contract_unavailable_reason: null,
 	unavailable_reason: null,
 	preview_product_id: null,
 	preview_commission_total: null,
@@ -363,7 +364,7 @@ test('Run stage starts a paper futures book with all three fees and refuses live
 						: {
 								...futuresEvidence,
 								fee_per_contract: '0.15',
-								fee_per_contract_source: 'orders_preview',
+								fee_per_contract_source: 'orders_preview_itemized',
 								preview_product_id: preview
 							}
 				)

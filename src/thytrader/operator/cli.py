@@ -259,8 +259,10 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Also quote one contract of this CDE futures product through Coinbase "
-            "orders/preview (a POST that places no order) and report its commission as "
-            "payload.futures.fee_per_contract."
+            "orders/preview (a POST that places no order). Its all-in commission is "
+            "preview_commission_total; payload.futures.fee_per_contract is only the fixed "
+            "per-contract part (the taker rate x notional is excluded, because paper and "
+            "backtests add the rate themselves)."
         ),
     )
     subparsers.add_parser(

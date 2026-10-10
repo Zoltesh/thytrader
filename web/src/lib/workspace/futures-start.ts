@@ -71,6 +71,6 @@ export function futuresFeeSourceText(
 	const perContract =
 		evidence.fee_per_contract === null
 			? 'Coinbase reports no per-contract fee without an order preview; enter it or quote it.'
-			: `Fee per contract quoted by a Coinbase order preview of ${evidence.preview_product_id ?? 'the contract'} (no order placed).`;
+			: `Fixed fee per contract from a Coinbase order preview of ${evidence.preview_product_id ?? 'the contract'} (no order placed); the taker rate is charged on top, not included.`;
 	return `Maker and taker from your Coinbase futures fee tier${tier}. ${perContract}`;
 }

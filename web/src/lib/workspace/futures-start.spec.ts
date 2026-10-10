@@ -11,6 +11,7 @@ function evidence(overrides: Partial<FuturesFeeEvidence> = {}): FuturesFeeEviden
 		as_of: '2026-10-10T00:00:00Z',
 		fee_per_contract: null,
 		fee_per_contract_source: 'operator_input',
+		fee_per_contract_unavailable_reason: null,
 		unavailable_reason: null,
 		preview_product_id: null,
 		preview_unavailable_reason: null,
@@ -83,6 +84,8 @@ describe('futuresFeeSourceText', () => {
 				evidence({ fee_per_contract: '0.15', preview_product_id: 'BIP-20DEC30-CDE' }),
 				'ready'
 			)
-		).toContain('order preview of BIP-20DEC30-CDE (no order placed)');
+		).toContain(
+			'order preview of BIP-20DEC30-CDE (no order placed); the taker rate is charged on top'
+		);
 	});
 });

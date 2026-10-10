@@ -256,7 +256,8 @@ runs never reach them, so spot result bytes are unchanged.
   (`funding_series_fingerprint`), or the run fails `FUNDING_HISTORY_MISSING` (naming the first
   missing hour) or `FUNDING_SERIES_MISMATCH`. A declared `constant_rate` takes no series.
 - **Submission.** `BacktestStartRequest.futures` (required for futures strategies, refused for
-  spot) carries `fee_per_contract` and optional margin and funding overrides. The submitter
+  spot) carries `fee_per_contract` (the fixed USD part per contract, excluding the rate, as
+  Coinbase bills it; ADR 0133) and optional margin and funding overrides. The submitter
   (`backtest/submission_futures.py`) binds the contract and overnight margin from the latest
   `futures_instrument_observations` row (`catalog_fingerprint` is its payload fingerprint,
   `observed_at` its last-seen time) and a perp's settled funding hours from
