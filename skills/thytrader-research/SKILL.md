@@ -121,10 +121,12 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   `overnight`). `base_currency` is the contract's underlying (`thytrader-operator products --kind
   future` shows it; `BIP` is BTC), `quote_currency` is `USD`, the settlement currency. A futures
   document has no `additional_instruments` and no reference instruments. Spot documents omit
-  `kind` and `derivatives`, so their bytes and fingerprints never change. **Status:** futures
-  documents can be saved and validated, but backtests return `FUTURES_BACKTEST_UNSUPPORTED` and
-  deployments `FUTURES_PAPER_UNSUPPORTED` / `FUTURES_LIVE_UNSUPPORTED` until the kernel and paper
-  futures books ship. Never invent a futures result.
+  `kind` and `derivatives`, so their bytes and fingerprints never change. Futures documents cannot
+  pyramid (`entry.pyramiding` is refused). **Status:** futures documents can be saved and
+  validated, and the kernel simulates them (see **Futures simulation** below), but backtest
+  submission still returns `FUTURES_BACKTEST_UNSUPPORTED` until the run binds its contract, margin
+  and funding server-side, and deployments return `FUTURES_PAPER_UNSUPPORTED` /
+  `FUTURES_LIVE_UNSUPPORTED` until paper futures books ship. Never invent a futures result.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they
@@ -191,8 +193,32 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   quiet bars, which volume indicators read as undefined;
   [ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md)); read them
   before any deployment claim.
-  Trade exit reasons are `stop_loss`, `take_profit`, `time_exit`, `signal`, and `evaluation_end`. Backtests are
-  simulated research evidence, never paper or live fills.
+  Trade exit reasons are `stop_loss`, `take_profit`, `time_exit`, `signal`, and `evaluation_end`
+  (futures add `liquidation` and `expiry`). Backtests are simulated research evidence, never paper
+  or live fills.
+- **Futures simulation** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)). Same
+  loop and ledger; quantities are base units (contracts × `contract_size`), shorts are real.
+  - **Size.** Whole contracts, floored, never rounded up; zero contracts skips with
+    `below_one_contract`. After the entry fee, notional ≤ `derivatives.max_leverage` × equity,
+    maintenance ≤ (1 − `min_liquidation_buffer_fraction`) × equity, and initial margin ≤
+    `max_strategy_exposure_fraction` × equity (for futures the exposure fraction caps committed
+    margin, not notional). Fees are rate × notional plus `fee_per_contract` × contracts.
+  - **Liquidation** runs before the stop on every bar: if equity at the bar's adverse extreme is
+    below maintenance, the position closes there as a taker (`liquidation`). Equity can end
+    negative on a gap; that is the model being conservative, not a bug.
+  - **Funding** (perps): each funding hour T with bar start < T ≤ bar end is charged at the bar
+    close while the position is still open after the bar's exits (longs pay positive rates).
+    Each trade carries `funding` (signed, included in `net_pnl`) and the summary `total_funding`.
+    A recorded series must cover every hour of the window and match the bound fingerprint, or the
+    run fails `FUNDING_HISTORY_MISSING` / `FUNDING_SERIES_MISMATCH`.
+  - **Expiry** (dated): the position closes at the open of the first bar at or after expiry minus
+    `flatten_before_expiry_hours` (`expiry`); entries that would fill there skip with
+    `expiry_window`. A window ending after expiry fails `FUTURES_WINDOW_PAST_EXPIRY`.
+  - **Limits.** Futures results list `futures_constant_margin`, `futures_conservative_liquidation`
+    and `futures_shared_usdc_collateral` (the USD book is modelled alone, but its real collateral
+    is the USDC spot balance), plus `futures_constant_funding` for a declared constant rate and
+    `futures_funding_at_bar_close` on bars longer than one hour. Futures shorts never list
+    `spot_short_synthetic`.
 - **No account risk policy.** Backtests never apply the paper/live risk gate. With the opt-in
   fleet entry clustering cap (`max_fleet_entries_per_window`,
   [ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)) published, paper and live

@@ -46,6 +46,7 @@ class EntrySkipReason(StrEnum):
     NOTIONAL_BELOW_MINIMUM = "notional_below_minimum"
     QUANTITY_BELOW_VENUE_MINIMUM = "quantity_below_venue_minimum"
     NOTIONAL_BELOW_VENUE_MINIMUM = "notional_below_venue_minimum"
+    BELOW_ONE_CONTRACT = "below_one_contract"
 
 
 _GEOMETRY_SKIPS = frozenset(
@@ -246,6 +247,10 @@ _SKIP_DETAILS: dict[EntrySkipReason, str] = {
     ),
     EntrySkipReason.NOTIONAL_BELOW_VENUE_MINIMUM: (
         "the quantized notional is below the product's quote minimum size"
+    ),
+    EntrySkipReason.BELOW_ONE_CONTRACT: (
+        "the futures entry rounds down to zero whole contracts within the leverage, "
+        "liquidation-buffer, and margin bounds"
     ),
 }
 

@@ -84,9 +84,14 @@ def _summary(
     *,
     include_spread_cost: bool,
     evaluation_bars: int,
+    include_funding: bool = False,
     validity_limits: tuple[ResearchValidityLimitCode, ...],
 ) -> BacktestSummary:
-    """Calculate only exact deterministic ledger and equity statistics."""
+    """Calculate only exact deterministic ledger and equity statistics.
+
+    ``include_funding`` (perp futures runs) adds ``total_funding``, the signed sum of every
+    trade's funding cash flow; spot summaries omit it.
+    """
     peak = initial_cash
     maximum_drawdown = Decimal("0")
     maximum_drawdown_fraction = Decimal("0")
@@ -137,4 +142,11 @@ def _summary(
             canonical_decimal(total_spread_cost) if total_spread_cost is not None else None
         ),
         validity_limits=validity_limits,
+        total_funding=(
+            canonical_decimal(
+                sum((Decimal(trade.funding or "0") for trade in trades), start=Decimal("0"))
+            )
+            if include_funding
+            else None
+        ),
     )

@@ -110,6 +110,28 @@ pinned by goldens):
   collateral pool on spot books; ADR 0129's paper rehearsal and risk rules carry that.
 - Liquidation and maintenance are modelled conservatively; real fills can be better.
 
+## Implementation notes
+
+- **P1-1.** The run spec binds funding as `funding: {series_fingerprint, settled_hours}` or
+  `funding: {constant_rate}` (one field instead of `funding_series_fingerprint` and
+  `funding_assumption`). Futures documents also may not enable `entry.pyramiding` (added in
+  P1-2): one position per futures book.
+- **P1-2 (kernel).**
+  - The funding rows are a kernel input (`funding_rates`, funding hour → rate) like candles,
+    not part of the spec. The kernel requires exactly the hours in (`starts_at`, `ends_at`],
+    `settled_hours` of them, hashing to `series_fingerprint` (`funding_series_fingerprint`).
+  - Funding hour T is charged on the bar with start < T ≤ end, at that bar's close, when the
+    position is still open after the bar's exits. On bars longer than one hour this prices
+    every hour at the bar close and is disclosed as `futures_funding_at_bar_close`.
+  - `max_strategy_exposure_fraction` (at most 1) caps initial margin committed for futures, not
+    notional; leverage caps notional. Every bound holds after the entry fee.
+  - The shared-collateral disclosure is the validity limit `futures_shared_usdc_collateral`
+    rather than a separate `collateral_note` field, so it travels with the other limits.
+  - Liquidation fills at the bar extreme, so a gap can leave equity negative. That is the
+    conservative model, and later entries skip with `insufficient_cash`.
+  - Entries whose fill bar would start at or after the flatten time skip with
+    `expiry_window`.
+
 ## Alternatives considered
 
 - **A separate futures engine id.** Rejected: ADR 0083 collapsed engines; the new fields only

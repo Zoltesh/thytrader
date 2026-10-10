@@ -160,6 +160,8 @@ describe('signal exit labels', () => {
 	it('names the exit reason in trades, diagnostics, and the decision timeline', () => {
 		expect(formatExitReason('signal')).toBe('signal exit');
 		expect(formatExitReason('stop_loss')).toBe('stop loss');
+		expect(formatExitReason('liquidation')).toBe('liquidation');
+		expect(formatExitReason('expiry')).toBe('contract expiry');
 		expect(exitReasonLabel('signal')).toBe('signal exit');
 		const diagnostics = {
 			diagnostics_version: 'thytrader-backtest-diagnostics-v1',

@@ -16,6 +16,11 @@ ResearchValidityLimitCode = Literal[
     "signal_exit_at_close",
     "synthetic_no_trade_bars",
     "execution_stress",
+    "futures_constant_margin",
+    "futures_conservative_liquidation",
+    "futures_shared_usdc_collateral",
+    "futures_constant_funding",
+    "futures_funding_at_bar_close",
 ]
 
 
@@ -24,6 +29,7 @@ def collect_backtest_validity_limits(
     *,
     no_trade_bars: int = 0,
     execution_stress: ExecutionStress | None = None,
+    futures_limits: tuple[ResearchValidityLimitCode, ...] = (),
 ) -> tuple[ResearchValidityLimitCode, ...]:
     """Return the modeling limits that apply to one unified backtest result.
 
@@ -36,6 +42,8 @@ def collect_backtest_validity_limits(
     ``no_trade_bars`` counts flat zero-volume bars in the evaluation window (confirmed
     intervals without trades, ADR 0095); any such bar discloses
     ``synthetic_no_trade_bars``, and gap-free windows keep their exact limits.
+    Futures shorts are real shorts, so they never disclose ``spot_short_synthetic``;
+    ``futures_limits`` (ADR 0128) are appended last.
     """
     limits: list[ResearchValidityLimitCode] = [
         "stop_before_tp_same_bar",
@@ -44,10 +52,11 @@ def collect_backtest_validity_limits(
         limits.insert(0, "maker_touch_full_fill")
     else:
         limits.insert(0, "execution_stress")
-    if strategy.entry.side == "short":
+    if strategy.entry.side == "short" and not strategy.instrument.is_future:
         limits.append("spot_short_synthetic")
     if signal_exit_condition(strategy.exits) is not None:
         limits.append("signal_exit_at_close")
     if no_trade_bars > 0:
         limits.append("synthetic_no_trade_bars")
+    limits.extend(futures_limits)
     return tuple(limits)

@@ -46,6 +46,8 @@ describe('backtest diagnostics', () => {
 			})
 		).toEqual(['2 expired unfilled and canceled', '1 still resting when the window ended']);
 		expect(formatSkipReason('some_future_code')).toBe('some_future_code');
+		expect(formatSkipReason('below_one_contract')).toContain('zero contracts');
+		expect(formatSkipReason('expiry_window')).toContain('expiry');
 	});
 });
 

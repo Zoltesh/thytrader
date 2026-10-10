@@ -75,17 +75,32 @@ def _open_position(
     entry_bar_index: int,
     costs: _Costs,
 ) -> tuple[_Position | None, Decimal]:
-    """Fill the resting limit at the posted price with the published maker fee."""
+    """Fill the resting limit at the posted price with the published maker fee.
+
+    A futures fill keeps whole contracts (a partial stress fill below one contract is
+    refused), adds the per-contract fee, and needs no cash for its notional: margin bounds
+    were applied when the entry was sized (ADR 0128).
+    """
     short = pending.side == "short"
     quote = costs.fill_model.maker(pending.limit_price)
-    notional = pending.quantity * quote.price
+    terms = costs.futures
+    quantity = pending.quantity
+    unit_fee = None
+    if terms is not None:
+        quantity = terms.whole_contracts(quantity)
+        if quantity <= 0:
+            return None, cash
+        unit_fee = terms.fee_per_contract / terms.contract_size
+    notional = quantity * quote.price
     fee = notional * costs.maker_fee_rate
-    if not short and notional + fee > cash:
+    if unit_fee is not None:
+        fee += quantity * unit_fee
+    if terms is None and not short and notional + fee > cash:
         return None, cash
     entry = BacktestFill(
         candle_starts_at=candle.starts_at,
         price=canonical_decimal(quote.price),
-        quantity=canonical_decimal(pending.quantity),
+        quantity=canonical_decimal(quantity),
         notional=canonical_decimal(notional),
         fee=canonical_decimal(fee),
         fee_rate=canonical_decimal(costs.maker_fee_rate),
@@ -98,6 +113,8 @@ def _open_position(
             target_price=pending.target_price,
             entered_bar_index=entry_bar_index,
             side=pending.side,
+            unit_fee=unit_fee,
+            funding=Decimal(0) if terms is not None and terms.perpetual else None,
         ),
         next_cash,
     )
@@ -145,11 +162,17 @@ def _close_position(
     fee_rate: Decimal,
     bar_duration: timedelta,
 ) -> tuple[BacktestTrade, Decimal]:
-    """Apply one covering fill, fee, cash transition, and exact complete-trade evidence."""
+    """Apply one covering fill, fee, cash transition, and exact complete-trade evidence.
+
+    Futures exits add the per-contract fee; a perp trade's net PnL includes the funding
+    already charged to cash while it was open.
+    """
     short = position.side == "short"
     quantity = Decimal(position.entry.quantity)
     exit_notional = quantity * quote.price
     exit_fee = exit_notional * fee_rate
+    if position.unit_fee is not None:
+        exit_fee += quantity * position.unit_fee
     exit_fill = BacktestExitFill(
         candle_starts_at=candle.starts_at,
         price=canonical_decimal(quote.price),
@@ -170,6 +193,9 @@ def _close_position(
         net_pnl = exit_notional - exit_fee - entry_notional - entry_fee
         gross_pnl = exit_notional - entry_notional
         next_cash = cash + exit_notional - exit_fee
+    funding = position.funding
+    if funding is not None:
+        net_pnl += funding
     return (
         BacktestTrade(
             entry=position.entry,
@@ -179,6 +205,7 @@ def _close_position(
             holding_bars=_holding_bars(
                 position.entry.candle_starts_at, candle.starts_at, bar_duration
             ),
+            funding=canonical_decimal(funding) if funding is not None else None,
         ),
         next_cash,
     )

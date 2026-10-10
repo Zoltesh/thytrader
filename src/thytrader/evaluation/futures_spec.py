@@ -10,12 +10,18 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
-from typing import Literal, Self
+from hashlib import sha256
+import json
+from typing import TYPE_CHECKING, Literal, Self
 
 from pydantic import Field, field_serializer, field_validator, model_validator
 
+from thytrader.decimal_text import canonical_decimal
 from thytrader.market_data.instrument_ids import FUTURES_PRODUCT_ID_PATTERN
 from thytrader.strategies.schema.primitives import DecimalText, _FrozenModel
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _MAX_STRESS_MULTIPLIER = Decimal(5)
@@ -182,3 +188,19 @@ def validate_fee_per_contract(value: str | None) -> str | None:
     if value is not None and not Decimal(0) <= Decimal(value) <= _MAX_FEE_PER_CONTRACT:
         raise ValueError("fee_per_contract must be between 0 and 100")
     return value
+
+
+def funding_series_fingerprint(product_id: str, rates: Mapping[datetime, Decimal]) -> str:
+    """Identify the settled hourly funding rows one perp run consumed (ADR 0128).
+
+    The identity covers the product and every ``(funding hour, rate)`` pair in hour order,
+    with canonical decimal text, so it never passes through binary floating point.
+    """
+    rows = [
+        [_utc_text(hour.astimezone(UTC)), canonical_decimal(rate)]
+        for hour, rate in sorted(rates.items())
+    ]
+    canonical = json.dumps(
+        {"product_id": product_id, "rates": rows}, sort_keys=True, separators=(",", ":")
+    )
+    return "sha256:" + sha256(canonical.encode()).hexdigest()
