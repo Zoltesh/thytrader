@@ -1078,6 +1078,64 @@
       "title": "BarDecision",
       "type": "object"
     },
+    "BookGroupTiming": {
+      "additionalProperties": false,
+      "description": "Totals for every visited book of one lifecycle status and mode.",
+      "properties": {
+        "status": {
+          "maxLength": 16,
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "maxLength": 16,
+          "title": "Mode",
+          "type": "string"
+        },
+        "books": {
+          "minimum": 0,
+          "title": "Books",
+          "type": "integer"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "venue_requests": {
+          "minimum": 0,
+          "title": "Venue Requests",
+          "type": "integer"
+        },
+        "venue_seconds": {
+          "minimum": 0,
+          "title": "Venue Seconds",
+          "type": "number"
+        },
+        "db_statements": {
+          "minimum": 0,
+          "title": "Db Statements",
+          "type": "integer"
+        },
+        "db_seconds": {
+          "minimum": 0,
+          "title": "Db Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "status",
+        "mode",
+        "books",
+        "seconds",
+        "venue_requests",
+        "venue_seconds",
+        "db_statements",
+        "db_seconds"
+      ],
+      "title": "BookGroupTiming",
+      "type": "object"
+    },
     "BookStatusCounts": {
       "additionalProperties": false,
       "description": "Books the cycle visited, by lifecycle status at the start of the cycle.",
@@ -3699,6 +3757,20 @@
         },
         "window_cache": {
           "$ref": "#/$defs/WindowCacheCycleState"
+        },
+        "book_groups": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BookGroupTiming"
+          },
+          "title": "Book Groups",
+          "type": "array"
+        },
+        "shared_reads": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Shared Reads",
+          "type": "integer"
         }
       },
       "required": [
@@ -3769,6 +3841,11 @@
           "title": "Interval Seconds",
           "type": "integer"
         },
+        "budget_seconds": {
+          "minimum": 1,
+          "title": "Budget Seconds",
+          "type": "integer"
+        },
         "last_duration_seconds": {
           "anyOf": [
             {
@@ -3833,6 +3910,7 @@
       },
       "required": [
         "interval_seconds",
+        "budget_seconds",
         "slow"
       ],
       "title": "ExecutionCycleSummary",
@@ -9940,7 +10018,8 @@
               "revision_fenced_fleet_controls",
               "backtest_bar_explanations",
               "fleet_entry_health",
-              "execution_cycle_timing"
+              "execution_cycle_timing",
+              "execution_cycle_budget"
             ],
             "type": "string"
           },

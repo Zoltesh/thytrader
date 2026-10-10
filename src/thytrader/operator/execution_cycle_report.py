@@ -1,9 +1,10 @@
 """Execution-worker cycle timing for operator health and runtime (ADR 0131).
 
-Reads the worker's recent cycle records and grades the newest: a completed cycle that took
-longer than its configured interval, or a cycle still running past it, is ``CYCLE_SLOW``,
-and the detail names the slowest phase, the venue traffic and the slowest books. Missing
-or unreadable telemetry is degraded, never healthy.
+Reads the worker's recent cycle records and grades the newest against its budget: the
+configured interval plus the 30 s slack health grants every worker loop. A completed cycle
+over budget, or a cycle still running past it, is ``CYCLE_SLOW``, and the detail names the
+slowest phase, the venue and database time and the slowest books. Missing or unreadable
+telemetry is degraded, never healthy.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from thytrader.observability.execution_cycle import (
     CyclePhaseName,
     ExecutionCycleRecord,
     ExecutionCycleReport,
+    cycle_budget_seconds,
 )
 from thytrader.operator.models import ComponentReport, ReportStatus, _FrozenModel
 from thytrader.persistence.execution_cycles import ExecutionCycleStoreUnavailableError
@@ -45,6 +47,7 @@ class ExecutionCycleSummary(_FrozenModel):
     """Health's compact view of the worker cycle against its interval."""
 
     interval_seconds: int = Field(ge=1)
+    budget_seconds: int = Field(ge=1)
     last_duration_seconds: float | None = None
     last_completed_at: datetime | None = None
     slowest_phase: CyclePhaseName | None = None
@@ -109,14 +112,16 @@ def _payload(records: Sequence[ExecutionCycleRecord], *, now: datetime) -> Execu
         None if in_progress is None else max((now - in_progress).total_seconds(), 0.0)
     )
     interval = newest.interval_seconds
+    budget = cycle_budget_seconds(interval)
     durations = [record.report.duration_seconds for record in records if record.report is not None]
     summary = ExecutionCycleSummary(
         interval_seconds=interval,
+        budget_seconds=budget,
         last_duration_seconds=None if latest is None else latest.duration_seconds,
         last_completed_at=None if latest is None else latest.completed_at,
         slowest_phase=None if latest is None else latest.slowest_phase,
         in_progress_seconds=None if in_progress_seconds is None else round(in_progress_seconds, 1),
-        slow=(in_progress_seconds is not None and in_progress_seconds > interval)
+        slow=(in_progress_seconds is not None and in_progress_seconds > budget)
         or (latest is not None and latest.slow),
     )
     return ExecutionCyclePayload(
@@ -140,7 +145,7 @@ def _payload(records: Sequence[ExecutionCycleRecord], *, now: datetime) -> Execu
 
 
 def _grade(payload: ExecutionCyclePayload) -> ComponentReport:
-    """Return ``CYCLE_SLOW`` when the cycle overran its interval, else a healthy reading."""
+    """Return ``CYCLE_SLOW`` when the cycle overran its budget, else a healthy reading."""
     summary = payload.summary
     if summary.slow:
         return ComponentReport(
@@ -155,18 +160,20 @@ def _grade(payload: ExecutionCyclePayload) -> ComponentReport:
             status=ReportStatus.HEALTHY,
             reason_code="CYCLE_IN_PROGRESS",
             detail=(
-                f"The first recorded cycle has run {summary.in_progress_seconds or 0:.0f}s "
-                f"of its {summary.interval_seconds}s interval."
+                f"The first recorded cycle has run {summary.in_progress_seconds or 0:.1f}s "
+                f"of its {summary.budget_seconds}s budget ({summary.interval_seconds}s interval)."
             ),
         )
     latest = payload.latest
     return ComponentReport(
         name=_COMPONENT,
         status=ReportStatus.HEALTHY,
-        reason_code="CYCLE_WITHIN_INTERVAL",
+        reason_code="CYCLE_WITHIN_BUDGET",
         detail=(
-            f"The last cycle took {latest.duration_seconds:.1f}s of its "
-            f"{latest.interval_seconds}s interval ({latest.venue.requests} venue requests)."
+            f"The last cycle took {latest.duration_seconds:.1f}s against a "
+            f"{latest.interval_seconds}s interval ({summary.budget_seconds}s budget; "
+            f"{latest.venue.requests} venue requests, median of recent cycles "
+            f"{payload.recent_median_seconds or 0:.1f}s)."
         ),
     )
 
@@ -177,18 +184,19 @@ def _slow_detail(payload: ExecutionCyclePayload) -> str:
     latest = payload.latest
     parts: list[str] = []
     if summary.in_progress_seconds is not None and summary.in_progress_seconds > (
-        summary.interval_seconds
+        summary.budget_seconds
     ):
         parts.append(
-            f"The current cycle has run {summary.in_progress_seconds:.0f}s against a "
-            f"{summary.interval_seconds}s interval."
+            f"The current cycle has run {summary.in_progress_seconds:.1f}s, over its "
+            f"{summary.budget_seconds}s budget ({summary.interval_seconds}s interval)."
         )
     if latest is None:
         return " ".join(parts)
     phase = next(item for item in latest.phases if item.name == latest.slowest_phase)
     parts.append(
         f"Last cycle took {latest.duration_seconds:.0f}s against a {latest.interval_seconds}s "
-        f"interval; slowest phase {phase.name} {phase.seconds:.0f}s; venue "
+        f"interval ({summary.budget_seconds}s budget); slowest phase {phase.name} "
+        f"{phase.seconds:.0f}s; venue "
         f"{latest.venue.requests} requests {latest.venue.seconds:.0f}s; database "
         f"{latest.database.statements} statements {latest.database.seconds:.0f}s."
     )

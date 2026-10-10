@@ -333,7 +333,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v91`, schema revision `0075`) and exits on any
+   this checkout's (`thytrader-ops-contract-v92`, schema revision `0075`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -550,18 +550,21 @@ or contributor's decision, and resets and rearms belong to `thytrader-runtime` w
 
 The execution worker records every cycle in PostgreSQL: when it started and, once it
 finishes, how long it took against its configured interval and where the time went
-([ADR 0131](../../docs/decisions/0131-execution-cycle-timing.md)). Read-only; no command
-changes it.
+([ADR 0131](../../docs/decisions/0131-execution-cycle-timing.md),
+[ADR 0132](../../docs/decisions/0132-execution-cycle-shared-reads-and-budget.md)). Read-only;
+no command changes it. A cycle's budget is its interval plus 30 s (`budget_seconds`, 60 s at
+the default 30 s interval): the slack health already grants every worker loop.
 
-- `health` component `execution_cycle`: `CYCLE_WITHIN_INTERVAL` (healthy), `CYCLE_IN_PROGRESS`
-  (healthy: the first recorded cycle is still within its interval), `CYCLE_SLOW` (degraded:
-  the last completed cycle took longer than `interval_seconds`, or the running cycle has
-  already overrun it; the detail names the slowest phase, venue requests and the three
-  slowest books), `CYCLE_TIMING_MISSING` (degraded: no cycle recorded yet, or the worker
-  image predates ADR 0131) and `CYCLE_TIMING_UNAVAILABLE` (degraded: PostgreSQL unreadable).
+- `health` component `execution_cycle`: `CYCLE_WITHIN_BUDGET` (healthy; the detail still
+  shows the duration against the interval), `CYCLE_IN_PROGRESS` (healthy: the first recorded
+  cycle is still within its budget), `CYCLE_SLOW` (degraded: the last completed cycle took
+  longer than `budget_seconds`, or the running cycle has already overrun it; the detail
+  names the slowest phase, venue and database time and the three slowest books),
+  `CYCLE_TIMING_MISSING` (degraded: no cycle recorded yet, or the worker image predates
+  ADR 0131) and `CYCLE_TIMING_UNAVAILABLE` (degraded: PostgreSQL unreadable).
   `health.payload.execution_cycle` is the compact summary (`interval_seconds`,
-  `last_duration_seconds`, `last_completed_at`, `slowest_phase`, `in_progress_seconds`,
-  `slow`).
+  `budget_seconds`, `last_duration_seconds`, `last_completed_at`, `slowest_phase`,
+  `in_progress_seconds`, `slow`).
 - `runtime.payload.execution_cycle` is the full evidence: `latest` (the newest completed
   cycle) with `phases[]` (`setup`, `portfolio_supervision`, `books`, `risk_snapshots`,
   `safety_supervision`, `fleet_supervision`: seconds, venue requests and seconds, database
@@ -570,7 +573,10 @@ changes it.
   requests, `warming`, `failed`), `venue` (requests, errors, summed latency and the costliest
   endpoint shapes with ids replaced by `{id}`), `database` (statements, seconds) and
   `window_cache` (cached windows and candles, this cycle's range requests and warming
-  books); plus `recent[]` (up to 20 cycles, newest first) with their median and maximum.
+  books), `book_groups[]` (totals per status and mode: books, seconds, venue and database
+  time) and `shared_reads` (product, preview and fee-tier reads served from an identical
+  read earlier in the same cycle); plus `recent[]` (up to 20 cycles, newest first) with
+  their median and maximum.
 - The worker's heartbeat is refreshed between books, so `HEARTBEAT_STALE` on
   `execution_worker` means one step has been stuck past the stale window or the worker is
   down; a slow but progressing cycle shows only `CYCLE_SLOW`.

@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from hashlib import sha256
 import json
 import time
 from typing import Protocol, cast, runtime_checkable
 
+from thytrader.market_data.cycle_reads import shared_read
 from thytrader.market_data.instrument_catalog import (
     FuturesCatalogCache,
     build_instrument_catalog,
@@ -215,8 +217,22 @@ class MarketDataService:
             self._catalog_expires_at = time.monotonic() + 30.0
 
     async def get_preview(self, product_id: str, interval: CandleInterval) -> MarketDataPreview:
-        """Return one selected product's read-only preview at a UTC instant."""
-        return await self._provider.get_recent_preview(product_id, interval, datetime.now(UTC))
+        """Return one selected product's read-only preview at a UTC instant.
+
+        Inside an execution cycle (ADR 0131) books on the same product and clock share one
+        preview per closed-bar boundary: the same completed candles, read once.
+        """
+        now = datetime.now(UTC)
+        key = (
+            "preview",
+            str(id(self._provider)),
+            product_id,
+            interval.value,
+            interval.align_closed_end(now).isoformat(),
+        )
+        return await shared_read(
+            key, partial(self._provider.get_recent_preview, product_id, interval, now)
+        )
 
     async def get_hourly_preview(self, product_id: str) -> MarketDataPreview:
         """Return one selected product's read-only hourly preview at a UTC instant."""

@@ -14,6 +14,7 @@ from thytrader.exchanges.coinbase_futures_catalog import (
     CoinbaseFuturesCatalogError,
     parse_futures_row,
 )
+from thytrader.market_data.cycle_reads import shared_read
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.instruments import futures_market_product
 from thytrader.market_data.models import (
@@ -142,7 +143,10 @@ class CoinbaseMarketData:
             -(interval.duration * _RECENT_INTERVAL_COUNT),
             "Coinbase recent preview cannot represent its lower request boundary.",
         )
-        product_response = await asyncio.to_thread(self._client.get_product, product_id)
+        product_response = await shared_read(
+            self._product_key(product_id),
+            lambda: asyncio.to_thread(self._client.get_product, product_id),
+        )
         candle_response = await asyncio.to_thread(
             self._client.get_candles,
             product_id,
@@ -179,7 +183,10 @@ class CoinbaseMarketData:
         if starts_at >= ends_at or ends_at > now or interval_count > _MAX_RANGE_INTERVAL_COUNT:
             message = "Historical range is outside the supported closed-candle request bounds."
             raise CoinbaseMarketDataError(message)
-        product_response = await _rate_limited_call(partial(self._client.get_product, product_id))
+        product_response = await shared_read(
+            self._product_key(product_id),
+            partial(_rate_limited_call, partial(self._client.get_product, product_id)),
+        )
         _verify_range_product(product_id, product_response.to_dict())
         candles: list[Candle] = []
         page_start = starts_at
@@ -210,6 +217,10 @@ class CoinbaseMarketData:
             return analyze_range(tuple(candles), interval, starts_at, ends_at, now)
         except CandleQualityError as error:
             raise CoinbaseMarketDataError(str(error)) from error
+
+    def _product_key(self, product_id: str) -> tuple[str, ...]:
+        """Name one product-metadata read of this client for same-cycle sharing (ADR 0131)."""
+        return ("coinbase_product", str(id(self._client)), product_id)
 
 
 async def _rate_limited_call(call: Callable[[], CoinbaseResponse]) -> CoinbaseResponse:

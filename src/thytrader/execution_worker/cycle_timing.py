@@ -22,6 +22,7 @@ from thytrader.observability.database_calls import DatabaseCallLedger, database_
 from thytrader.observability.execution_cycle import (
     CYCLE_PHASES,
     MAX_REPORTED_BOOKS,
+    BookGroupTiming,
     BookStatusCounts,
     CycleBookTiming,
     CyclePhaseName,
@@ -112,6 +113,7 @@ class CycleTimer:
             name: _PhaseTotals() for name in CYCLE_PHASES
         }
         self._books: list[tuple[float, int, CycleBookTiming]] = []
+        self._groups: dict[tuple[str, str], tuple[int, float, _Reading]] = {}
         self._book_sequence = 0
         self._warming_books = 0
 
@@ -153,6 +155,7 @@ class CycleTimer:
         *,
         deployments: Sequence[Deployment],
         book_failures: int,
+        shared_reads: int = 0,
         completed_at: datetime | None = None,
     ) -> ExecutionCycleReport:
         """Build the cycle report from everything timed so far."""
@@ -196,6 +199,20 @@ class CycleTimer:
                 warming_events=_cache_delta(self._cache_start, cache_now, _warming_events),
                 warming_books=self._warming_books,
             ),
+            book_groups=tuple(
+                BookGroupTiming(
+                    status=status,
+                    mode=mode,
+                    books=count,
+                    seconds=round(seconds, 3),
+                    venue_requests=calls.venue.requests,
+                    venue_seconds=round(calls.venue.seconds, 3),
+                    db_statements=calls.database.requests,
+                    db_seconds=round(calls.database.seconds, 3),
+                )
+                for (status, mode), (count, seconds, calls) in sorted(self._groups.items())
+            ),
+            shared_reads=shared_reads,
         )
 
     def _reading(self) -> _Reading:
@@ -231,6 +248,9 @@ class CycleTimer:
             warming=warming,
             failed=probe.failed,
         )
+        group = (timing.status, timing.mode)
+        count, total, group_calls = self._groups.get(group, (0, 0.0, _Reading(_ZERO, _ZERO)))
+        self._groups[group] = (count + 1, total + seconds, group_calls.plus(calls))
         self._book_sequence += 1
         entry = (seconds, -self._book_sequence, timing)
         if len(self._books) < MAX_REPORTED_BOOKS:

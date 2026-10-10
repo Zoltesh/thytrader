@@ -1,6 +1,6 @@
 # 0131: Execution cycle timing
 
-- Status: Accepted
+- Status: Accepted; §5's slow threshold amended by [0132](0132-execution-cycle-shared-reads-and-budget.md)
 - Date: 2026-10-10
 - Relates to: [0072](0072-catalog-health-bounded-gaps-self-complete-ingest.md),
   [0113](0113-deploy-anchored-window-cache.md),

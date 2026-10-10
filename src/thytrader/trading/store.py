@@ -196,6 +196,22 @@ class InventoryAdoptionStore(Protocol):
         ...
 
 
+@runtime_checkable
+class DeploymentSnapshotBatchReader(Protocol):
+    """Load many full deployment snapshots in one read (ADR 0131).
+
+    Each snapshot equals what ``ExecutionStore.get_deployment`` returns for that id; a
+    missing id raises ``ExecutionStoreError`` exactly as the single loader does. Callers
+    that reload the whole fleet use it instead of one ``get_deployment`` per book.
+    """
+
+    async def get_deployments(
+        self, deployment_ids: Sequence[UUID]
+    ) -> tuple[DeploymentSnapshot, ...]:
+        """Return one snapshot per id, in the given order."""
+        ...
+
+
 class DisabledExecutionStore:
     """Fail closed when execution storage is not configured."""
 

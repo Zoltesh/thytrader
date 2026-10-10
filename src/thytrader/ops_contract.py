@@ -115,7 +115,8 @@ or the futures account mirror history (the operator ``futures-account --history`
 Alembic 0074 and ``spot_collateral`` on ``futures-account``; ADR 0127 §10),
 or execution cycle timing (the ``execution_cycle`` health component and ``CYCLE_SLOW``,
 ``payload.execution_cycle`` on ``health`` and ``runtime`` and the ``execution_cycles`` table of
-Alembic 0075; ADR 0131) change.
+Alembic 0075; ADR 0131), or the execution cycle budget (``CYCLE_WITHIN_BUDGET``,
+``budget_seconds``, ``book_groups`` and ``shared_reads``; ADR 0132) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -144,7 +145,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v91"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v92"
 EXPECTED_SCHEMA_REVISION = "0075"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -289,6 +290,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "backtest_bar_explanations",
     "fleet_entry_health",
     "execution_cycle_timing",
+    "execution_cycle_budget",
 )
 # Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
 # no execution, live, adoption or discretionary surface accepts a futures id.

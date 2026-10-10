@@ -31,6 +31,10 @@ CYCLE_PHASES: tuple[CyclePhaseName, ...] = (
     "fleet_supervision",
 )
 MAX_REPORTED_BOOKS = 10
+# The slack operator health already grants every worker loop (heartbeat stale after two
+# intervals plus 30 s). A cycle may run its interval plus this slack before it is slow: past
+# that, the pre-ADR 0131 cycle-start heartbeat would have gone stale.
+CYCLE_SLACK_SECONDS = 30
 MAX_REPORTED_ENDPOINTS = 15
 
 
@@ -72,6 +76,19 @@ class CycleBookTiming(_CycleModel):
     window_range_requests: int = Field(ge=0)
     warming: bool = False
     failed: bool = False
+
+
+class BookGroupTiming(_CycleModel):
+    """Totals for every visited book of one lifecycle status and mode."""
+
+    status: str = Field(max_length=16)
+    mode: str = Field(max_length=16)
+    books: int = Field(ge=0)
+    seconds: float = Field(ge=0)
+    venue_requests: int = Field(ge=0)
+    venue_seconds: float = Field(ge=0)
+    db_statements: int = Field(ge=0)
+    db_seconds: float = Field(ge=0)
 
 
 class BookStatusCounts(_CycleModel):
@@ -141,11 +158,18 @@ class ExecutionCycleReport(_CycleModel):
     venue: VenueCallSummary
     database: DatabaseCallSummary
     window_cache: WindowCacheCycleState
+    book_groups: tuple[BookGroupTiming, ...] = ()
+    shared_reads: int = Field(default=0, ge=0)
 
     @property
     def slow(self) -> bool:
-        """True when the cycle took longer than its configured interval."""
-        return self.duration_seconds > self.interval_seconds
+        """True when the cycle took longer than its budget (interval plus 30 s slack)."""
+        return self.duration_seconds > cycle_budget_seconds(self.interval_seconds)
+
+
+def cycle_budget_seconds(interval_seconds: int) -> int:
+    """Return how long one cycle may run before it is ``CYCLE_SLOW``."""
+    return interval_seconds + CYCLE_SLACK_SECONDS
 
 
 class ExecutionCycleRecord(_CycleModel):

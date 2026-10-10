@@ -12,6 +12,7 @@ from thytrader.exchanges.coinbase_market_data import (
     CoinbaseMarketData,
     CoinbaseMarketDataError,
 )
+from thytrader.market_data.cycle_reads import CycleReads, cycle_reads_scope
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -994,3 +995,46 @@ def test_coinbase_market_data_keeps_status_and_alias() -> None:
     assert products["BTC-USD"].alias is None
     assert products["ETH-USDC"].alias == "ETH-USD"
     assert products["ETH-USDC"].status == "online"
+
+
+class _CountingProductClient(PagedCoinbaseMarketClient):
+    """Paged client that counts product-metadata reads."""
+
+    def __init__(self) -> None:
+        """Start with zero product reads."""
+        super().__init__()
+        self.product_reads = 0
+
+    def get_product(self, product_id: str) -> StubResponse:
+        """Count, then return the stub product."""
+        self.product_reads += 1
+        return super().get_product(product_id)
+
+
+def test_product_metadata_is_read_once_per_cycle_scope_and_every_time_outside() -> None:
+    """Inside an execution cycle the preview and range share one product read (ADR 0131)."""
+    client = _CountingProductClient()
+    adapter = CoinbaseMarketData(client)
+    starts_at = datetime(2026, 7, 1, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 2, tzinfo=UTC)
+    now = ends_at + CandleInterval.ONE_HOUR.duration
+
+    async def reads() -> None:
+        await adapter.get_recent_preview("BTC-USD", CandleInterval.ONE_HOUR, now)
+        await adapter.get_historical_range(
+            "BTC-USD", CandleInterval.ONE_HOUR, starts_at, ends_at, now=now
+        )
+        await adapter.get_historical_range(
+            "BTC-USD", CandleInterval.ONE_HOUR, starts_at, ends_at, now=now
+        )
+
+    async def in_cycle() -> None:
+        with cycle_reads_scope(CycleReads()):
+            await reads()
+
+    asyncio.run(in_cycle())
+    assert client.product_reads == 1
+    candle_reads = len(client.candle_calls)
+    asyncio.run(reads())
+    assert client.product_reads == 4
+    assert len(client.candle_calls) == 2 * candle_reads
