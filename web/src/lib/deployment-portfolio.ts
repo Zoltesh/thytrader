@@ -5,7 +5,9 @@
  * the strategy library). Nothing here invents a number: a metric that cannot
  * be computed truthfully is `unavailable` and renders as `—` with its reason.
  * Paper capital is simulated, so money is never totalled across paper and
- * live, and amounts are only summed within one quote currency.
+ * live, and amounts are only summed within one quote currency. Paper futures
+ * books (USD, ADR 0129) form their own `USD futures` bucket: they are never added
+ * to USDC, USDT, or spot USD amounts.
  */
 import { canonicalPositions, type Deployment, type DeploymentPosition } from './deployments';
 import { marketLabel, productIdQuote, workingOrderCount } from './deployment-detail';
@@ -13,6 +15,7 @@ import { protectionBadge } from './protection-evidence';
 import { lifecycleControlsAvailable } from './lifecycle-contract';
 import { sumDecimalStrings } from './money';
 import { compareDecimalStrings, formatUsd } from './portfolio';
+import { isFuturesProductId } from './product-id';
 import type { StrategyLibraryEntry } from './strategies';
 import { rulesLabel, rulesState, shortStrategyFingerprint } from './strategy-workspace';
 
@@ -91,10 +94,15 @@ export type PortfolioHeaderMetrics = {
 	exposure: MoneyMetric;
 };
 
+/** Paper futures books settle in USD and are totalled only with each other. */
+export const FUTURES_QUOTE = 'USD futures';
+
 const MIXED_MODES =
 	'Choose Paper or Live: simulated paper capital is never totalled with real money.';
 
+/** Currency bucket of a bot's amounts; futures books are USD kept apart from spot. */
 function quoteOf(deployment: Deployment): string {
+	if (isFuturesProductId(deployment.product_id)) return FUTURES_QUOTE;
 	return productIdQuote(deployment.product_id) ?? 'unknown quote';
 }
 

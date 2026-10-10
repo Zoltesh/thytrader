@@ -4,7 +4,8 @@
 	 * lifecycle controls, the live preflight, and "Arm live trading…".
 	 *
 	 * The preflight lists what existing endpoints report, with `Unknown` where a
-	 * source cannot be read; it is never a readiness verdict.
+	 * source cannot be read; it is never a readiness verdict. A futures strategy
+	 * cannot be armed: there is no live futures path (FUTURES_LIVE_UNSUPPORTED).
 	 */
 	import type { LifecycleAction } from '$lib/deployment-detail';
 	import type { Deployment } from '$lib/deployments';
@@ -20,6 +21,7 @@
 		canStart,
 		currentFingerprint,
 		model,
+		futures = false,
 		onaction,
 		onupdated,
 		onarm
@@ -31,6 +33,8 @@
 		canStart: boolean;
 		currentFingerprint: string | null;
 		model: BuilderModel | null;
+		/** The strategy trades a futures contract, which runs as a paper book only. */
+		futures?: boolean;
 		onaction: (action: LifecycleAction, deployment: Deployment) => void;
 		onupdated: (result: { stopped: Deployment; started: Deployment | null }) => void;
 		onarm: () => void;
@@ -57,48 +61,55 @@
 				{onupdated}
 			/>
 		{/each}
-		<h3 class="sub">Live preflight</h3>
-		<p class="note">
-			What existing endpoints report right now. Items are independent facts, not a readiness
-			verdict; arming stays your decision.
-		</p>
-		<ul class="checks" aria-label="Live preflight" aria-busy={preflight === null}>
-			{#if preflight === null}
-				<li class="check"><span class="faint">…</span>Reading preflight sources…</li>
-			{:else}
-				{#each preflight as item (item.id)}
-					<li class="check" data-preflight={item.id} data-state={item.state}>
-						<span class="mark {item.state}" aria-hidden="true"
-							>{item.state === 'ok' ? '✓' : item.state === 'attention' ? '!' : '?'}</span
-						>
-						<span
-							><span class="sr-only"
-								>{item.state === 'ok'
-									? 'Reported:'
-									: item.state === 'attention'
-										? 'Needs attention:'
-										: 'Unknown:'}</span
+		{#if futures}
+			<p class="refused" role="status" data-testid="live-futures-unsupported">
+				Live futures are not supported (FUTURES_LIVE_UNSUPPORTED) — run this strategy as a paper
+				book.
+			</p>
+		{:else}
+			<h3 class="sub">Live preflight</h3>
+			<p class="note">
+				What existing endpoints report right now. Items are independent facts, not a readiness
+				verdict; arming stays your decision.
+			</p>
+			<ul class="checks" aria-label="Live preflight" aria-busy={preflight === null}>
+				{#if preflight === null}
+					<li class="check"><span class="faint">…</span>Reading preflight sources…</li>
+				{:else}
+					{#each preflight as item (item.id)}
+						<li class="check" data-preflight={item.id} data-state={item.state}>
+							<span class="mark {item.state}" aria-hidden="true"
+								>{item.state === 'ok' ? '✓' : item.state === 'attention' ? '!' : '?'}</span
 							>
-							{item.label}</span
-						>
-					</li>
-				{/each}
-			{/if}
-			<li class="check" data-preflight="paper-evidence">
-				<span class="mark info" aria-hidden="true">i</span>
-				<span class="muted">{paperEvidenceText(paper)}</span>
-			</li>
-		</ul>
-		<button
-			class="btn live arm"
-			type="button"
-			disabled={controlsBlocked || !canStart}
-			aria-describedby={canStart ? undefined : 'arm-blocked'}
-			onclick={onarm}>Arm live trading…</button
-		>
-		{#if !canStart}<p class="note" id="arm-blocked">
-				Blocked until the saved definition is valid.
-			</p>{/if}
+							<span
+								><span class="sr-only"
+									>{item.state === 'ok'
+										? 'Reported:'
+										: item.state === 'attention'
+											? 'Needs attention:'
+											: 'Unknown:'}</span
+								>
+								{item.label}</span
+							>
+						</li>
+					{/each}
+				{/if}
+				<li class="check" data-preflight="paper-evidence">
+					<span class="mark info" aria-hidden="true">i</span>
+					<span class="muted">{paperEvidenceText(paper)}</span>
+				</li>
+			</ul>
+			<button
+				class="btn live arm"
+				type="button"
+				disabled={controlsBlocked || !canStart}
+				aria-describedby={canStart ? undefined : 'arm-blocked'}
+				onclick={onarm}>Arm live trading…</button
+			>
+			{#if !canStart}<p class="note" id="arm-blocked">
+					Blocked until the saved definition is valid.
+				</p>{/if}
+		{/if}
 	</div>
 </section>
 
@@ -168,6 +179,10 @@
 	.mark.unknown,
 	.mark.info {
 		color: var(--faint);
+	}
+	.refused {
+		margin: 0;
+		color: var(--warn);
 	}
 	.arm {
 		width: 100%;

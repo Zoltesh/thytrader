@@ -131,6 +131,20 @@ describe('portfolioHeaderMetrics', () => {
 		expect(moneyMetricText(metrics.equity)).toBe('1,021.40 USDC');
 	});
 
+	it('keeps paper futures USD apart from spot USD and USDC', () => {
+		const metrics = portfolioHeaderMetrics(
+			[
+				deployment({ capital: { allocated_capital: '1000' } }),
+				deployment({ product_id: 'UNI-USD', capital: { allocated_capital: '50' } }),
+				deployment({ product_id: 'BIP-20DEC30-CDE', capital: { allocated_capital: '700' } })
+			],
+			'paper'
+		);
+		expect(moneyMetricText(metrics.allocated)).toBe(
+			'50.00 USD · 700.00 USD futures · 1,000.00 USDC'
+		);
+	});
+
 	it('shows no capital total when no bot has a capital block', () => {
 		const metrics = portfolioHeaderMetrics([deployment()], 'all');
 		expect(moneyMetricText(metrics.allocated)).toBe('—');

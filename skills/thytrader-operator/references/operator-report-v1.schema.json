@@ -4565,6 +4565,585 @@
       "title": "FuturesBalancePayload",
       "type": "object"
     },
+    "FuturesBookPayload": {
+      "additionalProperties": false,
+      "description": "One paper futures book. Amounts are USD strings; ``null`` is unknown.\n\n``unknown`` lists what could not be read (``binding``, ``mark``, ``margin_rates``,\nan overdue ``funding`` hour, an unreadable ``policy``); figures that depend on it are\n``null``. ``entry_blocks`` are the reason codes that deny the book's next entry today\n(protective and liquidation exits are never blocked). ``liquidation_price`` is the mark\nat which equity would equal maintenance (overnight rate, maintenance = initial); the\nworker liquidates on a closed bar whose adverse extreme crosses it.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "strategy_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Strategy Name"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "paper",
+            "live"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "currency": {
+          "const": "USD",
+          "default": "USD",
+          "title": "Currency",
+          "type": "string"
+        },
+        "contract_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "perpetual_future",
+                "dated_future"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Contract Kind"
+        },
+        "underlying": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Underlying"
+        },
+        "contract_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Contract Size"
+        },
+        "fee_per_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fee Per Contract"
+        },
+        "maker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maker Fee Rate"
+        },
+        "taker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Taker Fee Rate"
+        },
+        "catalog_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Catalog Fingerprint"
+        },
+        "bound_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Bound At"
+        },
+        "side": {
+          "enum": [
+            "long",
+            "short",
+            "flat"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "contracts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Contracts"
+        },
+        "base_quantity": {
+          "title": "Base Quantity",
+          "type": "string"
+        },
+        "entry_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Entry Price"
+        },
+        "mark_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Mark Price"
+        },
+        "marked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Marked At"
+        },
+        "paper_starting_cash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Paper Starting Cash"
+        },
+        "cash": {
+          "title": "Cash",
+          "type": "string"
+        },
+        "equity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Equity"
+        },
+        "notional": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Notional"
+        },
+        "leverage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Leverage"
+        },
+        "policy_max_leverage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Policy Max Leverage"
+        },
+        "overnight_long_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overnight Long Margin Rate"
+        },
+        "overnight_short_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overnight Short Margin Rate"
+        },
+        "margin_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Observed At"
+        },
+        "initial_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Initial Margin"
+        },
+        "maintenance_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maintenance Margin"
+        },
+        "liquidation_buffer_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Buffer Fraction"
+        },
+        "min_liquidation_buffer_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Min Liquidation Buffer Fraction"
+        },
+        "liquidation_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Price"
+        },
+        "funding_total": {
+          "title": "Funding Total",
+          "type": "string"
+        },
+        "funding_hours": {
+          "title": "Funding Hours",
+          "type": "integer"
+        },
+        "funding_overdue_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Overdue Since"
+        },
+        "recent_funding": {
+          "items": {
+            "$ref": "#/$defs/FuturesFundingEntryPayload"
+          },
+          "title": "Recent Funding",
+          "type": "array"
+        },
+        "daily_loss_latched": {
+          "title": "Daily Loss Latched",
+          "type": "boolean"
+        },
+        "entry_blocks": {
+          "items": {
+            "enum": [
+              "FUTURES_CONTRACT_UNBOUND",
+              "FUTURES_MARGIN_UNKNOWN",
+              "FUNDING_HISTORY_MISSING",
+              "FUTURES_POLICY_UNSET"
+            ],
+            "type": "string"
+          },
+          "title": "Entry Blocks",
+          "type": "array"
+        },
+        "unknown": {
+          "items": {
+            "enum": [
+              "binding",
+              "mark",
+              "margin_rates",
+              "funding",
+              "policy"
+            ],
+            "type": "string"
+          },
+          "title": "Unknown",
+          "type": "array"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "strategy_name",
+        "status",
+        "mode",
+        "product_id",
+        "contract_kind",
+        "underlying",
+        "contract_size",
+        "fee_per_contract",
+        "maker_fee_rate",
+        "taker_fee_rate",
+        "catalog_fingerprint",
+        "bound_at",
+        "side",
+        "contracts",
+        "base_quantity",
+        "entry_price",
+        "mark_price",
+        "marked_at",
+        "paper_starting_cash",
+        "cash",
+        "equity",
+        "notional",
+        "leverage",
+        "policy_max_leverage",
+        "overnight_long_margin_rate",
+        "overnight_short_margin_rate",
+        "margin_observed_at",
+        "initial_margin",
+        "maintenance_margin",
+        "liquidation_buffer_fraction",
+        "min_liquidation_buffer_fraction",
+        "liquidation_price",
+        "funding_total",
+        "funding_hours",
+        "funding_overdue_since",
+        "recent_funding",
+        "daily_loss_latched",
+        "entry_blocks",
+        "unknown"
+      ],
+      "title": "FuturesBookPayload",
+      "type": "object"
+    },
+    "FuturesBooksPayload": {
+      "additionalProperties": false,
+      "description": "Every paper futures book plus the policy envelope that funds them (USD).",
+      "properties": {
+        "paper_capital_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Paper Capital Usd"
+        },
+        "committed_paper_cash_usd": {
+          "title": "Committed Paper Cash Usd",
+          "type": "string"
+        },
+        "futures_policy_set": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Futures Policy Set"
+        },
+        "books": {
+          "items": {
+            "$ref": "#/$defs/FuturesBookPayload"
+          },
+          "title": "Books",
+          "type": "array"
+        },
+        "collateral_note": {
+          "default": "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): futures buying power is shared with USDC spot capital, not additional money. Amounts here are USD and are never added to USDC amounts.",
+          "title": "Collateral Note",
+          "type": "string"
+        },
+        "live_supported": {
+          "const": false,
+          "default": false,
+          "title": "Live Supported",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "paper_capital_usd",
+        "committed_paper_cash_usd",
+        "futures_policy_set",
+        "books"
+      ],
+      "title": "FuturesBooksPayload",
+      "type": "object"
+    },
+    "FuturesBooksReport": {
+      "additionalProperties": false,
+      "description": "Read-only paper futures books.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "futures_books",
+          "default": "futures_books",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FuturesBooksPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "FuturesBooksReport",
+      "type": "object"
+    },
     "FuturesCollateralPayload": {
       "additionalProperties": false,
       "description": "The gate's view of the shared USDC collateral pool.\n\n``state`` is ``absent``, ``idle``, ``in_use`` or ``unknown``. USD figures come from the\nnewest CFM mirror snapshot; ``reserve_quote`` is in the policy quote. ``effect`` is what\nthe gate does to new live entries in the policy quote: ``none`` (idle or absent),\n``not_linked`` (a USDT policy), ``live_spot_entries_denied``,\n``reserve_short_entries_denied`` or ``reserve_withheld``.",
@@ -4946,6 +5525,42 @@
         "status"
       ],
       "title": "FuturesFeesPayload",
+      "type": "object"
+    },
+    "FuturesFundingEntryPayload": {
+      "additionalProperties": false,
+      "description": "One funding hour applied to the book (USD; negative ``amount`` was paid).",
+      "properties": {
+        "funding_time": {
+          "format": "date-time",
+          "title": "Funding Time",
+          "type": "string"
+        },
+        "signed_quantity": {
+          "title": "Signed Quantity",
+          "type": "string"
+        },
+        "mark_price": {
+          "title": "Mark Price",
+          "type": "string"
+        },
+        "rate": {
+          "title": "Rate",
+          "type": "string"
+        },
+        "amount": {
+          "title": "Amount",
+          "type": "string"
+        }
+      },
+      "required": [
+        "funding_time",
+        "signed_quantity",
+        "mark_price",
+        "rate",
+        "amount"
+      ],
+      "title": "FuturesFundingEntryPayload",
       "type": "object"
     },
     "FuturesMarginMeasurePayload": {
@@ -7867,7 +8482,8 @@
               "futures_backtest_submission",
               "futures_fee_preview_probe",
               "paper_futures_books",
-              "futures_entry_gate"
+              "futures_entry_gate",
+              "paper_futures_runtime_lane"
             ],
             "type": "string"
           },
@@ -13887,7 +14503,8 @@
         "venue_reconciliation",
         "alerts",
         "funding",
-        "futures_account"
+        "futures_account",
+        "futures_books"
       ]
     },
     "payload": {
@@ -13986,6 +14603,9 @@
     },
     {
       "$ref": "#/$defs/FuturesAccountReport"
+    },
+    {
+      "$ref": "#/$defs/FuturesBooksReport"
     }
   ]
 }

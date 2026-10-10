@@ -192,6 +192,12 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
   in USD. Buying power is shared with your USDC spot balance: Coinbase counts USDC as futures
   collateral, so it is not extra money. Open positions are listed as external; no bot manages
   them and ThyTrader cannot place futures orders. A failed read says unknown, never zero.
+  Below the account, **Paper futures books (USD)** lists each paper futures book that is not
+  stopped: name and contract, side and contracts, equity and liquidation buffer, and a warning
+  chip (**Entries denied** or **Unknown evidence**) when something blocks its next entry. Each
+  row opens the bot. A line shows the paper cash committed against the policy's paper futures
+  capital. The card appears whenever either part has something to show, so paper books are
+  listed even when the futures account was never mirrored.
 - **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
 - **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
   datasets with coverage, newest candle, watch and worker state, and the same problem words as
@@ -384,6 +390,18 @@ Coinbase account's own fee rates; if those cannot be read (no credentials, or Co
 unreachable) the start is refused rather than guessing, and you can enter rates explicitly.
 **Update bot…** gives the replacement your account's current rates. Paper fills are still modeled,
 not observed Coinbase fills. Live rejects those fields and keeps venue-recorded fees.
+
+A **futures strategy** (a Coinbase CFM contract such as `BIP-20DEC30-CDE`) runs as a **paper
+book only** ([ADR 0129](../decisions/0129-paper-futures-books-and-shared-collateral-risk.md)).
+Its Paper card asks for **Paper starting cash (USD)**, **Maker fee rate**, **Taker fee rate**,
+and **Fee per contract (USD)**, all required. The rates prefill from your Coinbase futures fee
+tier when Coinbase reports one; **Quote fee per contract from Coinbase** asks for a one-contract
+order preview (no order is placed) to fill the per-contract fee. Nothing is ever defaulted:
+without evidence the fields stay blank. **Start paper futures book…** confirms the contract,
+cash, and fees; a refusal (for example `FUTURES_POLICY_UNSET` or
+`FUTURES_PAPER_CAPITAL_EXCEEDED`) shows the server's reason. The Live card offers no arming and
+says "Live futures are not supported (FUTURES_LIVE_UNSUPPORTED)". **Update bot…** on a futures
+book keeps that book's fees, and refuses before stopping anything when they are unknown.
 
 Higher-timeframe filters and separate indicator clocks load enough warmup for both the first
 decision's current and previous completed bars. Starting a 1h bot just after a 4h boundary can
@@ -660,7 +678,9 @@ only from the deployments' `capital` and ledger fields, per quote currency. Mone
 across paper and live (choose Paper or Live), and a figure that cannot be computed truthfully (no
 capital block, an open position without a complete mark) shows `—` with the reason. **Start a
 deployment** opens the strategy library; start from a strategy's Run stage. Until portfolio
-deployment ships, each bot runs on its own capital.
+deployment ships, each bot runs on its own capital. A paper futures book carries a
+**Futures · USD · paper** badge here and on Home, and its USD is totalled on its own
+(`USD futures`), never with USDC, USDT, or spot USD.
 
 **Bot detail** (`/deployments/{id}`) is anchored to the snapshot the bot started with.
 The header shows the strategy name (or "<name> (deleted strategy)" for a kept live bot), the mode
@@ -695,6 +715,17 @@ keeps its confirm disabled until you tick "I understand this places real orders 
 real money"; only then is `i_understand_live: true` sent. Incomplete or malformed lifecycle payloads
 (including an unknown `lifecycle_command`) stay read-only, and an ambiguous or stale mutation
 disables controls until a refresh succeeds. Discretionary deployments have no strategy source.
+
+A futures bot's detail page adds a **Paper futures book (USD)** card below the four cards: the
+bound contract (product, perpetual or dated, underlying, contract size, fee per contract and
+rates, when it was bound), side and contracts, entry and mark price (with the mark's time),
+equity, cash and notional, leverage against the policy maximum, overnight initial and
+maintenance margin with the long and short rates, the liquidation buffer against the policy
+minimum, the liquidation price, the funding total and hours charged, and the most recent funding
+hours (a negative amount was paid). **New entries denied: …** names each reason in plain words
+with its code, and anything unreadable is listed as "Unknown, not zero"; those figures read
+**Unknown**. The card states that the book is paper only and that, in reality, Coinbase counts
+your USDC spot balance as futures collateral. Spot bots do not show it.
 Start a new deployment on the Run stage; manage an existing one there or on its detail page.
 
 ### Trade

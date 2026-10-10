@@ -49,6 +49,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
+| Paper futures books (read-only) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
@@ -330,7 +331,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v87`, schema revision `0073`) and exits on any
+   this checkout's (`thytrader-ops-contract-v88`, schema revision `0073`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -573,7 +574,9 @@ were never observed (the worker was down); gaps are never filled or treated as z
 Contracts with trading sessions (`twenty_four_by_seven: false`, such as index perps) have no
 funding hours while closed: their gaps are listed but do not degrade the report.
 `FUTURES_POLLER_NOT_RUN` and `FUTURES_POLLER_STALE` point at the market-data worker.
-Futures are observation-only: no lane can place, adopt or deploy a futures contract.
+No lane can place a live futures order or adopt or live-deploy a futures contract. Futures
+strategies run only as **paper** books, started through `thytrader-runtime` (see Paper futures
+books below).
 
 ## Futures account mirror (ADR 0127)
 
@@ -612,3 +615,38 @@ futures margin setting.
   read-only listing, with findings `FUTURES_EXTERNAL_POSITIONS`, `FUTURES_EXTERNAL_ORDERS`
   (info), `FUTURES_POSITIONS_UNKNOWN` and `FUTURES_ORDERS_LISTING_INCOMPLETE` (unknown). They
   are disclosed, never flattened or adopted.
+
+## Paper futures books (ADR 0129)
+
+`uv run thytrader-operator futures-books` is read-only and lists every paper futures book the
+runtime lane started (`thytrader-runtime start --mode paper ... --fee-per-contract F` on a
+`instrument.kind: future` strategy). Every amount is **USD** (the CFM settlement currency) and is
+never added to USDC or USDT amounts; `null` is unknown, never zero.
+
+- `payload.paper_capital_usd` (the policy's `futures.paper_capital_usd`, `null` while unset),
+  `committed_paper_cash_usd` (starting cash of running and paused paper futures books),
+  `futures_policy_set` (`false`: every futures entry is denied `FUTURES_POLICY_UNSET`; `null`:
+  the policy could not be read), `collateral_note`, `live_supported: false`.
+- `books[]`: `deployment_id`, `strategy_name`, `status`, `mode`, `product_id`; the binding made at
+  start (`contract_kind`, `underlying`, `contract_size`, `fee_per_contract`, `catalog_fingerprint`,
+  `bound_at`) and the paper `maker_fee_rate` / `taker_fee_rate`; `side` (`long` \| `short` \|
+  `flat`), `contracts` and `base_quantity` (contracts x contract size), `entry_price`,
+  `mark_price` / `marked_at` (the last evaluated bar close), `cash`, `equity` (cash + signed
+  base quantity x mark), `notional`, `leverage` (notional / equity) and `policy_max_leverage`;
+  the latest overnight margin rates (`margin_observed_at`), `initial_margin` and
+  `maintenance_margin` (equal: maintenance = initial), `liquidation_buffer_fraction`
+  ((equity - maintenance) / equity) against `min_liquidation_buffer_fraction` (0.5 while unset),
+  `liquidation_price` (the mark where equity reaches maintenance; `null` when flat or
+  unreachable); `funding_total`, `funding_hours`, `recent_funding[]` (newest 24 hours; negative
+  `amount` was paid) and `funding_overdue_since`; `daily_loss_latched`.
+- `entry_blocks` lists what denies the book's next entry now: `FUTURES_CONTRACT_UNBOUND`,
+  `FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING` (a held funding hour still unapplied 75
+  minutes after it), `FUTURES_POLICY_UNSET`. Gate caps (leverage, buffer, exposure, funding rate)
+  are judged per entry and show in `decisions`. `unknown` names unreadable evidence (`binding`,
+  `mark`, `margin_rates`, `funding`, `policy`); dependent figures are `null`. Protective and
+  liquidation exits are never blocked.
+- Component reason codes: `OK`, `NO_FUTURES_BOOKS`, `FUTURES_EVIDENCE_UNKNOWN` (degraded: an
+  active book has unknown evidence), `STORE_UNAVAILABLE`.
+- To act on a book (stop, flatten, pause) use `skills/thytrader-runtime/SKILL.md`; this report
+  never changes anything. A `FUNDING_HISTORY_MISSING` book usually means the market-data
+  funding poller is behind: check `uv run thytrader-operator funding --product-id ID`.

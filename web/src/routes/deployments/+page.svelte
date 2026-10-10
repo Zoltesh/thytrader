@@ -8,6 +8,8 @@
 	 * come from the full inventory (followed page by page) and are never
 	 * invented: money is shown per mode and quote currency, else `—` with the
 	 * reason. Portfolio deployment is not built yet; each bot still runs alone.
+	 * Paper futures books carry a "Futures · USD · paper" badge and their USD is
+	 * totalled apart from every spot currency.
 	 */
 	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
@@ -29,6 +31,7 @@
 	} from '$lib/deployment-portfolio';
 	import { listAllDeployments, listDeploymentsPage, type Deployment } from '$lib/deployments';
 	import FleetControls from '$lib/FleetControls.svelte';
+	import FuturesBookBadge from '$lib/FuturesBookBadge.svelte';
 	import { lifecycleContractNote } from '$lib/lifecycle-contract';
 	import { listStrategies } from '$lib/strategies';
 
@@ -346,6 +349,7 @@
 				<span class="chip" class:paper={item.mode === 'paper'} class:live={item.mode === 'live'}
 					>{item.modeLabel}</span
 				>
+				<FuturesBookBadge productId={deployment.product_id} />
 			</div>
 			<div>{item.market} <span class="faint">· {item.clock}</span></div>
 			<div>

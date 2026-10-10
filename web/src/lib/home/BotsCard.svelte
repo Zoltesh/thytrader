@@ -13,6 +13,7 @@
 		type StrategyIdentity
 	} from '$lib/deployment-portfolio';
 	import type { Deployment } from '$lib/deployments';
+	import FuturesBookBadge from '$lib/FuturesBookBadge.svelte';
 	import type { Load } from './load';
 
 	let {
@@ -115,6 +116,7 @@
 								class:paper={item.mode === 'paper'}
 								class:live={item.mode === 'live'}>{item.modeLabel}</span
 							>
+							<FuturesBookBadge productId={deployment.product_id} />
 						</div>
 						<div class="market">{item.market} <span class="faint">· {item.clock}</span></div>
 						<div class="position">

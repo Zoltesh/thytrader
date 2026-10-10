@@ -126,6 +126,8 @@ export async function createDeployment(input: {
 	paper_starting_cash?: string;
 	maker_fee_rate?: string;
 	taker_fee_rate?: string;
+	/** Paper futures only (ADR 0129): USD per contract; required for futures, refused for spot. */
+	paper_fee_per_contract?: string;
 	/** Live only (ADR 0124): start holding this quantity, or "all", of unmanaged coins. */
 	adopt_holdings?: string;
 	i_understand_live?: boolean;

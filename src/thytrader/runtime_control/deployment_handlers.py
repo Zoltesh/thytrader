@@ -59,6 +59,11 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         raise RuntimeControlError(
             "ADOPTION_LIVE_ONLY: --adopt-holdings adopts coins held at Coinbase; pass --mode live."
         )
+    if live and getattr(arguments, "fee_per_contract", None) is not None:
+        raise RuntimeControlError(
+            "FUTURES_LIVE_UNSUPPORTED: futures strategies run as paper books only; "
+            "--fee-per-contract needs --mode paper."
+        )
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
         arguments.confirm,

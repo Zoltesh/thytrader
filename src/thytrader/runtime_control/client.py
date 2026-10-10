@@ -70,6 +70,14 @@ def show_deployment(base_url: str, deployment_id: str, *, detail: str = "summary
     )
 
 
+def show_deployment_futures(base_url: str, deployment_id: str) -> object:
+    """Return the futures view of one paper futures bot (ADR 0129, P1-6)."""
+    return request_json(
+        method="GET",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{quote(deployment_id, safe='')}/futures",
+    )
+
+
 def list_deployment_orders(
     base_url: str,
     deployment_id: str,
