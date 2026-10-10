@@ -90,7 +90,10 @@ liquidation and expiry exits, ``total_funding`` and the ``futures_*`` validity l
 ADR 0128, P1-2),
 or futures backtest submission (the request ``futures`` block, server-bound contract, margin
 and settled funding series, the ``FUTURES_*`` / ``FUNDING_HISTORY_MISSING`` rejections) and
-the ``fees`` report ``futures`` evidence (``futures_fees`` read; ADR 0128, P1-3) change.
+the ``fees`` report ``futures`` evidence (``futures_fees`` read; ADR 0128, P1-3),
+or the opt-in futures fee probe (``fees --futures-preview-product-id``: one allowlisted
+``orders/preview`` POST for one contract that places no order, filling
+``payload.futures.fee_per_contract`` from ``orders_preview``; ADR 0128, P1-3b) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -119,7 +122,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v84"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v85"
 EXPECTED_SCHEMA_REVISION = "0072"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -278,6 +281,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "futures_strategy_documents",
     "futures_backtest_kernel",
     "futures_backtest_submission",
+    "futures_fee_preview_probe",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

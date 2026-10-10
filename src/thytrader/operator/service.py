@@ -229,13 +229,15 @@ class OperatorDiagnostics:
             ),
         )
 
-    async def fees_report(self) -> FeesReport:
+    async def fees_report(self, futures_preview_product_id: str | None = None) -> FeesReport:
         """Return the current fee tier and research-only suggested rates.
 
         The futures fee tier is read separately and never fails the spot report.
+        ``futures_preview_product_id`` opts into the one-contract ``orders/preview`` probe
+        (places no order; ADR 0128, P1-3b).
         """
         now = datetime.now(UTC)
-        futures = await futures_fee_evidence(self.portfolio)
+        futures = await futures_fee_evidence(self.portfolio, futures_preview_product_id)
         try:
             profile = await self.portfolio.get_fee_profile()
         except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.

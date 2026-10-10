@@ -310,9 +310,16 @@ async def get_operator_portfolio(
 @router.get("/fees", response_model=FeesReport)
 async def get_operator_fees(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    futures_preview_product_id: Annotated[
+        str | None, Query(pattern=FUTURES_PRODUCT_ID_PATTERN)
+    ] = None,
 ) -> FeesReport:
-    """Return the current fee tier and research-only suggested maker/taker rates."""
-    return await diagnostics.fees_report()
+    """Return the current fee tier and research-only suggested maker/taker rates.
+
+    ``futures_preview_product_id`` opts into one ``orders/preview`` POST for one contract
+    of that futures product (places no order) to report its per-contract fee.
+    """
+    return await diagnostics.fees_report(futures_preview_product_id)
 
 
 @router.get("/portfolios", response_model=PortfoliosReport)

@@ -4783,7 +4783,7 @@
     },
     "FuturesFeesPayload": {
       "additionalProperties": false,
-      "description": "CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).\n\nThe rates are what Coinbase reports for the futures product type. Coinbase also bills\nfutures per contract; no read-only endpoint reports that amount, so\n``fee_per_contract`` stays null and a futures backtest's ``futures.fee_per_contract``\nis operator input (there is no compiled futures fee).",
+      "description": "CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).\n\nThe rates are what Coinbase reports for the futures product type. Coinbase also bills\nfutures per contract and no read-only endpoint reports that amount: ``fee_per_contract``\nis null (``operator_input``) unless the report was asked to preview one contract of\n``preview_product_id`` through ``orders/preview`` (P1-3b; places no order), in which\ncase it is the quoted commission per contract (``orders_preview``). A failed preview\nleaves it null with ``preview_unavailable_reason``.",
       "properties": {
         "status": {
           "enum": [
@@ -4855,13 +4855,23 @@
           "title": "As Of"
         },
         "fee_per_contract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
           "default": null,
-          "title": "Fee Per Contract",
-          "type": "null"
+          "title": "Fee Per Contract"
         },
         "fee_per_contract_source": {
-          "const": "operator_input",
           "default": "operator_input",
+          "enum": [
+            "operator_input",
+            "orders_preview"
+          ],
           "title": "Fee Per Contract Source",
           "type": "string"
         },
@@ -4880,6 +4890,55 @@
           ],
           "default": null,
           "title": "Unavailable Reason"
+        },
+        "preview_product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Product Id"
+        },
+        "preview_commission_total": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Commission Total"
+        },
+        "preview_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Observed At"
+        },
+        "preview_unavailable_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Preview Unavailable Reason"
         }
       },
       "required": [
@@ -7677,7 +7736,8 @@
               "live_spot_collateral_gate",
               "futures_strategy_documents",
               "futures_backtest_kernel",
-              "futures_backtest_submission"
+              "futures_backtest_submission",
+              "futures_fee_preview_probe"
             ],
             "type": "string"
           },

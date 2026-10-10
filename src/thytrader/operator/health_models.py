@@ -176,6 +176,7 @@ class OpsContractPayload(_FrozenModel):
             "futures_strategy_documents",
             "futures_backtest_kernel",
             "futures_backtest_submission",
+            "futures_fee_preview_probe",
         ],
         ...,
     ]
