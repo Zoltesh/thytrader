@@ -1,6 +1,7 @@
 """Risk-policy membership, slot, account exposure, and capital-base checks for the gate.
 
-Membership covers the product allowlist and, on live, strategy allocations (a live
+Membership covers the product allowlist (``futures.product_allowlist`` for futures ids; the
+top-level allowlist holds spot ids only) and, on live, strategy allocations (a live
 portfolio's sleeve is a member through its portfolio, ADR 0091). Slots count distinct
 in-market product books. Exposure compares marked exposure plus the proposed notional to
 the account, product, and strategy-allocation caps over the mode's capital base, which is
@@ -13,6 +14,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.gate_common import (
     ProposedEntry,
     _allow,
@@ -155,7 +157,20 @@ def _exposure_verdict(
 
 
 def _allowlist_verdict(policy: RiskPolicyDefinition, product_id: str) -> RiskVerdict:
-    """Deny products absent from a nonempty allowlist."""
+    """Deny products absent from a nonempty allowlist of their kind.
+
+    A futures id is checked against ``futures.product_allowlist`` (unset: no restriction
+    here; the live gate requires it); the spot allowlist never names futures ids.
+    """
+    if is_futures_product_id(product_id):
+        futures = policy.futures
+        listed = None if futures is None else futures.product_allowlist
+        if not listed or product_id in listed:
+            return _allow()
+        return _deny(
+            RiskReasonCode.PRODUCT_NOT_ALLOWLISTED,
+            "Futures product is not on the risk policy's futures.product_allowlist.",
+        )
     if not policy.product_allowlist or product_id in policy.product_allowlist:
         return _allow()
     return _deny(

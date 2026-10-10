@@ -6,6 +6,10 @@ from the latest catalog observation, and whether a settled funding hour is overd
 binds it for the book's processing with :func:`futures_book_scope`; sizing, admission,
 paper fees and the liquidation check read it with :func:`current_futures_book`. Nothing
 unknown defaults to zero: a missing binding, margin or funding hour denies new entries.
+
+:func:`futures_book_equity` is the margin basis of one book: ledger equity for paper, and the
+book's ``allocated_capital`` plus ledger equity for live, whose ledger starts at cash 0
+(ADR 0106, ADR 0134 §3).
 """
 
 from __future__ import annotations
@@ -17,10 +21,16 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Protocol
 
-from thytrader.trading.models import FundingCashFlow, OrderSide, resolved_product_id
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.models import (
+    DeploymentMode,
+    FundingCashFlow,
+    OrderSide,
+    resolved_product_id,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
     from uuid import UUID
 
     from thytrader.evaluation.futures_spec import InstrumentContract
@@ -138,6 +148,27 @@ def current_futures_book(deployment_id: UUID | None = None) -> FuturesBookState 
     if state is None or (deployment_id is not None and state.deployment_id != deployment_id):
         return None
     return state
+
+
+def futures_book_equity(
+    snapshot: DeploymentSnapshot, marks: Mapping[str, Decimal]
+) -> Decimal | None:
+    """The book's equity in USD at ``marks``, or None when it is unknown.
+
+    Paper books start with their simulated cash, so equity is ledger equity. A live book's
+    ledger starts at cash 0 (ADR 0106) and holds only fills, fees and funding, so its equity
+    is the USD ``allocated_capital`` plus ledger equity; an unset allocation is unknown.
+    An incomplete mark is unknown, never zero.
+    """
+    ledger = ledger_from_snapshot(snapshot, marks=marks)
+    if ledger.equity is None or not ledger.mark_complete:
+        return None
+    deployment = snapshot.deployment
+    if deployment.mode is not DeploymentMode.LIVE:
+        return ledger.equity
+    if deployment.allocated_capital is None:
+        return None
+    return deployment.allocated_capital + ledger.equity
 
 
 def held_quantity_before(

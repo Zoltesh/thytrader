@@ -8,11 +8,12 @@ unresolved accounting, then the circuit breakers, rate, and collar gates and the
 optional fleet entry clustering cap (``entry_clustering``, ADR 0125). Before order bounds,
 live USD/USDC entries pass the shared-collateral gate (``futures_collateral``, ADR 0129):
 manual CFM futures in use or unknown deny, unless a declared reserve covers them, which is
-then withheld from the venue quote every later check uses. It gates entries only,
-never protective exits. An in-kind adoption (ADR 0124) sends nothing to the venue, so it
-skips the order bounds, rate, collar and clustering gates and adds its notional to live
-capital; every other check applies. A reprice of an admitted working entry skips only the
-clustering cap.
+then withheld from the venue quote every later check uses. Futures ids pass the futures
+allowlist and the futures scope instead (``futures_entry``; live futures also the live gate
+of ``futures_live``, ADR 0134). It gates entries only, never protective exits. An in-kind
+adoption (ADR 0124) sends nothing to the venue, so it skips the order bounds, rate, collar
+and clustering gates and adds its notional to live capital; every other check applies. A
+reprice of an admitted working entry skips only the clustering cap.
 """
 
 from __future__ import annotations
@@ -68,6 +69,7 @@ if TYPE_CHECKING:
     from thytrader.risk.beta import BetaEvidence
     from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.futures_collateral import FuturesCollateralEvidence
+    from thytrader.risk.futures_live import FuturesVenueEvidence, LiveFuturesStart
 
 
 def evaluate_new_deployment(
@@ -81,6 +83,7 @@ def evaluate_new_deployment(
     product_ids: Sequence[str] | None = None,
     policy_source: RiskPolicySource = RiskPolicySource.PUBLISHED,
     portfolio_sleeve: bool = False,
+    live_futures: LiveFuturesStart | None = None,
 ) -> RiskVerdict:
     """Allow a new running deployment only when slots, allowlist, and paper capital permit it.
 
@@ -88,6 +91,9 @@ def evaluate_new_deployment(
     install's compiled fallback must not become silent live authority (audit F25).
     ``portfolio_sleeve`` marks a sleeve of a live portfolio: its sleeve allocation
     counts as allocation membership (ADR 0091); every other rule still applies.
+    Futures ids are checked against ``futures.product_allowlist`` and their mode's futures
+    envelope; a live futures start also passes the live gate with ``live_futures`` and is
+    denied without it (ADR 0134 §2).
     """
     if mode is DeploymentMode.LIVE and policy_source is RiskPolicySource.COMPILED_DEFAULT:
         return _deny(
@@ -97,8 +103,6 @@ def evaluate_new_deployment(
         )
     covered = tuple(product_ids) if product_ids else (product_id,)
     futures = any(is_futures_product_id(covered_product) for covered_product in covered)
-    if futures and mode is DeploymentMode.LIVE:
-        return _futures_deployment_refused(mode)
     occupied = _occupied(deployments, mode)
     for covered_product in covered:
         allowlisted = _allowlist_verdict(policy, covered_product)
@@ -121,6 +125,7 @@ def evaluate_new_deployment(
             covered=covered,
             paper_starting_cash=paper_starting_cash,
             deployments=deployments,
+            live=live_futures,
         )
     if mode is DeploymentMode.PAPER:
         spot_occupied = tuple(
@@ -130,15 +135,6 @@ def evaluate_new_deployment(
             policy, spot_occupied, strategy_id, paper_starting_cash, product_id=product_id
         )
     return _allow()
-
-
-def _futures_deployment_refused(mode: DeploymentMode) -> RiskVerdict:
-    """Live futures deployments wait for P2 (ADR 0128/0129); paper uses its own envelope."""
-    del mode
-    return _deny(
-        RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
-        "Live futures deployments are not supported; there is no futures order path.",
-    )
 
 
 def evaluate_new_entry(
@@ -153,6 +149,7 @@ def evaluate_new_entry(
     beta: BetaEvidence | None = None,
     futures_collateral: FuturesCollateralEvidence | None = None,
     futures_legs: FuturesLegs | None = None,
+    futures_venue: FuturesVenueEvidence | None = None,
 ) -> RiskVerdict:
     """Allow a risk-increasing entry only when slots, exposure, and breakers permit it.
 
@@ -167,6 +164,8 @@ def evaluate_new_entry(
     while a paper futures book's daily-loss breaker is latched (collateral-linked, §7).
     ``futures_legs`` are the mode's bound futures books: the futures BTC-beta cap reads their
     underlyings, and opt-in base-unit netting lets them offset spot inventory (§6).
+    ``futures_venue`` is the CFM venue evidence a live futures entry needs (ADR 0134 I8);
+    a live futures entry without fresh evidence is denied.
     """
     scoped = _scope_verdict(
         policy,
@@ -176,6 +175,7 @@ def evaluate_new_entry(
         observation=observation,
         beta=beta,
         futures_legs=futures_legs,
+        futures_venue=futures_venue,
     )
     if scoped is not None:
         return scoped
@@ -273,6 +273,7 @@ def _scope_verdict(
     observation: EntryObservation | None,
     beta: BetaEvidence | None,
     futures_legs: FuturesLegs | None,
+    futures_venue: FuturesVenueEvidence | None = None,
 ) -> RiskVerdict | None:
     """Admit futures in their own scope; deny linked spot entries under a futures latch."""
     if is_futures_product_id(proposed.product_id):
@@ -284,6 +285,7 @@ def _scope_verdict(
             observation=observation,
             beta=beta,
             legs=futures_legs,
+            venue=futures_venue,
         )
     return linked_breaker_verdict(mode=mode, product_id=proposed.product_id, snapshots=snapshots)
 
