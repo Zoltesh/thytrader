@@ -16,6 +16,7 @@ alternative, not an automatic fallback.
 | GET | `/api/v1/operator/data-health` | `data_health` |
 | GET | `/api/v1/operator/products` | `products` |
 | GET | `/api/v1/operator/futures-account` | `futures_account` |
+| GET | `/api/v1/operator/futures-books` | `futures_books` (paper futures books; one bot: `GET /api/v1/deployments/{id}/futures`) |
 | GET | `/api/v1/operator/funding` | `funding` (`?product_id=BIP-20DEC30-CDE&hours=1..720`) |
 | GET | `/api/v1/operator/indicators` | `indicators` |
 | GET | `/api/v1/operator/strategies` | `strategies` |

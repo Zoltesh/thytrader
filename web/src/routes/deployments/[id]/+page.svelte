@@ -15,8 +15,11 @@
 	 * before `i_understand_live: true` is sent. Live deployments turn on the
 	 * shell's live chrome.
 	 *
+	 * A futures bot (a `-CDE` product) also shows its paper futures book in USD.
+	 *
 	 * This page owns every fetch and all mutation state; the panels under
-	 * `$lib/deployment-detail/` only render it.
+	 * `$lib/deployment-detail/` only render it, except the futures book card, which
+	 * reads its own endpoint for futures bots only.
 	 */
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -30,6 +33,7 @@
 	import BotKpis from '$lib/deployment-detail/BotKpis.svelte';
 	import CapitalDisclosure from '$lib/deployment-detail/CapitalDisclosure.svelte';
 	import EvidenceCards from '$lib/deployment-detail/EvidenceCards.svelte';
+	import FuturesBookCard from '$lib/deployment-detail/FuturesBookCard.svelte';
 	import LedgerCard from '$lib/deployment-detail/LedgerCard.svelte';
 	import PositionsCard from '$lib/deployment-detail/PositionsCard.svelte';
 	import RulesDisclosure from '$lib/deployment-detail/RulesDisclosure.svelte';
@@ -73,6 +77,7 @@
 		type OperatorPerformanceReport
 	} from '$lib/deployments';
 	import { lifecycleControlsAvailable } from '$lib/lifecycle-contract';
+	import { isFuturesProductId } from '$lib/product-id';
 	import { loadStrategyConfig, type StrategySourceState } from '$lib/strategy-config';
 
 	const id = $derived(pageState.params.id ?? '');
@@ -444,6 +449,10 @@
 			{performanceError}
 			{performanceLoading}
 		/>
+
+		{#if isFuturesProductId(current.product_id)}
+			<FuturesBookCard deploymentId={current.id} revision={current.revision} />
+		{/if}
 
 		<section class="card why" aria-labelledby="why-title" data-testid="why-it-traded">
 			<div class="card-head"><h2 id="why-title">Decisions</h2></div>

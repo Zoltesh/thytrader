@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account` \| `futures_books`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -389,6 +389,30 @@ tokens), `balance` (`currency: USD` plus every balance-summary amount and the
 are USD and are never added to USDC or USDT amounts. Component reason codes: `OK`,
 `STORE_DISABLED`, `STORE_UNAVAILABLE`, `FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE`,
 `FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_READ_FAILURES`.
+
+## Paper futures books (ADR 0129)
+
+`futures_books` is read-only (`balances_omitted=false`). `payload`: `paper_capital_usd`
+(`null` while the policy's futures block or envelope is unset), `committed_paper_cash_usd`,
+`futures_policy_set` (`true` \| `false` \| `null` when the policy is unreadable), `books[]`,
+`collateral_note` and `live_supported: false`. Each book (the same object as
+`GET /api/v1/deployments/{id}/futures`, which is 404 for a spot bot): `deployment_id`,
+`strategy_name`, `status`, `mode`, `product_id`, `currency: USD`, `contract_kind`
+(`perpetual_future` \| `dated_future` \| `null`), `underlying`, `contract_size`,
+`fee_per_contract`, `maker_fee_rate`, `taker_fee_rate`, `catalog_fingerprint`, `bound_at`, `side`
+(`long` \| `short` \| `flat`), `contracts`, `base_quantity`, `entry_price`, `mark_price`,
+`marked_at`, `paper_starting_cash`, `cash`, `equity`, `notional`, `leverage`,
+`policy_max_leverage`, `overnight_long_margin_rate`, `overnight_short_margin_rate`,
+`margin_observed_at`, `initial_margin`, `maintenance_margin`, `liquidation_buffer_fraction`,
+`min_liquidation_buffer_fraction`, `liquidation_price`, `funding_total`, `funding_hours`,
+`funding_overdue_since`, `recent_funding[]` (`funding_time`, `signed_quantity`, `mark_price`,
+`rate`, `amount`; newest first, at most 24), `daily_loss_latched`, `entry_blocks` (subset of
+`FUTURES_CONTRACT_UNBOUND`, `FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING`,
+`FUTURES_POLICY_UNSET`) and `unknown` (subset of `binding`, `mark`, `margin_rates`, `funding`,
+`policy`). Amounts are exact USD decimal strings; `null` is unknown, never zero; USD is never
+added to USDC or USDT. Ratios have six decimal places; `liquidation_price` is rounded one cent
+towards the mark. Component reason codes: `OK`, `NO_FUTURES_BOOKS`, `FUTURES_EVIDENCE_UNKNOWN`,
+`STORE_UNAVAILABLE`.
 
 ## Futures funding history (ADR 0126)
 

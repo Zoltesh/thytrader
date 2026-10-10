@@ -162,6 +162,15 @@ def _parser() -> argparse.ArgumentParser:
         ),
     )
     subparsers.add_parser(
+        "futures-books",
+        parents=[trailing],
+        help=(
+            "Paper futures books (ADR 0129): bound contract, position in contracts, mark, "
+            "equity, notional, leverage, overnight initial/maintenance margin, liquidation "
+            "buffer vs the policy minimum, and the funding ledger. USD; read-only."
+        ),
+    )
+    subparsers.add_parser(
         "data-catalog",
         parents=[trailing],
         help=(
@@ -402,6 +411,7 @@ async def _dispatch(
         "alerts": diagnostics.alerts,
         "support-bundle": diagnostics.support_bundle,
         "futures-account": diagnostics.futures_account,
+        "futures-books": diagnostics.futures_books,
     }
     factory = factories.get(command)
     if factory is None:

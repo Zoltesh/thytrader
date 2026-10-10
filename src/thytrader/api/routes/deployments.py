@@ -142,12 +142,24 @@ async def post_deployment(
     A paper start that omits both fee rates uses the Coinbase account's rates, and is
     refused (409) when those cannot be read.
 
+    A futures strategy (ADR 0129) starts in paper only, with explicit maker, taker and
+    per-contract fees; an acknowledged live start returns 409 ``FUTURES_LIVE_UNSUPPORTED``
+    before any other start check (there is no live futures order path).
+
     A strategy that reads reference instruments (ADR 0096) starts only when every
     reference series is on the enabled market-data watchlist (409 otherwise, naming
     the ``thytrader-data watch-add`` command).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
+    if body.mode is DeploymentMode.LIVE and snapshot.definition.instrument.is_future:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "FUTURES_LIVE_UNSUPPORTED: futures strategies run as paper books only; there "
+                "is no live futures order path. Start it with mode paper."
+            ),
+        )
     reference_watches = ReferenceWatchlist(
         store=watchlist, provider=ingestion_provider(runtime.settings)
     )

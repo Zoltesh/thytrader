@@ -39,6 +39,11 @@ from thytrader.operator.futures_account_report import (
     FuturesAccountReport,
     build_futures_account_report,
 )
+from thytrader.operator.futures_books_report import (
+    FuturesBooksReport,
+    build_futures_books_report,
+    effective_policy_or_none,
+)
 from thytrader.operator.futures_fees import futures_fee_evidence
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.market_models import (
@@ -102,6 +107,7 @@ if TYPE_CHECKING:
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
+    from thytrader.execution.futures_start import FuturesStart
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.futures_observations import FuturesObservationStore
@@ -152,6 +158,7 @@ class OperatorDiagnostics:
     alert_store: AlertStore | None = None
     futures_store: FuturesObservationStore | None = None
     futures_account_store: FuturesAccountSnapshotStore | None = None
+    futures_book_stores: FuturesStart | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -364,6 +371,17 @@ class OperatorDiagnostics:
     async def futures_account(self) -> FuturesAccountReport:
         """Return the latest read-only CFM futures account mirror snapshot (ADR 0127)."""
         return await build_futures_account_report(self.futures_account_store)
+
+    async def futures_books(self) -> FuturesBooksReport:
+        """Return every paper futures book with margin, buffer, leverage and funding (P1-6)."""
+        stores = self.futures_book_stores
+        return await build_futures_books_report(
+            execution=self.execution,
+            journal=self.decision_store,
+            contracts=None if stores is None else stores.contracts,
+            observations=None if stores is None else stores.observations,
+            policy=await effective_policy_or_none(self.risk_policies),
+        )
 
     async def products(self, kind: ProductsKind = "spot") -> ProductsReport:
         """List enabled spot products; ``future``/``all`` add the read-only futures listing."""

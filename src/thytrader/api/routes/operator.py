@@ -17,6 +17,7 @@ from thytrader.api.dependencies import (
     get_dataset_store,
     get_decision_journal_store,
     get_execution_store,
+    get_futures_start,
     get_history_store,
     get_market_data_service,
     get_market_data_state_store,
@@ -37,6 +38,7 @@ from thytrader.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.backtest.results import BacktestResultReader  # noqa: TC001
 from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC001
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
+from thytrader.execution.futures_start import FuturesStart  # noqa: TC001 - FastAPI Depends.
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
 from thytrader.market_data.instrument_ids import (
@@ -56,6 +58,7 @@ from thytrader.operator.funding_report import (
     FundingReport,
 )
 from thytrader.operator.futures_account_report import FuturesAccountReport
+from thytrader.operator.futures_books_report import FuturesBooksReport
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -121,6 +124,7 @@ def get_operator_diagnostics(
     portfolios: Annotated[PortfolioStorage, Depends(get_portfolio_storage)],
     research_queue: Annotated[PostgresResearchQueue | None, Depends(get_research_queue)],
     alert_store: Annotated[AlertStore, Depends(get_alert_store)],
+    futures_book_stores: Annotated[FuturesStart | None, Depends(get_futures_start)],
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -149,6 +153,7 @@ def get_operator_diagnostics(
         alert_store=alert_store,
         futures_store=None if engine is None else PostgresFuturesObservationStore(engine),
         futures_account_store=None if engine is None else PostgresFuturesAccountStore(engine),
+        futures_book_stores=futures_book_stores,
     )
 
 
@@ -203,6 +208,14 @@ async def get_operator_funding(
 ) -> FundingReport:
     """Return recorded CFM funding history and futures poller health (read-only)."""
     return await diagnostics.funding(product_id=product_id, hours=hours)
+
+
+@router.get("/futures-books", response_model=FuturesBooksReport)
+async def get_operator_futures_books(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> FuturesBooksReport:
+    """Return every paper futures book with margin, liquidation buffer and funding."""
+    return await diagnostics.futures_books()
 
 
 @router.get("/futures-account", response_model=FuturesAccountReport)

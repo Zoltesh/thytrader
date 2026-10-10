@@ -10,6 +10,8 @@
 	 * needs an explicit "real orders" checkbox before `i_understand_live: true`
 	 * is sent. The live preflight lists what existing endpoints report, with
 	 * `Unknown` where a source cannot be read; it is never a readiness verdict.
+	 * A futures strategy runs as a paper book only (ADR 0129): Paper asks for USD
+	 * cash and all three fees, and Live offers no arming.
 	 *
 	 * This page owns the deployments, lifecycle, preflight and arming state; the
 	 * Paper and Live cards and the arm-live dialog render in `$lib/workspace/run`.
@@ -45,6 +47,7 @@
 	import ArmLiveDialog from '$lib/workspace/run/ArmLiveDialog.svelte';
 	import LiveRunCard from '$lib/workspace/run/LiveRunCard.svelte';
 	import PaperRunCard from '$lib/workspace/run/PaperRunCard.svelte';
+	import { isFuturesStrategy } from '$lib/product-id';
 	import { listDatasets, type Dataset } from '$lib/strategies';
 	import { useWorkspace } from '$lib/workspace/workspace.svelte';
 
@@ -72,6 +75,7 @@
 	const model = $derived(workspace.validModel);
 	const fingerprint = $derived(workspace.currentFingerprint ?? '');
 	const canStart = $derived(model !== null && fingerprint !== '');
+	const futures = $derived(isFuturesStrategy(workspace.record?.strategy ?? null));
 	const paper = $derived(deployments.filter((deployment) => deployment.mode === 'paper'));
 	const live = $derived(deployments.filter((deployment) => deployment.mode === 'live'));
 	const controlsBlocked = $derived(mutating || outcomeUnknown);
@@ -332,6 +336,7 @@
 			{fingerprint}
 			{model}
 			{canStart}
+			{futures}
 			onaction={openLifecycle}
 			onupdated={onBotUpdated}
 			onstarted={onPaperStarted}
@@ -344,6 +349,7 @@
 			{canStart}
 			currentFingerprint={workspace.currentFingerprint}
 			{model}
+			{futures}
 			onaction={openLifecycle}
 			onupdated={onBotUpdated}
 			onarm={openLive}

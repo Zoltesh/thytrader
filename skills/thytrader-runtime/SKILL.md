@@ -187,8 +187,11 @@ keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`
 `reserve_quote`, `effect`).
 
 Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
-A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**; live returns
-`FUTURES_LIVE_UNSUPPORTED` (there is no futures order path). Setup and start:
+A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**. There is no
+futures order path: `start --mode live` of a futures strategy (with `--i-understand-live`;
+without it the usual 428 comes first) is HTTP 409 `FUTURES_LIVE_UNSUPPORTED` and creates
+nothing, and the CLI refuses `--fee-per-contract` with `--mode live` before any HTTP call.
+Portfolio sleeves cannot start futures books (no per-contract fee). Setup and start:
 
 - Publish the policy with `--futures-paper-capital-usd N` (a USD envelope separate from
   `--paper-capital-quote`; unset refuses every futures start with `FUTURES_POLICY_UNSET`) and
@@ -201,6 +204,19 @@ A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**;
 - The start binds the contract from the latest catalog observation and never re-reads it.
   Perp-style contracts only (`FUTURES_PAPER_UNSUPPORTED` for dated ones);
   `FUTURES_CONTRACT_UNOBSERVED` / `FUTURES_UNDERLYING_MISMATCH` name a catalog problem.
+- Watch it with `show UUID`: a futures bot adds `futures` (the same object as
+  `GET /api/v1/deployments/{id}/futures` and one row of `thytrader-operator futures-books`):
+  bound contract, `side`, `contracts`, mark, USD `equity`, `notional`, `leverage`, overnight
+  `initial_margin` / `maintenance_margin`, `liquidation_buffer_fraction` vs
+  `min_liquidation_buffer_fraction`, `liquidation_price`, the funding ledger,
+  `funding_overdue_since`, `entry_blocks` (what denies the next entry now) and `unknown`
+  (`null` figures are unknown, never zero). If that read fails `show` returns `futures: null`
+  with `futures_error`; do not infer figures. Per-bar outcomes are in `decisions`.
+- Stop it like any bot: `stop UUID --confirm` is a managed stop (the protective stop stays and
+  the liquidation monitor keeps running); `stop UUID --flatten --confirm` exits the contracts
+  at the next priced bar (a short is bought back). `pause` / `resume` work as for spot (paper
+  resume needs no `--i-understand-live`). Field reference:
+  `skills/thytrader-operator/references/report-schemas.md` (Paper futures books).
 
 Each cycle the book reads the overnight margin rates (never intraday), sizes whole contracts
 within the lower of the strategy's and the policy's `max_leverage` and the policy's liquidation

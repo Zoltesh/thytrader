@@ -2,12 +2,14 @@
 	/**
 	 * Run stage Paper card (ADR 0082): this strategy's paper deployments with
 	 * their lifecycle controls, and starting paper with the current rules (or
-	 * another paper deployment while one is running or paused).
+	 * another paper deployment while one is running or paused). A futures strategy
+	 * starts a paper futures book with required USD cash and fees (ADR 0129).
 	 */
 	import type { LifecycleAction } from '$lib/deployment-detail';
 	import type { Deployment } from '$lib/deployments';
 	import type { BuilderModel } from '$lib/strategies';
 	import DeploymentRuntimeRow from '$lib/workspace/DeploymentRuntimeRow.svelte';
+	import FuturesPaperStartForm from '$lib/workspace/FuturesPaperStartForm.svelte';
 	import PaperStartForm from '$lib/workspace/PaperStartForm.svelte';
 
 	let {
@@ -20,6 +22,7 @@
 		fingerprint,
 		model,
 		canStart,
+		futures = false,
 		onaction,
 		onupdated,
 		onstarted
@@ -34,6 +37,8 @@
 		fingerprint: string;
 		model: BuilderModel | null;
 		canStart: boolean;
+		/** The strategy trades a futures contract: start a paper futures book instead. */
+		futures?: boolean;
 		onaction: (action: LifecycleAction, deployment: Deployment) => void;
 		onupdated: (result: { stopped: Deployment; started: Deployment | null }) => void;
 		onstarted: (deployment: Deployment) => void;
@@ -74,29 +79,37 @@
 			{#if activePaper.length > 0}
 				<details class="start-another">
 					<summary>Start another paper deployment</summary>
-					<PaperStartForm
-						{strategyId}
-						currentFingerprint={fingerprint}
-						name={strategyName ?? model.name}
-						{model}
-						disabled={controlsBlocked}
-						onStarted={onstarted}
-					/>
+					{@render startForm(model)}
 				</details>
 			{:else}
 				<h3 class="sub">Start paper with the current rules</h3>
-				<PaperStartForm
-					{strategyId}
-					currentFingerprint={fingerprint}
-					name={strategyName ?? model.name}
-					{model}
-					disabled={controlsBlocked}
-					onStarted={onstarted}
-				/>
+				{@render startForm(model)}
 			{/if}
 		{/if}
 	</div>
 </section>
+
+{#snippet startForm(model: BuilderModel)}
+	{#if futures}
+		<FuturesPaperStartForm
+			{strategyId}
+			currentFingerprint={fingerprint}
+			name={strategyName ?? model.name}
+			{model}
+			disabled={controlsBlocked}
+			onStarted={onstarted}
+		/>
+	{:else}
+		<PaperStartForm
+			{strategyId}
+			currentFingerprint={fingerprint}
+			name={strategyName ?? model.name}
+			{model}
+			disabled={controlsBlocked}
+			onStarted={onstarted}
+		/>
+	{/if}
+{/snippet}
 
 <style>
 	.card-head {

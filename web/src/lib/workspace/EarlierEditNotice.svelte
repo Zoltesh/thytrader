@@ -13,6 +13,8 @@
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
 	import { marketLabel } from '$lib/deployment-detail';
 	import { createDeployment, stopDeployment, type Deployment } from '$lib/deployments';
+	import { futuresRestartFees, type FuturesRestartFees } from '$lib/futures-book-api';
+	import { isFuturesProductId } from '$lib/product-id';
 	import type { BuilderModel } from '$lib/strategies';
 	import { rulesState, shortStrategyFingerprint, workspaceHref } from '$lib/strategy-workspace';
 	import SnapshotDiff from './SnapshotDiff.svelte';
@@ -60,6 +62,17 @@
 		if (isLive && !liveAcknowledged) return;
 		pending = true;
 		error = null;
+		let futuresFees: FuturesRestartFees | null = null;
+		if (!isLive && isFuturesProductId(deployment.product_id)) {
+			// A futures start requires its fees: read them before stopping anything.
+			try {
+				futuresFees = await futuresRestartFees(deployment.id);
+			} catch (caught) {
+				error = caught instanceof Error ? caught.message : 'Could not read the futures fees.';
+				pending = false;
+				return;
+			}
+		}
 		let stopped: Deployment;
 		try {
 			// Step 1: managed stop (protective exits stay until flat; no flatten).
@@ -77,8 +90,10 @@
 					: {
 							strategy_id: deployment.strategy_id,
 							mode: 'paper',
-							// Fee rates are omitted so the new bot takes the account's current rates.
-							paper_starting_cash: deployment.paper_starting_cash ?? undefined
+							// Spot fee rates are omitted so the new bot takes the account's current
+							// rates; a futures book keeps its own (they are required).
+							paper_starting_cash: deployment.paper_starting_cash ?? undefined,
+							...(futuresFees ?? {})
 						}
 			);
 			open = false;

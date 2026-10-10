@@ -34,11 +34,14 @@ def add_inventory_read_parsers(
         ),
     )
     add_inventory_arguments(listing)
-    show = subparsers.add_parser(
-        "show",
-        parents=[trailing],
-        help="Show one deployment. Default summary labels omitted historical orders and fills.",
+    show_help = (
+        "Show one deployment. Default summary labels omitted historical orders and fills. "
+        "A paper futures bot adds `futures` (GET /api/v1/deployments/{id}/futures): bound "
+        "contract, contracts, mark, equity, leverage, overnight margin, liquidation buffer and "
+        "price, the funding ledger, entry_blocks and unknown evidence, all USD; an unreadable "
+        "view is `futures: null` with `futures_error`."
     )
+    show = subparsers.add_parser("show", parents=[trailing], help=show_help, description=show_help)
     show.add_argument("deployment_id", help="Deployment UUID.")
     add_show_arguments(show)
 
@@ -121,7 +124,9 @@ def add_start_parser(
             "Start one paper or live deployment from a strategy's current (valid) rules. "
             "The response's strategy_fingerprint names the snapshot the bot runs. A strategy "
             "with reference instruments starts only when each reference series is on the "
-            "enabled market-data watchlist (409 names the thytrader-data watch-add command)."
+            "enabled market-data watchlist (409 names the thytrader-data watch-add command). "
+            "A futures strategy starts in paper only, with --cash (USD), --maker-fee-rate, "
+            "--taker-fee-rate and --fee-per-contract."
         ),
     )
     start.add_argument(
@@ -152,7 +157,8 @@ def add_start_parser(
             "Paper futures only (ADR 0129): USD fee per contract on every fill. Required, "
             "with explicit --maker-fee-rate and --taker-fee-rate (the futures tier from "
             "`thytrader-operator fees`), to start a futures strategy; --cash is USD from "
-            "the policy's futures.paper_capital_usd envelope."
+            "the policy's futures.paper_capital_usd envelope. Futures never run live: "
+            "--mode live with a futures strategy or this flag is FUTURES_LIVE_UNSUPPORTED."
         ),
     )
     start.add_argument(

@@ -263,6 +263,25 @@ Before P2 (live futures), verify with one supervised 1-contract position how CFM
     gross. A futures book with no readable binding disables netting for every underlying.
   - USD/USDC never-summed is checked by a seeded property test over random fleets of every
     scope (scoping, capital and the daily-loss breaker).
+- **P1-6 (runtime lane).**
+  - Starting: `thytrader-runtime start --mode paper --cash USD --maker-fee-rate M
+    --taker-fee-rate T --fee-per-contract F` (the HTTP body's `paper_fee_per_contract`), and a
+    paper-only start form on the browser Run stage. An acknowledged live start of a futures
+    strategy is HTTP 409 `FUTURES_LIVE_UNSUPPORTED` before any other start check; the live
+    acknowledgement (428) still comes first, so spot error ordering is unchanged. The CLI
+    refuses `--fee-per-contract` with `--mode live` locally.
+  - Reading: `GET /api/v1/deployments/{id}/futures` (404 for spot), the operator
+    `futures-books` report and `show`'s `futures` view are one projection: the binding, the
+    position in contracts, the last-bar mark, USD equity (cash + signed base quantity x mark),
+    leverage, overnight initial = maintenance margin, the liquidation buffer and the
+    liquidation price (equity = maintenance; rounded a cent towards the mark), the funding
+    ledger, `entry_blocks` (the evidence denials the worker would apply now, including an
+    unapplied held funding hour past the 75-minute grace) and `unknown`. Rates outside (0, 1]
+    are unknown, as in the worker. An unreadable risk policy is reported as unknown, never as
+    the compiled default.
+  - Stopping uses the existing lifecycle: a managed stop keeps the stop and the liquidation
+    monitor; `--flatten` exits the contracts at the next priced bar.
+  - Ops contract v88 (`paper_futures_runtime_lane`).
 
 ## Consequences
 

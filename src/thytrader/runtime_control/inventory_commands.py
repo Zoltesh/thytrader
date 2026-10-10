@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.agent_http import AgentHttpError
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.runtime_control.client import (
     RuntimeControlError,
     list_deployment_fills,
     list_deployment_orders,
     list_deployments,
     show_deployment,
+    show_deployment_futures,
 )
 
 if TYPE_CHECKING:
@@ -72,13 +75,32 @@ def add_ledger_parser(
     parser.add_argument("--cursor", default=None, help="next_cursor from the previous page.")
 
 
+def _with_futures_view(payload: object, base_url: str, deployment_id: str) -> object:
+    """Add the ``futures`` view (margin, buffer, leverage, funding) to a futures bot.
+
+    A failed futures read keeps the deployment and reports ``futures: null`` with
+    ``futures_error``; it never invents figures.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    product_id = payload.get("product_id")
+    if not isinstance(product_id, str) or not is_futures_product_id(product_id):
+        return payload
+    try:
+        view = show_deployment_futures(base_url, deployment_id)
+    except AgentHttpError as error:
+        return {**payload, "futures": None, "futures_error": str(error)}
+    return {**payload, "futures": view}
+
+
 def run_inventory_read(arguments: argparse.Namespace, base_url: str) -> object:
     """Dispatch list, show, orders, or fills."""
     command = arguments.command
     if command == "list":
         return _list(arguments, base_url)
     if command == "show":
-        return show_deployment(base_url, arguments.deployment_id, detail=arguments.detail)
+        payload = show_deployment(base_url, arguments.deployment_id, detail=arguments.detail)
+        return _with_futures_view(payload, base_url, arguments.deployment_id)
     if command == "orders":
         return list_deployment_orders(
             base_url,

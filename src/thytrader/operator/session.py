@@ -18,6 +18,7 @@ from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_futures_catalog import CoinbaseFuturesCatalog
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.decision_store import DisabledDecisionJournalStore
+from thytrader.execution.futures_start import FuturesStart
 from thytrader.execution.user_feed_state import DisabledUserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
@@ -35,6 +36,7 @@ from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStor
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
+from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
@@ -102,6 +104,10 @@ async def operator_diagnostics(
             alert_store=PostgresAlertStore(engine),
             futures_store=PostgresFuturesObservationStore(engine),
             futures_account_store=PostgresFuturesAccountStore(engine),
+            futures_book_stores=FuturesStart(
+                contracts=PostgresFuturesContractStore(engine),
+                observations=PostgresFuturesObservationStore(engine),
+            ),
         )
     else:
         diagnostics = OperatorDiagnostics(
