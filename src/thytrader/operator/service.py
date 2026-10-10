@@ -21,6 +21,7 @@ from thytrader.operator.diagnostics.findings import (
     build_reconciliation_report,
     build_risk_report,
 )
+from thytrader.operator.diagnostics.futures_products import build_futures_products_report
 from thytrader.operator.diagnostics.health import (
     build_configuration_report,
     build_exchange_report,
@@ -40,6 +41,7 @@ from thytrader.operator.market_models import (
     IndicatorsPayload,
     IndicatorsReport,
     MarketDataReport,
+    ProductsKind,
     ProductsReport,
 )
 from thytrader.operator.models import (
@@ -340,9 +342,11 @@ class OperatorDiagnostics:
         """Return recorded CFM funding history and futures poller health (ADR 0126)."""
         return await build_funding_report(self.futures_store, product_id=product_id, hours=hours)
 
-    async def products(self) -> ProductsReport:
-        """List enabled USD spot products from the current catalog."""
-        return await build_products_report(self)
+    async def products(self, kind: ProductsKind = "spot") -> ProductsReport:
+        """List enabled spot products; ``future``/``all`` add the read-only futures listing."""
+        if kind == "spot":
+            return await build_products_report(self)
+        return await build_futures_products_report(self, kind)
 
     async def data_catalog(self) -> DataCatalogReport:
         """Join watchlist, worker state, and verified Parquet datasets."""

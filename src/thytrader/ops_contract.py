@@ -72,7 +72,9 @@ BTC-beta-weighted exposure cap (``max_btc_beta_exposure_fraction`` /
 (``instrument_kinds``, the empty ``futures_order_paths``, the futures observation tables of
 Alembic 0071 and the operator ``funding`` report; ADR 0126), or the per-currency portfolio
 totals (``totals`` and the labelled ``usd_pegged_approximate`` ``total_value``, which is
-``null`` when the account cannot be read) change.
+``null`` when the account cannot be read), or the operator ``products --kind`` futures
+listing (``kind=future|all``; an older API would ignore the parameter and return spot only)
+change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -101,7 +103,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v76"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v77"
 EXPECTED_SCHEMA_REVISION = "0071"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -249,7 +251,11 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
 # no execution, live, adoption or discretionary surface accepts a futures id.
 INSTRUMENT_KINDS: tuple[str, ...] = tuple(kind.value for kind in InstrumentKind)
 FUTURES_ORDER_PATHS: tuple[str, ...] = ()
-FUTURES_OBSERVATIONS: tuple[str, ...] = ("instrument_catalog", "funding_history")
+FUTURES_OBSERVATIONS: tuple[str, ...] = (
+    "instrument_catalog",
+    "funding_history",
+    "operator_products_kind",
+)
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
