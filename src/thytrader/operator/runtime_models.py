@@ -213,6 +213,8 @@ class RiskPayload(_FrozenModel):
     fleet_entry_window_minutes: int | None = Field(
         default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
     )
+    max_btc_beta_exposure_fraction: str | None = None
+    max_btc_beta_exposure_quote: str | None = None
     findings: tuple[RiskFinding, ...]
 
 

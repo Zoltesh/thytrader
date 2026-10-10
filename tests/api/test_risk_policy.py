@@ -156,3 +156,46 @@ def test_put_risk_policy_round_trips_the_fleet_clustering_cap() -> None:
     assert too_long.status_code == 422
     assert unpaired.status_code == 422
     assert "must be set together" in unpaired.text
+
+
+def test_put_risk_policy_round_trips_the_beta_cap() -> None:
+    """The HTTP body, response and model share the ADR 0125 β fields and their validation."""
+    app = create_app(
+        Settings(_env_file=None),
+        risk_policy_store=InMemoryRiskPolicyStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+        strategy_store=DisabledStrategyStore(),
+    )
+    base = {
+        "max_concurrent_running_deployments": 8,
+        "max_concurrent_open_positions": 8,
+        "max_portfolio_exposure_fraction": "1",
+        "per_product_max_exposure_fraction": "1",
+        "paper_capital_quote": "40000",
+    }
+    with TestClient(app) as client:
+        unset = client.put("/api/v1/risk-policy", json=base)
+        capped = client.put(
+            "/api/v1/risk-policy",
+            json={
+                **base,
+                "max_btc_beta_exposure_fraction": "0.6",
+                "max_btc_beta_exposure_quote": "300",
+            },
+        )
+        fetched = client.get("/api/v1/risk-policy")
+        above_one = client.put(
+            "/api/v1/risk-policy", json={**base, "max_btc_beta_exposure_fraction": "1.5"}
+        )
+        zero_quote = client.put(
+            "/api/v1/risk-policy", json={**base, "max_btc_beta_exposure_quote": "0"}
+        )
+    assert unset.status_code == 200
+    assert unset.json()["max_btc_beta_exposure_fraction"] is None
+    assert unset.json()["max_btc_beta_exposure_quote"] is None
+    assert capped.status_code == 200
+    assert fetched.json()["max_btc_beta_exposure_fraction"] == "0.6"
+    assert fetched.json()["max_btc_beta_exposure_quote"] == "300"
+    assert fetched.json()["policy_fingerprint"] == capped.json()["policy_fingerprint"]
+    assert above_one.status_code == 422
+    assert zero_quote.status_code == 422

@@ -106,6 +106,7 @@ async def place_discretionary_order(
         store,
         request=request,
         risk_store=risk_store,
+        market_data=market_data,
         notional=sized.notional,
         quantity=sized.quantity,
         live_quote_cash=live_quote_cash,

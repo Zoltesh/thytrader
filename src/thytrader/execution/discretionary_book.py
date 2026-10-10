@@ -15,6 +15,7 @@ from thytrader.execution.breaker_pause import _pause_mode_running
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.runtime_ops import _pause
 from thytrader.risk.accounting_evidence import accounting_snapshot
+from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.execution.paper_fees import PaperFeeSource
+    from thytrader.market_data.service import MarketDataService
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.trading.store import ExecutionStore
 
@@ -52,6 +54,7 @@ async def _book_for_entry(
     *,
     request: DiscretionaryOrderRequest,
     risk_store: RiskPolicyStore | None,
+    market_data: MarketDataService | None,
     notional: Decimal,
     quantity: Decimal,
     live_quote_cash: Decimal | None,
@@ -59,7 +62,10 @@ async def _book_for_entry(
     reference_price: Decimal,
     paper_fee_source: PaperFeeSource | None = None,
 ) -> DeploymentSnapshot:
-    """Reuse a flat running book or create one after the risk gate admits it."""
+    """Reuse a flat running book or create one after the risk gate admits it.
+
+    ``market_data`` supplies BTC-beta evidence when the policy sets a β cap (ADR 0125).
+    """
     existing = await store.list_deployments()
     reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
     if reusable is not None:
@@ -82,6 +88,7 @@ async def _book_for_entry(
         await _require_entry_admission(
             risk_store,
             store=store,
+            market_data=market_data,
             request=request,
             snapshot=snapshot,
             notional=notional,
@@ -109,6 +116,7 @@ async def _book_for_entry(
     await _require_entry_admission(
         risk_store,
         store=store,
+        market_data=market_data,
         request=request,
         snapshot=DeploymentSnapshot(deployment=candidate),
         notional=notional,
@@ -247,6 +255,7 @@ async def _require_entry_admission(
     risk_store: RiskPolicyStore | None,
     *,
     store: ExecutionStore,
+    market_data: MarketDataService | None,
     request: DiscretionaryOrderRequest,
     snapshot: DeploymentSnapshot,
     notional: Decimal,
@@ -262,6 +271,16 @@ async def _require_entry_admission(
         store, deployments=deployments, exclude_id=snapshot.deployment.id
     )
     live_cash = live_quote_cash if request.mode is DeploymentMode.LIVE else None
+    books = (*peers, snapshot)
+    as_of = utc_now()
+    beta = await load_entry_beta(
+        active.definition,
+        market_data,
+        mode=request.mode,
+        snapshots=books,
+        product_id=request.product_id,
+        as_of=as_of,
+    )
     verdict = evaluate_new_entry(
         active.definition,
         mode=request.mode,
@@ -271,14 +290,15 @@ async def _require_entry_admission(
             notional=notional,
             quantity=quantity,
         ),
-        snapshots=(*peers, snapshot),
+        snapshots=books,
         live_quote_cash=live_cash,
         observation=EntryObservation(
-            as_of=utc_now(),
+            as_of=as_of,
             proposed_price=entry_price,
             reference_price=reference_price,
             marks={request.product_id: reference_price},
         ),
+        beta=beta,
     )
     if verdict.decision is RiskDecision.ALLOW:
         return

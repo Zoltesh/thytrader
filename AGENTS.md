@@ -49,7 +49,7 @@ Open work, one line each (no roadmap file; history is in the ADRs and git log):
 - No in-app portfolio manager loop: the manager is an external agent driving `thytrader-portfolio`.
 - The risk policy has no pre-trade min-liquidity / max-spread check (repeated cycle failures do fence entries via safety supervision, ADR 0115).
 - Backtests do not model latency, venue rejections, partial fills, or queue position.
-- Backtests do not apply the account risk policy, so the fleet entry clustering cap (ADR 0125) is paper/live-only.
+- Backtests do not apply the account risk policy, so the fleet entry clustering and BTC-beta exposure caps (ADR 0125) are paper/live-only.
 - Open-book PnL excludes estimated future exit fees (ADR 0100).
 - Alerts do not fire on per-bar decision outcomes; there is no ThyTrader WebSocket (the UI polls).
 - Only Coinbase spot is supported; other exchanges are deferred.

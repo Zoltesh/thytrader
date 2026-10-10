@@ -186,9 +186,11 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
   fleet entry clustering cap (`max_fleet_entries_per_window`,
   [ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)) published, paper and live
   skip entries on crowded bar closes that a fleet of backtests still counts. Fleet backtests then
-  overstate trade counts, and paper/live twin comparisons diverge from them. Count
-  `FLEET_ENTRY_CLUSTER_LIMIT` rows in runtime `decisions` before reading that gap as strategy
-  decay.
+  overstate trade counts, and paper/live twin comparisons diverge from them. The opt-in
+  BTC-beta exposure cap (`max_btc_beta_exposure_fraction`) likewise skips entries once the
+  fleet's β-weighted exposure is full, or while a held product lacks a fresh β. Count
+  `FLEET_ENTRY_CLUSTER_LIMIT`, `BTC_BETA_EXPOSURE_EXCEEDED` and `BTC_BETA_UNAVAILABLE` rows in
+  runtime `decisions` before reading that gap as strategy decay.
 
 ## Commands
 

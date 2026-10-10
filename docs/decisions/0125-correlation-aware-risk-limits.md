@@ -87,7 +87,12 @@ and reason codes have no CHECK constraint.
   too little history removes it from the allowlist or unsets the cap.
 - **Scope.** Every entry the gate admits, pyramid adds and reprices included (a reprice is
   re-checked on its remaining notional). In-kind adoption is subject to it, consistent with
-  the exposure caps. The β loader runs only when the policy sets a beta field.
+  the exposure caps. The β loader runs only when a β cap binds in the entry's mode (the
+  absolute cap alone does not bind paper), so an unset cap reads nothing.
+- **Wiring.** Worker entries (strategy, lockstep, portfolio sleeves, reprices) read through
+  the market data the execution worker binds for risk evidence. Discretionary place-order and
+  both adoption paths pass their own market data. With a cap set and no market data, the entry
+  is denied as `not_loaded`.
 
 ### Shared rules
 

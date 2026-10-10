@@ -65,7 +65,10 @@ inventory adoption (ADR 0124, Alembic 0070), or the inventory-adoption HTTP surf
 (``/api/v1/inventory-adoptions`` preview, protect and sell; ADR 0124), or live strategy start
 with ``adopt_holdings`` (an older API would ignore the field and start a buying bot), or the
 fleet entry clustering cap (``max_fleet_entries_per_window`` / ``fleet_entry_window_minutes``
-and ``FLEET_ENTRY_CLUSTER_LIMIT``; an older API would drop the fields; ADR 0125) change.
+and ``FLEET_ENTRY_CLUSTER_LIMIT``; an older API would drop the fields; ADR 0125), or the
+BTC-beta-weighted exposure cap (``max_btc_beta_exposure_fraction`` /
+``max_btc_beta_exposure_quote``, ``BTC_BETA_EXPOSURE_EXCEEDED`` and
+``BTC_BETA_UNAVAILABLE``; ADR 0125) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -93,7 +96,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v73"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v74"
 EXPECTED_SCHEMA_REVISION = "0070"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

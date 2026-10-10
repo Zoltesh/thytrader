@@ -274,9 +274,10 @@ optional spread stress, and a "How backtests simulate" disclosure summarizes the
 - observed bid/ask data or calibration of the spread stress to venue microstructure;
 - margin, leverage, borrow, or funding for shorts;
 - cross-strategy portfolio allocation;
-- the account risk policy's entry gate, including the opt-in fleet entry clustering cap
+- the account risk policy's entry gate, including the opt-in fleet entry clustering cap and
+  BTC-beta-weighted exposure cap
   ([ADR 0125](../decisions/0125-correlation-aware-risk-limits.md)): a fleet of backtests counts
-  every entry, while paper and live skip entries once the cap binds;
+  every entry, while paper and live skip entries once either cap binds;
 - sensitivity analysis or walk-forward optimization inside one run (studies compose ordinary
   submissions; see [research studies](research-studies.md));
 - paper broker, exchange adapters, Coinbase submission, or live execution.

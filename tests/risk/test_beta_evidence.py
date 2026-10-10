@@ -23,7 +23,10 @@ from thytrader.risk.beta_evidence import (
     BetaHistoryCache,
     beta_day_close,
     load_beta_evidence,
+    load_entry_beta,
 )
+from thytrader.risk.models import RiskPolicyDefinition, compiled_default_risk_policy
+from thytrader.trading.models import DeploymentMode
 
 _AS_OF = datetime(2026, 10, 9, 12, tzinfo=UTC)
 _CLOSE = datetime(2026, 10, 9, tzinfo=UTC)
@@ -264,3 +267,78 @@ def test_cache_is_bounded() -> None:
         )
     assert cache.lookup("SOL-USDC", _CLOSE, as_of=_AS_OF) is None
     assert cache.lookup("SOL-USDC", _CLOSE + timedelta(days=2), as_of=_AS_OF) is not None
+
+
+def _beta_policy(*, fraction: str | None = None, quote: str | None = None) -> RiskPolicyDefinition:
+    """Compiled envelope with only the given β fields set."""
+    return RiskPolicyDefinition.model_validate(
+        {
+            **compiled_default_risk_policy().model_dump(mode="python"),
+            "max_btc_beta_exposure_fraction": fraction,
+            "max_btc_beta_exposure_quote": quote,
+        }
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("fraction", "quote", "mode"),
+    [
+        (None, None, DeploymentMode.PAPER),
+        (None, None, DeploymentMode.LIVE),
+        (None, "100", DeploymentMode.PAPER),
+    ],
+)
+async def test_entry_loader_reads_nothing_unless_a_beta_cap_binds(
+    fraction: str | None, quote: str | None, mode: DeploymentMode
+) -> None:
+    """Unset caps (and a live-only quote cap on paper) make zero venue requests."""
+    provider = DailyBetaProvider(betas={"SOL-USDC": 1.5})
+
+    evidence = await load_entry_beta(
+        _beta_policy(fraction=fraction, quote=quote),
+        provider.service(),
+        mode=mode,
+        snapshots=(),
+        product_id="SOL-USDC",
+        as_of=_AS_OF,
+        cache=BetaHistoryCache(),
+    )
+
+    assert evidence is None
+    assert provider.requests == []
+
+
+@pytest.mark.anyio
+async def test_entry_loader_reads_the_proposed_product_when_a_cap_binds() -> None:
+    """A set fraction reads the proposed product and its reference."""
+    provider = DailyBetaProvider(betas={"SOL-USDC": 1.5})
+
+    evidence = await load_entry_beta(
+        _beta_policy(fraction="0.6"),
+        provider.service(),
+        mode=DeploymentMode.PAPER,
+        snapshots=(),
+        product_id="SOL-USDC",
+        as_of=_AS_OF,
+        cache=BetaHistoryCache(),
+    )
+
+    assert evidence is not None
+    assert _estimate(evidence, "SOL-USDC").beta == Decimal("1.50")
+    assert sorted(provider.requested_products()) == ["BTC-USDC", "SOL-USDC"]
+
+
+@pytest.mark.anyio
+async def test_entry_loader_without_market_data_leaves_evidence_unknown() -> None:
+    """No bound market data returns no evidence, which the gate denies as not loaded."""
+    evidence = await load_entry_beta(
+        _beta_policy(fraction="0.6"),
+        None,
+        mode=DeploymentMode.PAPER,
+        snapshots=(),
+        product_id="SOL-USDC",
+        as_of=_AS_OF,
+    )
+
+    assert evidence is None

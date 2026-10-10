@@ -96,8 +96,11 @@ class RiskReasonCode(StrEnum):
     PORTFOLIO_DAILY_LOSS_STOP = "PORTFOLIO_DAILY_LOSS_STOP"
     PORTFOLIO_DRAWDOWN_STOP = "PORTFOLIO_DRAWDOWN_STOP"
     PORTFOLIO_LIMITS_UNAVAILABLE = "PORTFOLIO_LIMITS_UNAVAILABLE"
-    # Correlation-aware limits (ADR 0125): too many fleet entries in one trailing window.
+    # Correlation-aware limits (ADR 0125): too many fleet entries in one trailing window,
+    # BTC-beta-weighted exposure over its cap, or a needed beta missing or stale.
     FLEET_ENTRY_CLUSTER_LIMIT = "FLEET_ENTRY_CLUSTER_LIMIT"
+    BTC_BETA_EXPOSURE_EXCEEDED = "BTC_BETA_EXPOSURE_EXCEEDED"
+    BTC_BETA_UNAVAILABLE = "BTC_BETA_UNAVAILABLE"
 
 
 class _FrozenModel(BaseModel):
@@ -136,6 +139,18 @@ MAX_FLEET_ENTRIES_PER_WINDOW = MAX_CONCURRENT_LIMIT
 
 MAX_FLEET_ENTRY_WINDOW_MINUTES = 1440
 """Upper bound for ``fleet_entry_window_minutes``: one UTC day (ADR 0125)."""
+
+
+def _unit_fraction(value: str) -> str:
+    """Return ``value`` when it parses to a fraction in (0, 1].
+
+    Raises:
+        ValueError: When the fraction is zero, negative, or above one.
+    """
+    parsed = Decimal(value)
+    if parsed <= 0 or parsed > 1:
+        raise ValueError("fractions must be greater than 0 and at most 1")
+    return value
 
 
 def require_fleet_window_pair(count: int | None, window_minutes: int | None) -> None:
@@ -215,6 +230,15 @@ class RiskPolicyDefinition(_FrozenModel):
     fleet_entry_window_minutes: int | None = Field(
         default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES, exclude_if=lambda v: v is None
     )
+    # Optional BTC-beta-weighted exposure cap (ADR 0125): Σ |exposure| * β against
+    # BTC-<quote> as a fraction of the capital base and/or a live-only absolute quote
+    # ceiling. Unset keeps today's behaviour, reads no history, and keeps fingerprints.
+    max_btc_beta_exposure_fraction: DecimalText | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    max_btc_beta_exposure_quote: DecimalText | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
 
     @field_validator("product_allowlist")
     @classmethod
@@ -230,6 +254,7 @@ class RiskPolicyDefinition(_FrozenModel):
         "max_order_quantity",
         "max_order_notional_quote",
         "min_available_quote_reserve",
+        "max_btc_beta_exposure_quote",
     )
     @classmethod
     def require_positive_absolute_cap(cls, value: str | None) -> str | None:
@@ -260,10 +285,13 @@ class RiskPolicyDefinition(_FrozenModel):
     @classmethod
     def require_unit_fraction(cls, value: str) -> str:
         """Keep exposure, breaker, and collar caps in (0, 1]."""
-        parsed = Decimal(value)
-        if parsed <= 0 or parsed > 1:
-            raise ValueError("fractions must be greater than 0 and at most 1")
-        return value
+        return _unit_fraction(value)
+
+    @field_validator("max_btc_beta_exposure_fraction")
+    @classmethod
+    def require_optional_unit_fraction(cls, value: str | None) -> str | None:
+        """Keep an optional fraction cap in (0, 1] when it is set."""
+        return None if value is None else _unit_fraction(value)
 
     @field_validator("paper_capital_quote")
     @classmethod
@@ -326,6 +354,8 @@ class RiskPolicyWrite(_FrozenModel):
     fleet_entry_window_minutes: int | None = Field(
         default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
     )
+    max_btc_beta_exposure_fraction: DecimalText | None = None
+    max_btc_beta_exposure_quote: DecimalText | None = None
 
     @model_validator(mode="after")
     def validate_fleet_window(self) -> Self:

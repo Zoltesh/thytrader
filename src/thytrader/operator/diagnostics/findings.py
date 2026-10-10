@@ -109,6 +109,8 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
             min_available_quote_reserve=policy.min_available_quote_reserve,
             max_fleet_entries_per_window=policy.max_fleet_entries_per_window,
             fleet_entry_window_minutes=policy.fleet_entry_window_minutes,
+            max_btc_beta_exposure_fraction=policy.max_btc_beta_exposure_fraction,
+            max_btc_beta_exposure_quote=policy.max_btc_beta_exposure_quote,
             findings=findings,
         ),
     )
