@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, StrictBool
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
+    get_futures_account_store,
     get_live_broker,
     get_market_data_service,
     get_memory_store,
@@ -28,6 +29,7 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
 from thytrader.exchanges.protocols import ExchangeAccount
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import Broker
@@ -40,6 +42,7 @@ from thytrader.market_data.products import (
 )
 from thytrader.market_data.service import MarketDataService
 from thytrader.memory.store import ExperientialMemoryStore
+from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
 from thytrader.trading.geometry import base_currency
@@ -98,8 +101,14 @@ async def post_discretionary_order(
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
     paper_fee_source: Annotated[PaperFeeSource, Depends(get_paper_fee_source)],
+    futures_account: Annotated[
+        FuturesAccountSnapshotStore | None, Depends(get_futures_account_store)
+    ],
 ) -> DeploymentResponse:
-    """Persist a discretionary intent, submit once, and never retry an ambiguous timeout."""
+    """Persist a discretionary intent, submit once, and never retry an ambiguous timeout.
+
+    Live entries read the CFM mirror for the shared-collateral gate (ADR 0129).
+    """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     try:
         request = parse_discretionary_request(
@@ -121,7 +130,7 @@ async def post_discretionary_order(
             note=body.note,
         )
         broker = _broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
-        with execution_audit_scope(audit):
+        with execution_audit_scope(audit), risk_futures_account_scope(futures_account):
             snapshot = await _place(
                 request,
                 store=store,

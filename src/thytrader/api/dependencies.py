@@ -29,6 +29,7 @@ from thytrader.persistence.postgres_adoption import PostgresInventoryAdoptionSto
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
@@ -48,6 +49,7 @@ from thytrader.trading.memory_adoption import InMemoryInventoryAdoptionStore
 from thytrader.trading.store import ExecutionStore, InventoryAdoptionStore
 
 if TYPE_CHECKING:
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.fleet_control.store import FleetControlStore
     from thytrader.research.jobs import ResearchJobStore
 
@@ -356,6 +358,19 @@ def get_research_queue(request: Request) -> PostgresResearchQueue | None:
         message = "Research queue is unavailable."
         raise TypeError(message)
     return queue
+
+
+def get_futures_account_store(request: Request) -> FuturesAccountSnapshotStore | None:
+    """Return the CFM mirror store for the shared-collateral gate (ADR 0129), if any.
+
+    Tests may inject one on ``app.state.futures_account_store``; otherwise PostgreSQL backs
+    it, and without a database there is no mirror (``absent``).
+    """
+    injected = getattr(request.app.state, "futures_account_store", None)
+    if injected is not None:
+        return injected
+    engine = get_database_engine(request)
+    return None if engine is None else PostgresFuturesAccountStore(engine)
 
 
 def get_database_engine(request: Request) -> AsyncEngine | None:

@@ -5,7 +5,10 @@ checks in a fixed order: membership and slots (``entry_limits``), a sleeve's por
 limits (``portfolio_limits``), optional per-order bounds (``order_bounds``), account
 exposure, the optional BTC-beta-weighted exposure cap (``beta_exposure``, ADR 0125),
 unresolved accounting, then the circuit breakers, rate, and collar gates and the
-optional fleet entry clustering cap (``entry_clustering``, ADR 0125). It gates entries only,
+optional fleet entry clustering cap (``entry_clustering``, ADR 0125). Before order bounds,
+live USD/USDC entries pass the shared-collateral gate (``futures_collateral``, ADR 0129):
+manual CFM futures in use or unknown deny, unless a declared reserve covers them, which is
+then withheld from the venue quote every later check uses. It gates entries only,
 never protective exits. An in-kind adoption (ADR 0124) sends nothing to the venue, so it
 skips the order bounds, rate, collar and clustering gates and adds its notional to live
 capital; every other check applies. A reprice of an admitted working entry skips only the
@@ -36,6 +39,7 @@ from thytrader.risk.entry_limits import (
     _exposure_verdict,
     _occupied,
 )
+from thytrader.risk.futures_collateral import collateral_verdict
 from thytrader.risk.gate_common import ProposedEntry, _allow, _deny
 from thytrader.risk.models import (
     RiskDecision,
@@ -55,6 +59,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.risk.beta import BetaEvidence
+    from thytrader.risk.futures_collateral import FuturesCollateralEvidence
 
 
 def evaluate_new_deployment(
@@ -115,6 +120,7 @@ def evaluate_new_entry(
     observation: EntryObservation | None = None,
     portfolio: PortfolioRiskBook | None = None,
     beta: BetaEvidence | None = None,
+    futures_collateral: FuturesCollateralEvidence | None = None,
 ) -> RiskVerdict:
     """Allow a risk-increasing entry only when slots, exposure, and breakers permit it.
 
@@ -123,6 +129,8 @@ def evaluate_new_entry(
     checks; every check must pass, so the strictest limit wins (ADR 0091). ``beta`` is
     the BTC-beta evidence for the β cap (ADR 0125); it is ignored while no β cap binds
     in ``mode`` and denies as unavailable when a cap binds and it is missing.
+    ``futures_collateral`` is the classified CFM account (ADR 0129); ``None`` means no
+    evidence was requested (paper) and changes nothing.
     """
     occupied = tuple(
         item
@@ -142,19 +150,20 @@ def evaluate_new_entry(
     )
     if membership.decision is RiskDecision.DENY:
         return membership
-    if portfolio is not None:
-        if any(
-            item.deployment.portfolio_id == portfolio.portfolio_id
-            for item in risk_bearing
-            if item not in quote_books
-        ):
-            return _deny(
-                RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
-                "Portfolio exposure cannot combine different quote currencies.",
-            )
-        limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=quote_books)
-        if limited.decision is RiskDecision.DENY:
-            return limited
+    limited = _portfolio_verdict(
+        portfolio, proposed=proposed, risk_bearing=risk_bearing, quote_books=quote_books
+    )
+    if limited is not None:
+        return limited
+    collateral, live_quote_cash = collateral_verdict(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        evidence=futures_collateral,
+        live_quote_cash=live_quote_cash,
+    )
+    if collateral is not None:
+        return collateral
     bounded = (
         None
         if proposed.in_kind
@@ -203,6 +212,29 @@ def evaluate_new_entry(
         live_quote_cash=live_quote_cash,
         observation=observation,
     )
+
+
+def _portfolio_verdict(
+    portfolio: PortfolioRiskBook | None,
+    *,
+    proposed: ProposedEntry,
+    risk_bearing: Sequence[DeploymentSnapshot],
+    quote_books: Sequence[DeploymentSnapshot],
+) -> RiskVerdict | None:
+    """Apply a sleeve's portfolio limits; refuse portfolios that mix quote currencies."""
+    if portfolio is None:
+        return None
+    if any(
+        item.deployment.portfolio_id == portfolio.portfolio_id
+        for item in risk_bearing
+        if item not in quote_books
+    ):
+        return _deny(
+            RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE,
+            "Portfolio exposure cannot combine different quote currencies.",
+        )
+    limited = evaluate_portfolio_entry(portfolio, proposed=proposed, snapshots=quote_books)
+    return limited if limited.decision is RiskDecision.DENY else None
 
 
 def evaluate_runtime_breakers(

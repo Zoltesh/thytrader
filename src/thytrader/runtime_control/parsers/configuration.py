@@ -186,6 +186,27 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--futures-live-spot-collateral-reserve-quote",
+        default=None,
+        help=(
+            "Shared USDC collateral (ADR 0129): Coinbase counts USDC as CFM futures "
+            "collateral. While manual futures hold margin, new live USD/USDC spot entries are "
+            "denied (FUTURES_COLLATERAL_IN_USE) unless this reserve, in the policy quote, is "
+            "set: it must cover the CFM initial margin x --futures-peg-haircut (else "
+            "FUTURES_COLLATERAL_RESERVE_SHORT) and is withheld from spot capital. A stale or "
+            "failed futures read denies (FUTURES_COLLATERAL_UNKNOWN). Never gates exits. "
+            "Omitting this flag unsets it."
+        ),
+    )
+    set_policy.add_argument(
+        "--futures-peg-haircut",
+        default=None,
+        help=(
+            "Multiplier (>= 1.0, default 1.25) on the USD initial margin that the USDC "
+            "reserve must cover; a threshold under a declared peg, never a sum."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],

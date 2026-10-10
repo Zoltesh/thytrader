@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
+from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.strategies.models import (
     DecimalText,
 )
@@ -101,6 +102,10 @@ class RiskReasonCode(StrEnum):
     FLEET_ENTRY_CLUSTER_LIMIT = "FLEET_ENTRY_CLUSTER_LIMIT"
     BTC_BETA_EXPOSURE_EXCEEDED = "BTC_BETA_EXPOSURE_EXCEEDED"
     BTC_BETA_UNAVAILABLE = "BTC_BETA_UNAVAILABLE"
+    # Shared USDC collateral (ADR 0129 §2): manual CFM futures draw on the same pool.
+    FUTURES_COLLATERAL_UNKNOWN = "FUTURES_COLLATERAL_UNKNOWN"
+    FUTURES_COLLATERAL_IN_USE = "FUTURES_COLLATERAL_IN_USE"
+    FUTURES_COLLATERAL_RESERVE_SHORT = "FUTURES_COLLATERAL_RESERVE_SHORT"
 
 
 class _FrozenModel(BaseModel):
@@ -239,6 +244,8 @@ class RiskPolicyDefinition(_FrozenModel):
     max_btc_beta_exposure_quote: DecimalText | None = Field(
         default=None, exclude_if=lambda v: v is None
     )
+    # Optional futures block (ADR 0129). Unset keeps today's behaviour and fingerprints.
+    futures: FuturesRiskPolicy | None = Field(default=None, exclude_if=lambda v: v is None)
 
     @field_validator("product_allowlist")
     @classmethod
@@ -356,6 +363,7 @@ class RiskPolicyWrite(_FrozenModel):
     )
     max_btc_beta_exposure_fraction: DecimalText | None = None
     max_btc_beta_exposure_quote: DecimalText | None = None
+    futures: FuturesRiskPolicy | None = None
 
     @model_validator(mode="after")
     def validate_fleet_window(self) -> Self:

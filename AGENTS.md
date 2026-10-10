@@ -248,6 +248,9 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
   (`LIVE_REQUIRES_PUBLISHED_POLICY`); the compiled default is a wide paper-research envelope.
 - Unknown balances, marks, baselines, or accounting deny new risk; they are never reported or
   summed as zero. USD, USDC, and USDT amounts are never added together.
+- The USDC spot balance is CFM futures collateral (ADR 0127 §8). Live USD/USDC spot entries
+  pause while manual futures are in use or their state is unknown, unless a declared reserve
+  covers the margin (ADR 0129). The pool is linked by rules, never by summing currencies.
 - Account risk capital (observed venue quote plus managed inventory) is separate from bot
   allocations and from pinned performance capital
   ([ADR 0106](docs/decisions/0106-account-risk-capital-and-live-startup-baselines.md),

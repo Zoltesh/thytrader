@@ -93,6 +93,10 @@ Rules for new risk-increasing **live** entries in collateral-linked spot scopes 
 - **L4 (`idle` or `absent`).** Today's behaviour.
 - Protective exits, cancellations and managed shutdown are never gated (as everywhere).
 - Paper spot books are not affected by the live account's futures.
+- In-kind adoption (ADR 0124) is not gated: it spends no quote and sends nothing to the venue.
+- The gate covers every quote-funded live entry: strategy, lockstep, portfolio-sleeve and
+  discretionary entries, pyramid adds and reprices. The execution worker and the API bind the
+  mirror store; an install without a database or credentials has no mirror (`absent`).
 
 ### 3. ADR 0106 account capital
 

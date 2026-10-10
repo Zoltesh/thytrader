@@ -167,6 +167,25 @@ for a ~500 USDC fleet of alts: `--max-btc-beta-exposure-fraction 0.6`, with no a
 Revisit after 30 days of `BTC_BETA_EXPOSURE_EXCEEDED` counts in `decisions`. Backtests do not
 apply it.
 
+Shared USDC collateral with manual futures ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)):
+Coinbase counts the USDC spot balance as CFM futures collateral, so futures traded by hand on
+the account use the same money live spot bots trade. The gate reads the futures mirror
+(`thytrader-operator futures-account`) for every new **live** USD/USDC spot entry:
+
+- futures flat, or no futures (state `idle` / `absent`): nothing changes;
+- a stale or failed futures read (`unknown`): entries are denied `FUTURES_COLLATERAL_UNKNOWN`;
+- futures positions, initial margin or an open-order hold (`in_use`): entries are denied
+  `FUTURES_COLLATERAL_IN_USE`, unless the policy sets
+  `--futures-live-spot-collateral-reserve-quote R` (policy quote). Then R must be at least the
+  CFM initial margin (USD) x `--futures-peg-haircut` (default 1.25, minimum 1.0), else
+  `FUTURES_COLLATERAL_RESERVE_SHORT`, and R is withheld from the venue balance every spot cap
+  uses. The two currencies are compared under a declared peg, never added.
+
+It never gates exits, paper books, USDT books or in-kind adoption, and it does not pause bots: the
+bar's entry is skipped and recorded in `decisions`. Resupply both flags on every publication to
+keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`, USD figures,
+`reserve_quote`, `effect`).
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).

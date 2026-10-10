@@ -22,12 +22,14 @@ from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
+from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
@@ -84,41 +86,44 @@ async def run() -> None:
         _logger.info("execution_worker_started")
         user_feed_store = PostgresUserOrderFeedStateStore(engine)
         initial = venue_runtime.current()
-        await asyncio.gather(
-            run_execution_worker(
-                stop_requested,
-                store=store,
-                publication_store=publication_store,
-                market_data=initial.market_data,
-                paper_broker=PaperBroker(),
-                live_broker=initial.live_broker,
-                quote_reader=initial.quote_reader,
-                interval_seconds=settings.execution_worker_interval_seconds,
-                on_readiness_changed=lambda ready: _set_readiness(
-                    settings.execution_worker_readiness_file, ready
+        # Live entry admission reads the CFM mirror for the shared-collateral gate
+        # (ADR 0129); tasks created below inherit this binding.
+        with risk_futures_account_scope(PostgresFuturesAccountStore(engine)):
+            await asyncio.gather(
+                run_execution_worker(
+                    stop_requested,
+                    store=store,
+                    publication_store=publication_store,
+                    market_data=initial.market_data,
+                    paper_broker=PaperBroker(),
+                    live_broker=initial.live_broker,
+                    quote_reader=initial.quote_reader,
+                    interval_seconds=settings.execution_worker_interval_seconds,
+                    on_readiness_changed=lambda ready: _set_readiness(
+                        settings.execution_worker_readiness_file, ready
+                    ),
+                    heartbeat_store=heartbeats,
+                    risk_store=risk_store,
+                    user_feed_store=user_feed_store,
+                    wake_requested=wake_requested,
+                    memory_store=memory_store,
+                    settings_store=settings_store,
+                    venue_provider=venue_runtime.current,
+                    audit_store=audit_store,
+                    decision_store=decision_store,
+                    portfolio_store=portfolio_store,
+                    alert_service=alert_service,
                 ),
-                heartbeat_store=heartbeats,
-                risk_store=risk_store,
-                user_feed_store=user_feed_store,
-                wake_requested=wake_requested,
-                memory_store=memory_store,
-                settings_store=settings_store,
-                venue_provider=venue_runtime.current,
-                audit_store=audit_store,
-                decision_store=decision_store,
-                portfolio_store=portfolio_store,
-                alert_service=alert_service,
-            ),
-            run_venue_user_order_feed(
-                stop_requested,
-                venue_provider=venue_runtime.current,
-                feed_store=user_feed_store,
-                audit_store=audit_store,
-                wake_requested=wake_requested,
-            ),
-            credential_runtime.run_until_stopped(stop_requested),
-            alert_service.run_deliveries(stop_requested),
-        )
+                run_venue_user_order_feed(
+                    stop_requested,
+                    venue_provider=venue_runtime.current,
+                    feed_store=user_feed_store,
+                    audit_store=audit_store,
+                    wake_requested=wake_requested,
+                ),
+                credential_runtime.run_until_stopped(stop_requested),
+                alert_service.run_deliveries(stop_requested),
+            )
         _logger.info("execution_worker_stopped")
     finally:
         _set_readiness(settings.execution_worker_readiness_file, False)
