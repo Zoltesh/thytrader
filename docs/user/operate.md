@@ -186,6 +186,12 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
     tick the acknowledgement: the strategy starts **live** already holding the coins, buying
     nothing. The worker rests the strategy's own stop and target on its next cycle, and its exits
     manage the position from there.
+- **Futures (read-only).** Shown once the worker has mirrored the Coinbase futures (CFM)
+  account: whether futures are enabled, buying power, margin ratio (available margin over the
+  liquidation threshold; blank with no open positions), liquidation buffer and funding PnL, all
+  in USD. Buying power is shared with your USDC spot balance: Coinbase counts USDC as futures
+  collateral, so it is not extra money. Open positions are listed as external; no bot manages
+  them and ThyTrader cannot place futures orders. A failed read says unknown, never zero.
 - **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
 - **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
   datasets with coverage, newest candle, watch and worker state, and the same problem words as

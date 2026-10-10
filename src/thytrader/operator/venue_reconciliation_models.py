@@ -78,9 +78,12 @@ class VenueListingEvidence(_FrozenModel):
     """
 
     status: Literal["complete", "unavailable"] = "unavailable"
-    scope: Literal["not_observed", "venue_balances", "spot_order_history_nonterminal"] = (
-        "not_observed"
-    )
+    scope: Literal[
+        "not_observed",
+        "venue_balances",
+        "spot_order_history_nonterminal",
+        "futures_order_history_nonterminal",
+    ] = "not_observed"
     demo: bool = False
     observed_at: datetime | None = None
     rows: int = Field(default=0, ge=0)
@@ -180,6 +183,47 @@ class OrderReconciliationSection(_FrozenModel):
     listing: VenueListingEvidence = Field(default_factory=VenueListingEvidence)
 
 
+FUTURES_RECONCILIATION_NOTE = (
+    "ThyTrader manages no futures, so every CFM position and futures order is external, "
+    "unmanaged exposure (ADR 0127). Positions come from the newest read-only mirror "
+    "snapshot; notional is USD (contracts x contract size x current price) and is never "
+    "added to USDC. Futures margin draws on the USDC spot balance, which Coinbase counts as "
+    "collateral."
+)
+
+
+class FuturesExternalPositionRow(_FrozenModel):
+    """One CFM position; ``notional_usd`` is ``null`` when its contract size is unknown."""
+
+    product_id: str
+    side: Literal["long", "short", "unknown"]
+    number_of_contracts: str
+    contract_size: str | None = None
+    underlying: str | None = None
+    current_price: str | None = None
+    notional_usd: str | None = None
+    classification: Literal["external_unmanaged"] = "external_unmanaged"
+
+
+class FuturesReconciliationSection(_FrozenModel):
+    """External CFM positions (mirror snapshot) and futures orders (fresh listing).
+
+    ``positions_source`` is ``mirror_snapshot`` for a current snapshot, ``stale`` when it
+    is older than 180 s (positions then still shown but unproved), ``unavailable`` when the
+    position read failed and ``not_observed`` when no snapshot exists. ``positions`` is
+    ``null`` when unknown. ``unmanaged_notional_usd`` sums every position's notional only
+    when all are known.
+    """
+
+    positions_source: Literal["mirror_snapshot", "stale", "unavailable", "not_observed"]
+    positions_observed_at: datetime | None = None
+    positions: tuple[FuturesExternalPositionRow, ...] | None = None
+    unmanaged_notional_usd: str | None = None
+    orders: tuple[ForeignOpenOrderRow, ...] | None = None
+    orders_listing: VenueListingEvidence = Field(default_factory=VenueListingEvidence)
+    note: str = FUTURES_RECONCILIATION_NOTE
+
+
 class VenueReconciliationPayload(_FrozenModel):
     """Everything the venue-wide comparison observed, with scope made explicit."""
 
@@ -192,6 +236,7 @@ class VenueReconciliationPayload(_FrozenModel):
     assets: tuple[AssetReconciliationRow, ...] = ()
     quote_currencies: tuple[QuoteReconciliationRow, ...] = ()
     orders: OrderReconciliationSection = Field(default_factory=OrderReconciliationSection)
+    futures: FuturesReconciliationSection | None = None
     findings: tuple[VenueFinding, ...] = ()
 
     @field_validator("observed_at")

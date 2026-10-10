@@ -88,6 +88,40 @@ as a fact; it is not added to the spot portfolio totals, which keep USD, USDC an
 Futures account capital (`cbi_usd_balance + cfm_usd_balance`, one read) and the margin ratio
 (`available_margin / liquidation_threshold`) are derived by readers, never stored as sums.
 
+### 8. Observed fact: USDC is CFM collateral (2026-10-10)
+
+The first live mirror snapshot after deployment (2026-10-10) read `enablement: enabled`, every
+read succeeded, no positions, `futures_buying_power` **514.24**, `cbi_usd_balance` **0.01** and
+`cfm_usd_balance` **0**, while the spot account held its cash as USDC. Futures buying power far
+exceeds the USD balances, so **Coinbase counts the USDC spot balance as CFM futures collateral**.
+The intraday and overnight margin-window types read `..._UNSPECIFIED` while the account is flat.
+
+This overturns the plan's assumption (open question 2) that USDC cannot margin CFM, and
+widens its shared-collateral rule, which covered only USD-quoted spot books:
+
+- Futures margin and **USDC** spot books draw on one collateral pool. A futures loss or margin
+  call can consume USDC that a spot book's allocation, risk capital (ADR 0106) and exposure caps
+  assume is available.
+- Every amount stays in its own currency: USD futures figures are never added to USDC. Reports
+  state the sharing in words (`collateral_note`) instead of producing a combined number.
+- `futures_buying_power` is not additional capital and must never be added to the USDC balance.
+- P0-6 surfaces this in readiness (`FUTURES_COLLATERAL_SHARED`), venue reconciliation (external
+  CFM positions as unmanaged exposure) and the Home futures card. ADRs 0128 and 0129 (P1) design
+  the risk rules around it.
+
+### 9. Readiness, venue reconciliation and Home (P0-6)
+
+- Readiness adds a `futures` section from the newest mirror snapshot with a `margin_ratio`
+  (`available_margin / liquidation_threshold`, `null` on a flat account) and findings
+  `FUTURES_COLLATERAL_SHARED` (info), `FUTURES_POSITIONS_EXTERNAL` (advisory) and
+  `FUTURES_ACCOUNT_UNKNOWN` (unknown).
+- Venue reconciliation adds external CFM positions (USD notional = contracts x contract size x
+  current price, when the contract size is listed) and nonterminal futures orders from a fresh
+  read-only `orders/historical/batch?product_type=FUTURE` listing. All are
+  `external_unmanaged`: ThyTrader manages no futures. Unknown evidence is an unknown finding.
+- Home shows a read-only futures card (buying power, margin ratio, liquidation buffer, funding
+  PnL) that states buying power is shared with the USDC spot balance.
+
 ## Consequences
 
 - The account's futures state is observable and auditable from the day this is deployed,

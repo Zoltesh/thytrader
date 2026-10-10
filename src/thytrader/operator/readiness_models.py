@@ -275,6 +275,46 @@ class ReadinessPaperSection(_FrozenModel):
     books: int = Field(ge=0)
 
 
+class ReadinessFuturesPosition(_FrozenModel):
+    """One external CFM position: unmanaged, never part of any book."""
+
+    product_id: str
+    side: Literal["long", "short", "unknown"]
+    number_of_contracts: str
+
+
+class ReadinessFuturesSection(_FrozenModel):
+    """The CFM futures account from the newest mirror snapshot (ADR 0127).
+
+    Every amount is USD and is never added to a USDC amount. Coinbase counts the USDC
+    spot balance as futures collateral, so ``futures_buying_power`` is shared with USDC
+    spot capital (``collateral_note``). ``positions`` is ``null`` when unknown.
+    """
+
+    observed_at: datetime | None
+    stale: bool
+    enablement: Literal["enabled", "not_enabled", "unknown"]
+    currency: Literal["USD"] = "USD"
+    futures_buying_power: str | None = None
+    cbi_usd_balance: str | None = None
+    cfm_usd_balance: str | None = None
+    available_margin: str | None = None
+    liquidation_threshold: str | None = None
+    liquidation_buffer_amount: str | None = None
+    liquidation_buffer_percentage: str | None = None
+    margin_ratio: str | None = None
+    unrealized_pnl: str | None = None
+    funding_pnl: str | None = None
+    positions: tuple[ReadinessFuturesPosition, ...] | None = None
+    collateral_note: str
+
+    @field_validator("observed_at")
+    @classmethod
+    def require_utc(cls, value: datetime | None) -> datetime | None:
+        """Keep the snapshot instant UTC."""
+        return _require_utc(value)
+
+
 class ReadinessPayload(_FrozenModel):
     """Everything the preflight compares, with its scope made explicit."""
 
@@ -291,6 +331,7 @@ class ReadinessPayload(_FrozenModel):
     deployments: tuple[ReadinessDeploymentRow, ...] = ()
     portfolios: tuple[ReadinessPortfolioSection, ...] = ()
     fee_evidence: ReadinessFeeEvidence = Field(default_factory=ReadinessFeeEvidence)
+    futures: ReadinessFuturesSection | None = None
     findings: tuple[ReadinessFinding, ...] = ()
 
 

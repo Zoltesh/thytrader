@@ -21,6 +21,7 @@ from thytrader.exchanges.read_errors import (
     ExchangeReadOperation,
 )
 from thytrader.exchanges.rest_transport import http_status_error, json_object
+from thytrader.market_data.instrument_ids import is_futures_product_id
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -208,30 +209,46 @@ class CoinbaseAccount:
         statuses, duplicate order IDs, cursor cycles and page exhaustion fail closed.
         This is a sequential REST observation, not an atomic venue snapshot.
         """
+        return await self._list_nonterminal_orders("SPOT", ExchangeReadOperation.OPEN_ORDERS)
+
+    async def list_futures_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """Page CFM futures order history the same way; read-only (ADR 0127).
+
+        Rows must carry a CDE futures id. ThyTrader never places futures orders, so every
+        row returned here is external to the managed books.
+        """
+        return await self._list_nonterminal_orders(
+            "FUTURE", ExchangeReadOperation.FUTURES_OPEN_ORDERS
+        )
+
+    async def _list_nonterminal_orders(
+        self, product_type: str, operation: ExchangeReadOperation
+    ) -> tuple[ExchangeOpenOrder, ...]:
+        """Page one product type's order history and keep recognized nonterminal orders."""
         cursor: str | None = None
         seen_cursors: set[str] = set()
         orders: list[ExchangeOpenOrder] = []
         seen_orders: set[str] = set()
         for _page_number in range(_MAX_ORDER_PAGES):
             payload = await self._read(
-                ExchangeReadOperation.OPEN_ORDERS,
+                operation,
                 partial(
                     self._client.list_orders,
-                    product_type="SPOT",
+                    product_type=product_type,
                     limit=_ORDER_PAGE_SIZE,
                     cursor=cursor,
                 ),
             )
-            page = _open_orders_from_page(payload)
+            page = _open_orders_from_page(payload, operation)
             for order in page:
                 if order.venue_order_id in seen_orders:
-                    raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+                    raise _invalid_listing(operation)
                 seen_orders.add(order.venue_order_id)
                 if order.status in _NONTERMINAL_ORDER_STATUSES:
                     orders.append(order)
             has_next = payload.get("has_next")
             if not isinstance(has_next, bool):
-                raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+                raise _invalid_listing(operation)
             if not has_next:
                 return tuple(orders)
             next_cursor = payload.get("cursor")
@@ -408,19 +425,23 @@ def _invalid_listing(operation: ExchangeReadOperation) -> ExchangeReadError:
     )
 
 
-def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, ...]:
-    """Validate every historical spot order row; malformed rows invalidate the page.
+def _open_orders_from_page(
+    payload: dict[str, Any], operation: ExchangeReadOperation = ExchangeReadOperation.OPEN_ORDERS
+) -> tuple[ExchangeOpenOrder, ...]:
+    """Validate every historical order row; malformed rows invalidate the page.
 
     ``Any`` is confined to SDK JSON here. Unknown status is not a terminal order;
-    dropping an unidentified or malformed row would fabricate complete coverage.
+    dropping an unidentified or malformed row would fabricate complete coverage. A spot
+    listing requires ``BASE-QUOTE`` ids; a futures listing requires CDE futures ids.
     """
+    futures = operation is ExchangeReadOperation.FUTURES_OPEN_ORDERS
     items = payload.get("orders")
     if not isinstance(items, list):
-        raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+        raise _invalid_listing(operation)
     rows: list[ExchangeOpenOrder] = []
     for item in items:
         if not isinstance(item, dict):
-            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+            raise _invalid_listing(operation)
         venue_order_id = _plain_text(item.get("order_id"))
         product = _plain_text(item.get("product_id"))
         side = _plain_text(item.get("side"))
@@ -428,15 +449,14 @@ def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, 
         if (
             venue_order_id is None
             or product is None
-            or len(product.split("-")) != 2
-            or any(not part for part in product.split("-"))
+            or not _listed_product_id(product, futures=futures)
             or side not in {"BUY", "SELL"}
             or status not in _NONTERMINAL_ORDER_STATUSES | _TERMINAL_ORDER_STATUSES
         ):
-            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+            raise _invalid_listing(operation)
         client_id = item.get("client_order_id")
         if client_id is not None and not isinstance(client_id, str):
-            raise _invalid_listing(ExchangeReadOperation.OPEN_ORDERS)
+            raise _invalid_listing(operation)
         rows.append(
             ExchangeOpenOrder(
                 venue_order_id=venue_order_id,
@@ -452,3 +472,11 @@ def _open_orders_from_page(payload: dict[str, Any]) -> tuple[ExchangeOpenOrder, 
 def _plain_text(value: object) -> str | None:
     """Return one non-empty plain string field, or None."""
     return value if isinstance(value, str) and value.strip() and value == value.strip() else None
+
+
+def _listed_product_id(product: str, *, futures: bool) -> bool:
+    """Spot listings carry two-part ids; futures listings carry CDE futures ids."""
+    if futures:
+        return is_futures_product_id(product)
+    parts = product.split("-")
+    return len(parts) == 2 and all(parts)

@@ -77,7 +77,10 @@ listing (``kind=future|all``; an older API would ignore the parameter and return
 or futures candles in the data lane (24/7 CDE contracts on watch, ingest, gaps and freshness;
 ``volume_unit: contracts`` manifests; expiry retirement; ADR 0126), or the read-only CFM
 futures account mirror (GET-only adapter, Alembic 0072 snapshots and the operator
-``futures-account`` report; ADR 0127) change.
+``futures-account`` report; ADR 0127), or the futures sections of readiness and venue
+reconciliation (external CFM positions and orders as unmanaged exposure, shared USDC
+collateral, the ``futures_open_orders`` read operation) and the futures-account
+``margin_ratio`` (ADR 0127, P0-6) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -106,7 +109,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v79"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v80"
 EXPECTED_SCHEMA_REVISION = "0072"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -260,6 +263,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "operator_products_kind",
     "futures_candles",
     "account_mirror",
+    "readiness_reconciliation",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

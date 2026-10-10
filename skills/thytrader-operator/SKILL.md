@@ -317,7 +317,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v79`, schema revision `0072`) and exits on any
+   this checkout's (`thytrader-ops-contract-v80`, schema revision `0072`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -585,3 +585,16 @@ futures margin setting.
 - Reason codes: `OK`, `FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE` (older than 3 minutes),
   `FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_READ_FAILURES`, `STORE_DISABLED`, `STORE_UNAVAILABLE`.
   External CFM positions are not managed by any bot.
+- `margin_ratio` is `available_margin / liquidation_threshold` (`null` on a flat account, which
+  has no threshold). `collateral_note`: **Coinbase counts the USDC spot balance as futures
+  collateral** (observed 2026-10-10: buying power 514.24 with `cbi_usd_balance` 0.01 and
+  `cfm_usd_balance` 0). Futures buying power is the same money as USDC spot capital, not extra
+  capacity; never add it to the USDC balance.
+- `readiness` adds `payload.futures` (USD amounts, `margin_ratio`, positions, `collateral_note`)
+  with findings `FUTURES_COLLATERAL_SHARED` (info), `FUTURES_POSITIONS_EXTERNAL` (advisory) and
+  `FUTURES_ACCOUNT_UNKNOWN` (unknown). `venue-reconciliation` adds `payload.futures`: external
+  CFM positions (`classification: external_unmanaged`, USD `notional_usd` from contracts x
+  contract size x price, `unmanaged_notional_usd`) and nonterminal futures orders from a fresh
+  read-only listing, with findings `FUTURES_EXTERNAL_POSITIONS`, `FUTURES_EXTERNAL_ORDERS`
+  (info), `FUTURES_POSITIONS_UNKNOWN` and `FUTURES_ORDERS_LISTING_INCOMPLETE` (unknown). They
+  are disclosed, never flattened or adopted.

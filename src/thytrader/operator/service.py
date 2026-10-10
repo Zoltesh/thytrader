@@ -325,6 +325,7 @@ class OperatorDiagnostics:
             portfolios=self.portfolios,
             deployment_id=deployment_id,
             portfolio_id=portfolio_id,
+            futures_account=self.futures_account_store,
         )
 
     async def venue_reconciliation_report(self) -> VenueReconciliationReport:
@@ -333,7 +334,10 @@ class OperatorDiagnostics:
         Read-only. It never creates, cancels, or replaces an order.
         """
         return await build_venue_reconciliation_report(
-            portfolio=self.portfolio, execution=self.execution
+            portfolio=self.portfolio,
+            execution=self.execution,
+            futures_account=self.futures_account_store,
+            market_data=self.market_data,
         )
 
     async def market_data_report(

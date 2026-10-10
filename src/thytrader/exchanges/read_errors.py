@@ -13,6 +13,7 @@ class ExchangeReadOperation(StrEnum):
     PRICE = "price"
     FEES = "fees"
     OPEN_ORDERS = "open_orders"
+    FUTURES_OPEN_ORDERS = "futures_open_orders"
 
 
 class ExchangeReadFailureKind(StrEnum):

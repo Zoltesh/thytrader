@@ -191,3 +191,38 @@ def test_open_order_transport_failure_is_typed_and_not_partial() -> None:
         asyncio.run(CoinbaseAccount(_Failing()).list_open_orders())
     assert raised.value.failure.operation is ExchangeReadOperation.OPEN_ORDERS
     assert raised.value.failure.kind is ExchangeReadFailureKind.TIMEOUT
+
+
+class _FuturesOrdersClient(_ClientBase):
+    """One futures order-history page; spot ids are refused on a futures listing."""
+
+    def __init__(self, product_id: str = "BIP-20DEC30-CDE") -> None:
+        """Choose the listed product id."""
+        self.product_id = product_id
+        self.calls: list[dict[str, Any]] = []
+
+    def list_orders(self, **kwargs: Any) -> _Response:
+        """Return one page with an open and a filled futures order."""
+        self.calls.append(kwargs)
+        rows = [
+            {"order_id": "f-1", "product_id": self.product_id, "side": "SELL", "status": "OPEN"},
+            {"order_id": "f-2", "product_id": self.product_id, "side": "BUY", "status": "FILLED"},
+        ]
+        return _Response({"orders": rows, "has_next": False})
+
+
+def test_futures_open_orders_are_listed_read_only_with_futures_ids() -> None:
+    """The futures listing pages FUTURE history and keeps nonterminal CDE orders (ADR 0127)."""
+    client = _FuturesOrdersClient()
+    orders = asyncio.run(CoinbaseAccount(client).list_futures_open_orders())
+    assert [(o.venue_order_id, o.product_id, o.side) for o in orders] == [
+        ("f-1", "BIP-20DEC30-CDE", "sell")
+    ]
+    assert client.calls[0]["product_type"] == "FUTURE"
+
+
+def test_a_spot_id_on_the_futures_listing_fails_closed() -> None:
+    """A row whose id is not a futures id invalidates the futures listing."""
+    with pytest.raises(ExchangeReadError) as caught:
+        asyncio.run(CoinbaseAccount(_FuturesOrdersClient("BTC-USD")).list_futures_open_orders())
+    assert caught.value.failure.operation is ExchangeReadOperation.FUTURES_OPEN_ORDERS

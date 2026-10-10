@@ -126,3 +126,19 @@ class PortfolioService:
                 )
             )
         return await listing()
+
+    async def list_futures_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """Fetch nonterminal CFM futures orders (read-only; all external, ADR 0127).
+
+        Optional on the account boundary like ``list_open_orders``: an adapter without it
+        fails closed with a typed read error, so the report says unknown, not none.
+        """
+        listing = getattr(self._exchange, "list_futures_open_orders", None)
+        if listing is None:  # getattr is unavoidable: the protocol member is optional.
+            raise ExchangeReadError(
+                ExchangeReadFailure(
+                    operation=ExchangeReadOperation.FUTURES_OPEN_ORDERS,
+                    kind=ExchangeReadFailureKind.UNSUPPORTED,
+                )
+            )
+        return await listing()
