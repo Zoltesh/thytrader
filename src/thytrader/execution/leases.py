@@ -14,6 +14,7 @@ from thytrader.trading.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
+    FundingCashFlow,
     InstrumentRuntime,
     Order,
     OrderIntent,
@@ -250,6 +251,26 @@ class RevisionFencedStore:
             order=order,
             cooldown_bars=cooldown_bars,
             timeframe=timeframe,
+        )
+        if deployment_id == self._deployment_id:
+            self._expected_revision = snapshot.deployment.revision
+        return applied, snapshot
+
+    async def apply_funding_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        flows: tuple[FundingCashFlow, ...],
+        expected_revision: int | None = None,
+    ) -> tuple[int, DeploymentSnapshot]:
+        """Apply paper futures funding under this book's fence, then refresh the revision."""
+        apply = getattr(self._inner, "apply_funding_transaction", None)
+        if not callable(apply):
+            raise ExecutionStoreError("Execution storage cannot apply funding transactions.")
+        if deployment_id == self._deployment_id and expected_revision is None:
+            expected_revision = self._expected_revision
+        applied, snapshot = await apply(
+            deployment_id, flows=flows, expected_revision=expected_revision
         )
         if deployment_id == self._deployment_id:
             self._expected_revision = snapshot.deployment.revision

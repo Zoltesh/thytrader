@@ -18,6 +18,7 @@ from thytrader.persistence.postgres_execution_rows import (
     _position_from_row,
     _runtime_from_row,
 )
+from thytrader.persistence.postgres_futures_funding import load_funding
 from thytrader.persistence.schema import (
     execution_fills,
     execution_instrument_state,
@@ -112,6 +113,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
         intents=tuple(_intent_from_row(row) for row in intent_rows),
         positions=positions,
         instrument_runtimes=tuple(_runtime_from_row(row) for row in runtime_rows),
+        funding=await load_funding(connection, deployment),
     )
 
 

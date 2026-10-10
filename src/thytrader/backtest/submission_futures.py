@@ -24,10 +24,10 @@ from thytrader.evaluation.futures_spec import (
     FundingAssumption,
     InstrumentContract,
     MarginAssumption,
+    contract_from_observation,
     funding_hours,
     funding_series_fingerprint,
 )
-from thytrader.market_data.instruments import InstrumentKind
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -148,16 +148,7 @@ def _contract(
             f"FUTURES_UNDERLYING_MISMATCH: {observation.product_id} settles on "
             f"{observation.underlying}, not {definition.instrument.base_currency}."
         )
-    perpetual = observation.kind is InstrumentKind.PERPETUAL_FUTURE
-    return InstrumentContract(
-        product_id=observation.product_id,
-        kind="perpetual_future" if perpetual else "dated_future",
-        underlying=observation.underlying,
-        contract_size=observation.contract_size,
-        expires_at=None if perpetual else observation.venue_expiry_at,
-        listed_expiry=observation.listed_expiry,
-        catalog_fingerprint=observation.payload_fingerprint,
-    )
+    return contract_from_observation(observation)
 
 
 def _margin(

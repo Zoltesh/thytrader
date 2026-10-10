@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING
 
 from thytrader.strategies.models import reward_risk_multiple
 from thytrader.trading.economics import target_guard_allows
+from thytrader.trading.futures_sizing import ContractSizingLimits, size_contracts
 from thytrader.trading.geometry import EntryLevels, EntrySkipReason, entry_levels
 from thytrader.trading.models import PositionSide
 
 if TYPE_CHECKING:
     from thytrader.market_data.models import MarketProduct
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.futures_sizing import FuturesMarginTerms
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,8 +103,14 @@ def size_entry_or_skip(
     product: MarketProduct,
     fee_rate: Decimal = Decimal("0"),
     side: PositionSide = PositionSide.LONG,
+    margin: FuturesMarginTerms | None = None,
 ) -> SizedEntry | EntrySkipReason:
-    """Size a long or short using ATR stop distance, risk fraction, and quote bounds."""
+    """Size a long or short using ATR stop distance, risk fraction, and quote bounds.
+
+    ``margin`` sizes a paper futures entry in whole contracts within the leverage,
+    liquidation-buffer and margin-exposure bounds (``size_contracts``, ADR 0128/0129) instead
+    of the spot cash bound; ``cash`` is then the flat book's equity.
+    """
     if entry_price <= 0:
         return EntrySkipReason.ENTRY_PRICE_NOT_POSITIVE
     if atr <= 0:
@@ -127,6 +135,7 @@ def size_entry_or_skip(
         product=product,
         fee_rate=fee_rate,
         side=side,
+        margin=margin,
     )
 
 
@@ -139,6 +148,7 @@ def _bounded_order(
     product: MarketProduct,
     fee_rate: Decimal,
     side: PositionSide,
+    margin: FuturesMarginTerms | None = None,
 ) -> SizedEntry | EntrySkipReason:
     """Risk-size against the realized stop, clamp to strategy/exposure/cash, check minimums."""
     if not target_guard_allows(
@@ -158,6 +168,17 @@ def _bounded_order(
         return EntrySkipReason.STOP_WITHIN_PRICE_INCREMENT
     requested_risk = cash * Decimal(strategy.sizing.risk_fraction)
     risk_quantity = requested_risk / realized_stop_distance
+    if margin is not None:
+        return _contract_order(
+            strategy,
+            margin=margin,
+            equity=cash,
+            entry_price=entry_price,
+            levels=levels,
+            requested_notional=risk_quantity * entry_price,
+            fee_rate=fee_rate,
+            side=side,
+        )
     fee_adjusted_cash = cash / (Decimal("1") + fee_rate) if fee_rate > 0 else cash
     maximum_notional = min(
         Decimal(strategy.sizing.max_quote_notional),
@@ -178,6 +199,43 @@ def _bounded_order(
     return SizedEntry(
         quantity=quantity,
         notional=notional,
+        entry_price=entry_price,
+        stop_price=levels.stop_price,
+        target_price=levels.target_price,
+    )
+
+
+def _contract_order(
+    strategy: StrategyDefinition,
+    *,
+    margin: FuturesMarginTerms,
+    equity: Decimal,
+    entry_price: Decimal,
+    levels: EntryLevels,
+    requested_notional: Decimal,
+    fee_rate: Decimal,
+    side: PositionSide,
+) -> SizedEntry | EntrySkipReason:
+    """Whole contracts within the futures bounds; the spot cash check does not apply."""
+    sized = size_contracts(
+        margin,
+        ContractSizingLimits(
+            max_quote_notional=Decimal(strategy.sizing.max_quote_notional),
+            min_quote_notional=Decimal(strategy.sizing.min_quote_notional),
+            max_exposure_fraction=Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        ),
+        equity=equity,
+        side="short" if side is PositionSide.SHORT else "long",
+        limit_price=entry_price,
+        requested_notional=requested_notional,
+        maker_fee_rate=fee_rate,
+    )
+    if isinstance(sized, EntrySkipReason):
+        return sized
+    quantity, _capped = sized
+    return SizedEntry(
+        quantity=quantity,
+        notional=quantity * entry_price,
         entry_price=entry_price,
         stop_price=levels.stop_price,
         target_price=levels.target_price,

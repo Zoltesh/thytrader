@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN
 
 TRADE_REASON_SCHEMA_VERSION: Literal["thytrader-trade-reason-v1"] = "thytrader-trade-reason-v1"
 _FINGERPRINT = r"^sha256:[0-9a-f]{64}$"
@@ -46,6 +46,7 @@ class TradeReasonSignalKind(StrEnum):
     BRACKET = "bracket"
     SIGNAL_EXIT = "signal_exit"
     ADOPTION = "adoption"
+    LIQUIDATION = "liquidation"
 
 
 class _FrozenModel(BaseModel):
@@ -180,9 +181,16 @@ class TradeReasonRecord(_FrozenModel):
     deployment_id: UUID
     deployment_kind: Literal["strategy", "discretionary"]
     mode: Literal["paper", "live"]
-    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
     purpose: Literal[
-        "entry", "take_profit", "stop", "time_exit", "bracket", "signal_exit", "adoption"
+        "entry",
+        "take_profit",
+        "stop",
+        "time_exit",
+        "bracket",
+        "signal_exit",
+        "adoption",
+        "liquidation",
     ]
     side: Literal["buy", "sell"]
     strategy: TradeReasonStrategy | None = None

@@ -15,6 +15,7 @@ from thytrader.execution.decision_journal import (
     decision_journal_scope,
     prune_decisions,
 )
+from thytrader.execution.futures_paper import prepare_futures_book
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.discretionary_step import _process_discretionary
@@ -50,6 +51,7 @@ from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.exposure import daily_loss_snapshots
+from thytrader.trading.futures_book import futures_book_scope
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentKind, DeploymentMode, DeploymentStatus
 
@@ -320,14 +322,20 @@ async def _process_one(
             snapshot, store=store, publication_store=publication_store
         )
         snapshot = await store.get_deployment(deployment_id)
-        await _process_stopped(
-            snapshot,
-            strategy=strategy,
-            store=store,
-            market_data=market_data,
-            paper_broker=paper_broker,
-            live_broker=live_broker,
-        )
+        futures_book = None
+        if strategy is not None:
+            futures_book, snapshot = await prepare_futures_book(
+                snapshot, strategy=strategy, store=store, market_data=market_data
+            )
+        with futures_book_scope(futures_book):
+            await _process_stopped(
+                snapshot,
+                strategy=strategy,
+                store=store,
+                market_data=market_data,
+                paper_broker=paper_broker,
+                live_broker=live_broker,
+            )
         return
     if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
         strategy = await _strategy_definition(
@@ -349,7 +357,10 @@ async def _process_one(
         return
     if strategy is None:
         return
-    with risk_market_data_scope(market_data):
+    futures_book, snapshot = await prepare_futures_book(
+        snapshot, strategy=strategy, store=store, market_data=market_data
+    )
+    with risk_market_data_scope(market_data), futures_book_scope(futures_book):
         await _advance_strategy(
             snapshot,
             strategy=strategy,

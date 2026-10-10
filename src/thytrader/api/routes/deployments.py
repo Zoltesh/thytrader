@@ -12,6 +12,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_execution_store,
+    get_futures_start,
     get_inventory_adoption_store,
     get_market_data_service,
     get_market_data_watchlist_store,
@@ -60,6 +61,7 @@ from thytrader.execution.book_marks import (
 from thytrader.execution.decision_store import (
     DecisionJournalStore,
 )
+from thytrader.execution.futures_start import FuturesStart
 from thytrader.execution.paper_fees import PaperFeeSource
 from thytrader.execution.service import (
     ReferenceWatchlist,
@@ -129,6 +131,7 @@ async def post_deployment(
     market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
     quote_reader: Annotated[ExchangeAccount | None, Depends(get_quote_reader)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
+    futures_start: Annotated[FuturesStart | None, Depends(get_futures_start)],
 ) -> DeploymentResponse:
     """Snapshot the strategy's current rules and start a running paper or live book.
 
@@ -178,6 +181,10 @@ async def post_deployment(
                 risk_store=risk_store,
                 reference_watches=reference_watches,
                 paper_fee_source=paper_fee_source,
+                paper_fee_per_contract=parse_decimal(
+                    body.paper_fee_per_contract, field="paper_fee_per_contract"
+                ),
+                futures_start=futures_start,
             )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

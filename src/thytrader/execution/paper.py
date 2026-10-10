@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import SubmitResult
+from thytrader.trading.futures_book import current_futures_book
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.ledger import (
     PAPER_MAKER_FEE_RATE,
@@ -23,10 +25,11 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
-    from decimal import Decimal
-
     from thytrader.execution.broker import Broker
     from thytrader.market_data.models import Candle
+
+
+_ZERO = Decimal(0)
 
 
 class PaperBroker:
@@ -37,10 +40,16 @@ class PaperBroker:
         *,
         maker_fee_rate: Decimal = PAPER_MAKER_FEE_RATE,
         taker_fee_rate: Decimal = PAPER_TAKER_FEE_RATE,
+        fee_per_unit: Decimal = _ZERO,
     ) -> None:
-        """Bind the documented paper maker/taker schedule used on recorded fills."""
+        """Bind the documented paper maker/taker schedule used on recorded fills.
+
+        ``fee_per_unit`` is a paper futures book's per-contract fee per base unit (ADR 0129);
+        it is zero for spot.
+        """
         self.maker_fee_rate = maker_fee_rate
         self.taker_fee_rate = taker_fee_rate
+        self.fee_per_unit = fee_per_unit
 
     async def place_order(
         self,
@@ -76,7 +85,8 @@ class PaperBroker:
                     quantity=quantity,
                     maker_fee_rate=self.maker_fee_rate,
                     taker_fee_rate=self.taker_fee_rate,
-                ),
+                )
+                + quantity * self.fee_per_unit,
             )
         return SubmitResult(status=OrderStatus.OPEN, venue_order_id=client_order_id)
 
@@ -131,7 +141,8 @@ class PaperBroker:
                 quantity=order.quantity,
                 maker_fee_rate=self.maker_fee_rate,
                 taker_fee_rate=self.taker_fee_rate,
-            ),
+            )
+            + order.quantity * self.fee_per_unit,
             filled_at=candle.starts_at,
         )
 
@@ -140,7 +151,8 @@ def bind_paper_broker_fees(broker: Broker, deployment: Deployment) -> Broker:
     """Bind this paper book's documented maker/taker rates onto a ``PaperBroker``.
 
     Live books and non-paper brokers are returned unchanged. Rates are modeled
-    assumptions, not observed Coinbase fees.
+    assumptions, not observed Coinbase fees. A paper futures book also pays its bound
+    per-contract fee on every fill (ADR 0129 §4).
     """
     if deployment.mode is not DeploymentMode.PAPER:
         return broker
@@ -149,6 +161,22 @@ def bind_paper_broker_fees(broker: Broker, deployment: Deployment) -> Broker:
     maker_fee_rate, taker_fee_rate = effective_paper_fee_rates(
         deployment.paper_maker_fee_rate, deployment.paper_taker_fee_rate
     )
-    if broker.maker_fee_rate == maker_fee_rate and broker.taker_fee_rate == taker_fee_rate:
+    fee_per_unit = _futures_fee_per_unit(deployment)
+    if (
+        broker.maker_fee_rate == maker_fee_rate
+        and broker.taker_fee_rate == taker_fee_rate
+        and broker.fee_per_unit == fee_per_unit
+    ):
         return broker
-    return PaperBroker(maker_fee_rate=maker_fee_rate, taker_fee_rate=taker_fee_rate)
+    return PaperBroker(
+        maker_fee_rate=maker_fee_rate, taker_fee_rate=taker_fee_rate, fee_per_unit=fee_per_unit
+    )
+
+
+def _futures_fee_per_unit(deployment: Deployment) -> Decimal:
+    """The bound per-contract fee per base unit of this futures book, else zero."""
+    state = current_futures_book(deployment.id)
+    if state is None or state.binding is None:
+        return _ZERO
+    contract_size = Decimal(state.binding.contract.contract_size)
+    return state.binding.fee_per_contract / contract_size

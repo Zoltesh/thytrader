@@ -146,6 +146,16 @@ def add_start_parser(
         help="Paper taker fee assumption as a decimal string. See --maker-fee-rate.",
     )
     start.add_argument(
+        "--fee-per-contract",
+        default=None,
+        help=(
+            "Paper futures only (ADR 0129): USD fee per contract on every fill. Required, "
+            "with explicit --maker-fee-rate and --taker-fee-rate (the futures tier from "
+            "`thytrader-operator fees`), to start a futures strategy; --cash is USD from "
+            "the policy's futures.paper_capital_usd envelope."
+        ),
+    )
+    start.add_argument(
         "--adopt-holdings",
         default=None,
         metavar="N|all",

@@ -7,6 +7,12 @@ from decimal import Decimal, InvalidOperation
 import math
 from typing import TYPE_CHECKING
 
+from thytrader.execution.futures_start import (
+    FuturesStart,
+    FuturesStartTerms,
+    bind_futures_contract,
+    futures_start_terms,
+)
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
@@ -51,6 +57,7 @@ class PreparedDeployment:
     deployment: Deployment
     definition: StrategyDefinition
     deployments: tuple[Deployment, ...]
+    futures: FuturesStartTerms | None = None
 
 
 async def create_deployment(
@@ -67,6 +74,8 @@ async def create_deployment(
     portfolio_sleeve: PortfolioSleeveStart | None = None,
     reference_watches: ReferenceWatchlist | None = None,
     paper_fee_source: PaperFeeSource | None = None,
+    paper_fee_per_contract: Decimal | None = None,
+    futures_start: FuturesStart | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -80,7 +89,9 @@ async def create_deployment(
     the enabled market-data watchlist (``reference_watches``); otherwise the start is
     refused with the ``thytrader-data watch-add`` command for each missing series. A
     paper start that omits both fee rates takes the account's rates from
-    ``paper_fee_source`` and is refused when they cannot be read.
+    ``paper_fee_source`` and is refused when they cannot be read. A paper futures start
+    (ADR 0129 §4) names its maker, taker and per-contract fees and binds its contract
+    through ``futures_start`` right after the book is created.
     """
     prepared = await prepare_deployment(
         store=store,
@@ -95,8 +106,20 @@ async def create_deployment(
         portfolio_sleeve=portfolio_sleeve,
         reference_watches=reference_watches,
         paper_fee_source=paper_fee_source,
+        paper_fee_per_contract=paper_fee_per_contract,
+        futures_start=futures_start,
     )
-    return await store.create_deployment(prepared.deployment)
+    created = await store.create_deployment(prepared.deployment)
+    if prepared.futures is not None:
+        try:
+            await bind_futures_contract(
+                futures_start, deployment_id=created.id, terms=prepared.futures
+            )
+        except ExecutionStoreError:
+            stopped = with_runtime(created, updated_at=utc_now(), status=DeploymentStatus.STOPPED)
+            await store.save_deployment(stopped)
+            raise
+    return created
 
 
 async def prepare_deployment(
@@ -113,6 +136,8 @@ async def prepare_deployment(
     portfolio_sleeve: PortfolioSleeveStart | None = None,
     reference_watches: ReferenceWatchlist | None = None,
     paper_fee_source: PaperFeeSource | None = None,
+    paper_fee_per_contract: Decimal | None = None,
+    futures_start: FuturesStart | None = None,
 ) -> PreparedDeployment:
     """Run every start check and build the book without persisting it.
 
@@ -120,6 +145,7 @@ async def prepare_deployment(
     inserts it in the same transaction as the adoption instead.
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
+    requested_fees = (paper_maker_fee_rate, paper_taker_fee_rate)
     if mode is DeploymentMode.PAPER:
         paper_maker_fee_rate, paper_taker_fee_rate = await paper_fee_rates(
             maker_fee_rate=paper_maker_fee_rate,
@@ -131,6 +157,14 @@ async def prepare_deployment(
     )
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
+    futures = await futures_start_terms(
+        definition,
+        mode=mode,
+        start=futures_start,
+        fee_per_contract=paper_fee_per_contract,
+        maker_fee_rate=requested_fees[0],
+        taker_fee_rate=requested_fees[1],
+    )
     _require_executable_definition(mode, definition)
     await _require_reference_watches(reference_watches, definition)
     existing = await store.list_deployments()
@@ -178,7 +212,9 @@ async def prepare_deployment(
         utc_day_open_at=now if initial is not None else None,
         portfolio_id=None if portfolio_sleeve is None else portfolio_sleeve.portfolio_id,
     )
-    return PreparedDeployment(deployment=deployment, definition=definition, deployments=existing)
+    return PreparedDeployment(
+        deployment=deployment, definition=definition, deployments=existing, futures=futures
+    )
 
 
 @dataclass(frozen=True, slots=True)

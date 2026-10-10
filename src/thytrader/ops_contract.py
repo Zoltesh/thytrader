@@ -93,7 +93,12 @@ and settled funding series, the ``FUTURES_*`` / ``FUNDING_HISTORY_MISSING`` reje
 the ``fees`` report ``futures`` evidence (``futures_fees`` read; ADR 0128, P1-3),
 or the opt-in futures fee probe (``fees --futures-preview-product-id``: one allowlisted
 ``orders/preview`` POST for one contract that places no order, filling
-``payload.futures.fee_per_contract`` from ``orders_preview``; ADR 0128, P1-3b) change.
+``payload.futures.fee_per_contract`` from ``orders_preview``; ADR 0128, P1-3b),
+or paper futures books (Alembic 0073 contract bindings and funding entries, the
+``futures.paper_capital_usd`` / ``futures.daily_loss_limit_fraction`` policy fields, the
+``LIQUIDATION`` intent purpose, the ``CFM-USD`` breaker scope, linked
+``SHARED_COLLATERAL_BREAKER`` denials, ``--fee-per-contract`` starts and the
+``FUTURES_*`` / ``FUNDING_HISTORY_MISSING`` entry denials; ADR 0129, P1-4) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -122,8 +127,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v85"
-EXPECTED_SCHEMA_REVISION = "0072"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v86"
+EXPECTED_SCHEMA_REVISION = "0073"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -282,6 +287,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "futures_backtest_kernel",
     "futures_backtest_submission",
     "futures_fee_preview_probe",
+    "paper_futures_books",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

@@ -186,9 +186,35 @@ bar's entry is skipped and recorded in `decisions`. Resupply both flags on every
 keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`, USD figures,
 `reserve_quote`, `effect`).
 
-A futures strategy document (`instrument.kind: future`, ADR 0128) cannot be deployed yet: `start`
-returns `FUTURES_PAPER_UNSUPPORTED` (paper) or `FUTURES_LIVE_UNSUPPORTED` (live; there is no
-futures order path). Do not retry with another mode or a spot product id.
+Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
+A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**; live returns
+`FUTURES_LIVE_UNSUPPORTED` (there is no futures order path). Setup and start:
+
+- Publish the policy with `--futures-paper-capital-usd N` (a USD envelope separate from
+  `--paper-capital-quote`; unset refuses every futures start with `FUTURES_POLICY_UNSET`) and
+  optionally `--futures-daily-loss-limit-fraction F` (futures-scope daily loss; unset uses
+  `--daily-loss-limit-fraction`). Resupply them on every publication.
+- `start --mode paper --cash USD --maker-fee-rate M --taker-fee-rate T --fee-per-contract F`.
+  All three fees are required (`FUTURES_FEE_REQUIRED`); take M and T from
+  `thytrader-operator fees` → `payload.futures` and F from `fees --futures-preview-product-id`
+  when available. `--cash` beyond the envelope is `FUTURES_PAPER_CAPITAL_EXCEEDED`.
+- The start binds the contract from the latest catalog observation and never re-reads it.
+  Perp-style contracts only (`FUTURES_PAPER_UNSUPPORTED` for dated ones);
+  `FUTURES_CONTRACT_UNOBSERVED` / `FUTURES_UNDERLYING_MISMATCH` name a catalog problem.
+
+Each cycle the book reads the overnight margin rates (never intraday), sizes whole contracts
+within the strategy's `max_leverage` and a 0.5 liquidation buffer, and pays maker/taker plus the
+per-contract fee on every fill. Funding is charged hourly while a position is held
+(longs pay positive rates) at the close of the bar containing the hour, once per hour. New
+entries are denied, never paused, while evidence is unknown: `FUTURES_CONTRACT_UNBOUND`,
+`FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING` (a settled hour still missing 75 minutes
+later; it is retried every cycle, never zero-filled), `FUTURES_LEVERAGE_EXCEEDED`,
+`FUTURES_LIQUIDATION_BUFFER`. A closed bar whose adverse extreme leaves equity below
+maintenance sends a `liquidation`-purpose marketable exit before the stop. Futures books are
+their own breaker scope (`CFM-USD`: daily loss against the futures envelope, per-strategy
+drawdown); a latched futures daily-loss breaker denies paper USD/USDC spot entries and a latched
+paper USD/USDC breaker denies futures entries (`SHARED_COLLATERAL_BREAKER`, naming the latched
+scope). Losses are never added across scopes.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
@@ -637,6 +663,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Start paper | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --confirm` |
 | Start paper with operator-chosen fee rates (omit them to use the account's rates) | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 10000 --maker-fee-rate 0.001 --taker-fee-rate 0.002 --confirm` |
 | Start live | `uv run thytrader-runtime start --strategy-id UUID --mode live --confirm --i-understand-live` |
+| Start a paper futures book | `uv run thytrader-runtime start --strategy-id UUID --mode paper --cash 5000 --maker-fee-rate 0 --taker-fee-rate 0.0005 --fee-per-contract 0.15 --confirm` |
 | Pause | `uv run thytrader-runtime pause UUID --confirm` |
 | Resume paper | `uv run thytrader-runtime resume UUID --confirm` |
 | Resume live (re-arms orders) | `uv run thytrader-runtime resume UUID --confirm --i-understand-live` |
@@ -655,6 +682,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
 | Publish risk policy with a fleet entry clustering cap | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120 --confirm` |
+| Publish risk policy with a paper futures envelope | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --futures-paper-capital-usd 20000 --futures-daily-loss-limit-fraction 0.05 --confirm` |
 | Publish risk policy with a BTC-beta exposure cap | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-btc-beta-exposure-fraction 0.6 --confirm` |
 | Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |

@@ -1,8 +1,9 @@
 """The optional ``futures`` block of the risk policy (ADR 0129).
 
-P1-2a ships the two fields of the live spot collateral gate (ADR 0129 §2 L3). Later P1
-slices add the futures entry gate fields to this same block. The block is excluded from the
-canonical policy document while unset, so every existing policy keeps its fingerprint.
+P1-2a ships the two fields of the live spot collateral gate (ADR 0129 §2 L3). P1-4 adds the
+paper futures envelope and the futures-scope daily loss limit (§4, §7); P1-5 adds the rest
+of the futures entry gate. The block is excluded from the canonical policy document while
+unset, and each optional field while unset, so every existing policy keeps its fingerprint.
 """
 
 from __future__ import annotations
@@ -24,6 +25,12 @@ class FuturesRiskPolicy(BaseModel):
     USDC/USD spot entries continue only when it is set, it covers the CFM initial margin
     times ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),
     and it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.
+
+    ``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is
+    separate from ``paper_capital_quote`` and an unset value refuses a paper futures start.
+    ``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures
+    book equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means
+    the policy's ``daily_loss_limit_fraction`` applies to that USD capital.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -32,13 +39,27 @@ class FuturesRiskPolicy(BaseModel):
         default=None, exclude_if=lambda value: value is None
     )
     peg_haircut: DecimalText = DEFAULT_PEG_HAIRCUT
+    paper_capital_usd: DecimalText | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    daily_loss_limit_fraction: DecimalText | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
-    @field_validator("live_spot_collateral_reserve_quote")
+    @field_validator("live_spot_collateral_reserve_quote", "paper_capital_usd")
     @classmethod
-    def require_positive_reserve(cls, value: str | None) -> str | None:
-        """A reserve, when set, is a positive amount."""
+    def require_positive_amount(cls, value: str | None) -> str | None:
+        """A reserve or envelope, when set, is a positive amount."""
         if value is not None and Decimal(value) <= 0:
-            raise ValueError("live_spot_collateral_reserve_quote must be greater than 0")
+            raise ValueError("futures amounts must be greater than 0")
+        return value
+
+    @field_validator("daily_loss_limit_fraction")
+    @classmethod
+    def require_unit_fraction(cls, value: str | None) -> str | None:
+        """A daily loss fraction lies in (0, 1]."""
+        if value is not None and not Decimal(0) < Decimal(value) <= 1:
+            raise ValueError("futures daily_loss_limit_fraction must be in (0, 1]")
         return value
 
     @field_validator("peg_haircut")

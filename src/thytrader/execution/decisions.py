@@ -20,8 +20,8 @@ from thytrader.evaluation.trace import (
     EntryConditionOutcome,
     SignalTraceRecord,
 )
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN
 from thytrader.market_data.models import DatasetTimeframe
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.strategies.models import ComparisonOperator
 from thytrader.trading.models import (
     DeploymentMode,
@@ -98,7 +98,8 @@ class DecisionSkipReason(StrEnum):
 class DecisionExitReason(StrEnum):
     """Which exit rule closed (or is closing) the position on this bar.
 
-    ``signal`` is the strategy's ``exits.signal_exit`` rule (ADR 0093).
+    ``signal`` is the strategy's ``exits.signal_exit`` rule (ADR 0093). ``liquidation`` is a
+    paper futures book closed below maintenance (ADR 0129 §4).
     """
 
     STOP = "stop"
@@ -107,6 +108,7 @@ class DecisionExitReason(StrEnum):
     TIME = "time"
     FLATTEN = "flatten"
     SIGNAL = "signal"
+    LIQUIDATION = "liquidation"
 
 
 class ConditionResult(StrEnum):
@@ -288,7 +290,7 @@ class BarDecision(_FrozenDecisionModel):
     deployment_id: UUID
     strategy_id: UUID | None = None
     strategy_fingerprint: str | None = Field(default=None, pattern=_FINGERPRINT)
-    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
     timeframe: DatasetTimeframe
     mode: DeploymentMode
     bar_starts_at: datetime

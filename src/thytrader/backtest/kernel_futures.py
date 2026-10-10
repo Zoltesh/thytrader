@@ -23,14 +23,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from decimal import ROUND_FLOOR, Decimal
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.backtest.kernel_exits import _taker_exit_quote
 from thytrader.backtest.kernel_fills import _close_position
 from thytrader.backtest.kernel_state import BacktestSimulationError, _FuturesTerms
 from thytrader.evaluation.futures_spec import funding_hours, funding_series_fingerprint
-from thytrader.trading.geometry import EntrySkipReason
+from thytrader.trading.futures_sizing import ContractSizingLimits, size_contracts
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from thytrader.evaluation.models import ResearchRunSpecification
     from thytrader.market_data.models import Candle
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.geometry import EntrySkipReason
 
 _HOUR = timedelta(hours=1)
 
@@ -187,34 +188,23 @@ def _size_contracts(
     requested_notional: Decimal,
     maker_fee_rate: Decimal,
 ) -> tuple[Decimal, bool] | EntrySkipReason:
-    """Whole-contract base quantity within every futures bound, and whether a bound applied.
+    """Whole contracts within every futures bound (the shared ``size_contracts``).
 
-    With ``u`` the notional of one contract, ``f`` its entry fee, ``E`` equity (cash while
-    flat) and ``n`` contracts, every bound holds after the fee is paid: ``n u <= L (E - n f)``
-    (leverage), ``n u r m <= (1 - b)(E - n f)`` (liquidation buffer),
-    ``n u r <= X (E - n f)`` (exposure as committed initial margin) and ``n u <= Q``.
+    The book is flat when an entry is sized (futures never pyramid), so cash is equity.
     """
-    if cash <= 0:
-        return EntrySkipReason.INSUFFICIENT_CASH
-    unit = limit_price * terms.contract_size
-    fee = unit * maker_fee_rate + terms.fee_per_contract
-    rate = terms.initial_rate(side)
-    leverage = terms.max_leverage
-    room = Decimal(1) - terms.min_buffer_fraction
-    exposure = Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction)
-    bound = min(
-        Decimal(strategy.sizing.max_quote_notional) / unit,
-        leverage * cash / (unit + leverage * fee),
-        room * cash / (unit * rate * terms.maintenance_fraction + room * fee),
-        exposure * cash / (unit * rate + exposure * fee),
+    return size_contracts(
+        terms,
+        ContractSizingLimits(
+            max_quote_notional=Decimal(strategy.sizing.max_quote_notional),
+            min_quote_notional=Decimal(strategy.sizing.min_quote_notional),
+            max_exposure_fraction=Decimal(strategy.portfolio_limits.max_strategy_exposure_fraction),
+        ),
+        equity=cash,
+        side=side,
+        limit_price=limit_price,
+        requested_notional=requested_notional,
+        maker_fee_rate=maker_fee_rate,
     )
-    requested = requested_notional / unit
-    contracts = min(requested, bound).to_integral_value(rounding=ROUND_FLOOR)
-    if contracts < 1:
-        return EntrySkipReason.BELOW_ONE_CONTRACT
-    if contracts * unit < Decimal(strategy.sizing.min_quote_notional):
-        return EntrySkipReason.NOTIONAL_BELOW_MINIMUM
-    return contracts * terms.contract_size, requested > bound
 
 
 def _in_expiry_window(costs: _Costs, instant: datetime) -> bool:

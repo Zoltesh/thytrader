@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID  # noqa: TC003
 
@@ -30,6 +31,7 @@ from thytrader.trading.models import (
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
+    FundingCashFlow,
     InstrumentRuntime,
     IntentPurpose,
     Order,
@@ -54,7 +56,6 @@ from thytrader.trading.twins import DeploymentTwinLink, TwinConflictError, compa
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime, timedelta
-    from decimal import Decimal
 
     from thytrader.strategies.snapshots import StrategySnapshot
     from thytrader.trading.entry_latch import EntryGate
@@ -77,6 +78,7 @@ class InMemoryExecutionStore:
         self.fills: dict[UUID, Fill] = {}
         self.positions: dict[tuple[UUID, str], Position] = {}
         self.instrument_runtimes: dict[tuple[UUID, str], InstrumentRuntime] = {}
+        self.funding: dict[tuple[UUID, str, datetime], FundingCashFlow] = {}
         self._fill_keys: set[tuple[UUID, str]] = set()
         self._applied_fill_keys: set[tuple[UUID, str]] = set()
         # Database-free test backend starts with an explicitly clear memory latch.
@@ -193,7 +195,49 @@ class InMemoryExecutionStore:
             ),
             positions=positions,
             instrument_runtimes=runtimes,
+            funding=tuple(
+                sorted(
+                    (flow for flow in self.funding.values() if flow.deployment_id == deployment_id),
+                    key=lambda flow: (flow.product_id, flow.funding_time),
+                )
+            ),
         )
+
+    async def apply_funding_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        flows: tuple[FundingCashFlow, ...],
+        expected_revision: int | None = None,
+    ) -> tuple[int, DeploymentSnapshot]:
+        """Record unseen funding hours and move their amounts into cash in one step.
+
+        An hour already recorded is skipped, so a replay never charges twice. Returns the
+        count applied and the refreshed snapshot (ADR 0129 §4).
+        """
+        current = self.deployments.get(deployment_id)
+        if current is None:
+            raise ExecutionStoreError("Deployment was not found.")
+        if expected_revision is not None and current.revision != expected_revision:
+            raise ExecutionConflictError("Deployment revision conflict.")
+        fresh = [
+            flow
+            for flow in flows
+            if (flow.deployment_id, flow.product_id, flow.funding_time) not in self.funding
+        ]
+        if any(flow.deployment_id != deployment_id for flow in fresh):
+            raise ExecutionStoreError("Funding belongs to a different deployment.")
+        if fresh:
+            for flow in fresh:
+                self.funding[(flow.deployment_id, flow.product_id, flow.funding_time)] = flow
+            total = sum((flow.amount for flow in fresh), start=Decimal(0))
+            self.deployments[deployment_id] = replace(
+                current,
+                cash=current.cash + total,
+                revision=current.revision + 1,
+                updated_at=max(flow.applied_at for flow in fresh),
+            )
+        return len(fresh), await self.get_deployment(deployment_id)
 
     async def get_accounting_snapshot(self, deployment_id: UUID) -> DeploymentSnapshot:
         """Read all products' current economics from the authoritative in-memory store."""

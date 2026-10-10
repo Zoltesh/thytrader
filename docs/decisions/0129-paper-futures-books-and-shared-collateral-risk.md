@@ -220,6 +220,33 @@ link rules and `collateral_note`. There is no combined total anywhere.
 Before P2 (live futures), verify with one supervised 1-contract position how CFM draws on USDC
 (whether `available` USDC drops), and calibrate maintenance against `liquidation_threshold`.
 
+## Implementation notes
+
+- **P1-4 (paper futures books).**
+  - Paper books trade perp-style contracts only. A dated contract would need the backtest's
+    expiry flatten, which the runtime does not run yet, so its start is refused
+    (`FUTURES_PAPER_UNSUPPORTED`).
+  - A paper futures start names its maker and taker rates and a per-contract fee (USD); the
+    account's spot rates never stand in. The contract binding is written right after the book
+    row; if it cannot be written the book is stopped and the start fails.
+  - The policy block gains `paper_capital_usd` (§4) and `daily_loss_limit_fraction` (the futures
+    scope of §7) in P1-4; the remaining §5 fields arrive with P1-5. Until then admission uses
+    the strategy's `max_leverage`, overnight rates with maintenance = initial, and a 0.5
+    liquidation buffer.
+  - Funding is book cash movement in the execution store (`DeploymentSnapshot.funding`), applied
+    under the deployment row lock with a revision bump. The hours due are derived from applied
+    fills (a fill on the bar `[T − 1h, T)` is held at `T`, as in the backtest kernel), so there
+    is no cursor. Each hour uses the settled rate and the close of the decision bar containing
+    it. A missing hour stops the run of hours; 75 minutes after the hour it is overdue and new
+    entries are denied (`FUNDING_HISTORY_MISSING`). The book is not paused.
+  - The liquidation monitor runs on each closed bar (paper sees closed bars only) at the bar's
+    adverse extreme and exits there with `IntentPurpose.LIQUIDATION`, before the stop. This is
+    the kernel's conservative rule; §4's "at mark" would be optimistic for a closed-bar book.
+  - Futures books are their own breaker scope (`CFM-USD`), so spot buckets never sum or trip on
+    them. Opening evidence of a book with funding is `per_product_applied_fills_and_funding_v1`.
+  - Linked breakers (§7) are wired for paper in both directions. Live spot is not linked to
+    manual futures (they are unmanaged); §2 governs there.
+
 ## Consequences
 
 - With the defaults, any manual futures position pauses new live spot entries in USDC and USD

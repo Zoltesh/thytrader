@@ -123,9 +123,9 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   document has no `additional_instruments` and no reference instruments. Spot documents omit
   `kind` and `derivatives`, so their bytes and fingerprints never change. Futures documents cannot
   pyramid (`entry.pyramiding` is refused). **Status:** futures documents can be saved,
-  validated and backtested (see **Futures backtests** and **Futures simulation** below);
-  deployments return `FUTURES_PAPER_UNSUPPORTED` / `FUTURES_LIVE_UNSUPPORTED` until paper futures
-  books ship. Never invent a futures result.
+  validated and backtested (see **Futures backtests** and **Futures simulation** below), and
+  run as paper futures books (runtime skill; perp-style contracts only); live returns
+  `FUTURES_LIVE_UNSUPPORTED`. Never invent a futures result.
 - **Futures backtests** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)). The
   `submit-backtest --file` JSON adds a `futures` block, required for a futures strategy and
   refused for a spot one: `{"fee_per_contract": "0.15"}` at minimum (USD per contract; there is

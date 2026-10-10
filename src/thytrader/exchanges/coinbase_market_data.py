@@ -15,6 +15,7 @@ from thytrader.exchanges.coinbase_futures_catalog import (
     parse_futures_row,
 )
 from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.market_data.instruments import futures_market_product
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -131,7 +132,10 @@ class CoinbaseMarketData:
         interval: CandleInterval,
         now: datetime,
     ) -> MarketDataPreview:
-        """Fetch product constraints and recent completed candles for one spot product."""
+        """Fetch product constraints and recent completed candles for one product.
+
+        A futures id's constraints are in base units (``futures_market_product``).
+        """
         _require_utc(now)
         start = _safe_shift(
             now,
@@ -147,7 +151,7 @@ class CoinbaseMarketData:
             _granularity(interval),
             _CANDLE_PAGE_LIMIT,
         )
-        product = _parse_product(product_response.to_dict())
+        product = _preview_product(product_id, product_response.to_dict())
         candles = _parse_candles(candle_response.to_dict())
         try:
             quality = analyze_candles(candles, interval, now)
@@ -281,6 +285,23 @@ def _verify_range_product(product_id: str, payload: dict[str, Any]) -> None:
     if future is None or future.product_id != product_id:
         message = "Coinbase futures product verification returned a different identity."
         raise CoinbaseMarketDataError(message)
+
+
+def _preview_product(product_id: str, payload: dict[str, Any]) -> MarketProduct:
+    """Parse a preview product; a futures id is expressed in base units (ADR 0129 §4).
+
+    Spot products parse as before. A futures id is verified with the FCM parser.
+    """
+    if not is_futures_product_id(product_id):
+        return _parse_product(payload)
+    try:
+        future = parse_futures_row(payload)
+    except CoinbaseFuturesCatalogError as error:
+        raise CoinbaseMarketDataError(str(error)) from error
+    if future is None or future.product_id != product_id:
+        message = "Coinbase futures product verification returned a different identity."
+        raise CoinbaseMarketDataError(message)
+    return futures_market_product(future)
 
 
 def _parse_product(payload: dict[str, Any]) -> MarketProduct:

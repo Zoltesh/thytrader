@@ -18,6 +18,7 @@ from thytrader.execution.entry_admission import _entry_admitted, _entry_verdict
 from thytrader.execution.entry_reprice import _manage_working_entry
 from thytrader.execution.entry_sizing import _runtime_for_admitted_entry, _size_entry_or_add
 from thytrader.execution.exits import _evaluate_signal_exit, _mark_signal_exit
+from thytrader.execution.futures_liquidation import paper_liquidation_if_due
 from thytrader.execution.live_protection import (
     _apply_trailing,
     _ensure_exit_protection,
@@ -415,7 +416,8 @@ async def _exit_trail_and_protect(
 ) -> DeploymentSnapshot:
     """Evaluate the exit rule, apply the paper stop first, then mark or trail, and protect.
 
-    Paper follows the backtest's same-bar precedence (ADR 0083, ADR 0093): the protective
+    Paper follows the backtest's same-bar precedence (ADR 0083, ADR 0093): a paper futures
+    liquidation (ADR 0129) first, then the protective
     stop, then a touched take-profit (matched before this runs), then the signal exit, then
     the time exit. The stop is checked against the pre-trail level even when the time exit
     is also due on this bar, so a bar that trades through the stop never exits at its close.
@@ -435,6 +437,17 @@ async def _exit_trail_and_protect(
     if position is None:
         return snapshot
     if not live:
+        liquidated = await paper_liquidation_if_due(
+            snapshot,
+            strategy=strategy,
+            candle=candle,
+            product=product,
+            broker=broker,
+            store=store,
+            position=position,
+        )
+        if liquidated is not None:
+            return liquidated
         stopped = await _paper_stop_exit_if_hit(
             snapshot,
             strategy=strategy,

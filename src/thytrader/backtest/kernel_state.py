@@ -9,7 +9,6 @@ imports no other kernel module.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.backtest.models import (
@@ -21,6 +20,7 @@ from thytrader.backtest.models import (
     BacktestSkipCount,
     BacktestTrade,
 )
+from thytrader.trading.futures_sizing import FuturesMarginTerms
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -168,23 +168,16 @@ class _Costs:
 
 
 @dataclass(frozen=True, slots=True)
-class _FuturesTerms:
+class _FuturesTerms(FuturesMarginTerms):
     """The bound contract, margin, funding, and leverage terms of one futures run (ADR 0128).
 
-    ``long_rate`` and ``short_rate`` are initial-margin rates already multiplied by the
-    stress multiplier. Maintenance is ``maintenance_fraction`` x initial. ``funding_rates``
-    holds the recorded hourly rates by funding hour; ``constant_funding_rate`` replaces
-    them when the run declared one; both are None for dated contracts. ``flatten_at`` is
-    ``expires_at`` minus ``flatten_before_expiry_hours`` for dated contracts.
+    The margin arithmetic is the shared ``FuturesMarginTerms`` paper books use too; rates
+    are already multiplied by the run's stress multiplier. ``funding_rates`` holds the
+    recorded hourly rates by funding hour; ``constant_funding_rate`` replaces them when the
+    run declared one; both are None for dated contracts. ``flatten_at`` is ``expires_at``
+    minus ``flatten_before_expiry_hours`` for dated contracts.
     """
 
-    contract_size: Decimal
-    long_rate: Decimal
-    short_rate: Decimal
-    maintenance_fraction: Decimal
-    min_buffer_fraction: Decimal
-    max_leverage: Decimal
-    fee_per_contract: Decimal
     funding_rates: Mapping[datetime, Decimal] | None = None
     constant_funding_rate: Decimal | None = None
     flatten_at: datetime | None = None
@@ -193,16 +186,3 @@ class _FuturesTerms:
     def perpetual(self) -> bool:
         """Whether the contract charges hourly funding."""
         return self.funding_rates is not None or self.constant_funding_rate is not None
-
-    def initial_rate(self, side: PositionSide) -> Decimal:
-        """The stressed initial-margin rate for one side."""
-        return self.long_rate if side == "long" else self.short_rate
-
-    def whole_contracts(self, quantity: Decimal) -> Decimal:
-        """Round a base quantity down to whole contracts (never up)."""
-        contracts = (quantity / self.contract_size).to_integral_value(rounding=ROUND_FLOOR)
-        return contracts * self.contract_size
-
-    def maintenance(self, quantity: Decimal, price: Decimal, side: PositionSide) -> Decimal:
-        """Maintenance margin of ``quantity`` base units at ``price``."""
-        return quantity * price * self.initial_rate(side) * self.maintenance_fraction

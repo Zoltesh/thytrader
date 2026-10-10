@@ -266,7 +266,7 @@ Its detail names the product and cause. The β history is read from the venue, n
 dataset catalog. The remedy is a policy or allowlist change through the runtime lane, never a
 bypass.
 `futures` echoes the policy's futures block (`live_spot_collateral_reserve_quote`,
-`peg_haircut`; null when unset) and `futures_collateral` shows the shared-USDC-collateral gate
+`peg_haircut`, `paper_capital_usd`, `daily_loss_limit_fraction`; null when unset) and `futures_collateral` shows the shared-USDC-collateral gate
 ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)):
 `state` (`absent`, `idle`, `in_use`, `unknown`), `cause`, the CFM `initial_margin_usd`,
 `open_orders_hold_usd` and `position_count`, the policy quote and reserve, and `effect` on new
@@ -327,7 +327,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v85`, schema revision `0072`) and exits on any
+   this checkout's (`thytrader-ops-contract-v86`, schema revision `0073`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -532,7 +532,7 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-Health requires the shipped schema revision (`0072`). After updating main, use `make run` to
+Health requires the shipped schema revision (`0073`). After updating main, use `make run` to
 apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
