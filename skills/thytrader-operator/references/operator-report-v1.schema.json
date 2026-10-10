@@ -4087,6 +4087,266 @@
       "title": "FundingReport",
       "type": "object"
     },
+    "FuturesProductSummary": {
+      "additionalProperties": false,
+      "description": "One Coinbase CFM futures contract from the read-only listing (ADR 0126).\n\n``orderable`` is always false: no lane can order, adopt or deploy a futures contract.\n``base_increment`` and ``base_min_size`` are in contracts; ``contract_size`` is the\n``underlying`` quantity per contract. ``underlying`` is the venue's\n``contract_root_unit`` (``BIP`` is BTC), never the id prefix. ``expires_at`` is null for\na perp, whose ``venue_expiry_at`` is a far-future sentinel; ``listed_expiry`` is the day\nin the id. Margin rates are fractions of notional; ``funding_rate`` is per\n``funding_interval_seconds`` (longs pay when positive). ``null`` means unlisted (unknown),\nnever zero.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "dated_future",
+            "perpetual_future"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "contract_code": {
+          "title": "Contract Code",
+          "type": "string"
+        },
+        "underlying": {
+          "title": "Underlying",
+          "type": "string"
+        },
+        "settlement_currency": {
+          "const": "USD",
+          "title": "Settlement Currency",
+          "type": "string"
+        },
+        "contract_size": {
+          "title": "Contract Size",
+          "type": "string"
+        },
+        "price_increment": {
+          "title": "Price Increment",
+          "type": "string"
+        },
+        "base_increment": {
+          "title": "Base Increment",
+          "type": "string"
+        },
+        "base_min_size": {
+          "title": "Base Min Size",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expires At"
+        },
+        "venue_expiry_at": {
+          "format": "date-time",
+          "title": "Venue Expiry At",
+          "type": "string"
+        },
+        "listed_expiry": {
+          "format": "date",
+          "title": "Listed Expiry",
+          "type": "string"
+        },
+        "twenty_four_by_seven": {
+          "title": "Twenty Four By Seven",
+          "type": "boolean"
+        },
+        "trading_enabled": {
+          "title": "Trading Enabled",
+          "type": "boolean"
+        },
+        "intraday_long_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Intraday Long Margin Rate"
+        },
+        "intraday_short_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Intraday Short Margin Rate"
+        },
+        "overnight_long_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overnight Long Margin Rate"
+        },
+        "overnight_short_margin_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Overnight Short Margin Rate"
+        },
+        "funding_interval_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Interval Seconds"
+        },
+        "funding_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Rate"
+        },
+        "funding_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Time"
+        },
+        "session_open": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session Open"
+        },
+        "session_state": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session State"
+        },
+        "maintenance_starts_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maintenance Starts At"
+        },
+        "maintenance_ends_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maintenance Ends At"
+        },
+        "asset_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Asset Type"
+        },
+        "display_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Display Name"
+        },
+        "orderable": {
+          "const": false,
+          "default": false,
+          "title": "Orderable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "product_id",
+        "kind",
+        "contract_code",
+        "underlying",
+        "settlement_currency",
+        "contract_size",
+        "price_increment",
+        "base_increment",
+        "base_min_size",
+        "expires_at",
+        "venue_expiry_at",
+        "listed_expiry",
+        "twenty_four_by_seven",
+        "trading_enabled",
+        "intraday_long_margin_rate",
+        "intraday_short_margin_rate",
+        "overnight_long_margin_rate",
+        "overnight_short_margin_rate",
+        "funding_interval_seconds",
+        "funding_rate",
+        "funding_time",
+        "session_open",
+        "session_state",
+        "maintenance_starts_at",
+        "maintenance_ends_at",
+        "asset_type",
+        "display_name"
+      ],
+      "title": "FuturesProductSummary",
+      "type": "object"
+    },
     "HealthPayload": {
       "additionalProperties": false,
       "description": "Process coverage included in the health report.",
@@ -6314,7 +6574,8 @@
           "items": {
             "enum": [
               "instrument_catalog",
-              "funding_history"
+              "funding_history",
+              "operator_products_kind"
             ],
             "type": "string"
           },
@@ -7691,7 +7952,7 @@
     },
     "ProductsPayload": {
       "additionalProperties": false,
-      "description": "Coinbase or demo USD spot products visible to agents.",
+      "description": "Coinbase or demo spot products, and with ``--kind`` the read-only futures listing.\n\nThe four futures fields are omitted from the JSON unless ``kind`` is ``future`` or\n``all``, so the default spot payload keeps its exact bytes (ADR 0126). With ``kind:\nfuture`` the spot ``products`` list is empty and the spot catalog is not read.",
       "properties": {
         "provider": {
           "title": "Provider",
@@ -7728,6 +7989,62 @@
           ],
           "default": null,
           "title": "Catalog Observed At"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "future",
+                "all"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FuturesProductSummary"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures"
+        },
+        "futures_catalog_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Catalog Fingerprint"
+        },
+        "futures_catalog_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Catalog Observed At"
         }
       },
       "required": [

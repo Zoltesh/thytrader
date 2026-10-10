@@ -112,10 +112,22 @@ def _parser() -> argparse.ArgumentParser:
         choices=DATASET_TIMEFRAMES,
         help="Dataset candle interval. Default 1h.",
     )
-    subparsers.add_parser(
+    products = subparsers.add_parser(
         "products",
         parents=[trailing],
-        help="Enabled USD, USDC, and USDT spot products from the current catalog.",
+        help=(
+            "Enabled USD, USDC, and USDT spot products from the current catalog; "
+            "--kind future|all adds the read-only Coinbase futures listing."
+        ),
+    )
+    products.add_argument(
+        "--kind",
+        choices=("spot", "future", "all"),
+        default="spot",
+        help=(
+            "spot (default, unchanged report), future (futures contracts only; not orderable), "
+            "or all."
+        ),
     )
     funding = subparsers.add_parser(
         "funding",
@@ -334,7 +346,7 @@ async def _dispatch(
     if scoped is not None:
         return scoped
     if command == "products":
-        return await diagnostics.products()
+        return await diagnostics.products(arguments.kind)
     if command == "data-health":
         return data_health_report(await diagnostics.data_catalog())
     if command == "indicators":
@@ -442,6 +454,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     portfolio_id = getattr(arguments, "portfolio_id", None)
     if isinstance(portfolio_id, str) and portfolio_id:
         query["portfolio_id"] = portfolio_id
+    kind = getattr(arguments, "kind", None)
+    if isinstance(kind, str) and kind != "spot":
+        query["kind"] = kind
     hours = getattr(arguments, "hours", None)
     if isinstance(hours, int):
         query["hours"] = str(hours)

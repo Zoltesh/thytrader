@@ -6,7 +6,7 @@ and the implemented indicator catalog.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import Field
@@ -67,13 +67,76 @@ class ProductSummary(_FrozenModel):
     quote_min_size: str
 
 
+ProductsKind = Literal["spot", "future", "all"]
+
+
+class FuturesProductSummary(_FrozenModel):
+    """One Coinbase CFM futures contract from the read-only listing (ADR 0126).
+
+    ``orderable`` is always false: no lane can order, adopt or deploy a futures contract.
+    ``base_increment`` and ``base_min_size`` are in contracts; ``contract_size`` is the
+    ``underlying`` quantity per contract. ``underlying`` is the venue's
+    ``contract_root_unit`` (``BIP`` is BTC), never the id prefix. ``expires_at`` is null for
+    a perp, whose ``venue_expiry_at`` is a far-future sentinel; ``listed_expiry`` is the day
+    in the id. Margin rates are fractions of notional; ``funding_rate`` is per
+    ``funding_interval_seconds`` (longs pay when positive). ``null`` means unlisted (unknown),
+    never zero.
+    """
+
+    product_id: str
+    kind: Literal["dated_future", "perpetual_future"]
+    contract_code: str
+    underlying: str
+    settlement_currency: Literal["USD"]
+    contract_size: str
+    price_increment: str
+    base_increment: str
+    base_min_size: str
+    expires_at: datetime | None
+    venue_expiry_at: datetime
+    listed_expiry: date
+    twenty_four_by_seven: bool
+    trading_enabled: bool
+    intraday_long_margin_rate: str | None
+    intraday_short_margin_rate: str | None
+    overnight_long_margin_rate: str | None
+    overnight_short_margin_rate: str | None
+    funding_interval_seconds: int | None
+    funding_rate: str | None
+    funding_time: datetime | None
+    session_open: bool | None
+    session_state: str | None
+    maintenance_starts_at: datetime | None
+    maintenance_ends_at: datetime | None
+    asset_type: str | None
+    display_name: str | None
+    orderable: Literal[False] = False
+
+
 class ProductsPayload(_FrozenModel):
-    """Coinbase or demo USD spot products visible to agents."""
+    """Coinbase or demo spot products, and with ``--kind`` the read-only futures listing.
+
+    The four futures fields are omitted from the JSON unless ``kind`` is ``future`` or
+    ``all``, so the default spot payload keeps its exact bytes (ADR 0126). With ``kind:
+    future`` the spot ``products`` list is empty and the spot catalog is not read.
+    """
 
     provider: str
     products: tuple[ProductSummary, ...]
     catalog_fingerprint: str | None = None
     catalog_observed_at: datetime | None = None
+    kind: Literal["future", "all"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    futures: tuple[FuturesProductSummary, ...] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    futures_catalog_fingerprint: str | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    futures_catalog_observed_at: datetime | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
 
 class ProductsReport(OperatorEnvelope):

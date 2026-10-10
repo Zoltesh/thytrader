@@ -47,7 +47,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Market data | `uv run thytrader-operator market-data [--product-id BTC-USD] [--timeframe 1h\|5m\|15m\|30m\|6h\|1d\|1m\|2h\|4h]` | `GET /api/v1/operator/market-data` |
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
-| Products | `uv run thytrader-operator products` | `GET /api/v1/operator/products` |
+| Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
@@ -316,7 +316,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v76`, schema revision `0071`) and exits on any
+   this checkout's (`thytrader-ops-contract-v77`, schema revision `0071`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -338,6 +338,12 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
    strings), venue `status` (`online` when trading normally), and `alias` (the product whose
    order book it shares, such as `BTC-USD` for `BTC-USDC`). Check them before sizing an order.
+   `products --kind future` (or `all`) adds `payload.futures[]`: each Coinbase futures contract's
+   `kind` (`perpetual_future` or `dated_future`), `underlying` (the venue's root unit: `BIP` is
+   BTC, never read it from the id), `contract_size`, sizes in **contracts**, margin rates,
+   current `funding_rate` and session facts, with `orderable: false`. Futures are observation
+   only; nothing can order them. `FUTURES_CATALOG_UNCONFIGURED` means demo mode;
+   `FUTURES_CATALOG_UNAVAILABLE` means the listing could not be read or proved complete.
    In `data-catalog`, judge configured coverage by `watch_complete`. For a watched row `complete`
    is the same watch-relative fact ([ADR 0095](../../docs/decisions/0095-sparse-markets-no-trade-bars-listing-floors.md));
    `island_complete` describes only the published dataset. Report coverage as

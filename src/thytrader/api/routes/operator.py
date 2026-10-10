@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -184,9 +184,10 @@ async def get_operator_market_data(
 @router.get("/products", response_model=ProductsReport)
 async def get_operator_products(
     diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    kind: Annotated[Literal["spot", "future", "all"], Query()] = "spot",
 ) -> ProductsReport:
-    """Return enabled USD spot products from the current catalog."""
-    return await diagnostics.products()
+    """Return enabled spot products; ``kind=future|all`` adds the read-only futures listing."""
+    return await diagnostics.products(kind)
 
 
 @router.get("/funding", response_model=FundingReport)
