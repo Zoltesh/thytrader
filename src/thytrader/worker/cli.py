@@ -8,12 +8,16 @@ import logging
 import signal
 from typing import TYPE_CHECKING
 
+from coinbase.rest import RESTClient
+
 from thytrader.audit_events import (
     AuditEventStore,
     DisabledAuditEventStore,
 )
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
 from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase_cfm import CoinbaseCfmAccount
+from thytrader.exchanges.rest_transport import RestClientTransport
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.portfolio_history import (
@@ -21,12 +25,14 @@ from thytrader.persistence.portfolio_history import (
     PortfolioHistoryStore,
 )
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
+from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.runtime import RuntimeState
 from thytrader.settings_yaml import SettingsStore
+from thytrader.worker.futures_mirror import run_futures_mirror
 from thytrader.worker.service import run_worker
 
 if TYPE_CHECKING:
@@ -35,6 +41,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.config import Settings
+    from thytrader.exchanges.protocols import FuturesAccountReader
     from thytrader.portfolio.models import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -57,6 +64,22 @@ class _ReloadingPortfolioFetcher:
         return await self._service.get_portfolio()
 
 
+class _ReloadingFuturesReader:
+    """Hold the GET-only CFM reader; credential reloads rebuild it (ADR 0127)."""
+
+    def __init__(self, settings: Settings) -> None:
+        """Build the first reader, or none in demo mode."""
+        self._reader = _build_futures_reader(settings)
+
+    def replace(self, settings: Settings) -> None:
+        """Rebuild the reader from fresh settings."""
+        self._reader = _build_futures_reader(settings)
+
+    def current(self) -> FuturesAccountReader | None:
+        """Return the reader for this cycle, or ``None`` without credentials."""
+        return self._reader
+
+
 async def run() -> None:
     """Run the worker until an operating-system shutdown signal arrives."""
     store = SettingsStore.open()
@@ -69,11 +92,23 @@ async def run() -> None:
     loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
 
     portfolio_fetcher = _ReloadingPortfolioFetcher(_build_portfolio_service(settings))
-    credential_runtime = WorkerCredentialRuntime(
-        store,
-        on_coinbase_reload=portfolio_fetcher.replace,
-    )
+    futures_reader = _ReloadingFuturesReader(settings)
+
+    def on_coinbase_reload(fresh: Settings) -> None:
+        portfolio_fetcher.replace(fresh)
+        futures_reader.replace(fresh)
+
+    credential_runtime = WorkerCredentialRuntime(store, on_coinbase_reload=on_coinbase_reload)
     history_store, audit_store, engine, heartbeats = await _build_stores(settings)
+    mirror = (
+        _idle(stop_requested)
+        if engine is None
+        else run_futures_mirror(
+            stop_requested,
+            reader=futures_reader.current,
+            store=PostgresFuturesAccountStore(engine),
+        )
+    )
 
     readiness_file = settings.worker_readiness_file
     try:
@@ -89,12 +124,30 @@ async def run() -> None:
                 heartbeat_store=heartbeats,
             ),
             credential_runtime.run_until_stopped(stop_requested),
+            mirror,
         )
         logger.info("worker_stopped")
     finally:
         _clear_ready(readiness_file)
         if engine is not None:
             await dispose(engine)
+
+
+async def _idle(stop_requested: asyncio.Event) -> None:
+    """Without a database there is nowhere to mirror the futures account to."""
+    await stop_requested.wait()
+
+
+def _build_futures_reader(settings: Settings) -> FuturesAccountReader | None:
+    """Build the GET-only CFM reader when Coinbase credentials exist (ADR 0127)."""
+    if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
+        return None
+    client = RESTClient(
+        api_key=settings.coinbase_api_key_name.get_secret_value(),
+        api_secret=settings.coinbase_api_private_key.get_secret_value(),
+        timeout=10,
+    )
+    return CoinbaseCfmAccount(RestClientTransport(client))
 
 
 def _mark_ready(readiness_file: Path | None) -> None:
@@ -117,9 +170,6 @@ def _build_portfolio_service(settings: Settings) -> PortfolioService:
     """Build a live Coinbase service when credentials exist, otherwise demo."""
     if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
         return PortfolioService(DemoExchangeAccount(), demo=True)
-
-    from coinbase.rest import RESTClient  # noqa: PLC0415
-
     client = RESTClient(
         api_key=settings.coinbase_api_key_name.get_secret_value(),
         api_secret=settings.coinbase_api_private_key.get_secret_value(),

@@ -44,6 +44,7 @@ REPORT_KINDS: tuple[str, ...] = (
     "venue_reconciliation",
     "alerts",
     "funding",
+    "futures_account",
 )
 
 SupportedTimeframe = DatasetTimeframe

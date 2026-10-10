@@ -55,6 +55,7 @@ from thytrader.operator.funding_report import (
     FUNDING_REPORT_MAX_HOURS,
     FundingReport,
 )
+from thytrader.operator.futures_account_report import FuturesAccountReport
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -80,6 +81,7 @@ from thytrader.operator.support_bundle_models import SupportBundleReport
 from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
+from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_research_queue import (  # noqa: TC001 - FastAPI Depends.
     PostgresResearchQueue,
 )
@@ -146,6 +148,7 @@ def get_operator_diagnostics(
         research_queue=research_queue,
         alert_store=alert_store,
         futures_store=None if engine is None else PostgresFuturesObservationStore(engine),
+        futures_account_store=None if engine is None else PostgresFuturesAccountStore(engine),
     )
 
 
@@ -200,6 +203,14 @@ async def get_operator_funding(
 ) -> FundingReport:
     """Return recorded CFM funding history and futures poller health (read-only)."""
     return await diagnostics.funding(product_id=product_id, hours=hours)
+
+
+@router.get("/futures-account", response_model=FuturesAccountReport)
+async def get_operator_futures_account(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> FuturesAccountReport:
+    """Return the latest read-only CFM futures account mirror snapshot."""
+    return await diagnostics.futures_account()
 
 
 @router.get("/data-catalog", response_model=DataCatalogReport)

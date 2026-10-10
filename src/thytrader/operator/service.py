@@ -35,6 +35,10 @@ from thytrader.operator.diagnostics.market_coverage import (
 from thytrader.operator.diagnostics.performance import build_performance_report
 from thytrader.operator.diagnostics.runtime import build_runtime_report, build_strategies_report
 from thytrader.operator.funding_report import FundingReport, build_funding_report
+from thytrader.operator.futures_account_report import (
+    FuturesAccountReport,
+    build_futures_account_report,
+)
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -94,6 +98,7 @@ if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore
     from thytrader.backtest.results import BacktestResultReader
     from thytrader.config import Settings
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
@@ -145,6 +150,7 @@ class OperatorDiagnostics:
     research_queue: ResearchQueueSnapshotReader | None = None
     alert_store: AlertStore | None = None
     futures_store: FuturesObservationStore | None = None
+    futures_account_store: FuturesAccountSnapshotStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -341,6 +347,10 @@ class OperatorDiagnostics:
     async def funding(self, *, product_id: str | None, hours: int) -> FundingReport:
         """Return recorded CFM funding history and futures poller health (ADR 0126)."""
         return await build_funding_report(self.futures_store, product_id=product_id, hours=hours)
+
+    async def futures_account(self) -> FuturesAccountReport:
+        """Return the latest read-only CFM futures account mirror snapshot (ADR 0127)."""
+        return await build_futures_account_report(self.futures_account_store)
 
     async def products(self, kind: ProductsKind = "spot") -> ProductsReport:
         """List enabled spot products; ``future``/``all`` add the read-only futures listing."""

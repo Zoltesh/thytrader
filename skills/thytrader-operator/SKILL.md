@@ -48,6 +48,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
+| Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
@@ -316,7 +317,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v78`, schema revision `0071`) and exits on any
+   this checkout's (`thytrader-ops-contract-v79`, schema revision `0072`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -520,7 +521,7 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-Health requires the shipped schema revision (`0071`). After updating main, use `make run` to
+Health requires the shipped schema revision (`0072`). After updating main, use `make run` to
 apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
@@ -559,3 +560,28 @@ Contracts with trading sessions (`twenty_four_by_seven: false`, such as index pe
 funding hours while closed: their gaps are listed but do not degrade the report.
 `FUTURES_POLLER_NOT_RUN` and `FUTURES_POLLER_STALE` point at the market-data worker.
 Futures are observation-only: no lane can place, adopt or deploy a futures contract.
+
+## Futures account mirror (ADR 0127)
+
+`uv run thytrader-operator futures-account` is read-only and shows the newest snapshot of the
+Coinbase CFM (US futures) account. The worker records one every 60 seconds when Coinbase
+credentials are configured, using four GET reads only (balance summary, positions, intraday
+margin setting, current margin window); nothing in ThyTrader can order, close, sweep or change a
+futures margin setting.
+
+- `enablement`: `enabled` when the balance summary was read; `unknown` when it was not (see
+  `read_failures`, tokens such as `balance_summary:http_401`). `not_enabled` is reserved for a
+  documented venue answer; Coinbase documents none, so an account without futures access shows
+  `unknown`, never a guess.
+- `balance` (all **USD**, `currency: USD`): `futures_buying_power`, `cbi_usd_balance` (spot-side USD
+  that CFM can pull as margin), `cfm_usd_balance`, `unrealized_pnl`, `daily_realized_pnl`,
+  `funding_pnl`, `initial_margin`, `available_margin`, `liquidation_threshold`,
+  `liquidation_buffer_amount` / `_percentage`, and the intraday/overnight margin measures. Never
+  add these to USDC or USDT amounts from `portfolio`.
+- `positions[]`: `product_id`, `side`, `number_of_contracts` (contracts, not base units),
+  prices and PnL in USD. `null` means the position read failed; `[]` means no positions.
+- `margin_window_type` (for example `MARGIN_WINDOW_TYPE_OVERNIGHT`), `margin_window_end_at`,
+  `intraday_margin_setting`, killswitch flags.
+- Reason codes: `OK`, `FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE` (older than 3 minutes),
+  `FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_READ_FAILURES`, `STORE_DISABLED`, `STORE_UNAVAILABLE`.
+  External CFM positions are not managed by any bot.

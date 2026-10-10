@@ -78,6 +78,10 @@ from thytrader.persistence.tables.fleet import (
     fleet_control_operations,
     fleet_entry_inhibition,
 )
+from thytrader.persistence.tables.futures_account import (
+    futures_account_snapshots,
+    futures_position_snapshots,
+)
 from thytrader.persistence.tables.futures import (
     futures_catalog_poll_state,
     futures_funding_rates,
@@ -102,9 +106,11 @@ __all__ = [
     "experiential_sentiment_snapshots",
     "fleet_control_operations",
     "fleet_entry_inhibition",
+    "futures_account_snapshots",
     "futures_catalog_poll_state",
     "futures_funding_rates",
     "futures_instrument_observations",
+    "futures_position_snapshots",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",
