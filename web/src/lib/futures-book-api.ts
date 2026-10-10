@@ -12,8 +12,11 @@ export type FuturesFeeEvidence = {
 	taker_fee_rate: string | null;
 	fee_tier: string | null;
 	as_of: string | null;
+	/** The fixed per-contract part only; the maker/taker rate is charged on top (ADR 0133). */
 	fee_per_contract: string | null;
-	fee_per_contract_source: 'operator_input' | 'orders_preview';
+	fee_per_contract_source:
+		'operator_input' | 'orders_preview_itemized' | 'orders_preview_less_taker_rate';
+	fee_per_contract_unavailable_reason: string | null;
 	unavailable_reason: 'unsupported' | 'read_failed' | null;
 	preview_product_id: string | null;
 	preview_unavailable_reason: string | null;

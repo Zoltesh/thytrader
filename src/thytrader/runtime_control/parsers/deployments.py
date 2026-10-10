@@ -154,7 +154,10 @@ def add_start_parser(
         "--fee-per-contract",
         default=None,
         help=(
-            "Paper futures only (ADR 0129): USD fee per contract on every fill. Required, "
+            "Paper futures only (ADR 0129): the fixed USD fee per contract on every fill, "
+            "charged on top of the maker/taker rate (payload.futures.fee_per_contract of "
+            "`thytrader-operator fees --futures-preview-product-id`, never the preview's "
+            "all-in commission; ADR 0133). Required, "
             "with explicit --maker-fee-rate and --taker-fee-rate (the futures tier from "
             "`thytrader-operator fees`), to start a futures strategy; --cash is USD from "
             "the policy's futures.paper_capital_usd envelope. Futures never run live: "

@@ -37,7 +37,8 @@ class FuturesBacktestAssumptions(BaseModel):
     The server binds the contract and the overnight margin rates from the latest catalog
     observation and the settled funding series from the recorded history; these fields
     only choose what cannot be observed. ``fee_per_contract`` is required: there is no
-    compiled futures fee. Explicit ``long_margin_rate`` / ``short_margin_rate`` (both or
+    compiled futures fee. It is the fixed USD part per contract, charged on top of the
+    maker/taker rate (ADR 0133). Explicit ``long_margin_rate`` / ``short_margin_rate`` (both or
     neither) replace the observed rates. ``funding_constant_rate`` (per hour) replaces
     the recorded series for a perp and is disclosed as ``futures_constant_funding``.
     """

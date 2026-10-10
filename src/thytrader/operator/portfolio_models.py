@@ -179,15 +179,32 @@ class PortfoliosReport(OperatorEnvelope):
     payload: PortfoliosPayload
 
 
+FeePerContractSource = Literal[
+    "operator_input", "orders_preview_itemized", "orders_preview_less_taker_rate"
+]
+FeePerContractUnavailableReason = Literal[
+    "taker_fee_rate_unavailable",
+    "preview_price_unavailable",
+    "contract_size_unavailable",
+    "negative_fixed_fee",
+]
+
+
 class FuturesFeesPayload(_FrozenModel):
     """CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).
 
-    The rates are what Coinbase reports for the futures product type. Coinbase also bills
-    futures per contract and no read-only endpoint reports that amount: ``fee_per_contract``
-    is null (``operator_input``) unless the report was asked to preview one contract of
-    ``preview_product_id`` through ``orders/preview`` (P1-3b; places no order), in which
-    case it is the quoted commission per contract (``orders_preview``). A failed preview
-    leaves it null with ``preview_unavailable_reason``.
+    The rates are what Coinbase reports for the futures product type. Coinbase also bills a
+    fixed amount per contract and no read-only endpoint reports it: ``fee_per_contract`` is
+    null (``operator_input``) unless the report was asked to preview one contract of
+    ``preview_product_id`` through ``orders/preview`` (P1-3b; places no order). The
+    preview's ``preview_commission_total`` is all-in (rate part plus fixed part), so
+    ``fee_per_contract`` is only the fixed part (ADR 0133): the itemized venue, clearing and
+    regulatory commissions (``orders_preview_itemized``), else the total minus
+    ``preview_rate_commission`` = taker rate x ``preview_contract_size`` x ``preview_price``
+    (``orders_preview_less_taker_rate``). Paper and backtests add the maker/taker rate
+    themselves. A failed preview leaves it null with ``preview_unavailable_reason``; a
+    preview whose fixed part cannot be derived leaves it null with
+    ``fee_per_contract_unavailable_reason``.
     """
 
     status: Literal["available", "unavailable"]
@@ -197,10 +214,15 @@ class FuturesFeesPayload(_FrozenModel):
     fee_tier: str | None = None
     as_of: datetime | None = None
     fee_per_contract: str | None = None
-    fee_per_contract_source: Literal["operator_input", "orders_preview"] = "operator_input"
+    fee_per_contract_source: FeePerContractSource = "operator_input"
+    fee_per_contract_unavailable_reason: FeePerContractUnavailableReason | None = None
     unavailable_reason: Literal["unsupported", "read_failed"] | None = None
     preview_product_id: str | None = None
     preview_commission_total: str | None = None
+    preview_price: str | None = None
+    preview_contract_size: str | None = None
+    preview_rate_commission: str | None = None
+    preview_fixed_commission_itemized: str | None = None
     preview_observed_at: datetime | None = None
     preview_unavailable_reason: str | None = None
 

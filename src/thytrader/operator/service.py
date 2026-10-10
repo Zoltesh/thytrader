@@ -254,10 +254,13 @@ class OperatorDiagnostics:
 
         The futures fee tier is read separately and never fails the spot report.
         ``futures_preview_product_id`` opts into the one-contract ``orders/preview`` probe
-        (places no order; ADR 0128, P1-3b).
+        (places no order; ADR 0128, P1-3b); its all-in commission is split into the taker
+        rate part and the fixed ``fee_per_contract`` (ADR 0133).
         """
         now = datetime.now(UTC)
-        futures = await futures_fee_evidence(self.portfolio, futures_preview_product_id)
+        futures = await futures_fee_evidence(
+            self.portfolio, futures_preview_product_id, self.market_data
+        )
         try:
             profile = await self.portfolio.get_fee_profile()
         except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.

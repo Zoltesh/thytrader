@@ -425,7 +425,11 @@ book only** ([ADR 0129](../decisions/0129-paper-futures-books-and-shared-collate
 Its Paper card asks for **Paper starting cash (USD)**, **Maker fee rate**, **Taker fee rate**,
 and **Fee per contract (USD)**, all required. The rates prefill from your Coinbase futures fee
 tier when Coinbase reports one; **Quote fee per contract from Coinbase** asks for a one-contract
-order preview (no order is placed) to fill the per-contract fee. Nothing is ever defaulted:
+order preview (no order is placed) to fill the per-contract fee. That field is the **fixed** part
+of Coinbase's futures commission (for example $0.11 per contract); the taker or maker rate on the
+notional is charged on top from the rate fields, so the preview's all-in commission is never
+entered there ([ADR 0133](../decisions/0133-cfm-supervised-trade-evidence-and-fixed-contract-fee.md)).
+Nothing is ever defaulted:
 without evidence the fields stay blank. **Start paper futures book…** confirms the contract,
 cash, and fees; a refusal (for example `FUTURES_POLICY_UNSET` or
 `FUTURES_PAPER_CAPITAL_EXCEEDED`) shows the server's reason. The Live card offers no arming and

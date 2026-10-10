@@ -128,8 +128,9 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   `FUTURES_LIVE_UNSUPPORTED`. Never invent a futures result.
 - **Futures backtests** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)). The
   `submit-backtest --file` JSON adds a `futures` block, required for a futures strategy and
-  refused for a spot one: `{"fee_per_contract": "0.15"}` at minimum (USD per contract; there is
-  no compiled futures fee, so state the venue's per-contract fee yourself). Optional:
+  refused for a spot one: `{"fee_per_contract": "0.11"}` at minimum (the **fixed** USD part per
+  contract, charged on top of the rate fees; there is no compiled futures fee, so state it
+  yourself). Optional:
   `margin_stress_multiplier` (1–5), `maintenance_fraction_of_initial`,
   `min_liquidation_buffer_fraction` (default 0.5), `long_margin_rate` + `short_margin_rate`
   (both or neither; replaces the observed overnight rates), and `funding_constant_rate` (per
@@ -137,7 +138,10 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   `maker_fee_rate` / `taker_fee_rate` from `thytrader-operator fees` → `payload.futures` (the
   futures tier). For `fee_per_contract`, run `thytrader-operator fees
   --futures-preview-product-id <CDE id>` (one `orders/preview` POST that places no order) and use
-  `payload.futures.fee_per_contract` when `fee_per_contract_source` is `orders_preview`. The server binds the contract and
+  `payload.futures.fee_per_contract` when `fee_per_contract_source` starts with `orders_preview`.
+  It is the fixed part only (e.g. $0.11 at the Intro tier, confirmed by live fills; ADR 0133);
+  never use `preview_commission_total`, which already includes the taker rate and would count it
+  twice. The server binds the contract and
   overnight margin from the latest catalog observation and, for perps, the settled funding of
   every hour in the window. Rejections name the gap: `FUTURES_ASSUMPTIONS_REQUIRED`,
   `FUTURES_CONTRACT_UNOBSERVED`, `FUTURES_UNDERLYING_MISMATCH`, `FUTURES_MARGIN_UNKNOWN`,
@@ -222,7 +226,8 @@ assumptions. Full semantics: `docs/architecture/backtest-simulation.md`.
     `below_one_contract`. After the entry fee, notional ≤ `derivatives.max_leverage` × equity,
     maintenance ≤ (1 − `min_liquidation_buffer_fraction`) × equity, and initial margin ≤
     `max_strategy_exposure_fraction` × equity (for futures the exposure fraction caps committed
-    margin, not notional). Fees are rate × notional plus `fee_per_contract` × contracts.
+    margin, not notional). Fees are rate × notional plus `fee_per_contract` × contracts (the
+    fixed part; matches Coinbase's live billing, ADR 0133).
   - **Liquidation** runs before the stop on every bar: if equity at the bar's adverse extreme is
     below maintenance, the position closes there as a taker (`liquidation`). Equity can end
     negative on a gap; that is the model being conservative, not a bug.

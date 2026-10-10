@@ -1,6 +1,6 @@
 # 0128: Futures in the strategy schema, run spec and backtest kernel
 
-- Status: Accepted
+- Status: Accepted; P1-3b fee source amended by [0133](0133-cfm-supervised-trade-evidence-and-fixed-contract-fee.md)
 - Date: 2026-10-10
 - Relates to: [0083](0083-unified-backtest-model.md),
   [0090](0090-research-correctness-optional-take-profit-diagnostics.md),
