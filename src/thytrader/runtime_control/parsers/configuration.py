@@ -20,6 +20,40 @@ _ALLOCATION_HELP = (
 )
 
 
+_FUTURES_GATE_FLAGS = (
+    (
+        "--futures-max-leverage",
+        "Futures gate (ADR 0129 §5): gross notional over futures book equity, 1-20; the lower "
+        "of this and the strategy's max_leverage applies (FUTURES_LEVERAGE_EXCEEDED).",
+    ),
+    (
+        "--futures-min-liquidation-buffer-fraction",
+        "Futures gate: (equity - maintenance) / equity an entry must leave, [0, 1); unset "
+        "is 0.5 (FUTURES_LIQUIDATION_BUFFER).",
+    ),
+    (
+        "--futures-max-exposure-fraction",
+        "Futures gate: gross futures notional over --futures-paper-capital-usd, (0, 20] "
+        "(FUTURES_EXPOSURE_EXCEEDED).",
+    ),
+    (
+        "--futures-max-hourly-funding-rate-abs",
+        "Futures gate: deny perp entries while the latest settled hourly funding rate's "
+        "absolute value exceeds this, (0, 0.01] (FUTURES_FUNDING_RATE_EXCEEDED; unknown is "
+        "FUNDING_HISTORY_MISSING).",
+    ),
+    (
+        "--futures-max-daily-loss-usd",
+        "Futures scope: absolute USD daily-loss ceiling beside the fraction (paper too).",
+    ),
+    (
+        "--futures-max-btc-beta-exposure-fraction",
+        "Futures scope's own BTC-beta cap: sum of |futures notional| x beta of "
+        "<underlying>-<policy quote> over --futures-paper-capital-usd, (0, 20].",
+    ),
+)
+
+
 def add_risk_policy_parsers(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     trailing: argparse.ArgumentParser,
@@ -222,6 +256,25 @@ def add_risk_policy_parsers(
             "Futures-scope daily loss limit as a fraction (0, 1] of --futures-paper-capital-usd; "
             "unset uses --daily-loss-limit-fraction. A latched futures breaker also denies "
             "paper spot entries in USD/USDC (SHARED_COLLATERAL_BREAKER), and vice versa."
+        ),
+    )
+    for flag, text in _FUTURES_GATE_FLAGS:
+        set_policy.add_argument(flag, default=None, help=text)
+    set_policy.add_argument(
+        "--futures-max-order-contracts",
+        type=int,
+        default=None,
+        help="Futures gate (ADR 0129 §5): most contracts per futures order "
+        "(FUTURES_ORDER_CONTRACTS_EXCEEDED). Omitting it unsets it.",
+    )
+    set_policy.add_argument(
+        "--futures-beta-netting",
+        choices=("gross", "net_by_underlying"),
+        default=None,
+        help=(
+            "ADR 0129 §6: net_by_underlying lets managed paper futures positions offset "
+            "same-underlying paper spot inventory in base units for the spot BTC-beta cap "
+            "only; any unknown leg falls back to gross. Unset is gross."
         ),
     )
     set_policy.add_argument(

@@ -188,6 +188,14 @@ def _futures_block(arguments: argparse.Namespace) -> dict[str, str] | None:
         "peg_haircut": arguments.futures_peg_haircut,
         "paper_capital_usd": arguments.futures_paper_capital_usd,
         "daily_loss_limit_fraction": arguments.futures_daily_loss_limit_fraction,
+        "max_daily_loss_usd": arguments.futures_max_daily_loss_usd,
+        "max_leverage": arguments.futures_max_leverage,
+        "min_liquidation_buffer_fraction": arguments.futures_min_liquidation_buffer_fraction,
+        "max_exposure_fraction": arguments.futures_max_exposure_fraction,
+        "max_order_contracts": arguments.futures_max_order_contracts,
+        "max_hourly_funding_rate_abs": arguments.futures_max_hourly_funding_rate_abs,
+        "max_btc_beta_exposure_fraction": arguments.futures_max_btc_beta_exposure_fraction,
+        "beta_netting": arguments.futures_beta_netting,
     }
     block = {name: value for name, value in fields.items() if value is not None}
     return block or None

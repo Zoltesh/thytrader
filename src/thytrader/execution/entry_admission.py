@@ -9,15 +9,18 @@ for risk evidence; outside that scope the evidence is unknown and the entry is d
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.execution.breaker_pause import _portfolio_with_current
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.decision_scope import note_risk
+from thytrader.execution.futures_paper import load_futures_legs
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.memory.trade_reason_scope import current_trade_reason_scope
 from thytrader.risk.accounting_evidence import bound_risk_market_data
-from thytrader.risk.beta_evidence import load_entry_beta
+from thytrader.risk.beta_evidence import load_beta_evidence, load_entry_beta
 from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.futures_beta import futures_beta_products
 from thytrader.risk.futures_collateral import (
     bound_futures_account_store,
     load_futures_collateral,
@@ -31,8 +34,11 @@ from thytrader.trading.models import DeploymentMode, DeploymentSnapshot, Executi
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
     from decimal import Decimal
 
+    from thytrader.risk.beta import BetaEvidence
+    from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.trading.store import ExecutionStore
 
@@ -76,6 +82,7 @@ async def _entry_verdict(
     is_pyramid_add: bool = False,
     quantity: Decimal | None = None,
     readmits_working_entry: bool = False,
+    side: Literal["long", "short"] | None = None,
 ) -> RiskVerdict:
     """Admit only against fresh full accounting, never the product view or cache.
 
@@ -103,13 +110,16 @@ async def _entry_verdict(
             reason_code=RiskReasonCode.VENUE_BALANCE_UNKNOWN,
             detail="Venue quote balance is unknown; new entries are disabled.",
         )
-    beta = await load_entry_beta(
+    legs = await load_futures_legs(
+        risk_policy, current_portfolio, mode=snapshot.deployment.mode, now=observation.as_of
+    )
+    beta = await _entry_beta(
         risk_policy,
-        bound_risk_market_data(),
         mode=snapshot.deployment.mode,
         snapshots=current_portfolio,
         product_id=product_id,
         as_of=observation.as_of,
+        legs=legs,
     )
     futures_collateral = await load_futures_collateral(
         bound_futures_account_store(), mode=snapshot.deployment.mode, as_of=observation.as_of
@@ -124,6 +134,7 @@ async def _entry_verdict(
             is_pyramid_add=is_pyramid_add,
             quantity=quantity,
             readmits_working_entry=readmits_working_entry,
+            side=side,
         ),
         snapshots=current_portfolio,
         live_quote_cash=live_cash,
@@ -131,9 +142,35 @@ async def _entry_verdict(
         portfolio=portfolio_risk_for(snapshot.deployment),
         beta=beta,
         futures_collateral=futures_collateral,
+        futures_legs=legs,
     )
     scope = current_trade_reason_scope()
     if scope is not None:
         scope.remember_risk(verdict)
     note_risk(verdict)
     return verdict
+
+
+async def _entry_beta(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    snapshots: Sequence[DeploymentSnapshot],
+    product_id: str,
+    as_of: datetime,
+    legs: FuturesLegs | None,
+) -> BetaEvidence | None:
+    """β for the spot cap, or for a futures entry the ``<underlying>-<quote>`` β (§6)."""
+    market_data = bound_risk_market_data()
+    if not is_futures_product_id(product_id):
+        return await load_entry_beta(
+            policy, market_data, mode=mode, snapshots=snapshots, product_id=product_id, as_of=as_of
+        )
+    futures = policy.futures
+    if futures is None or futures.max_btc_beta_exposure_fraction is None or market_data is None:
+        return None
+    return await load_beta_evidence(
+        market_data,
+        product_ids=futures_beta_products(legs, policy.quote_currency),
+        as_of=as_of,
+    )

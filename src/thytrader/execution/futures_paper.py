@@ -6,7 +6,8 @@ are processed, :func:`prepare_futures_book`:
 
 1. loads the contract bound at start;
 2. builds the margin terms from the latest observed overnight rates (no stress,
-   maintenance = initial, the default liquidation buffer, the strategy's leverage);
+   maintenance = initial, the policy's liquidation buffer (0.5 while unset), and the lower of
+   the policy's and the strategy's leverage);
 3. for a perp, applies every funding hour the book held a position through, in order, at
    the settled rate and the close of the bar containing the hour, in one row-locked
    transaction with the cash update. It stops at the first hour whose settled rate or mark
@@ -29,8 +30,10 @@ from typing import TYPE_CHECKING, Protocol
 
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
+from thytrader.risk.futures_beta import FuturesLegs
+from thytrader.risk.futures_policy import DEFAULT_LIQUIDATION_BUFFER_FRACTION
 from thytrader.trading.futures_book import (
-    DEFAULT_PAPER_BUFFER_FRACTION,
+    FUNDING_SETTLE_GRACE,
     FuturesBookState,
     FuturesBookUnavailableError,
     funding_flow,
@@ -43,12 +46,14 @@ from thytrader.trading.models import DeploymentMode, ExecutionStoreError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+    from uuid import UUID
 
     from thytrader.market_data.futures_observations import (
         FundingRateRecord,
         FuturesInstrumentObservation,
     )
     from thytrader.market_data.service import MarketDataService
+    from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.strategies.models import StrategyDefinition
     from thytrader.trading.futures_book import BoundFuturesContract, FuturesContractStore
     from thytrader.trading.models import DeploymentSnapshot, FundingCashFlow
@@ -56,6 +61,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 _HOUR = timedelta(hours=1)
+_LATEST_RATE_WINDOW = timedelta(days=1)
 _TICK = timedelta(microseconds=1)
 
 
@@ -108,6 +114,7 @@ async def prepare_futures_book(
     store: ExecutionStore,
     market_data: MarketDataService,
     now: datetime | None = None,
+    policy: RiskPolicyDefinition | None = None,
 ) -> tuple[FuturesBookState | None, DeploymentSnapshot]:
     """Load one futures book's state and apply its due funding; ``None`` for spot books."""
     deployment = snapshot.deployment
@@ -131,13 +138,15 @@ async def prepare_futures_book(
         return unbound, snapshot
     if binding is None:
         return unbound, snapshot
-    margin, observed_at = await _margin_terms(runtime, binding, strategy)
+    margin, observed_at = await _margin_terms(runtime, binding, strategy, policy)
     moment = now or datetime.now(UTC)
     overdue = None
+    latest_rate = None
     if binding.contract.kind == "perpetual_future":
         snapshot, overdue = await _settle_funding(
             snapshot, runtime=runtime, store=store, market_data=market_data, now=moment
         )
+        latest_rate = await _latest_settled_rate(runtime, deployment.product_id, moment)
     return (
         FuturesBookState(
             deployment_id=deployment.id,
@@ -147,18 +156,49 @@ async def prepare_futures_book(
             margin=margin,
             margin_observed_at=observed_at,
             funding_overdue=overdue,
+            latest_funding_rate=latest_rate,
         ),
         snapshot,
     )
 
 
+async def _latest_settled_rate(
+    runtime: FuturesRuntime, product_id: str, now: datetime
+) -> Decimal | None:
+    """The newest settled hourly rate within the last day, or None when unknown."""
+    try:
+        records = await runtime.observations.funding_rates(
+            product_id=product_id, starts_at=now - _LATEST_RATE_WINDOW, ends_at=now + _HOUR
+        )
+    except Exception:  # noqa: BLE001 - unreadable history leaves the rate unknown.
+        return None
+    settled = [record for record in records if record.settled]
+    if not settled:
+        return None
+    return max(settled, key=lambda record: record.funding_time).rate
+
+
 async def _margin_terms(
-    runtime: FuturesRuntime, binding: BoundFuturesContract, strategy: StrategyDefinition
+    runtime: FuturesRuntime,
+    binding: BoundFuturesContract,
+    strategy: StrategyDefinition,
+    policy: RiskPolicyDefinition | None,
 ) -> tuple[FuturesMarginTerms | None, datetime | None]:
-    """Overnight margin from the latest observation; unknown rates stay unknown."""
+    """Overnight margin from the latest observation; unknown rates stay unknown.
+
+    Leverage is the lower of the strategy's and the policy's; the buffer is the policy's
+    (0.5 while unset).
+    """
     derivatives = strategy.derivatives
     if derivatives is None:
         return None, None
+    futures_policy = None if policy is None else policy.futures
+    leverage = Decimal(derivatives.max_leverage)
+    buffer = DEFAULT_LIQUIDATION_BUFFER_FRACTION
+    if futures_policy is not None:
+        buffer = futures_policy.liquidation_buffer_fraction
+        if futures_policy.max_leverage is not None:
+            leverage = min(leverage, Decimal(futures_policy.max_leverage))
     try:
         latest = await runtime.observations.latest_instrument(binding.contract.product_id)
     except Exception:  # noqa: BLE001 - storage failures leave margin unknown, never zero.
@@ -177,8 +217,8 @@ async def _margin_terms(
             long_rate=long_rate,
             short_rate=short_rate,
             maintenance_fraction=Decimal(1),
-            min_buffer_fraction=DEFAULT_PAPER_BUFFER_FRACTION,
-            max_leverage=Decimal(derivatives.max_leverage),
+            min_buffer_fraction=buffer,
+            max_leverage=leverage,
             fee_per_contract=binding.fee_per_contract,
         ),
         seen_at,
@@ -281,3 +321,43 @@ async def _hour_marks(
         if close is not None:
             marks[hour] = close
     return marks
+
+
+async def load_futures_legs(
+    policy: RiskPolicyDefinition,
+    snapshots: Sequence[DeploymentSnapshot],
+    *,
+    mode: DeploymentMode,
+    now: datetime,
+) -> FuturesLegs | None:
+    """The mode's bound futures books, only when a futures beta rule needs them (§6).
+
+    A book whose binding cannot be read is left out, and one with an overdue funding hour is
+    not ``funding_current``; both read as unknown evidence. ``None`` when no rule binds or no
+    futures runtime is bound.
+    """
+    futures = policy.futures
+    runtime = current_futures_runtime()
+    if (
+        futures is None
+        or runtime is None
+        or (not futures.nets_by_underlying and futures.max_btc_beta_exposure_fraction is None)
+    ):
+        return None
+    underlyings: dict[UUID, str] = {}
+    current: set[UUID] = set()
+    settled_through = now - _HOUR - FUNDING_SETTLE_GRACE
+    for book in snapshots:
+        deployment = book.deployment
+        if deployment.mode is not mode or not is_futures_product_id(deployment.product_id):
+            continue
+        try:
+            binding = await runtime.contracts.load_contract(deployment.id)
+        except FuturesBookUnavailableError:
+            continue
+        if binding is None:
+            continue
+        underlyings[deployment.id] = binding.contract.underlying
+        if not funding_hours_held(book, deployment.product_id, through=settled_through):
+            current.add(deployment.id)
+    return FuturesLegs(underlyings=underlyings, funding_current=frozenset(current))

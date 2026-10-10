@@ -66,6 +66,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.risk.beta import BetaEvidence
+    from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.futures_collateral import FuturesCollateralEvidence
 
 
@@ -151,6 +152,7 @@ def evaluate_new_entry(
     portfolio: PortfolioRiskBook | None = None,
     beta: BetaEvidence | None = None,
     futures_collateral: FuturesCollateralEvidence | None = None,
+    futures_legs: FuturesLegs | None = None,
 ) -> RiskVerdict:
     """Allow a risk-increasing entry only when slots, exposure, and breakers permit it.
 
@@ -163,9 +165,17 @@ def evaluate_new_entry(
     evidence was requested (paper) and changes nothing. A futures product is admitted by the
     futures scope (``evaluate_futures_entry``); a USD/USDC paper spot entry is also denied
     while a paper futures book's daily-loss breaker is latched (collateral-linked, §7).
+    ``futures_legs`` are the mode's bound futures books: the futures BTC-beta cap reads their
+    underlyings, and opt-in base-unit netting lets them offset spot inventory (§6).
     """
     scoped = _scope_verdict(
-        policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+        policy,
+        mode=mode,
+        proposed=proposed,
+        snapshots=snapshots,
+        observation=observation,
+        beta=beta,
+        futures_legs=futures_legs,
     )
     if scoped is not None:
         return scoped
@@ -231,6 +241,9 @@ def evaluate_new_entry(
         live_quote_cash=live_quote_cash,
         beta=beta,
         as_of=None if observation is None else observation.as_of,
+        snapshots=snapshots,
+        legs=futures_legs,
+        marks=None if observation is None else observation.marks,
     )
     if beta_capped is not None:
         return beta_capped
@@ -258,11 +271,19 @@ def _scope_verdict(
     proposed: ProposedEntry,
     snapshots: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None,
+    beta: BetaEvidence | None,
+    futures_legs: FuturesLegs | None,
 ) -> RiskVerdict | None:
     """Admit futures in their own scope; deny linked spot entries under a futures latch."""
     if is_futures_product_id(proposed.product_id):
         return evaluate_futures_entry(
-            policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+            policy,
+            mode=mode,
+            proposed=proposed,
+            snapshots=snapshots,
+            observation=observation,
+            beta=beta,
+            legs=futures_legs,
         )
     return linked_breaker_verdict(mode=mode, product_id=proposed.product_id, snapshots=snapshots)
 

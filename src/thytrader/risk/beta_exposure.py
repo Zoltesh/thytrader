@@ -7,6 +7,9 @@ for live, the absolute ``max_btc_beta_exposure_quote``. β is measured against
 (position cost plus working entries) and is counted gross: a short never hedges a long.
 A missing, unloaded or stale β for the proposed product or any held product denies with
 ``BTC_BETA_UNAVAILABLE``; no default β is ever assumed. An unset cap needs no evidence.
+With the policy's opt-in ``futures.beta_netting: net_by_underlying`` (ADR 0129 §6), managed
+paper futures positions net in base units against same-underlying spot inventory
+(``risk.futures_beta``); that can only lower the figure.
 """
 
 from __future__ import annotations
@@ -18,16 +21,18 @@ from thytrader.market_data.products import is_spot_product_id
 from thytrader.risk.beta import BetaUnavailable, beta_reference, fresh_beta
 from thytrader.risk.breakers import quote_scoped_snapshots
 from thytrader.risk.entry_limits import _capital_base
+from thytrader.risk.futures_beta import netting_adjustment
 from thytrader.risk.gate_common import _book_products, _deny
 from thytrader.risk.models import RiskReasonCode
 from thytrader.trading.exposure import product_exposure, risk_bearing_snapshots
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
 
     from thytrader.risk.beta import BetaEvidence
+    from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.gate_common import ProposedEntry
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
     from thytrader.trading.models import DeploymentSnapshot
@@ -68,6 +73,9 @@ def beta_verdict(
     live_quote_cash: Decimal | None,
     beta: BetaEvidence | None,
     as_of: datetime | None,
+    snapshots: Sequence[DeploymentSnapshot] = (),
+    legs: FuturesLegs | None = None,
+    marks: Mapping[str, Decimal] | None = None,
 ) -> RiskVerdict | None:
     """Deny when β-weighted exposure would exceed the cap or any needed β is unknown.
 
@@ -105,6 +113,16 @@ def beta_verdict(
     )
     proposed_beta = betas[proposed.product_id]
     weighted = abs(proposed.notional) * proposed_beta
+    existing += netting_adjustment(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=occupied,
+        snapshots=snapshots,
+        legs=legs,
+        betas=betas,
+        marks=marks or {},
+    )
     capital = _capital_base(
         policy,
         mode=mode,

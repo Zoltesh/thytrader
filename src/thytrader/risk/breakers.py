@@ -219,8 +219,12 @@ def _daily_loss_verdict(
             "Daily-loss unavailable: missing positive same-quote account capital.",
         )
     limit = capital * _daily_loss_fraction(policy, occupied)
+    futures_ceiling = _futures_daily_loss_ceiling(policy, occupied)
+    if futures_ceiling is not None:
+        # The futures scope's own USD ceiling binds paper too: futures books are paper-only.
+        limit = min(limit, futures_ceiling)
     # The absolute quote ceiling protects real money; paper uses the capital fraction only.
-    if policy.max_daily_loss_quote is not None and mode is DeploymentMode.LIVE:
+    elif policy.max_daily_loss_quote is not None and mode is DeploymentMode.LIVE:
         limit = min(limit, Decimal(policy.max_daily_loss_quote))
     if loss < limit:
         return None
@@ -242,6 +246,18 @@ def _daily_loss_fraction(
     ):
         return Decimal(futures.daily_loss_limit_fraction)
     return Decimal(policy.daily_loss_limit_fraction)
+
+
+def _futures_daily_loss_ceiling(
+    policy: RiskPolicyDefinition, occupied: Sequence[DeploymentSnapshot]
+) -> Decimal | None:
+    """``futures.max_daily_loss_usd`` for the futures scope, else None (ADR 0129 §7)."""
+    futures = policy.futures
+    if futures is None or futures.max_daily_loss_usd is None:
+        return None
+    if not any(is_futures_product_id(item.deployment.product_id) for item in occupied):
+        return None
+    return Decimal(futures.max_daily_loss_usd)
 
 
 def _drawdown_verdict(

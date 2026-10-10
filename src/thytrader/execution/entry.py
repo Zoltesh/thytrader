@@ -374,6 +374,7 @@ async def _submit_sized_entry(
             marks=marks,
         ),
         is_pyramid_add=is_pyramid_add,
+        side="short" if side is PositionSide.SHORT else "long",
     )
     if admitted.decision is RiskDecision.DENY:
         if pauses_risk_increasing(admitted.reason_code):

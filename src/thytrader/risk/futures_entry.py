@@ -8,9 +8,11 @@ entries in the other (``SHARED_COLLATERAL_BREAKER``), naming the latched scope; 
 figures are never added together. Live futures stay unsupported (P2).
 
 P1-4 admits a paper futures entry when the policy block, the bound contract, the observed
-margin and every due funding hour are known, the entry fits the strategy's leverage and the
-liquidation buffer, and the scope's breakers, rate limits, collar and fleet clustering
-allow it. P1-5 adds the remaining policy caps.
+margin and every due funding hour are known, the entry fits the leverage (the lower of the
+policy's and the strategy's) and the liquidation buffer, and the scope's breakers, rate
+limits, collar and fleet clustering allow it. P1-5 adds the policy caps of §5: contracts per
+order, gross futures exposure, the funding-rate cap, an absolute daily loss and the futures
+BTC-beta cap.
 """
 
 from __future__ import annotations
@@ -26,20 +28,28 @@ from thytrader.risk.breakers import (
 )
 from thytrader.risk.entry_clustering import cluster_verdict
 from thytrader.risk.entry_limits import _entry_membership
+from thytrader.risk.futures_beta import futures_beta_verdict
 from thytrader.risk.gate_common import _allow, _deny
 from thytrader.risk.models import RiskDecision, RiskReasonCode
-from thytrader.trading.exposure import daily_loss_snapshots, risk_bearing_snapshots
+from thytrader.trading.exposure import (
+    daily_loss_snapshots,
+    product_exposure,
+    risk_bearing_snapshots,
+)
 from thytrader.trading.futures_book import current_futures_book
 from thytrader.trading.ledger import ledger_from_snapshot
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
+    from thytrader.risk.beta import BetaEvidence
     from thytrader.risk.breakers import EntryObservation
+    from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.gate_common import ProposedEntry
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
+    from thytrader.trading.futures_book import FuturesBookState
     from thytrader.trading.models import Deployment, DeploymentSnapshot
 
 _LINKED_SPOT_QUOTES = frozenset({"USD", "USDC"})
@@ -110,36 +120,160 @@ def evaluate_futures_entry(
     proposed: ProposedEntry,
     snapshots: Sequence[DeploymentSnapshot],
     observation: EntryObservation | None,
+    beta: BetaEvidence | None = None,
+    legs: FuturesLegs | None = None,
 ) -> RiskVerdict:
-    """Admit one paper futures entry, or name what is unknown or exceeded."""
+    """Admit one paper futures entry, or name what is unknown or exceeded.
+
+    Checks run in order and the first objection wins: the envelope, known binding, margin
+    and funding, membership, the linked breaker, leverage and the liquidation buffer, the
+    policy caps (order contracts, gross exposure, funding rate), the futures BTC-beta cap,
+    then the scope's loss breakers, rate limits, collar and fleet clustering.
+    """
     if mode is DeploymentMode.LIVE:
         return _deny(
             RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
             "Live futures entries are not supported; there is no futures order path.",
         )
-    if futures_capital(policy, mode) <= 0:
+    capital = futures_capital(policy, mode)
+    if capital <= 0:
         return _deny(
             RiskReasonCode.FUTURES_POLICY_UNSET,
             "The risk policy has no futures.paper_capital_usd; futures entries are denied.",
         )
     book = _proposing_book(proposed, snapshots)
-    known = _known_book_verdict(book)
-    if known is not None:
-        return known
+    checks: tuple[Callable[[], RiskVerdict | None], ...] = (
+        lambda: _known_book_verdict(book),
+        lambda: _membership_verdict(policy, mode=mode, proposed=proposed, snapshots=snapshots),
+        lambda: linked_breaker_verdict(
+            mode=mode, product_id=proposed.product_id, snapshots=snapshots
+        ),
+        lambda: _margin_verdict(proposed, book, observation),
+        lambda: _policy_caps_verdict(
+            policy, mode=mode, proposed=proposed, snapshots=snapshots, capital=capital
+        ),
+        lambda: futures_beta_verdict(
+            policy,
+            mode=mode,
+            proposed=proposed,
+            proposing_underlying=_proposing_underlying(book),
+            snapshots=snapshots,
+            legs=legs,
+            beta=beta,
+            capital=capital,
+            as_of=None if observation is None else observation.as_of,
+        ),
+        lambda: _scope_breaker_verdict(
+            policy,
+            mode=mode,
+            proposed=proposed,
+            snapshots=snapshots,
+            observation=observation,
+            capital=capital,
+        ),
+    )
+    for check in checks:
+        verdict = check()
+        if verdict is not None:
+            return verdict
+    return _allow()
+
+
+def _membership_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+) -> RiskVerdict | None:
+    """Allowlist, allocation and open-position slots, as for spot."""
     occupied = tuple(
         item
         for item in snapshots
         if item.deployment.mode is mode and occupies_running_slot(item.deployment)
     )
     membership = _entry_membership(policy, mode=mode, proposed=proposed, occupied=occupied)
-    if membership.decision is RiskDecision.DENY:
-        return membership
-    linked = linked_breaker_verdict(mode=mode, product_id=proposed.product_id, snapshots=snapshots)
-    if linked is not None:
-        return linked
-    margin = _margin_verdict(proposed, book, observation)
-    if margin is not None:
-        return margin
+    return membership if membership.decision is RiskDecision.DENY else None
+
+
+def _policy_caps_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+    capital: Decimal,
+) -> RiskVerdict | None:
+    """Per-order contracts, gross futures exposure and the funding-rate cap (§5)."""
+    futures = policy.futures
+    state = current_futures_book()
+    if futures is None or state is None or state.binding is None:
+        return None
+    contract_size = Decimal(state.binding.contract.contract_size)
+    if futures.max_order_contracts is not None and proposed.quantity is not None:
+        contracts = proposed.quantity / contract_size
+        if contracts > futures.max_order_contracts:
+            return _deny(
+                RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
+                f"{contracts} contracts exceed futures.max_order_contracts "
+                f"{futures.max_order_contracts}.",
+            )
+    if futures.max_exposure_fraction is not None:
+        existing = sum(
+            (
+                abs(product_exposure(book, book.deployment.product_id))
+                for book in risk_bearing_snapshots(snapshots, mode)
+                if is_futures_product_id(book.deployment.product_id)
+            ),
+            start=Decimal(0),
+        )
+        cap = capital * Decimal(futures.max_exposure_fraction)
+        if existing + abs(proposed.notional) > cap:
+            return _deny(
+                RiskReasonCode.FUTURES_EXPOSURE_EXCEEDED,
+                f"Gross futures notional {existing + abs(proposed.notional)} USD would exceed "
+                f"{cap} USD ({futures.max_exposure_fraction} x futures capital {capital} USD).",
+            )
+    return _funding_rate_verdict(futures.max_hourly_funding_rate_abs, state)
+
+
+def _funding_rate_verdict(cap: str | None, state: FuturesBookState) -> RiskVerdict | None:
+    """Deny while a perp's latest settled hourly rate is unknown or above the cap."""
+    if cap is None or state.binding is None or state.binding.contract.kind != "perpetual_future":
+        return None
+    rate = state.latest_funding_rate
+    if rate is None:
+        return _deny(
+            RiskReasonCode.FUNDING_HISTORY_MISSING,
+            "The latest settled funding rate is unknown; the funding-rate cap cannot be checked.",
+        )
+    if abs(rate) > Decimal(cap):
+        return _deny(
+            RiskReasonCode.FUTURES_FUNDING_RATE_EXCEEDED,
+            f"The latest settled hourly funding rate {rate} exceeds "
+            f"futures.max_hourly_funding_rate_abs {cap}.",
+        )
+    return None
+
+
+def _proposing_underlying(book: DeploymentSnapshot | None) -> str:
+    """The proposing book's bound underlying (known once the earlier checks passed)."""
+    state = None if book is None else current_futures_book(book.deployment.id)
+    if state is None or state.binding is None:
+        return ""
+    return state.binding.contract.underlying
+
+
+def _scope_breaker_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+    observation: EntryObservation | None,
+    capital: Decimal,
+) -> RiskVerdict | None:
+    """The futures scope's loss breakers, then rate limits, collar and fleet clustering."""
     if observation is None:
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
@@ -152,7 +286,7 @@ def evaluate_futures_entry(
         proposed_strategy_id=proposed.strategy_id,
         snapshots=snapshots,
         observation=observation,
-        capital=futures_capital(policy, mode),
+        capital=capital,
     )
     if tripped is not None:
         return tripped
@@ -164,10 +298,9 @@ def evaluate_futures_entry(
     )
     if protected is not None:
         return protected
-    clustered = cluster_verdict(
+    return cluster_verdict(
         policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
     )
-    return _allow() if clustered is None else clustered
 
 
 def linked_breaker_verdict(

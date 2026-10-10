@@ -246,6 +246,23 @@ Before P2 (live futures), verify with one supervised 1-contract position how CFM
     them. Opening evidence of a book with funding is `per_product_applied_fills_and_funding_v1`.
   - Linked breakers (§7) are wired for paper in both directions. Live spot is not linked to
     manual futures (they are unmanaged); §2 governs there.
+- **P1-5 (futures gate).**
+  - The §5 fields are optional and excluded while unset (existing policies keep their
+    fingerprints). `min_liquidation_buffer_fraction` replaces the fixed 0.5 (still the
+    default); `max_leverage` is combined with the strategy's (the lower wins) in the book's
+    margin terms. `beta_netting` unset means `gross`.
+  - `max_exposure_fraction` and `max_btc_beta_exposure_fraction` are gross notional over the
+    futures envelope and may exceed 1 (up to 20), since futures are levered.
+  - `max_daily_loss_usd` binds the futures scope in paper as well (futures books are paper
+    only); the spot `max_daily_loss_quote` stays live-only.
+  - The funding-rate cap reads the newest settled hourly rate of the last day; unknown denies
+    with `FUNDING_HISTORY_MISSING`.
+  - Netting compares the netted base-unit figure, valued at the policy-quote spot mark, with
+    the gross position cost and only ever lowers the spot figure: a same-direction futures
+    leg is not added to the spot cap (the futures scope has its own). Working entries stay
+    gross. A futures book with no readable binding disables netting for every underlying.
+  - USD/USDC never-summed is checked by a seeded property test over random fleets of every
+    scope (scoping, capital and the daily-loss breaker).
 
 ## Consequences
 

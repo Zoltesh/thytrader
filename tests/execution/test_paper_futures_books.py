@@ -485,3 +485,41 @@ async def test_the_closed_bar_loop_liquidates_before_the_protective_stop() -> No
     purposes = {intent.purpose for intent in after.intents}
     assert IntentPurpose.LIQUIDATION in purposes
     assert IntentPurpose.STOP not in purposes
+
+
+@pytest.mark.anyio
+async def test_policy_leverage_buffer_and_latest_funding_rate_reach_the_book_state() -> None:
+    """The lower leverage and the policy buffer shape the margin terms (ADR 0129 §5)."""
+    store = InMemoryExecutionStore()
+    strategy = _strategy()
+    snapshot = await _book(store, strategy)
+    contracts = InMemoryFuturesContractStore()
+    await contracts.bind_contract(_binding(snapshot))
+    records = (
+        _record(_START + timedelta(hours=1), "0.00002"),
+        _record(_START + timedelta(hours=2), "-0.00003"),
+    )
+    runtime = FuturesRuntime(contracts=contracts, observations=_Observations(records))
+    policy = compiled_default_risk_policy().model_copy(
+        update={
+            "futures": FuturesRiskPolicy(
+                paper_capital_usd="100000",
+                max_leverage="1.5",
+                min_liquidation_buffer_fraction="0.3",
+            )
+        }
+    )
+    with futures_runtime_scope(runtime):
+        state, _same = await prepare_futures_book(
+            snapshot,
+            strategy=strategy,
+            store=store,
+            market_data=cast("MarketDataService", _MarketData()),
+            now=_START + timedelta(hours=3),
+            policy=policy,
+        )
+    assert state is not None
+    assert state.margin is not None
+    assert state.margin.max_leverage == Decimal("1.5")
+    assert state.margin.min_buffer_fraction == Decimal("0.3")
+    assert state.latest_funding_rate == Decimal("-0.00003")
