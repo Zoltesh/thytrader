@@ -58,12 +58,19 @@ class ConnectionResponse(BaseModel):
 
 
 class PortfolioResponse(BaseModel):
-    """Browser-safe point-in-time portfolio response."""
+    """Browser-safe point-in-time portfolio response.
+
+    ``totals`` are exact per currency (USD, USDC, USDT), never added together.
+    ``total_value`` is the labelled approximation (``total_value_basis`` is
+    ``usd_pegged_approximate``): those totals added 1:1 in USD, for display only.
+    """
 
     as_of: datetime
     connection: ConnectionResponse
     demo: bool
     total_value: MoneyResponse
+    total_value_basis: Literal["usd_pegged_approximate"]
+    totals: tuple[MoneyResponse, ...]
     assets: tuple[PortfolioAssetResponse, ...]
     unvalued_assets: tuple[str, ...]
 
@@ -114,6 +121,8 @@ def _to_response(portfolio: Portfolio) -> PortfolioResponse:
         connection=ConnectionResponse.model_validate(portfolio.connection),
         demo=portfolio.demo,
         total_value=MoneyResponse.model_validate(portfolio.total_value),
+        total_value_basis=portfolio.total_value_basis,
+        totals=tuple(MoneyResponse.model_validate(total) for total in portfolio.totals),
         assets=tuple(PortfolioAssetResponse.model_validate(asset) for asset in portfolio.assets),
         unvalued_assets=portfolio.unvalued_assets,
     )

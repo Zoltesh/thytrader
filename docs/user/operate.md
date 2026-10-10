@@ -136,7 +136,10 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
 - **Portfolio value.** The newest of the current Coinbase reading and the newest snapshot, with its
   change since the oldest snapshot in the last 24 hours ("since HH:MM" when history is shorter). A
   reading more than 10 minutes old says so. Demo balances are labelled demo and show no change:
-  history records live balances only.
+  history records live balances only. The value adds USD, USDC and USDT 1:1, so it is an
+  approximation; the line under it (`≈ … USD + … USDC, counted 1:1`) gives the exact total in
+  each currency. In **Holdings**, USDC and USDT cash shows its value in its own currency, and coins
+  are valued in USD through their `<coin>-USD` market.
 - **Available to trade.** The Coinbase available balance in the installation quote currency (the
   risk policy's `quote_currency`, for example USDC), and **Reserved by live bots**: the
   `allocated_capital` of running and paused live bots that trade in that currency.

@@ -36,7 +36,9 @@ class _StubPortfolioService:
                 permissions=("view", "trade"),
             ),
             demo=self._demo,
-            total_value=Money(amount=Decimal("100000.00")),
+            total_value=Money(amount=Decimal("100000.00"), currency="USD"),
+            total_value_basis="usd_pegged_approximate",
+            totals=(Money(amount=Decimal("100000.00"), currency="USD"),),
             assets=(
                 PortfolioAsset(
                     currency="BTC",
@@ -44,7 +46,7 @@ class _StubPortfolioService:
                     available=Decimal("1"),
                     hold=Decimal("0"),
                     total=Decimal("1"),
-                    value=Money(amount=Decimal("100000.00")),
+                    value=Money(amount=Decimal("100000.00"), currency="USD"),
                 ),
             ),
             unvalued_assets=(),

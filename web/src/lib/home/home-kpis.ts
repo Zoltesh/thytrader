@@ -75,6 +75,17 @@ function point(amount: string, asOf: string): ValuePoint | null {
 	return Number.isFinite(ms) && isDecimal(amount) ? { amount, asOf, ms } : null;
 }
 
+/**
+ * The exact per-currency totals behind the USD-pegged value, when the API reports
+ * them. The headline adds USD, USDC and USDT 1:1, so it says so.
+ */
+function peggedTotalsLine(portfolio: Portfolio | null): TileLine | null {
+	const totals = portfolio?.totals ?? [];
+	if (totals.length === 0) return null;
+	const parts = totals.map((total) => `${formatQuoteAmount(total.amount)} ${total.currency}`);
+	return { text: `≈ ${parts.join(' + ')}, counted 1:1`, tone: 'muted' };
+}
+
 function changeUnavailable(history: Load<HistoryRead>): string {
 	if (history.status === 'loading') return '24h change: loading…';
 	if (history.status === 'error') return '24h change: — · history could not be loaded';
@@ -99,13 +110,15 @@ export function portfolioValueTile(input: {
 	const current = input.portfolio.data;
 	if (current !== null && current.demo) {
 		if (isFreshInstall(current)) return unknown(CONNECT_REASON, false);
+		const pegged = peggedTotalsLine(current);
 		return {
 			kind: 'value',
 			value: formatUsd(current.total_value.amount),
 			unit: null,
 			lines: [
 				DEMO_LINE,
-				{ text: '24h change: — · history records live balances only', tone: 'muted' }
+				{ text: '24h change: — · history records live balances only', tone: 'muted' },
+				...(pegged === null ? [] : [pegged])
 			]
 		};
 	}
@@ -151,6 +164,8 @@ export function portfolioValueTile(input: {
 	} else {
 		lines.push({ text: changeUnavailable(input.history), tone: 'muted' });
 	}
+	const pegged = value === reading ? peggedTotalsLine(current) : null;
+	if (pegged !== null) lines.push(pegged);
 	const age = input.nowMs - value.ms;
 	if (age > STALE_SNAPSHOT_MS) {
 		lines.push({

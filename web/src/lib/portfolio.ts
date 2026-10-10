@@ -1,6 +1,14 @@
+export type CashCurrency = 'USD' | 'USDC' | 'USDT';
+
 export type Money = {
 	amount: string;
 	currency: 'USD';
+};
+
+/** Exact money in one cash currency; USD, USDC and USDT are never added exactly. */
+export type CashMoney = {
+	amount: string;
+	currency: CashCurrency;
 };
 
 export type PortfolioAsset = {
@@ -9,7 +17,8 @@ export type PortfolioAsset = {
 	available: string;
 	hold: string;
 	total: string;
-	value: Money | null;
+	/** USD/USDC/USDT cash is valued in its own currency; other assets in USD. */
+	value: CashMoney | null;
 };
 
 export type Portfolio = {
@@ -20,7 +29,12 @@ export type Portfolio = {
 		permissions: string[];
 	};
 	demo: boolean;
+	/** USD, USDC and USDT added 1:1: an approximation (`total_value_basis`). */
 	total_value: Money;
+	/** Absent from APIs older than ops contract v76. */
+	total_value_basis?: 'usd_pegged_approximate';
+	/** Exact per-currency totals; absent from APIs older than ops contract v76. */
+	totals?: CashMoney[];
 	assets: PortfolioAsset[];
 	unvalued_assets: string[];
 };

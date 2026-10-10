@@ -53,8 +53,15 @@ def test_portfolio_endpoint_returns_demo_data_without_credentials() -> None:
         "status": "demo",
         "permissions": ["view", "trade"],
     }
-    assert payload["total_value"]["currency"] == "USDC"
-    assert isinstance(payload["total_value"]["amount"], str)
+    assert payload["total_value"] == {"amount": "99792.17", "currency": "USD"}
+    assert payload["total_value_basis"] == "usd_pegged_approximate"
+    assert payload["totals"] == [
+        {"amount": "98542.17", "currency": "USD"},
+        {"amount": "1250.00", "currency": "USDC"},
+    ]
+    values = {asset["currency"]: asset["value"] for asset in payload["assets"]}
+    assert values["USDC"] == {"amount": "1250.00", "currency": "USDC"}
+    assert values["BTC"]["currency"] == "USD"
     assert {asset["currency"] for asset in payload["assets"]} == {"BTC", "ETH", "USDC"}
 
 
@@ -98,3 +105,29 @@ def test_portfolio_failure_is_redacted_and_matches_openapi_schema() -> None:
     assert "synthetic secret detail" not in response.text
     schema = openapi["paths"]["/api/v1/portfolio"]["get"]["responses"]["502"]["content"]
     assert schema["application/json"]["schema"]["$ref"].endswith("/ErrorResponse")
+
+
+def test_operator_portfolio_never_reports_an_unknown_total_as_zero() -> None:
+    """An unreadable account is a failed report with no total, not a 0 USDC total."""
+    app = create_app(
+        Settings(_env_file=None),
+        portfolio_service=PortfolioService(FailingExchangeAccount()),
+    )
+    with TestClient(app) as client:
+        body = client.get("/api/v1/operator/portfolio").json()
+    assert body["overall_status"] == "failed"
+    assert body["payload"]["total_value"] is None
+    assert body["payload"]["total_value_basis"] is None
+    assert body["payload"]["totals"] == []
+
+
+def test_operator_portfolio_reports_per_currency_totals() -> None:
+    """The operator report carries the same exact per-currency totals as the API."""
+    app = create_app(Settings(_env_file=None))
+    with TestClient(app) as client:
+        body = client.get("/api/v1/operator/portfolio").json()
+    assert body["payload"]["total_value_basis"] == "usd_pegged_approximate"
+    assert body["payload"]["totals"] == [
+        {"amount": "98542.17", "currency": "USD"},
+        {"amount": "1250.00", "currency": "USDC"},
+    ]

@@ -149,7 +149,10 @@ async def _take_snapshot(
             category=AuditEventCategory.SNAPSHOT,
             action="portfolio_snapshot_recorded",
             outcome=AuditEventOutcome.SUCCESS,
-            detail=f"Snapshot recorded total_value={portfolio.total_value.amount} USD",
+            detail=(
+                f"Snapshot recorded total_value={portfolio.total_value.amount} USD "
+                "(USD, USDC and USDT added 1:1; approximate)"
+            ),
             provider=portfolio.connection.provider,
         )
     except PortfolioHistoryUnavailableError:

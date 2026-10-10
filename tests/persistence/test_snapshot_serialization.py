@@ -36,6 +36,8 @@ def _sample_portfolio() -> Portfolio:
         ),
         demo=True,
         total_value=Money(amount=Decimal("31415.926535"), currency="USD"),
+        total_value_basis="usd_pegged_approximate",
+        totals=(Money(amount=Decimal("31415.926535"), currency="USD"),),
         assets=(
             PortfolioAsset(
                 currency="BTC",
@@ -101,6 +103,8 @@ def test_snapshot_preserves_exact_decimal_strings() -> None:
     assert asset_value["amount"] == "31415.926535"
     connection = cast("dict[str, object]", snapshot["connection"])
     assert connection["permissions"] == ["read"]
+    assert snapshot["total_value_basis"] == "usd_pegged_approximate"
+    assert snapshot["totals"] == [{"amount": "31415.926535", "currency": "USD"}]
 
 
 def test_schema_metadata_has_portfolio_snapshots_table() -> None:

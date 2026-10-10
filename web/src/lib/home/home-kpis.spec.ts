@@ -117,6 +117,31 @@ const policy: RiskPolicySnapshot = {
 };
 
 describe('portfolioValueTile', () => {
+	it('names the exact per-currency totals behind the 1:1 USD-pegged value', () => {
+		const tile = portfolioValueTile({
+			portfolio: ready(
+				portfolio({
+					total_value_basis: 'usd_pegged_approximate',
+					totals: [
+						{ amount: '1178.44', currency: 'USD' },
+						{ amount: '1240.18', currency: 'USDC' }
+					]
+				})
+			),
+			history: ready({ kind: 'unavailable' }),
+			nowMs: NOW
+		});
+		expect(tile).toEqual({
+			kind: 'value',
+			value: '$2,418.62',
+			unit: null,
+			lines: [
+				{ text: '24h change: — · history is off on this install', tone: 'muted' },
+				{ text: '≈ 1,178.44 USD + 1,240.18 USDC, counted 1:1', tone: 'muted' }
+			]
+		});
+	});
+
 	it('shows the newest reading with its 24h change from portfolio history', () => {
 		const tile = portfolioValueTile({
 			portfolio: ready(portfolio()),

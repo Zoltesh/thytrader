@@ -180,7 +180,9 @@ class OperatorDiagnostics:
                     demo=not credentials_are_configured(self.settings),
                     connection_status="unavailable",
                     permissions=(),
-                    total_value=OperatorMoneyPayload(amount="0", currency="USDC"),
+                    total_value=None,
+                    total_value_basis=None,
+                    totals=(),
                     assets=(),
                     unvalued_assets=(),
                 ),
@@ -211,6 +213,8 @@ class OperatorDiagnostics:
                 total_value=_operator_money(
                     portfolio.total_value.amount, portfolio.total_value.currency
                 ),
+                total_value_basis=portfolio.total_value_basis,
+                totals=tuple(_operator_money(t.amount, t.currency) for t in portfolio.totals),
                 assets=assets,
                 unvalued_assets=portfolio.unvalued_assets,
             ),

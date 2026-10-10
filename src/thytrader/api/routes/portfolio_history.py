@@ -34,8 +34,13 @@ class PortfolioHistoryEntryResponse(BaseModel):
 
 
 class PortfolioHistoryResponse(BaseModel):
-    """Bounded newest-first portfolio valuation history response."""
+    """Bounded newest-first portfolio valuation history response.
 
+    Every entry's ``total_value`` is the USD-pegged approximation: USD, USDC and USDT
+    totals added 1:1 (``total_value_basis``). It is a display series, not accounting.
+    """
+
+    total_value_basis: Literal["usd_pegged_approximate"] = "usd_pegged_approximate"
     entries: tuple[PortfolioHistoryEntryResponse, ...]
     range: HistoryRange
     sampling_interval_seconds: int
