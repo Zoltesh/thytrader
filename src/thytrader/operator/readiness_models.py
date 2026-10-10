@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.exchanges.read_errors import ExchangeReadFailure
 from thytrader.market_data.products import SpotQuoteCurrency
+from thytrader.operator.fleet_health_models import FleetEntriesPayload
 from thytrader.operator.models import OperatorEnvelope
 from thytrader.portfolios.models import PortfolioLimits
 
@@ -333,6 +334,13 @@ class ReadinessPayload(_FrozenModel):
     fee_evidence: ReadinessFeeEvidence = Field(default_factory=ReadinessFeeEvidence)
     futures: ReadinessFuturesSection | None = None
     findings: tuple[ReadinessFinding, ...] = ()
+    fleet_entries: FleetEntriesPayload | None = Field(
+        default=None,
+        description=(
+            "Fleet entry readiness (ADR 0130): whether the entry gate admits any new entry "
+            "per mode and quote scope right now, with the blocking codes and books."
+        ),
+    )
 
 
 class ReadinessReport(OperatorEnvelope):

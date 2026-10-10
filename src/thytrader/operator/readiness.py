@@ -22,6 +22,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Literal
 
 from thytrader import __version__
+from thytrader.operator.fleet_entries import fleet_entries_component
 from thytrader.operator.models import PORTFOLIO_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.readiness_account import (
     _account_section,
@@ -59,6 +60,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.operator.fleet_health_models import FleetEntriesPayload
     from thytrader.portfolio.service import PortfolioService
     from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
@@ -95,11 +97,14 @@ async def build_readiness_report(
     deployment_id: UUID | None = None,
     portfolio_id: UUID | None = None,
     futures_account: FuturesAccountSnapshotStore | None = None,
+    fleet_entries: FleetEntriesPayload | None = None,
 ) -> ReadinessReport:
     """Build the advisory preflight for one deployment, one portfolio, or the fleet.
 
     ``futures_account`` adds the CFM futures section (ADR 0127) when a mirror snapshot
-    exists.
+    exists. ``fleet_entries`` is the fleet entry readiness section (ADR 0130); it is graded
+    as its own ``fleet_entries`` component in every scope, since a fleet-wide block stops
+    the scoped books too.
     """
     now = datetime.now(UTC)
     warnings: list[str] = []
@@ -164,6 +169,8 @@ async def build_readiness_report(
         )
     _scope_findings(rows, account, portfolio_sections, paper, findings)
     components = _components(findings, venue=venue, fee_evidence=fee_evidence, warnings=warnings)
+    if fleet_entries is not None:
+        components.append(fleet_entries_component(fleet_entries))
     modes = tuple(mode for mode in ("live", "paper") if any(row.mode == mode for row in rows))
     return ReadinessReport(
         application_version=__version__,
@@ -188,6 +195,7 @@ async def build_readiness_report(
             fee_evidence=fee_evidence,
             futures=futures,
             findings=tuple(findings),
+            fleet_entries=fleet_entries,
         ),
     )
 

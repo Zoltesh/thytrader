@@ -19,6 +19,7 @@ from thytrader.execution.futures_paper import prepare_futures_book
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.discretionary_step import _process_discretionary
+from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.execution_worker.stopped_step import _process_stopped, _stopped_strategy_definition
@@ -100,6 +101,7 @@ __all__ = [
     "_run_cycle",
     "_shared_clock_union_warmup",
     "_signal_exit_windows",
+    "_supervise_fleet_entries",
     "_supervise_safety",
     "_supervise_warming_window",
     "_user_feed_connected",
@@ -245,7 +247,8 @@ async def _run_cycle(
     Safety supervision (ADR 0115) runs after the book loop, decoupled from
     successful signal evaluation: cycle failures feed the durable alert feed, and
     a book that fails too many consecutive cycles has its entries paused while
-    exits and reconciliation keep running.
+    exits and reconciliation keep running. Fleet entry readiness (ADR 0130) then raises or
+    resolves the fleet entry block alerts.
     """
     cycle_started_at = utc_now()
     await refresh_process_entry_inhibition(store)
@@ -292,6 +295,13 @@ async def _run_cycle(
         deployments=deployments,
         cycle_failures=cycle_failures,
         worker_interval_seconds=worker_interval_seconds,
+        observed_at=cycle_started_at,
+    )
+    await _supervise_fleet_entries(
+        alert_service=alert_service,
+        store=store,
+        market_data=market_data,
+        policy=policy,
         observed_at=cycle_started_at,
     )
 

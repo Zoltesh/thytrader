@@ -13,7 +13,7 @@ export interface AlertItem {
 	id: string;
 	code: string;
 	severity: 'info' | 'warning' | 'critical';
-	scope: 'deployment' | 'worker';
+	scope: 'deployment' | 'worker' | 'fleet';
 	subject: string;
 	deployment_id: string | null;
 	product_id: string | null;

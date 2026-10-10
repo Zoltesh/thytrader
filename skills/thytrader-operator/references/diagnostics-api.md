@@ -35,6 +35,7 @@ alternative, not an automatic fallback.
 | GET | `/api/v1/operator/readiness` | `readiness` |
 | GET | `/api/v1/operator/venue-reconciliation` | `venue_reconciliation` |
 | GET | `/api/v1/operator/alerts` | `alerts` |
+| GET | `/api/v1/operator/fleet-health` | `fleet_health` (fleet entry readiness, 24 h decision-log blockers, open fleet alerts; ADR 0130) |
 
 Query parameters:
 
@@ -44,6 +45,7 @@ Query parameters:
 - `trade-reasons`: optional `intent_id` (UUID) and/or `deployment_id` (UUID)
 - `decisions`: optional `deployment_id` (UUID) or `strategy_id` (UUID) (neither pages every bot), repeated `outcome` (`entry_signal`, `no_signal`, `holding`, `exit`, `entry_blocked`, `skipped`, `error`), `limit` 1..200 (default 50), and `cursor` (the previous page's `payload.next_cursor`)
 - `readiness`: optional `deployment_id` (UUID) or `portfolio_id` (UUID). Neither means the fleet. Advisory only; it does not publish or tighten risk policy.
+- `fleet-health`: no query parameters. Read-only; evaluates the entry gate's fleet-wide checks now.
 - `venue-reconciliation`: no query parameters. Read-only venue listing versus managed live books. It never cancels orders or flattens foreign holdings.
 
 HTTP `200` means the diagnostics document was produced. Judge instance health from `overall_status`, not from the HTTP status code.

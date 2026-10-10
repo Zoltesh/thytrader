@@ -80,6 +80,14 @@ proposed notional, account capital, and cap; `ALLOCATION_EXCEEDED` names the str
 and identify the affected deployment. Preserve the gate; diagnose through `decisions`, `show`,
 `thytrader-operator reconciliation`, and `show-risk-policy` before changing policy.
 
+Before resuming, resetting or rearming because "nothing enters", run
+`uv run thytrader-operator fleet-health` ([ADR 0130](../../docs/decisions/0130-fleet-entry-health.md)):
+it names every fleet-wide entry block per mode and quote scope, its `blocker_class`, and the
+exact book and record responsible. Only `latch` blocks are cleared here (`reset-breaker-latches`
+on the named book, with `--confirm`) and `operator` blocks by a fleet rearm; an `evidence` block
+(for example a stopped book's order whose `filled_quantity` disagrees with its fills) is not
+cleared by resume, reset or restart and must be reported for repair.
+
 Daily loss is not the exposure set ([ADR 0111](../../docs/decisions/0111-durable-risk-accounting-scopes.md)).
 Exposure and order-rate occupancy still count running, paused, and stopped books that hold
 inventory or working entries. UTC-day loss also includes stopped flat books of the same mode and

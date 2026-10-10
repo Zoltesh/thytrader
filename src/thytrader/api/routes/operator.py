@@ -52,6 +52,7 @@ from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noq
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
 from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport, data_health_report
+from thytrader.operator.fleet_health_models import FleetHealthReport
 from thytrader.operator.funding_report import (
     FUNDING_REPORT_DEFAULT_HOURS,
     FUNDING_REPORT_MAX_HOURS,
@@ -216,6 +217,14 @@ async def get_operator_futures_books(
 ) -> FuturesBooksReport:
     """Return every paper futures book with margin, liquidation buffer and funding."""
     return await diagnostics.futures_books()
+
+
+@router.get("/fleet-health", response_model=FleetHealthReport)
+async def get_operator_fleet_health(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+) -> FleetHealthReport:
+    """Return fleet entry readiness, systemic decision blockers and fleet alerts (read-only)."""
+    return await diagnostics.fleet_health()
 
 
 @router.get("/futures-account", response_model=FuturesAccountReport)

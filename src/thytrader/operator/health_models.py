@@ -154,6 +154,7 @@ class OpsContractPayload(_FrozenModel):
             "complete_fleet_inventory",
             "revision_fenced_fleet_controls",
             "backtest_bar_explanations",
+            "fleet_entry_health",
         ],
         ...,
     ]

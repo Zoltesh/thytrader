@@ -75,6 +75,28 @@ _RECOMMENDATIONS: dict[str, str] = {
         "Daily-loss breaker paused risk-increasing orders. Exits continue. Resume after the "
         "UTC day recovers or publish a tighter/looser policy with --confirm."
     ),
+    "FLEET_ENTRIES_BLOCKED": (
+        "New entries are blocked fleet-wide. Run `thytrader-operator fleet-health` and repair "
+        "or reset what payload.entries names (blocking_deployment_ids and each check's "
+        "deployments); exits continue."
+    ),
+    "FLEET_ENTRIES_UNKNOWN": (
+        "Fleet entry readiness could not be evaluated; run `thytrader-operator fleet-health` "
+        "and inspect the unknown checks before trusting that entries can be admitted."
+    ),
+    "FLEET_ENTRY_CAPACITY_FULL": (
+        "The fleet is fully invested (open-position slots, account or BTC-beta exposure cap) "
+        "or the entry clustering window is full; an exit or the window frees room. No action "
+        "unless that is unexpected; read the blocking checks of `thytrader-operator fleet-health`."
+    ),
+    "FLEET_ENTRY_ALERTS_UNAVAILABLE": (
+        "Set THYTRADER_DATABASE_URL and run the execution worker so fleet entry block "
+        "alerts are recorded; until then run `thytrader-operator fleet-health`."
+    ),
+    "SYSTEMIC_ENTRY_BLOCKERS": (
+        "Recent decisions show a systemic entry blocker; read payload.decisions.systemic of "
+        "`thytrader-operator fleet-health`."
+    ),
     "STRATEGY_DRAWDOWN_LIMIT": (
         "Drawdown breaker paused this strategy's risk-increasing orders. Exits continue. "
         "Resume after equity recovers or publish a new risk policy with --confirm."

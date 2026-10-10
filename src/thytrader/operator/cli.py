@@ -84,7 +84,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "health",
         parents=[trailing],
-        help="API, workers, database, and exchange health.",
+        help=(
+            "API, workers, database, exchange, and fleet_entries health (fails when a "
+            "live scope's entries are blocked fleet-wide by missing evidence)."
+        ),
     )
     subparsers.add_parser(
         "configuration",
@@ -203,7 +206,10 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "risk",
         parents=[trailing],
-        help="Risk-policy registry identity, slot counts, and pause/mismatch findings.",
+        help=(
+            "Risk-policy registry identity, slot counts, pause/mismatch findings, and "
+            "fleet_entries (whether the gate admits any new entry per scope)."
+        ),
     )
     subparsers.add_parser(
         "reconciliation",
@@ -270,7 +276,8 @@ def _parser() -> argparse.ArgumentParser:
         parents=[trailing],
         help=(
             "Advisory preflight: allocations vs venue balance vs account and portfolio "
-            "caps, fee assumptions, and breaker disclosures. Never changes policy."
+            "caps, fee assumptions, breaker disclosures, and fleet_entries (whether the "
+            "gate admits any new entry per scope). Never changes policy."
         ),
     )
     readiness.add_argument("--deployment-id", default=None, help="One book's preflight.")
@@ -281,6 +288,16 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Managed live inventory and working orders versus the venue listing. "
             "Read-only; never cancels or flattens foreign holdings."
+        ),
+    )
+    subparsers.add_parser(
+        "fleet-health",
+        parents=[trailing],
+        help=(
+            "Can the fleet enter at all? Per mode and quote scope: entries_admissible "
+            "(yes/blocked/unknown) from the entry gate's own checks, blocking reason codes "
+            "and the exact blocking books and records; 24 h blocked/skipped reasons of "
+            "running bots with systemic blockers; open FLEET_ENTRIES_BLOCKED alerts."
         ),
     )
     subparsers.add_parser(
@@ -412,6 +429,7 @@ async def _dispatch(
         "support-bundle": diagnostics.support_bundle,
         "futures-account": diagnostics.futures_account,
         "futures-books": diagnostics.futures_books,
+        "fleet-health": diagnostics.fleet_health,
     }
     factory = factories.get(command)
     if factory is None:

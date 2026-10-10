@@ -73,7 +73,8 @@
         "scope": {
           "enum": [
             "deployment",
-            "worker"
+            "worker",
+            "fleet"
           ],
           "title": "Scope",
           "type": "string"
@@ -3636,6 +3637,639 @@
         "payload"
       ],
       "title": "FeesReport",
+      "type": "object"
+    },
+    "FleetAlertPayload": {
+      "additionalProperties": false,
+      "description": "One open ``FLEET_ENTRIES_BLOCKED`` alert from the durable feed.",
+      "properties": {
+        "subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 500,
+          "title": "Detail",
+          "type": "string"
+        },
+        "first_seen_at": {
+          "format": "date-time",
+          "title": "First Seen At",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "format": "date-time",
+          "title": "Last Seen At",
+          "type": "string"
+        },
+        "occurrences": {
+          "minimum": 1,
+          "title": "Occurrences",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subject",
+        "severity",
+        "detail",
+        "first_seen_at",
+        "last_seen_at",
+        "occurrences"
+      ],
+      "title": "FleetAlertPayload",
+      "type": "object"
+    },
+    "FleetBlockingBookPayload": {
+      "additionalProperties": false,
+      "description": "One book that makes a check block, and the exact record or rule responsible.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "running",
+            "paused",
+            "stopped"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "product_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Product Id",
+          "type": "string"
+        },
+        "detail": {
+          "maxLength": 1000,
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "status",
+        "product_id",
+        "detail"
+      ],
+      "title": "FleetBlockingBookPayload",
+      "type": "object"
+    },
+    "FleetDecisionLogPayload": {
+      "additionalProperties": false,
+      "description": "``entry_blocked`` and ``skipped`` reasons of running books over a trailing window.",
+      "properties": {
+        "storage": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Storage",
+          "type": "string"
+        },
+        "window_hours": {
+          "minimum": 1,
+          "title": "Window Hours",
+          "type": "integer"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "running_deployments": {
+          "minimum": 0,
+          "title": "Running Deployments",
+          "type": "integer"
+        },
+        "rows_read": {
+          "minimum": 0,
+          "title": "Rows Read",
+          "type": "integer"
+        },
+        "truncated": {
+          "default": false,
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "unreadable_deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Unreadable Deployment Ids",
+          "type": "array"
+        },
+        "reasons": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FleetDecisionReasonPayload"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "systemic": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FleetSystemicBlockerPayload"
+          },
+          "title": "Systemic",
+          "type": "array"
+        }
+      },
+      "required": [
+        "storage",
+        "window_hours",
+        "since",
+        "running_deployments",
+        "rows_read"
+      ],
+      "title": "FleetDecisionLogPayload",
+      "type": "object"
+    },
+    "FleetDecisionReasonPayload": {
+      "additionalProperties": false,
+      "description": "One ``entry_blocked`` or ``skipped`` reason across running books in the window.",
+      "properties": {
+        "outcome": {
+          "enum": [
+            "entry_blocked",
+            "skipped"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason_code": {
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "skip_reason": {
+          "anyOf": [
+            {
+              "maxLength": 32,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Skip Reason"
+        },
+        "rows": {
+          "minimum": 1,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "deployments": {
+          "minimum": 1,
+          "title": "Deployments",
+          "type": "integer"
+        },
+        "deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Deployment Ids",
+          "type": "array"
+        },
+        "latest_bar_closes_at": {
+          "format": "date-time",
+          "title": "Latest Bar Closes At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "outcome",
+        "reason_code",
+        "rows",
+        "deployments",
+        "latest_bar_closes_at"
+      ],
+      "title": "FleetDecisionReasonPayload",
+      "type": "object"
+    },
+    "FleetEntriesPayload": {
+      "additionalProperties": false,
+      "description": "Fleet entry readiness across every occupied scope (ADR 0130).\n\n``live_entries_admissible`` is the worst live scope (``yes`` when no live book is\noccupied). ``complete`` is false only when the fleet could not be listed; then\n``scopes`` is empty and the state is unknown, never healthy.",
+      "properties": {
+        "evaluated_at": {
+          "format": "date-time",
+          "title": "Evaluated At",
+          "type": "string"
+        },
+        "complete": {
+          "title": "Complete",
+          "type": "boolean"
+        },
+        "detail": {
+          "default": "",
+          "maxLength": 500,
+          "title": "Detail",
+          "type": "string"
+        },
+        "live_entries_admissible": {
+          "enum": [
+            "yes",
+            "blocked",
+            "unknown"
+          ],
+          "title": "Live Entries Admissible",
+          "type": "string"
+        },
+        "paper_entries_admissible": {
+          "enum": [
+            "yes",
+            "blocked",
+            "unknown"
+          ],
+          "title": "Paper Entries Admissible",
+          "type": "string"
+        },
+        "scopes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FleetEntryScopePayload"
+          },
+          "title": "Scopes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "evaluated_at",
+        "complete",
+        "live_entries_admissible",
+        "paper_entries_admissible"
+      ],
+      "title": "FleetEntriesPayload",
+      "type": "object"
+    },
+    "FleetEntryCheckPayload": {
+      "additionalProperties": false,
+      "description": "One gate check evaluated for a whole scope.\n\n``fleet_wide`` blocks every entry in the scope; otherwise only ``deployments`` are\nstopped (for example one strategy's drawdown latch). ``blocker_class`` says what clears\nit: ``evidence`` a repair, ``latch`` an operator reset, ``policy`` an operator decision\n(manual futures on the shared collateral), ``capacity`` an exit (slots or exposure caps\nfull), ``transient`` time (the clustering window), ``operator`` a fleet rearm. Only the\nfirst three are alerted.",
+      "properties": {
+        "check": {
+          "enum": [
+            "fleet_disarm",
+            "accounting_inventory",
+            "quote_scope",
+            "venue_quote_balance",
+            "futures_collateral",
+            "open_position_slots",
+            "exposure_cap",
+            "btc_beta",
+            "unresolved_accounting",
+            "daily_loss",
+            "drawdown_latch",
+            "linked_futures_breaker",
+            "entry_cluster"
+          ],
+          "title": "Check",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "blocked",
+            "unknown",
+            "not_applicable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason Code"
+        },
+        "blocker_class": {
+          "anyOf": [
+            {
+              "enum": [
+                "evidence",
+                "latch",
+                "policy",
+                "capacity",
+                "transient",
+                "operator"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocker Class"
+        },
+        "fleet_wide": {
+          "default": false,
+          "title": "Fleet Wide",
+          "type": "boolean"
+        },
+        "detail": {
+          "default": "",
+          "maxLength": 1000,
+          "title": "Detail",
+          "type": "string"
+        },
+        "deployments": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FleetBlockingBookPayload"
+          },
+          "title": "Deployments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "check",
+        "status"
+      ],
+      "title": "FleetEntryCheckPayload",
+      "type": "object"
+    },
+    "FleetEntryScopePayload": {
+      "additionalProperties": false,
+      "description": "Whether any new entry is admissible in one mode and quote/settlement scope.",
+      "properties": {
+        "mode": {
+          "enum": [
+            "paper",
+            "live"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "scope": {
+          "description": "USD, USDC, USDT or CFM-USD.",
+          "maxLength": 16,
+          "minLength": 1,
+          "title": "Scope",
+          "type": "string"
+        },
+        "entries_admissible": {
+          "enum": [
+            "yes",
+            "blocked",
+            "unknown"
+          ],
+          "title": "Entries Admissible",
+          "type": "string"
+        },
+        "reason_codes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reason Codes",
+          "type": "array"
+        },
+        "blocking_deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Blocking Deployment Ids",
+          "type": "array"
+        },
+        "running_deployments": {
+          "minimum": 0,
+          "title": "Running Deployments",
+          "type": "integer"
+        },
+        "occupied_deployments": {
+          "minimum": 0,
+          "title": "Occupied Deployments",
+          "type": "integer"
+        },
+        "alert_subject": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Alert Subject",
+          "type": "string"
+        },
+        "checks": {
+          "items": {
+            "$ref": "#/$defs/FleetEntryCheckPayload"
+          },
+          "title": "Checks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "scope",
+        "entries_admissible",
+        "running_deployments",
+        "occupied_deployments",
+        "alert_subject",
+        "checks"
+      ],
+      "title": "FleetEntryScopePayload",
+      "type": "object"
+    },
+    "FleetHealthPayload": {
+      "additionalProperties": false,
+      "description": "Fleet entry readiness, the decision-log aggregation and the open fleet alerts.",
+      "properties": {
+        "entries": {
+          "$ref": "#/$defs/FleetEntriesPayload"
+        },
+        "decisions": {
+          "$ref": "#/$defs/FleetDecisionLogPayload"
+        },
+        "alert_storage": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Alert Storage",
+          "type": "string"
+        },
+        "open_fleet_alerts": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/FleetAlertPayload"
+          },
+          "title": "Open Fleet Alerts",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entries",
+        "decisions",
+        "alert_storage"
+      ],
+      "title": "FleetHealthPayload",
+      "type": "object"
+    },
+    "FleetHealthReport": {
+      "additionalProperties": false,
+      "description": "Read-only fleet entry health. This report cannot place or cancel orders.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "fleet_health",
+          "default": "fleet_health",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FleetHealthPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "FleetHealthReport",
+      "type": "object"
+    },
+    "FleetSystemicBlockerPayload": {
+      "additionalProperties": false,
+      "description": "A decision-log pattern that points at a fleet problem rather than one bot.\n\n``evidence_block``: an evidence-type denial (missing marks or accounting, unknown\ncollateral, venue balance or beta). ``shared_reason``: the same reason on two or more\nbots. ``sizing_skips``: matched signals repeatedly skipped by sizing. ``warmup_stuck``:\nbots still warming up after many bars.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "evidence_block",
+            "shared_reason",
+            "sizing_skips",
+            "warmup_stuck"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "entry_blocked",
+            "skipped"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason_code": {
+          "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "rows": {
+          "minimum": 1,
+          "title": "Rows",
+          "type": "integer"
+        },
+        "deployments": {
+          "minimum": 1,
+          "title": "Deployments",
+          "type": "integer"
+        },
+        "deployment_ids": {
+          "default": [],
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Deployment Ids",
+          "type": "array"
+        },
+        "detail": {
+          "maxLength": 500,
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "outcome",
+        "reason_code",
+        "rows",
+        "deployments",
+        "detail"
+      ],
+      "title": "FleetSystemicBlockerPayload",
       "type": "object"
     },
     "ForeignOpenOrderRow": {
@@ -8438,7 +9072,8 @@
               "execution_quality_evidence",
               "complete_fleet_inventory",
               "revision_fenced_fleet_controls",
-              "backtest_bar_explanations"
+              "backtest_bar_explanations",
+              "fleet_entry_health"
             ],
             "type": "string"
           },
@@ -11451,6 +12086,18 @@
           },
           "title": "Findings",
           "type": "array"
+        },
+        "fleet_entries": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FleetEntriesPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fleet entry readiness (ADR 0130): whether the entry gate admits any new entry per mode and quote scope right now, with the blocking codes and books."
         }
       },
       "required": [
@@ -12603,6 +13250,18 @@
           },
           "title": "Findings",
           "type": "array"
+        },
+        "fleet_entries": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FleetEntriesPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fleet entry readiness (ADR 0130): per mode and quote scope, whether the entry gate admits any new entry, and the blocking codes and books."
         }
       },
       "required": [
@@ -14504,7 +15163,8 @@
         "alerts",
         "funding",
         "futures_account",
-        "futures_books"
+        "futures_books",
+        "fleet_health"
       ]
     },
     "payload": {
@@ -14606,6 +15266,9 @@
     },
     {
       "$ref": "#/$defs/FuturesBooksReport"
+    },
+    {
+      "$ref": "#/$defs/FleetHealthReport"
     }
   ]
 }

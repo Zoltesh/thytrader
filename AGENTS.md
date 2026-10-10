@@ -51,7 +51,7 @@ Open work, one line each (no roadmap file; history is in the ADRs and git log):
 - Backtests do not model latency, venue rejections, partial fills, or queue position.
 - Backtests do not apply the account risk policy, so the fleet entry clustering and BTC-beta exposure caps (ADR 0125) are paper/live-only.
 - Open-book PnL excludes estimated future exit fees (ADR 0100).
-- Alerts do not fire on per-bar decision outcomes; there is no ThyTrader WebSocket (the UI polls).
+- Alerts do not fire on per-bar decision outcomes (`fleet-health` flags systemic ones, ADR 0130); there is no ThyTrader WebSocket (the UI polls).
 - Only Coinbase spot is tradable live. Coinbase CFM futures have read-only surfaces (catalog,
   funding history, candles, account mirror; ADRs 0126 and 0127), backtests (ADR 0128) and paper
   books (perp-style only; ADR 0129); no live futures order path exists, and paper books do not

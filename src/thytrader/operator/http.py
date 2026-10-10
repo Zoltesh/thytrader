@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 from thytrader.agent_http import request_json
 from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport
+from thytrader.operator.fleet_health_models import FleetHealthReport
 from thytrader.operator.funding_report import FundingReport
 from thytrader.operator.futures_account_report import FuturesAccountReport
 from thytrader.operator.futures_books_report import FuturesBooksReport
@@ -67,6 +68,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "funding": FundingReport,
     "futures-account": FuturesAccountReport,
     "futures-books": FuturesBooksReport,
+    "fleet-health": FleetHealthReport,
 }
 
 
