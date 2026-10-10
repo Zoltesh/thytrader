@@ -76,6 +76,7 @@ export {
 export type { ExecutionTimeframe } from './strategies-timeframes';
 export {
 	builderModelFromRecord,
+	builderQuoteLabel,
 	defaultHtfFilter,
 	defaultReferenceInstrument,
 	defaultSignalExit,
@@ -86,6 +87,12 @@ export {
 	takeProfitPhrase,
 	toBuilderModel
 } from './strategies-builder';
+export {
+	defaultDerivatives,
+	MAX_STRATEGY_LEVERAGE,
+	MIN_STRATEGY_LEVERAGE
+} from './strategies-derivatives';
+export type { DerivativesDraft, InstrumentKind } from './strategies-derivatives';
 export type {
 	BuilderModel,
 	CoveredInstrumentDraft,

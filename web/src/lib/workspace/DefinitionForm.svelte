@@ -13,7 +13,7 @@
 	 * the short ones (overview, sizing, limits, execution) stay inline here.
 	 */
 	import { untrack } from 'svelte';
-	import { quoteLabelFor, type BuilderModel } from '$lib/strategies';
+	import { builderQuoteLabel, type BuilderModel } from '$lib/strategies';
 	import type { BuildSection } from '$lib/strategy-workspace';
 	import EntrySection from './definition/EntrySection.svelte';
 	import ExitsSection from './definition/ExitsSection.svelte';
@@ -54,7 +54,7 @@
 	/** Last reward/risk multiple, restored when the operator switches back from `none`. */
 	let lastTakeProfitMultiple = $state('2');
 
-	const quote = $derived(quoteLabelFor(model.product_id));
+	const quote = $derived(builderQuoteLabel(model));
 </script>
 
 <div class="definition-wrap">

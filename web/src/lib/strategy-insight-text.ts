@@ -6,8 +6,8 @@
 import { indicatorWarmupBars } from './indicator-catalog';
 import { isComparison, isGroup } from './strategy-insight-conditions';
 import {
+	builderQuoteLabel,
 	extraIndicatorTimeframes,
-	quoteLabelFor,
 	takeProfitPhrase,
 	type BuilderModel,
 	type ConditionDraft,
@@ -66,7 +66,7 @@ function renderConditionChild(child: ConditionDraft, parentJoiner: string): stri
 }
 
 export function plainEnglishSummary(model: BuilderModel): string {
-	const quote = quoteLabelFor(model.product_id);
+	const quote = builderQuoteLabel(model);
 	const entryText = conditionToText(model.entry.when);
 	const htf =
 		model.htf_filter === null

@@ -19,6 +19,8 @@ import {
 	validateCondition,
 	type IndicatorLike
 } from './strategy-insight-conditions';
+import { isFuturesProductId } from './product-id';
+import { validateDerivatives } from './strategies-derivatives';
 import { validateReferenceInstruments } from './strategy-insight-references';
 import {
 	takeProfitMultiple,
@@ -103,6 +105,13 @@ export function validateDefinition(model: BuilderModel): string[] {
 		}
 	}
 	problems.push(...validateReferenceInstruments(model));
+	problems.push(
+		...validateDerivatives(
+			model.instrument_kind,
+			model.derivatives,
+			isFuturesProductId(model.product_id)
+		)
+	);
 	problems.push(...validateCondition(model.entry.when, model.indicators, 'Entry'));
 	if (model.exits.signal_exit !== undefined) {
 		problems.push(
