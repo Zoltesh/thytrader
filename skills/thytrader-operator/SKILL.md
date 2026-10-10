@@ -256,6 +256,13 @@ integers: the opt-in fleet entry clustering cap, null when unset
 ([ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)). A
 `FLEET_ENTRY_CLUSTER_LIMIT` denial skips that bar's entry without pausing the bot; its detail
 names the count, window, cap, and when a slot frees. It is a policy limit, not a fault.
+`max_btc_beta_exposure_fraction` and `max_btc_beta_exposure_quote` (nullable decimal strings)
+echo the opt-in BTC-beta-weighted exposure cap. `BTC_BETA_EXPOSURE_EXCEEDED` is a policy
+limit. `BTC_BETA_UNAVAILABLE` means some product's daily history vs `BTC-<quote>` is short
+(fewer than 60 returns), unreadable or over 48 h old, so new entries in that quote are blocked.
+Its detail names the product and cause. The β history is read from the venue, not the research
+dataset catalog. The remedy is a policy or allowlist change through the runtime lane, never a
+bypass.
 Runtime `show` exposes `capital.risk_day_open_evidence` separately from preserved legacy
 `utc_day_open_equity`; a legacy stamp or an old evidence day is not verified current-day equity.
 The worker uses fresh complete sibling fill economics and actual closed midnight marks when
@@ -308,7 +315,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v73`, schema revision `0070`) and exits on any
+   this checkout's (`thytrader-ops-contract-v74`, schema revision `0070`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

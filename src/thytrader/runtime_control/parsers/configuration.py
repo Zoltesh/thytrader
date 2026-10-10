@@ -164,6 +164,28 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--max-btc-beta-exposure-fraction",
+        default=None,
+        help=(
+            "Optional BTC-beta-weighted exposure cap (ADR 0125), a fraction in (0, 1] of the "
+            "capital base: sum of |exposure| x beta vs BTC-<quote> (90 settled daily bars) "
+            "over same-quote bots plus the new entry (BTC_BETA_EXPOSURE_EXCEEDED). A new or "
+            "held product without a fresh beta (fewer than 60 daily returns, unreadable, or "
+            "over 48h old) blocks new entries (BTC_BETA_UNAVAILABLE). Applies to paper and "
+            "live, pyramid adds, reprices and in-kind adoption; never to exits; does not "
+            "pause. Omitting this flag unsets the cap in the replacement policy."
+        ),
+    )
+    set_policy.add_argument(
+        "--max-btc-beta-exposure-quote",
+        default=None,
+        help=(
+            "Optional live-only absolute ceiling on BTC-beta-weighted exposure in the policy "
+            "quote, enforced with --max-btc-beta-exposure-fraction (the tighter wins). "
+            "Omitting this flag unsets it in the replacement policy."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],

@@ -35,6 +35,7 @@ from thytrader.execution.service import prepare_deployment
 from thytrader.execution.signals import latest_atr
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.memory.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
+from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
@@ -133,6 +134,20 @@ async def start_with_adoption(
         performance_capital_quote=max(book.allocated_capital or Decimal(0), notional),
     )
     active = await load_effective_policy(risk_store)
+    gate_books = (
+        *(item for item in books if counts_for_daily_loss(item.deployment.status)),
+        DeploymentSnapshot(deployment=book, position=None),
+    )
+    as_of = utc_now()
+    # In-kind adoption is subject to the BTC-beta cap (ADR 0125), not to clustering.
+    beta = await load_entry_beta(
+        active.definition,
+        venue.market_data,
+        mode=DeploymentMode.LIVE,
+        snapshots=gate_books,
+        product_id=book.product_id,
+        as_of=as_of,
+    )
     verdict = evaluate_new_entry(
         active.definition,
         mode=DeploymentMode.LIVE,
@@ -143,17 +158,15 @@ async def start_with_adoption(
             quantity=adopted,
             funding="in_kind",
         ),
-        snapshots=(
-            *(item for item in books if counts_for_daily_loss(item.deployment.status)),
-            DeploymentSnapshot(deployment=book, position=None),
-        ),
+        snapshots=gate_books,
         live_quote_cash=venue.live_quote_cash,
         observation=EntryObservation(
-            as_of=utc_now(),
+            as_of=as_of,
             proposed_price=candle.close,
             reference_price=candle.close,
             marks={book.product_id: candle.close},
         ),
+        beta=beta,
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(f"{verdict.reason_code.value}: {verdict.detail}")

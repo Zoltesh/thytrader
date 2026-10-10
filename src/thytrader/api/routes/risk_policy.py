@@ -66,6 +66,8 @@ class RiskPolicyWriteBody(BaseModel):
     fleet_entry_window_minutes: int | None = Field(
         default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
     )
+    max_btc_beta_exposure_fraction: str | None = None
+    max_btc_beta_exposure_quote: str | None = None
 
 
 class RiskPolicyResponse(BaseModel):
@@ -98,6 +100,8 @@ class RiskPolicyResponse(BaseModel):
     min_available_quote_reserve: str | None = None
     max_fleet_entries_per_window: int | None = None
     fleet_entry_window_minutes: int | None = None
+    max_btc_beta_exposure_fraction: str | None = None
+    max_btc_beta_exposure_quote: str | None = None
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -168,6 +172,8 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         min_available_quote_reserve=body.min_available_quote_reserve,
         max_fleet_entries_per_window=body.max_fleet_entries_per_window,
         fleet_entry_window_minutes=body.fleet_entry_window_minutes,
+        max_btc_beta_exposure_fraction=body.max_btc_beta_exposure_fraction,
+        max_btc_beta_exposure_quote=body.max_btc_beta_exposure_quote,
     )
 
 
@@ -205,4 +211,6 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         min_available_quote_reserve=definition.min_available_quote_reserve,
         max_fleet_entries_per_window=definition.max_fleet_entries_per_window,
         fleet_entry_window_minutes=definition.fleet_entry_window_minutes,
+        max_btc_beta_exposure_fraction=definition.max_btc_beta_exposure_fraction,
+        max_btc_beta_exposure_quote=definition.max_btc_beta_exposure_quote,
     )

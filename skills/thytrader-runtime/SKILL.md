@@ -142,6 +142,31 @@ worker admissions racing can exceed the cap by one. Resupply both flags on every
 keep the cap. Starting point for a ~500 USDC fleet whose bars close together on 2h boundaries:
 `--max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120`. Backtests do not apply it.
 
+Optional BTC-beta-weighted exposure cap ([ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)):
+`--max-btc-beta-exposure-fraction F` (in (0, 1], of the same capital base as the exposure caps)
+and/or `--max-btc-beta-exposure-quote Q` (live only; the tighter wins). Both are unset by
+default. While unset, nothing changes, no history is read, and old fingerprints are kept. When
+set, the gate weights each product's exposure (position cost plus working entries, counted
+gross, so shorts never hedge) by its β against `BTC-<quote>` (BTC-USDC for USDC bots, β 1 by
+definition). β is the slope of 90 settled UTC daily log returns, rounded up to 0.01 and clamped
+to [0, 3]. It sums over every same-quote running, paused and stopped bot that holds or works
+risk, adds the new entry's notional × β, and denies `BTC_BETA_EXPOSURE_EXCEEDED` above the
+cap. The detail names existing, proposed×β, cap, capital, fraction and absolute.
+**Fail closed:** if the new product or **any held same-quote product** has fewer than 60 daily
+returns, cannot be read, or has a last daily bar more than 48 h old, every new entry in that
+quote is denied with `BTC_BETA_UNAVAILABLE`. The detail names the product and the cause
+(`insufficient_history n=…<60`, `stale last_close=…`, `fetch_failed`, `not_loaded`). Remove a
+newly listed coin from `--product-allowlist` (and close its position) or unset the cap; there
+is no default β. Each process reads each product's daily bars once per UTC day (00:02 UTC), and
+an outage keeps the previous day's estimate for up to 48 h. The cap applies to strategy,
+lockstep, portfolio-sleeve and discretionary entries, pyramid adds, reprices (on the remaining
+notional) and in-kind adoption (`--entry-kind adopt`, `start --adopt-holdings`). It never
+applies to exits or `sell-holdings`. It does not pause the bot: that bar's entry is skipped and
+recorded in `decisions`. Resupply the flag on every publication to keep the cap. Starting point
+for a ~500 USDC fleet of alts: `--max-btc-beta-exposure-fraction 0.6`, with no absolute cap.
+Revisit after 30 days of `BTC_BETA_EXPOSURE_EXCEEDED` counts in `decisions`. Backtests do not
+apply it.
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).
@@ -607,6 +632,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
 | Publish risk policy with a fleet entry clustering cap | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120 --confirm` |
+| Publish risk policy with a BTC-beta exposure cap | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-btc-beta-exposure-fraction 0.6 --confirm` |
 | Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |

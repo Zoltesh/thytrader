@@ -9637,6 +9637,30 @@
           "default": null,
           "title": "Fleet Entry Window Minutes"
         },
+        "max_btc_beta_exposure_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Btc Beta Exposure Fraction"
+        },
+        "max_btc_beta_exposure_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Btc Beta Exposure Quote"
+        },
         "findings": {
           "items": {
             "$ref": "#/$defs/RiskFinding"

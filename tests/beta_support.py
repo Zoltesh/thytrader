@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import math
 
+from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.models import (
     Candle,
     CandleInterval,
@@ -16,6 +17,8 @@ from thytrader.market_data.models import (
 )
 from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
+from thytrader.risk.beta_evidence import BETA_DAILY_BARS
+from thytrader.risk.models import RiskPolicyDefinition, compiled_default_risk_policy
 
 _EPOCH = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -95,4 +98,62 @@ def _daily_candle(starts_at: datetime, beta: float) -> Candle:
     close = Decimal(repr(100.0 * math.exp(beta * total)))
     return Candle(
         starts_at=starts_at, open=close, high=close, low=close, close=close, volume=Decimal(1)
+    )
+
+
+@dataclass
+class DemoWithDailyBeta:
+    """Demo candles for execution, plus ``daily`` for the β loader's 91-day daily ranges.
+
+    Only reads shaped like the β loader's (the day interval, ``BETA_DAILY_BARS`` long) reach
+    ``daily``, so ``daily.requests`` counts β evidence reads and nothing else.
+    """
+
+    daily: DailyBetaProvider
+    base: DemoMarketData = field(default_factory=DemoMarketData)
+
+    def service(self) -> MarketDataService:
+        """Wrap this provider in a real market-data service."""
+        return MarketDataService(self)
+
+    async def list_products(self) -> tuple[MarketProduct, ...]:
+        """The demo catalog."""
+        return await self.base.list_products()
+
+    async def get_recent_preview(
+        self, product_id: str, interval: CandleInterval, now: datetime
+    ) -> MarketDataPreview:
+        """Demo previews."""
+        return await self.base.get_recent_preview(product_id, interval, now)
+
+    async def get_historical_range(
+        self,
+        product_id: str,
+        interval: CandleInterval,
+        starts_at: datetime,
+        ends_at: datetime,
+        now: datetime,
+    ) -> CandleRangeReport:
+        """Route β-shaped daily ranges to ``daily`` and everything else to the demo."""
+        if (
+            interval is CandleInterval.ONE_DAY
+            and ends_at - starts_at == interval.duration * BETA_DAILY_BARS
+        ):
+            return await self.daily.get_historical_range(
+                product_id, interval, starts_at, ends_at, now
+            )
+        return await self.base.get_historical_range(product_id, interval, starts_at, ends_at, now)
+
+
+def beta_policy(*, fraction: str | None = "1", quote: str | None = None) -> RiskPolicyDefinition:
+    """A published-style wide policy with only the β cap fields set as given."""
+    return RiskPolicyDefinition.model_validate(
+        {
+            **compiled_default_risk_policy().model_dump(mode="python"),
+            "version": 2,
+            "max_portfolio_exposure_fraction": "1",
+            "per_product_max_exposure_fraction": "1",
+            "max_btc_beta_exposure_fraction": fraction,
+            "max_btc_beta_exposure_quote": quote,
+        }
     )

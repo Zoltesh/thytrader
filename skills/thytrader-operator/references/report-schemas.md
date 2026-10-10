@@ -133,6 +133,14 @@ When set, the entry gate denies with reason code `FLEET_ENTRY_CLUSTER_LIMIT` onc
 distinct bot/product entries in the mode fall inside the trailing window, stopped bots included.
 The denial appears as a decision `risk` row; it never pauses a book or becomes a finding.
 
+Optional BTC-beta cap fields `max_btc_beta_exposure_fraction` (fraction in (0, 1]) and
+`max_btc_beta_exposure_quote` (live-only absolute quote ceiling) are nullable decimal strings in
+the primary `risk` payload (ADR 0125). When set, the entry gate denies
+`BTC_BETA_EXPOSURE_EXCEEDED` (detail: `existing`, `proposed`×β, `cap`, `capital`, `fraction`,
+`absolute`, reference `BTC-<quote>`) or `BTC_BETA_UNAVAILABLE` (detail: product, reference and
+cause: `insufficient_history n=…<60`, `stale last_close=…`, `fetch_failed`, `invalid_history`,
+or `not_loaded`). Both appear as decision `risk` rows and never pause a book.
+
 Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement), plus `settings_file`, `yaml_loaded`, and `yaml_source_of_truth` (always true), and `effective_api_base_url` — the loopback origin agent CLIs resolve for this checkout (`THYTRADER_API_BASE_URL` / settings). Non-secret knobs including YOLO live in `thytrader.yaml` and apply without restart; leftover `THYTRADER_YOLO_TIERS=paper` is valid. Those flags never grant playbook live authority. YOLO `live` may skip `--confirm` on runtime start/pause/resume/stop; live start, live resume, and live place-order still require `--i-understand-live`
 (HTTP `i_understand_live: true`). Live place-order, `set-risk-policy`, and `set-settings` still require `--confirm`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
 

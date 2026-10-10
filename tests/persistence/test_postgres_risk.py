@@ -77,6 +77,8 @@ def test_postgres_publishes_and_reloads_the_fleet_clustering_cap() -> None:
                     "version": next_policy_version(current),
                     "max_fleet_entries_per_window": 4,
                     "fleet_entry_window_minutes": 120,
+                    "max_btc_beta_exposure_fraction": "0.6",
+                    "max_btc_beta_exposure_quote": "300",
                 }
             )
 
@@ -85,6 +87,8 @@ def test_postgres_publishes_and_reloads_the_fleet_clustering_cap() -> None:
             assert active.policy_fingerprint == published.policy_fingerprint
             assert active.definition.max_fleet_entries_per_window == 4
             assert active.definition.fleet_entry_window_minutes == 120
+            assert active.definition.max_btc_beta_exposure_fraction == "0.6"
+            assert active.definition.max_btc_beta_exposure_quote == "300"
 
             cleared = definition.model_copy(
                 update={

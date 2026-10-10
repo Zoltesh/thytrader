@@ -174,6 +174,8 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "min_available_quote_reserve": arguments.min_available_quote_reserve,
         "max_fleet_entries_per_window": arguments.max_fleet_entries_per_window,
         "fleet_entry_window_minutes": arguments.fleet_entry_window_minutes,
+        "max_btc_beta_exposure_fraction": arguments.max_btc_beta_exposure_fraction,
+        "max_btc_beta_exposure_quote": arguments.max_btc_beta_exposure_quote,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
     }
 

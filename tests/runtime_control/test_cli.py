@@ -412,6 +412,9 @@ def test_set_risk_policy_help_lists_breaker_flags(
     assert "--max-fleet-entries-per-window" in output
     assert "--fleet-entry-window-minutes" in output
     assert "FLEET_ENTRY_CLUSTER_LIMIT" in output
+    assert "--max-btc-beta-exposure-fraction" in output
+    assert "--max-btc-beta-exposure-quote" in output
+    assert "BTC_BETA_UNAVAILABLE" in output
     assert "--quote-currency" in output
 
 
@@ -459,6 +462,8 @@ def test_set_risk_policy_forwards_optional_absolute_caps_and_venue_budget() -> N
     assert payload["quote_currency"] == "USDC"
     assert payload["max_fleet_entries_per_window"] is None
     assert payload["fleet_entry_window_minutes"] is None
+    assert payload["max_btc_beta_exposure_fraction"] is None
+    assert payload["max_btc_beta_exposure_quote"] is None
 
 
 def test_set_risk_policy_forwards_the_fleet_clustering_cap() -> None:
@@ -491,6 +496,10 @@ def test_set_risk_policy_forwards_the_fleet_clustering_cap() -> None:
                 "4",
                 "--fleet-entry-window-minutes",
                 "120",
+                "--max-btc-beta-exposure-fraction",
+                "0.6",
+                "--max-btc-beta-exposure-quote",
+                "300",
                 "--confirm",
             ]
         )
@@ -499,6 +508,8 @@ def test_set_risk_policy_forwards_the_fleet_clustering_cap() -> None:
     _base_url, payload = request.call_args.args
     assert payload["max_fleet_entries_per_window"] == 4
     assert payload["fleet_entry_window_minutes"] == 120
+    assert payload["max_btc_beta_exposure_fraction"] == "0.6"
+    assert payload["max_btc_beta_exposure_quote"] == "300"
 
 
 def test_place_order_help_lists_venue_clocks(

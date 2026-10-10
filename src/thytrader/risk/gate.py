@@ -3,7 +3,8 @@
 The gate admits new deployments and risk-increasing entries and composes the policy's
 checks in a fixed order: membership and slots (``entry_limits``), a sleeve's portfolio
 limits (``portfolio_limits``), optional per-order bounds (``order_bounds``), account
-exposure, unresolved accounting, then the circuit breakers, rate, and collar gates and the
+exposure, the optional BTC-beta-weighted exposure cap (``beta_exposure``, ADR 0125),
+unresolved accounting, then the circuit breakers, rate, and collar gates and the
 optional fleet entry clustering cap (``entry_clustering``, ADR 0125). It gates entries only,
 never protective exits. An in-kind adoption (ADR 0124) sends nothing to the venue, so it
 skips the order bounds, rate, collar and clustering gates and adds its notional to live
@@ -17,6 +18,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.products import is_spot_product_id, quote_currency
+from thytrader.risk.beta_exposure import beta_verdict
 from thytrader.risk.breakers import (
     EntryObservation,
     evaluate_circuit_breakers,
@@ -51,6 +53,8 @@ from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnaps
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
+
+    from thytrader.risk.beta import BetaEvidence
 
 
 def evaluate_new_deployment(
@@ -110,12 +114,15 @@ def evaluate_new_entry(
     live_quote_cash: Decimal | None = None,
     observation: EntryObservation | None = None,
     portfolio: PortfolioRiskBook | None = None,
+    beta: BetaEvidence | None = None,
 ) -> RiskVerdict:
     """Allow a risk-increasing entry only when slots, exposure, and breakers permit it.
 
     A sleeve of a deployed portfolio passes its portfolio's limits (``portfolio``) after
     the policy's membership checks and before the account-wide exposure and breaker
-    checks; every check must pass, so the strictest limit wins (ADR 0091).
+    checks; every check must pass, so the strictest limit wins (ADR 0091). ``beta`` is
+    the BTC-beta evidence for the β cap (ADR 0125); it is ignored while no β cap binds
+    in ``mode`` and denies as unavailable when a cap binds and it is missing.
     """
     occupied = tuple(
         item
@@ -170,6 +177,17 @@ def evaluate_new_entry(
     )
     if exposure.decision is RiskDecision.DENY:
         return exposure
+    beta_capped = beta_verdict(
+        policy,
+        mode=mode,
+        proposed=proposed,
+        occupied=quote_books,
+        live_quote_cash=live_quote_cash,
+        beta=beta,
+        as_of=None if observation is None else observation.as_of,
+    )
+    if beta_capped is not None:
+        return beta_capped
     unresolved = unresolved_accounting_verdict(
         mode=mode, product_id=proposed.product_id, snapshots=snapshots
     )

@@ -2,7 +2,9 @@
 
 Admits an entry only against fresh, complete portfolio accounting and a known live
 quote balance, records the verdict for the trade-reason scope and the decision
-journal, and never trusts the product view or a cache.
+journal, and never trusts the product view or a cache. When the policy sets a BTC-beta
+cap (ADR 0125), β evidence is read through the market data the execution worker binds
+for risk evidence; outside that scope the evidence is unknown and the entry is denied.
 """
 
 from __future__ import annotations
@@ -13,6 +15,8 @@ from thytrader.execution.breaker_pause import _portfolio_with_current
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.decision_scope import note_risk
 from thytrader.memory.trade_reason_scope import current_trade_reason_scope
+from thytrader.risk.accounting_evidence import bound_risk_market_data
+from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
@@ -95,6 +99,14 @@ async def _entry_verdict(
             reason_code=RiskReasonCode.VENUE_BALANCE_UNKNOWN,
             detail="Venue quote balance is unknown; new entries are disabled.",
         )
+    beta = await load_entry_beta(
+        risk_policy,
+        bound_risk_market_data(),
+        mode=snapshot.deployment.mode,
+        snapshots=current_portfolio,
+        product_id=product_id,
+        as_of=observation.as_of,
+    )
     verdict = evaluate_new_entry(
         risk_policy,
         mode=snapshot.deployment.mode,
@@ -110,6 +122,7 @@ async def _entry_verdict(
         live_quote_cash=live_cash,
         observation=observation,
         portfolio=portfolio_risk_for(snapshot.deployment),
+        beta=beta,
     )
     scope = current_trade_reason_scope()
     if scope is not None:

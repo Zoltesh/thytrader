@@ -218,7 +218,9 @@ async def _reprice_entry(
             return await _pause_for_breaker(
                 snapshot, store=store, portfolio=portfolio, verdict=admitted
             )
-        return snapshot
+        return await _abandon_denied_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
     if (
         side is PositionSide.SHORT
         and snapshot.deployment.mode is DeploymentMode.LIVE
@@ -249,6 +251,29 @@ async def _reprice_entry(
             and target_price is not None
             and atr_trailing_stop(strategy.exits) is None
         ),
+    )
+
+
+async def _abandon_denied_reprice(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    strategy: StrategyDefinition,
+    is_pyramid: bool,
+) -> DeploymentSnapshot:
+    """Give up a reprice the risk gate denied without pausing, as an unfilled cancel would.
+
+    The working entry is already cancelled. Leaving the book pending entry with nothing
+    working would read as a split lifecycle and pause it, but a non-breaker denial (for
+    example the BTC-beta cap, ADR 0125) only skips this entry. A pyramid add keeps its
+    position and stops waiting; a flat book returns to flat with the entry cooldown.
+    """
+    if is_pyramid:
+        abandoned = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
+        await store.save_deployment(abandoned)
+        return await store.get_deployment(snapshot.deployment.id)
+    return await _flatten_pending(
+        snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
     )
 
 

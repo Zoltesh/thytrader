@@ -198,6 +198,7 @@ def test_policies_without_clustering_fields_keep_their_fingerprints() -> None:
     assert risk_policy_fingerprint(default) == _COMPILED_FINGERPRINT
     assert risk_policy_fingerprint(configured) == _CONFIGURED_FINGERPRINT
     assert b"fleet" not in canonical_risk_policy_bytes(configured)
+    assert b"btc_beta" not in canonical_risk_policy_bytes(configured)
 
 
 def test_clustering_fields_change_the_fingerprint_when_set() -> None:
@@ -260,3 +261,56 @@ def test_clustering_bounds(
 def test_cluster_limit_does_not_pause_books() -> None:
     """A clustering denial skips one entry; it is not a breaker."""
     assert pauses_risk_increasing(RiskReasonCode.FLEET_ENTRY_CLUSTER_LIMIT) is False
+
+
+def test_beta_denials_do_not_pause_books() -> None:
+    """β-cap and missing-β denials skip one entry; they are not breakers."""
+    assert pauses_risk_increasing(RiskReasonCode.BTC_BETA_EXPOSURE_EXCEEDED) is False
+    assert pauses_risk_increasing(RiskReasonCode.BTC_BETA_UNAVAILABLE) is False
+
+
+def test_beta_fields_round_trip_and_change_the_fingerprint() -> None:
+    """Set β fields are part of the identity and survive canonical storage."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    capped = RiskPolicyDefinition.model_validate(
+        {
+            **payload,
+            "max_btc_beta_exposure_fraction": "0.6",
+            "max_btc_beta_exposure_quote": "300",
+        }
+    )
+    canonical = canonical_risk_policy_bytes(capped)
+    assert risk_policy_fingerprint(capped) != _COMPILED_FINGERPRINT
+    assert b'"max_btc_beta_exposure_fraction":"0.6"' in canonical
+    assert b'"max_btc_beta_exposure_quote":"300"' in canonical
+    assert definition_from_stored_json(canonical.decode("utf-8")) == capped
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_btc_beta_exposure_fraction", "0"),
+        ("max_btc_beta_exposure_fraction", "1.01"),
+        ("max_btc_beta_exposure_fraction", "-0.1"),
+        ("max_btc_beta_exposure_quote", "0"),
+        ("max_btc_beta_exposure_quote", "-5"),
+    ],
+)
+def test_beta_fields_reject_out_of_range_values(field: str, value: str) -> None:
+    """The fraction must be in (0, 1] and the quote cap positive."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    with pytest.raises(ValidationError):
+        RiskPolicyDefinition.model_validate({**payload, field: value})
+
+
+def test_beta_fields_accept_either_alone() -> None:
+    """The fraction and the live absolute cap are independent."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    fraction_only = RiskPolicyDefinition.model_validate(
+        {**payload, "max_btc_beta_exposure_fraction": "1"}
+    )
+    quote_only = RiskPolicyDefinition.model_validate(
+        {**payload, "max_btc_beta_exposure_quote": "250"}
+    )
+    assert fraction_only.max_btc_beta_exposure_quote is None
+    assert quote_only.max_btc_beta_exposure_fraction is None

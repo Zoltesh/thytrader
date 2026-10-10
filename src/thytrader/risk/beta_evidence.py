@@ -6,7 +6,7 @@ marks, never the research dataset catalog or a deploy-anchored window. Series ar
 ``(product, daily close)``, so a process reads each product about once per UTC day. A failed
 or incomplete read is retried after a short back-off. A failed read falls back to that
 product's last complete series, whose age the gate then judges (``fresh_beta``). Nothing is
-read unless a caller asks for products, and only policies with a β field ask.
+read unless a caller asks for products; ``load_entry_beta`` asks only when a β cap binds.
 """
 
 from __future__ import annotations
@@ -27,14 +27,17 @@ from thytrader.risk.beta import (
     estimate_beta,
     reference_beta,
 )
+from thytrader.risk.beta_exposure import beta_cap_applies, beta_products
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Sequence
     from datetime import datetime
 
     from thytrader.market_data.models import Candle
     from thytrader.market_data.service import MarketDataService
     from thytrader.risk.beta import BetaResult
+    from thytrader.risk.models import RiskPolicyDefinition
+    from thytrader.trading.models import DeploymentMode, DeploymentSnapshot
 
 BETA_DAILY_BARS = 91
 """Daily bars per read: 90 returns, one Coinbase page."""
@@ -98,6 +101,11 @@ class BetaHistoryCache:
         self._remember(self._series, (product_id, day_close), _Series(candles, retry_after))
         if complete and candles is not None:
             self._remember(self._complete, product_id, candles)
+
+    def clear(self) -> None:
+        """Forget every cached series and fallback (tests and credential hot-swaps)."""
+        self._series.clear()
+        self._complete.clear()
 
     def fallback(self, product_id: str) -> tuple[Candle, ...] | None:
         """Return the product's newest complete series, if any read ever completed."""
@@ -195,3 +203,30 @@ async def _daily_series(
     candles = report.quality.candles
     cache.store(product_id, day_close, candles=candles, complete=report.complete, as_of=as_of)
     return candles
+
+
+async def load_entry_beta(
+    policy: RiskPolicyDefinition,
+    market_data: MarketDataService | None,
+    *,
+    mode: DeploymentMode,
+    snapshots: Sequence[DeploymentSnapshot],
+    product_id: str,
+    as_of: datetime,
+    cache: BetaHistoryCache | None = None,
+) -> BetaEvidence | None:
+    """Load β evidence for one entry, and read nothing unless a β cap binds in ``mode``.
+
+    ``snapshots`` must be the set the entry gate receives, so the products read are the
+    proposed product and every same-quote product the gate sums. Returns ``None`` when no
+    β cap binds (the gate ignores evidence) or when no market data is available, in which
+    case the gate denies with ``BTC_BETA_UNAVAILABLE``.
+    """
+    if not beta_cap_applies(policy, mode) or market_data is None:
+        return None
+    return await load_beta_evidence(
+        market_data,
+        product_ids=beta_products(snapshots, mode=mode, product_id=product_id),
+        as_of=as_of,
+        cache=cache,
+    )

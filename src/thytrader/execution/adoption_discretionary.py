@@ -34,6 +34,7 @@ from thytrader.execution.adoption import (
 from thytrader.execution.live_protection import _ensure_exit_protection
 from thytrader.execution.mark_context import closed_mark_context
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
+from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
@@ -64,6 +65,7 @@ from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from thytrader.execution.adoption import AdoptionRequest
     from thytrader.execution.broker import Broker
@@ -71,6 +73,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.memory.trade_reason_scope import TradeReasonScope
+    from thytrader.risk.beta import BetaEvidence
     from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.trading.adoption_write import AdoptionCommit, BalanceReader
@@ -123,6 +126,20 @@ async def adopt_held_inventory(
     if refusal is not None:
         raise refusal
     active = await load_effective_policy(risk_store)
+    as_of = utc_now()
+    # Protect is an in-kind entry under the BTC-beta cap (ADR 0125); sell reduces risk.
+    beta = (
+        await load_entry_beta(
+            active.definition,
+            market_data,
+            mode=DeploymentMode.LIVE,
+            snapshots=books,
+            product_id=request.product_id,
+            as_of=as_of,
+        )
+        if request.action is AdoptionAction.PROTECT
+        else None
+    )
     context = _Context(
         request=request,
         product=product,
@@ -131,6 +148,8 @@ async def adopt_held_inventory(
         availability=availability,
         live_quote_cash=live_quote_cash,
         active=active,
+        as_of=as_of,
+        beta=beta,
     )
     if request.action is AdoptionAction.PROTECT:
         return await _protect(
@@ -159,6 +178,8 @@ class _Context:
     availability: BaseAvailability
     live_quote_cash: Decimal | None
     active: ActiveRiskPolicy
+    as_of: datetime
+    beta: BetaEvidence | None
 
     @property
     def mark(self) -> Decimal:
@@ -313,11 +334,12 @@ def _in_kind_admission(
         snapshots=(*peers, target_book),
         live_quote_cash=context.live_quote_cash,
         observation=EntryObservation(
-            as_of=utc_now(),
+            as_of=context.as_of,
             proposed_price=context.mark,
             reference_price=context.mark,
             marks={request.product_id: context.mark},
         ),
+        beta=context.beta,
     )
 
 
