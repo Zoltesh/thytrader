@@ -127,6 +127,21 @@ changes (recorded fees/loss), working buy reserves, and conservative stored/defa
 fees. Unknown quote, quantity when capped, or paper opening cash fails closed. Limits never gate
 protective exits. These are observation-time checks, not atomic reserves against external trades.
 
+Optional fleet entry clustering cap ([ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)):
+`--max-fleet-entries-per-window N` (1–128) with `--fleet-entry-window-minutes W` (1–1440); set
+both or neither. Unset by default, and an unset cap keeps old policy fingerprints. When set, a
+new entry is denied with `FLEET_ENTRY_CLUSTER_LIMIT` once N distinct bot/product pairs in that
+mode placed an entry intent in the last W minutes. Stopped and paused bots still count, adoption
+intents do not, and paper and live are counted separately. Pyramid adds are gated and counted. A
+reprice of an already working entry is not gated, but its replacement intent counts for other
+bots. In-kind adoption (`--entry-kind adopt`, `start --adopt-holdings`) and protective exits are
+never gated. The denial does not pause the bot: that bar's signal is skipped and recorded in
+`decisions`. The detail names the count, window, cap, the oldest counted entry, and when a slot
+frees. Which bots win a crowded bar depends on worker order, which is not a priority. API and
+worker admissions racing can exceed the cap by one. Resupply both flags on every publication to
+keep the cap. Starting point for a ~500 USDC fleet whose bars close together on 2h boundaries:
+`--max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120`. Backtests do not apply it.
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).
@@ -591,6 +606,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Show risk policy | `uv run thytrader-runtime show-risk-policy` |
 | Publish risk policy | `uv run thytrader-runtime set-risk-policy --quote-currency USDC --product-allowlist BTC-USDC --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --confirm` |
 | Publish risk policy with pyramiding | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --allow-intra-strategy-pyramiding --confirm` |
+| Publish risk policy with a fleet entry clustering cap | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-fleet-entries-per-window 4 --fleet-entry-window-minutes 120 --confirm` |
 | Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |

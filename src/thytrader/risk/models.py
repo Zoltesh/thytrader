@@ -96,6 +96,8 @@ class RiskReasonCode(StrEnum):
     PORTFOLIO_DAILY_LOSS_STOP = "PORTFOLIO_DAILY_LOSS_STOP"
     PORTFOLIO_DRAWDOWN_STOP = "PORTFOLIO_DRAWDOWN_STOP"
     PORTFOLIO_LIMITS_UNAVAILABLE = "PORTFOLIO_LIMITS_UNAVAILABLE"
+    # Correlation-aware limits (ADR 0125): too many fleet entries in one trailing window.
+    FLEET_ENTRY_CLUSTER_LIMIT = "FLEET_ENTRY_CLUSTER_LIMIT"
 
 
 class _FrozenModel(BaseModel):
@@ -128,6 +130,27 @@ counts, bound the capital at risk.
 
 MAX_ALLOWLISTED_PRODUCTS = 256
 """Upper bound on ``product_allowlist`` entries (was 32)."""
+
+MAX_FLEET_ENTRIES_PER_WINDOW = MAX_CONCURRENT_LIMIT
+"""Upper bound for ``max_fleet_entries_per_window``: one entry per running slot (ADR 0125)."""
+
+MAX_FLEET_ENTRY_WINDOW_MINUTES = 1440
+"""Upper bound for ``fleet_entry_window_minutes``: one UTC day (ADR 0125)."""
+
+
+def require_fleet_window_pair(count: int | None, window_minutes: int | None) -> None:
+    """Require the clustering count and its window to be set together or not at all.
+
+    A count without a window cannot be enforced, and a window without a count would change
+    the policy fingerprint without changing behaviour (ADR 0125).
+
+    Raises:
+        ValueError: When exactly one of the two fields is set.
+    """
+    if (count is None) != (window_minutes is None):
+        raise ValueError(
+            "max_fleet_entries_per_window and fleet_entry_window_minutes must be set together"
+        )
 
 
 class RiskPolicyDefinition(_FrozenModel):
@@ -182,6 +205,15 @@ class RiskPolicyDefinition(_FrozenModel):
     )
     min_available_quote_reserve: DecimalText | None = Field(
         default=None, exclude_if=lambda v: v is None
+    )
+    # Optional fleet entry clustering cap (ADR 0125): at most this many distinct
+    # (deployment, product) entries across the mode in the trailing window. Unset keeps
+    # today's behaviour and the canonical bytes of every existing policy.
+    max_fleet_entries_per_window: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRIES_PER_WINDOW, exclude_if=lambda v: v is None
+    )
+    fleet_entry_window_minutes: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES, exclude_if=lambda v: v is None
     )
 
     @field_validator("product_allowlist")
@@ -252,6 +284,14 @@ class RiskPolicyDefinition(_FrozenModel):
             raise ValueError("sum of allocations cannot exceed paper_capital_quote")
         return self
 
+    @model_validator(mode="after")
+    def validate_fleet_window(self) -> Self:
+        """Require the clustering count and window together (ADR 0125)."""
+        require_fleet_window_pair(
+            self.max_fleet_entries_per_window, self.fleet_entry_window_minutes
+        )
+        return self
+
 
 class RiskPolicyWrite(_FrozenModel):
     """Operator-authored fields for publishing the next immutable policy version."""
@@ -280,6 +320,20 @@ class RiskPolicyWrite(_FrozenModel):
     max_order_quantity: DecimalText | None = None
     max_order_notional_quote: DecimalText | None = None
     min_available_quote_reserve: DecimalText | None = None
+    max_fleet_entries_per_window: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRIES_PER_WINDOW
+    )
+    fleet_entry_window_minutes: int | None = Field(
+        default=None, ge=1, le=MAX_FLEET_ENTRY_WINDOW_MINUTES
+    )
+
+    @model_validator(mode="after")
+    def validate_fleet_window(self) -> Self:
+        """Require the clustering count and window together (ADR 0125)."""
+        require_fleet_window_pair(
+            self.max_fleet_entries_per_window, self.fleet_entry_window_minutes
+        )
+        return self
 
 
 class ActiveRiskPolicy(_FrozenModel):

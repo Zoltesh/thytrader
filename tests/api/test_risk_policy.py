@@ -105,3 +105,54 @@ def test_put_risk_policy_accepts_large_fleet_counts_up_to_the_model_bound() -> N
     assert accepted.status_code == 200
     assert accepted.json()["max_concurrent_running_deployments"] == 128
     assert rejected.status_code == 422
+
+
+def test_put_risk_policy_round_trips_the_fleet_clustering_cap() -> None:
+    """The HTTP body, response and model share the ADR 0125 fields and bounds."""
+    app = create_app(
+        Settings(_env_file=None),
+        risk_policy_store=InMemoryRiskPolicyStore(),
+        audit_event_store=InMemoryAuditEventStore(),
+        strategy_store=DisabledStrategyStore(),
+    )
+    base = {
+        "max_concurrent_running_deployments": 8,
+        "max_concurrent_open_positions": 8,
+        "max_portfolio_exposure_fraction": "1",
+        "per_product_max_exposure_fraction": "1",
+        "paper_capital_quote": "40000",
+    }
+    with TestClient(app) as client:
+        unset = client.put("/api/v1/risk-policy", json=base)
+        widest = client.put(
+            "/api/v1/risk-policy",
+            json={**base, "max_fleet_entries_per_window": 128, "fleet_entry_window_minutes": 1440},
+        )
+        clustered = client.put(
+            "/api/v1/risk-policy",
+            json={**base, "max_fleet_entries_per_window": 4, "fleet_entry_window_minutes": 120},
+        )
+        fetched = client.get("/api/v1/risk-policy")
+        too_many = client.put(
+            "/api/v1/risk-policy",
+            json={**base, "max_fleet_entries_per_window": 129, "fleet_entry_window_minutes": 120},
+        )
+        too_long = client.put(
+            "/api/v1/risk-policy",
+            json={**base, "max_fleet_entries_per_window": 4, "fleet_entry_window_minutes": 1441},
+        )
+        unpaired = client.put(
+            "/api/v1/risk-policy", json={**base, "max_fleet_entries_per_window": 4}
+        )
+    assert unset.status_code == 200
+    assert unset.json()["max_fleet_entries_per_window"] is None
+    assert unset.json()["fleet_entry_window_minutes"] is None
+    assert widest.status_code == 200
+    assert clustered.status_code == 200
+    assert fetched.json()["max_fleet_entries_per_window"] == 4
+    assert fetched.json()["fleet_entry_window_minutes"] == 120
+    assert fetched.json()["policy_fingerprint"] == clustered.json()["policy_fingerprint"]
+    assert too_many.status_code == 422
+    assert too_long.status_code == 422
+    assert unpaired.status_code == 422
+    assert "must be set together" in unpaired.text

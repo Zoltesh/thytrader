@@ -10,10 +10,12 @@ from thytrader.risk.models import (
     CapitalAllocation,
     RiskPolicyDefinition,
     RiskPolicySource,
+    RiskPolicyWrite,
     RiskReasonCode,
     canonical_risk_policy_bytes,
     compiled_default_active_policy,
     compiled_default_risk_policy,
+    definition_from_stored_json,
     pauses_risk_increasing,
     risk_policy_fingerprint,
 )
@@ -170,3 +172,91 @@ def test_count_limits_allow_large_fleets_up_to_their_bounds() -> None:
         RiskPolicyDefinition.model_validate(
             {**payload, "product_allowlist": tuple(f"C{index}-USD" for index in range(257))}
         )
+
+
+_COMPILED_FINGERPRINT = "sha256:7e7f02402a5c77932e147a0004cd18ad01a6eed0a8facb0381286e848515e4a6"
+_CONFIGURED_FINGERPRINT = "sha256:0bba6e42ae327b87504c385f5d7acc1eda4cf180cccbcceeaccb87edf4be5360"
+
+
+def test_policies_without_clustering_fields_keep_their_fingerprints() -> None:
+    """ADR 0125 fields are omitted when unset: pre-0125 identities are byte-for-byte unchanged.
+
+    Both values were computed with the risk models from before the clustering fields existed.
+    """
+    default = compiled_default_risk_policy()
+    configured = RiskPolicyDefinition.model_validate(
+        {
+            **default.model_dump(mode="python"),
+            "max_daily_loss_quote": "25",
+            "max_portfolio_exposure_quote": "490",
+            "max_order_quantity": "1",
+            "min_available_quote_reserve": "5",
+            "max_venue_order_actions_per_minute": 90,
+            "allow_intra_strategy_pyramiding": True,
+        }
+    )
+    assert risk_policy_fingerprint(default) == _COMPILED_FINGERPRINT
+    assert risk_policy_fingerprint(configured) == _CONFIGURED_FINGERPRINT
+    assert b"fleet" not in canonical_risk_policy_bytes(configured)
+
+
+def test_clustering_fields_change_the_fingerprint_when_set() -> None:
+    """A published clustering cap is part of the policy identity and round-trips."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    clustered = RiskPolicyDefinition.model_validate(
+        {**payload, "max_fleet_entries_per_window": 4, "fleet_entry_window_minutes": 120}
+    )
+    canonical = canonical_risk_policy_bytes(clustered)
+    assert risk_policy_fingerprint(clustered) != _COMPILED_FINGERPRINT
+    assert b'"max_fleet_entries_per_window":4' in canonical
+    assert b'"fleet_entry_window_minutes":120' in canonical
+    assert definition_from_stored_json(canonical.decode("utf-8")) == clustered
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [{"max_fleet_entries_per_window": 4}, {"fleet_entry_window_minutes": 120}],
+)
+def test_clustering_count_and_window_must_be_set_together(fields: dict[str, int]) -> None:
+    """A count without a window, or a window without a count, is rejected on both models."""
+    payload = compiled_default_risk_policy().model_dump(mode="python")
+    with pytest.raises(ValidationError, match="must be set together"):
+        RiskPolicyDefinition.model_validate({**payload, **fields})
+    write = {
+        "max_concurrent_running_deployments": 8,
+        "max_concurrent_open_positions": 8,
+        "max_portfolio_exposure_fraction": "1",
+        "per_product_max_exposure_fraction": "1",
+        "paper_capital_quote": "1000",
+    }
+    with pytest.raises(ValidationError, match="must be set together"):
+        RiskPolicyWrite.model_validate({**write, **fields})
+
+
+@pytest.mark.parametrize(
+    ("field", "accepted", "rejected"),
+    [
+        ("max_fleet_entries_per_window", (1, 128), (0, 129)),
+        ("fleet_entry_window_minutes", (1, 1440), (0, 1441)),
+    ],
+)
+def test_clustering_bounds(
+    field: str, accepted: tuple[int, int], rejected: tuple[int, int]
+) -> None:
+    """The count accepts 1-128 and the window 1-1440 minutes."""
+    payload = {
+        **compiled_default_risk_policy().model_dump(mode="python"),
+        "max_fleet_entries_per_window": 4,
+        "fleet_entry_window_minutes": 120,
+    }
+    for value in accepted:
+        validated = RiskPolicyDefinition.model_validate({**payload, field: value})
+        assert validated.model_dump()[field] == value
+    for value in rejected:
+        with pytest.raises(ValidationError):
+            RiskPolicyDefinition.model_validate({**payload, field: value})
+
+
+def test_cluster_limit_does_not_pause_books() -> None:
+    """A clustering denial skips one entry; it is not a breaker."""
+    assert pauses_risk_increasing(RiskReasonCode.FLEET_ENTRY_CLUSTER_LIMIT) is False

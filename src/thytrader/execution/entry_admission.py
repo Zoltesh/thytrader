@@ -67,8 +67,13 @@ async def _entry_verdict(
     observation: EntryObservation | None = None,
     is_pyramid_add: bool = False,
     quantity: Decimal | None = None,
+    readmits_working_entry: bool = False,
 ) -> RiskVerdict:
-    """Admit only against fresh full accounting, never the product view or cache."""
+    """Admit only against fresh full accounting, never the product view or cache.
+
+    ``readmits_working_entry`` is set by a reprice of an already admitted working entry,
+    which the fleet clustering cap does not gate again (ADR 0125).
+    """
     observation = observation or EntryObservation(
         as_of=utc_now(), proposed_price=None, reference_price=None, marks={}
     )
@@ -99,6 +104,7 @@ async def _entry_verdict(
             notional=notional,
             is_pyramid_add=is_pyramid_add,
             quantity=quantity,
+            readmits_working_entry=readmits_working_entry,
         ),
         snapshots=current_portfolio,
         live_quote_cash=live_cash,

@@ -251,6 +251,11 @@ The primary `risk` payload also echoes `max_order_quantity`, `max_order_notional
 not that account funds are missing. These are configured limits, never observed balances.
 Risk publication replaces the entire policy; omitting a previously configured bound removes it
 from the successor, so read `show-risk-policy` and resupply bounds you intend to retain.
+It also echoes `max_fleet_entries_per_window` and `fleet_entry_window_minutes` as nullable
+integers: the opt-in fleet entry clustering cap, null when unset
+([ADR 0125](../../docs/decisions/0125-correlation-aware-risk-limits.md)). A
+`FLEET_ENTRY_CLUSTER_LIMIT` denial skips that bar's entry without pausing the bot; its detail
+names the count, window, cap, and when a slot frees. It is a policy limit, not a fault.
 Runtime `show` exposes `capital.risk_day_open_evidence` separately from preserved legacy
 `utc_day_open_equity`; a legacy stamp or an old evidence day is not verified current-day equity.
 The worker uses fresh complete sibling fill economics and actual closed midnight marks when
@@ -303,7 +308,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v72`, schema revision `0070`) and exits on any
+   this checkout's (`thytrader-ops-contract-v73`, schema revision `0070`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

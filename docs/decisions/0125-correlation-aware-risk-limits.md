@@ -33,7 +33,8 @@ and reason codes have no CHECK constraint.
 ### 1. Fleet entry clustering cap
 
 - **Fields.** `max_fleet_entries_per_window` (1–128) and `fleet_entry_window_minutes`
-  (1–1440). Setting the count requires the window.
+  (1–1440), set together or not at all: a window alone would change the fingerprint without
+  changing behaviour.
 - **Count.** The distinct `(deployment, product)` pairs with an `ENTRY`-purpose intent
   created in `[as_of − window, as_of]`, across every book of the entry's mode, stopped books
   included, so a bot that entered and was then stopped still counts. `ADOPTION` intents are

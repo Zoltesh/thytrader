@@ -142,6 +142,28 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--max-fleet-entries-per-window",
+        type=int,
+        default=None,
+        help=(
+            "Optional fleet entry clustering cap (ADR 0125): deny a new entry once this many "
+            "distinct bot/product entries were placed in this mode within "
+            "--fleet-entry-window-minutes, stopped bots included "
+            "(FLEET_ENTRY_CLUSTER_LIMIT; does not pause). 1-128; requires "
+            "--fleet-entry-window-minutes. Reprices, adoptions and protective exits are "
+            "never gated. Omitting this flag unsets the cap in the replacement policy."
+        ),
+    )
+    set_policy.add_argument(
+        "--fleet-entry-window-minutes",
+        type=int,
+        default=None,
+        help=(
+            "Trailing window for --max-fleet-entries-per-window, 1-1440 minutes; set both "
+            "or neither. Omitting this flag unsets the window in the replacement policy."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],

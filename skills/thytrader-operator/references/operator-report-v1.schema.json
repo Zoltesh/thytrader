@@ -9609,6 +9609,34 @@
           "default": null,
           "title": "Min Available Quote Reserve"
         },
+        "max_fleet_entries_per_window": {
+          "anyOf": [
+            {
+              "maximum": 128,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Fleet Entries Per Window"
+        },
+        "fleet_entry_window_minutes": {
+          "anyOf": [
+            {
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fleet Entry Window Minutes"
+        },
         "findings": {
           "items": {
             "$ref": "#/$defs/RiskFinding"
