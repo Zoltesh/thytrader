@@ -1,0 +1,13 @@
+{
+  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (Close Position, NewOrderFailureReason); not observed. Closing on a flat account is a definite rejection.",
+  "body": {
+    "success": false,
+    "error_response": {
+      "error": "CANNOT_CLOSE_ZERO_POSITION",
+      "message": "cannot close zero position",
+      "error_details": "no open position for product",
+      "preview_failure_reason": "UNKNOWN_PREVIEW_FAILURE_REASON",
+      "new_order_failure_reason": "CANNOT_CLOSE_ZERO_POSITION"
+    }
+  }
+}

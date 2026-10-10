@@ -1,0 +1,6 @@
+{
+  "provenance": "Synthetic: field names, nesting and value formats follow a GET-only read of Coinbase Advanced Trade REST v3 futures responses; every id, price, fee and time is invented, and each commission is recomputed as 0.10% x notional + 0.10 venue + 0.01 clearing per contract. The account holds no futures position.",
+  "body": {
+    "positions": []
+  }
+}

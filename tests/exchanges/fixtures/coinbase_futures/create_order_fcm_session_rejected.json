@@ -1,0 +1,20 @@
+{
+  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (Create Order, NewOrderFailureReason); not observed. A post-only limit entry refused outside the FCM trading session.",
+  "body": {
+    "success": false,
+    "error_response": {
+      "error": "INVALID_FCM_TRADING_SESSION",
+      "message": "invalid FCM trading session",
+      "error_details": "orders are not accepted for this product at this time",
+      "preview_failure_reason": "UNKNOWN_PREVIEW_FAILURE_REASON",
+      "new_order_failure_reason": "INVALID_FCM_TRADING_SESSION"
+    },
+    "order_configuration": {
+      "limit_limit_gtc": {
+        "base_size": "1",
+        "limit_price": "2500",
+        "post_only": true
+      }
+    }
+  }
+}
