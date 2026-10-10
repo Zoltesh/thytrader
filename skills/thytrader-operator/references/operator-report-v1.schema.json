@@ -7555,7 +7555,8 @@
               "futures_candles",
               "account_mirror",
               "readiness_reconciliation",
-              "live_spot_collateral_gate"
+              "live_spot_collateral_gate",
+              "futures_strategy_documents"
             ],
             "type": "string"
           },

@@ -6,6 +6,7 @@ from typing import Literal, Self
 
 from pydantic import Field, field_validator, model_validator
 
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN, is_futures_product_id
 from thytrader.market_data.models import DatasetTimeframe
 from thytrader.market_data.products import (
     SPOT_PRODUCT_ID_PATTERN,
@@ -16,18 +17,37 @@ from thytrader.strategies.schema.primitives import _FrozenModel
 
 
 class Instrument(_FrozenModel):
-    """One conservative Coinbase USD or USDC spot instrument."""
+    """One Coinbase spot instrument, or (``kind: future``) one CFM futures contract.
 
-    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    Spot: ``product_id`` is ``BASE-QUOTE`` and matches the two currencies; ``kind`` is
+    omitted so spot documents keep their canonical bytes. Futures (ADR 0128): a CDE
+    contract id, ``quote_currency`` ``USD`` (the settlement currency) and
+    ``base_currency`` = the contract's underlying (``contract_root_unit``; ``BIP`` is
+    ``BTC``), which the catalog confirms when the contract is bound.
+    """
+
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
     base_currency: str = Field(pattern=r"^[A-Z0-9]{2,20}$")
     quote_currency: SpotQuoteCurrency
+    kind: Literal["future"] | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="after")
     def validate_product_components(self) -> Self:
-        """Require the product identifier to match its explicit currencies."""
+        """Require spot ids to match their currencies; futures ids to settle in USD."""
+        if self.kind == "future":
+            if not is_futures_product_id(self.product_id):
+                raise ValueError("a futures instrument needs a CODE-DDMONYY-CDE product_id")
+            if self.quote_currency != "USD":
+                raise ValueError("a futures instrument settles in USD (quote_currency USD)")
+            return self
         if self.product_id != f"{self.base_currency}-{self.quote_currency}":
             raise ValueError("product_id must match base_currency and quote_currency")
         return self
+
+    @property
+    def is_future(self) -> bool:
+        """True for a CFM futures contract."""
+        return self.kind == "future"
 
 
 MAX_REFERENCE_INSTRUMENTS = 3

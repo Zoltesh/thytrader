@@ -290,7 +290,7 @@ class _LoadedStrategyStore:
             instrument = type(
                 "Instrument",
                 (),
-                {"product_id": "BTC-USD", "quote_currency": "USD"},
+                {"product_id": "BTC-USD", "quote_currency": "USD", "is_future": False},
             )()
             data_requirements = type(
                 "DataRequirements", (), {"warmup_bars": 1, "reference_instruments": ()}

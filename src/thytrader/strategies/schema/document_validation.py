@@ -60,6 +60,23 @@ def _validate_covered_instruments(definition: StrategyDefinition) -> None:
         raise ValueError("max_concurrent_positions cannot exceed the number of covered products")
 
 
+def _validate_derivatives(definition: StrategyDefinition) -> None:
+    """Futures documents are single-instrument and carry ``derivatives`` (ADR 0128)."""
+    future = definition.instrument.is_future
+    if any(instrument.is_future for instrument in definition.additional_instruments):
+        raise ValueError("additional_instruments must be spot; futures are single-instrument")
+    if not future:
+        if definition.derivatives is not None:
+            raise ValueError("derivatives is only allowed with instrument.kind future")
+        return
+    if definition.derivatives is None:
+        raise ValueError("a futures strategy needs a derivatives block (max_leverage)")
+    if definition.additional_instruments:
+        raise ValueError("a futures strategy cannot cover additional instruments (P3)")
+    if definition.data_requirements.reference_instruments:
+        raise ValueError("a futures strategy cannot read reference instruments in P1")
+
+
 def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     """Resolve LTF indicator identity, warmup, and ATR-stop references."""
     identifiers = [indicator.id for indicator in definition.indicators]

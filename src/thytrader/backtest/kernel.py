@@ -423,4 +423,8 @@ def _validated_inputs(
         raise BacktestSimulationError("Backtest inputs are invalid.") from error
     if strategy_fingerprint(validated_strategy) != validated_specification.strategy_fingerprint:
         raise BacktestSimulationError("Backtest strategy identity failed verification.")
+    if validated_strategy.instrument.is_future or validated_specification.instrument_contract:
+        raise BacktestSimulationError(
+            "FUTURES_BACKTEST_UNSUPPORTED: the kernel does not simulate futures yet."
+        )
     return validated_specification, validated_strategy

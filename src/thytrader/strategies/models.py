@@ -37,6 +37,7 @@ from thytrader.strategies.schema.conditions import (
     condition_indicator_operands,
     operand_value_key,
 )
+from thytrader.strategies.schema.derivatives import Derivatives
 from thytrader.strategies.schema.document_queries import (
     MAX_STRATEGY_INSTRUMENTS,
     can_pyramid_add,
@@ -60,6 +61,7 @@ from thytrader.strategies.schema.document_queries import (
 from thytrader.strategies.schema.document_validation import (
     _validate_covered_instruments,
     _validate_decision_indicators,
+    _validate_derivatives,
     _validate_htf_filter,
     _validate_reference_instruments,
     _validate_signal_exit,
@@ -175,6 +177,7 @@ __all__ = [
     "ConstantIndicatorParameters",
     "DataRequirements",
     "DecimalText",
+    "Derivatives",
     "DisabledTrailingStop",
     "EmptyIndicatorParameters",
     "EntryDefinition",
@@ -379,6 +382,8 @@ class StrategyDefinition(_FrozenModel):
     exits: ExitDefinition
     execution: ExecutionPreferences
     metadata: StrategyMetadata
+    # Futures only (ADR 0128); omitted for spot so canonical bytes do not change.
+    derivatives: Derivatives | None = Field(default=None, exclude_if=lambda value: value is None)
 
     @model_validator(mode="before")
     @classmethod
@@ -405,6 +410,7 @@ class StrategyDefinition(_FrozenModel):
     def validate_semantics(self) -> Self:
         """Resolve indicator references and enforce warmup sufficiency."""
         _validate_covered_instruments(self)
+        _validate_derivatives(self)
         _validate_decision_indicators(self)
         _validate_reference_instruments(self)
         _validate_signal_exit(self)

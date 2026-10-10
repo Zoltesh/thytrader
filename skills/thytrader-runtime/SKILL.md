@@ -186,6 +186,10 @@ bar's entry is skipped and recorded in `decisions`. Resupply both flags on every
 keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`, USD figures,
 `reserve_quote`, `effect`).
 
+A futures strategy document (`instrument.kind: future`, ADR 0128) cannot be deployed yet: `start`
+returns `FUTURES_PAPER_UNSUPPORTED` (paper) or `FUTURES_LIVE_UNSUPPORTED` (live; there is no
+futures order path). Do not retry with another mode or a spot product id.
+
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and
 live place-order still need understand-live (chat sends `i_understand_live` only after that box).
