@@ -68,7 +68,9 @@ fleet entry clustering cap (``max_fleet_entries_per_window`` / ``fleet_entry_win
 and ``FLEET_ENTRY_CLUSTER_LIMIT``; an older API would drop the fields; ADR 0125), or the
 BTC-beta-weighted exposure cap (``max_btc_beta_exposure_fraction`` /
 ``max_btc_beta_exposure_quote``, ``BTC_BETA_EXPOSURE_EXCEEDED`` and
-``BTC_BETA_UNAVAILABLE``; ADR 0125) change.
+``BTC_BETA_UNAVAILABLE``; ADR 0125), or the read-only Coinbase futures surfaces
+(``instrument_kinds``, the empty ``futures_order_paths``, the futures observation tables of
+Alembic 0071 and the operator ``funding`` report; ADR 0126) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -80,6 +82,7 @@ from typing import TYPE_CHECKING
 from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
 from thytrader.evaluation.models import BACKTEST_ENGINE
 from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
+from thytrader.market_data.instruments import InstrumentKind
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, MAX_HISTORICAL_INTERVAL_COUNT
 from thytrader.market_data.products import SPOT_QUOTE_CURRENCIES
 from thytrader.portfolios.proposals import PROPOSAL_KINDS
@@ -96,8 +99,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v74"
-EXPECTED_SCHEMA_REVISION = "0070"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v75"
+EXPECTED_SCHEMA_REVISION = "0071"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -240,6 +243,11 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "revision_fenced_fleet_controls",
     "backtest_bar_explanations",
 )
+# Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
+# no execution, live, adoption or discretionary surface accepts a futures id.
+INSTRUMENT_KINDS: tuple[str, ...] = tuple(kind.value for kind in InstrumentKind)
+FUTURES_ORDER_PATHS: tuple[str, ...] = ()
+FUTURES_OBSERVATIONS: tuple[str, ...] = ("instrument_catalog", "funding_history")
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 
 
@@ -304,6 +312,9 @@ def expected_ops_contract() -> dict[str, object]:
         "portfolio_sleeve_operations": list(PORTFOLIO_SLEEVE_OPERATIONS),
         "same_bar_exit_precedence": list(SAME_BAR_EXIT_PRECEDENCE),
         "runtime_observability": list(RUNTIME_OBSERVABILITY),
+        "instrument_kinds": list(INSTRUMENT_KINDS),
+        "futures_order_paths": list(FUTURES_ORDER_PATHS),
+        "futures_observations": list(FUTURES_OBSERVATIONS),
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

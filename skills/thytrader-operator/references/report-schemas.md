@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -339,6 +339,18 @@ pending submissions match by client ID; a locally terminal managed order still w
 at the venue is `MANAGED_ORDER_STATUS_MISMATCH`, not external activity. Duplicate
 balance rows are summed; malformed balance evidence fails the listing. These are
 sequential REST reads, not an atomic snapshot. No account identifiers or secrets.
+
+## Futures funding history (ADR 0126)
+
+`funding` is read-only. `payload` holds `window_starts_at` / `window_ends_at` (the window ends
+at the start of the next UTC hour), `hours`, `product_id` (or `null`), `poller` (`null` before
+the first poll), `contracts[]` and, only for one `product_id`, `rows[]`. Rates are exact decimal
+strings per `interval_seconds` (3600 on CFM). `latest_settled: false` marks the hour the listing
+still names. Gaps are judged only for hours before the last successful poll's hour and after
+`history_starts_at`; gaps of a contract with `twenty_four_by_seven: false` (trading sessions)
+are listed but do not degrade the report. Component reason codes: `OK`, `STORE_DISABLED`, `STORE_UNAVAILABLE`,
+`FUTURES_POLLER_NOT_RUN`, `FUTURES_POLLER_STALE`, `FUNDING_HISTORY_GAPS`,
+`FUNDING_RATE_CONFLICT`. No account data is read.
 
 ## Safety alerts (ADR 0115)
 
