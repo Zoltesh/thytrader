@@ -17,6 +17,10 @@ from thytrader.execution.runtime_ops import _pause
 from thytrader.risk.accounting_evidence import accounting_snapshot
 from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.futures_collateral import (
+    bound_futures_account_store,
+    load_futures_collateral,
+)
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
@@ -281,6 +285,9 @@ async def _require_entry_admission(
         product_id=request.product_id,
         as_of=as_of,
     )
+    futures_collateral = await load_futures_collateral(
+        bound_futures_account_store(), mode=request.mode, as_of=as_of
+    )
     verdict = evaluate_new_entry(
         active.definition,
         mode=request.mode,
@@ -299,6 +306,7 @@ async def _require_entry_admission(
             marks={request.product_id: reference_price},
         ),
         beta=beta,
+        futures_collateral=futures_collateral,
     )
     if verdict.decision is RiskDecision.ALLOW:
         return

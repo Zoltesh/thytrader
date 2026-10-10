@@ -15,6 +15,7 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     AuditEventStore,
 )
+from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.models import (
     MAX_CONCURRENT_LIMIT,
     MAX_FLEET_ENTRIES_PER_WINDOW,
@@ -68,6 +69,7 @@ class RiskPolicyWriteBody(BaseModel):
     )
     max_btc_beta_exposure_fraction: str | None = None
     max_btc_beta_exposure_quote: str | None = None
+    futures: FuturesRiskPolicy | None = None
 
 
 class RiskPolicyResponse(BaseModel):
@@ -102,6 +104,7 @@ class RiskPolicyResponse(BaseModel):
     fleet_entry_window_minutes: int | None = None
     max_btc_beta_exposure_fraction: str | None = None
     max_btc_beta_exposure_quote: str | None = None
+    futures: FuturesRiskPolicy | None = None
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -174,6 +177,7 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         fleet_entry_window_minutes=body.fleet_entry_window_minutes,
         max_btc_beta_exposure_fraction=body.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=body.max_btc_beta_exposure_quote,
+        futures=body.futures,
     )
 
 
@@ -213,4 +217,5 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         fleet_entry_window_minutes=definition.fleet_entry_window_minutes,
         max_btc_beta_exposure_fraction=definition.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=definition.max_btc_beta_exposure_quote,
+        futures=definition.futures,
     )

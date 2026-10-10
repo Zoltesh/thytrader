@@ -265,6 +265,16 @@ limit. `BTC_BETA_UNAVAILABLE` means some product's daily history vs `BTC-<quote>
 Its detail names the product and cause. The β history is read from the venue, not the research
 dataset catalog. The remedy is a policy or allowlist change through the runtime lane, never a
 bypass.
+`futures` echoes the policy's futures block (`live_spot_collateral_reserve_quote`,
+`peg_haircut`; null when unset) and `futures_collateral` shows the shared-USDC-collateral gate
+([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)):
+`state` (`absent`, `idle`, `in_use`, `unknown`), `cause`, the CFM `initial_margin_usd`,
+`open_orders_hold_usd` and `position_count`, the policy quote and reserve, and `effect` on new
+live entries in the policy quote: `none`, `not_linked` (USDT), `live_spot_entries_denied`
+(`FUTURES_COLLATERAL_UNKNOWN` or `FUTURES_COLLATERAL_IN_USE`), `reserve_short_entries_denied`
+(`FUTURES_COLLATERAL_RESERVE_SHORT`) or `reserve_withheld`. Those codes are policy limits on
+the shared pool, not faults; closing the manual futures or declaring a reserve through the
+runtime lane resolves them.
 Runtime `show` exposes `capital.risk_day_open_evidence` separately from preserved legacy
 `utc_day_open_equity`; a legacy stamp or an old evidence day is not verified current-day equity.
 The worker uses fresh complete sibling fill economics and actual closed midnight marks when
@@ -317,7 +327,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v80`, schema revision `0072`) and exits on any
+   this checkout's (`thytrader-ops-contract-v81`, schema revision `0072`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

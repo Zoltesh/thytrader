@@ -12,6 +12,7 @@ from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore
 from thytrader.operator.audit_findings import audit_failure_findings
+from thytrader.operator.futures_collateral_report import futures_collateral_payload
 from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.runtime_models import (
     MonitorReport,
@@ -111,6 +112,10 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
             fleet_entry_window_minutes=policy.fleet_entry_window_minutes,
             max_btc_beta_exposure_fraction=policy.max_btc_beta_exposure_fraction,
             max_btc_beta_exposure_quote=policy.max_btc_beta_exposure_quote,
+            futures=policy.futures,
+            futures_collateral=await futures_collateral_payload(
+                diagnostics.futures_account_store, policy
+            ),
             findings=findings,
         ),
     )

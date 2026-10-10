@@ -19,8 +19,10 @@ from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
+from thytrader.operator.futures_collateral_report import FuturesCollateralPayload
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.research.catalog import StudyCatalogSummary
+from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.models import (
     MAX_CONCURRENT_LIMIT,
     MAX_FLEET_ENTRIES_PER_WINDOW,
@@ -215,6 +217,8 @@ class RiskPayload(_FrozenModel):
     )
     max_btc_beta_exposure_fraction: str | None = None
     max_btc_beta_exposure_quote: str | None = None
+    futures: FuturesRiskPolicy | None = None
+    futures_collateral: FuturesCollateralPayload | None = None
     findings: tuple[RiskFinding, ...]
 
 

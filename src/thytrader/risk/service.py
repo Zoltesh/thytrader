@@ -36,5 +36,6 @@ async def publish_risk_policy(store: RiskPolicyStore, write: RiskPolicyWrite) ->
         fleet_entry_window_minutes=write.fleet_entry_window_minutes,
         max_btc_beta_exposure_fraction=write.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=write.max_btc_beta_exposure_quote,
+        futures=write.futures,
     )
     return await store.publish(definition)

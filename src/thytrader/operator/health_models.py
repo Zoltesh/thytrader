@@ -172,6 +172,7 @@ class OpsContractPayload(_FrozenModel):
             "futures_candles",
             "account_mirror",
             "readiness_reconciliation",
+            "live_spot_collateral_gate",
         ],
         ...,
     ]

@@ -80,7 +80,9 @@ futures account mirror (GET-only adapter, Alembic 0072 snapshots and the operato
 ``futures-account`` report; ADR 0127), or the futures sections of readiness and venue
 reconciliation (external CFM positions and orders as unmanaged exposure, shared USDC
 collateral, the ``futures_open_orders`` read operation) and the futures-account
-``margin_ratio`` (ADR 0127, P0-6) change.
+``margin_ratio`` (ADR 0127, P0-6), or the live shared-collateral gate (the policy ``futures``
+block, the ``FUTURES_COLLATERAL_*`` reason codes and the risk report ``futures_collateral``
+block; ADR 0129, P1-2a) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -109,7 +111,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v80"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v81"
 EXPECTED_SCHEMA_REVISION = "0072"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -264,6 +266,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "futures_candles",
     "account_mirror",
     "readiness_reconciliation",
+    "live_spot_collateral_gate",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

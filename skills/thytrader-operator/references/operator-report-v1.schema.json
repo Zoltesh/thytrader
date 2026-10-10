@@ -4552,6 +4552,139 @@
       "title": "FuturesBalancePayload",
       "type": "object"
     },
+    "FuturesCollateralPayload": {
+      "additionalProperties": false,
+      "description": "The gate's view of the shared USDC collateral pool.\n\n``state`` is ``absent``, ``idle``, ``in_use`` or ``unknown``. USD figures come from the\nnewest CFM mirror snapshot; ``reserve_quote`` is in the policy quote. ``effect`` is what\nthe gate does to new live entries in the policy quote: ``none`` (idle or absent),\n``not_linked`` (a USDT policy), ``live_spot_entries_denied``,\n``reserve_short_entries_denied`` or ``reserve_withheld``.",
+      "properties": {
+        "state": {
+          "enum": [
+            "absent",
+            "idle",
+            "in_use",
+            "unknown"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "cause": {
+          "title": "Cause",
+          "type": "string"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "initial_margin_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Initial Margin Usd"
+        },
+        "open_orders_hold_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Open Orders Hold Usd"
+        },
+        "position_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Position Count"
+        },
+        "policy_quote": {
+          "title": "Policy Quote",
+          "type": "string"
+        },
+        "reserve_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reserve Quote"
+        },
+        "peg_haircut": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Peg Haircut"
+        },
+        "effect": {
+          "enum": [
+            "none",
+            "not_linked",
+            "live_spot_entries_denied",
+            "reserve_short_entries_denied",
+            "reserve_withheld"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "reason_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason Code"
+        },
+        "collateral_note": {
+          "default": "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): futures buying power is shared with USDC spot capital, not additional money. Amounts here are USD and are never added to USDC amounts.",
+          "title": "Collateral Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "state",
+        "cause",
+        "observed_at",
+        "initial_margin_usd",
+        "open_orders_hold_usd",
+        "position_count",
+        "policy_quote",
+        "reserve_quote",
+        "peg_haircut",
+        "effect",
+        "reason_code"
+      ],
+      "title": "FuturesCollateralPayload",
+      "type": "object"
+    },
     "FuturesExternalPositionRow": {
       "additionalProperties": false,
       "description": "One CFM position; ``notional_usd`` is ``null`` when its contract size is unknown.",
@@ -5163,6 +5296,31 @@
         "positions_source"
       ],
       "title": "FuturesReconciliationSection",
+      "type": "object"
+    },
+    "FuturesRiskPolicy": {
+      "additionalProperties": false,
+      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.",
+      "properties": {
+        "live_spot_collateral_reserve_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Spot Collateral Reserve Quote"
+        },
+        "peg_haircut": {
+          "default": "1.25",
+          "title": "Peg Haircut",
+          "type": "string"
+        }
+      },
+      "title": "FuturesRiskPolicy",
       "type": "object"
     },
     "HealthPayload": {
@@ -7396,7 +7554,8 @@
               "operator_products_kind",
               "futures_candles",
               "account_mirror",
-              "readiness_reconciliation"
+              "readiness_reconciliation",
+              "live_spot_collateral_gate"
             ],
             "type": "string"
           },
@@ -11487,6 +11646,28 @@
           ],
           "default": null,
           "title": "Max Btc Beta Exposure Quote"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesRiskPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "futures_collateral": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesCollateralPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "findings": {
           "items": {

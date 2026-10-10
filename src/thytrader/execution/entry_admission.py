@@ -18,6 +18,10 @@ from thytrader.memory.trade_reason_scope import current_trade_reason_scope
 from thytrader.risk.accounting_evidence import bound_risk_market_data
 from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import EntryObservation
+from thytrader.risk.futures_collateral import (
+    bound_futures_account_store,
+    load_futures_collateral,
+)
 from thytrader.risk.gate import evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict
@@ -107,6 +111,9 @@ async def _entry_verdict(
         product_id=product_id,
         as_of=observation.as_of,
     )
+    futures_collateral = await load_futures_collateral(
+        bound_futures_account_store(), mode=snapshot.deployment.mode, as_of=observation.as_of
+    )
     verdict = evaluate_new_entry(
         risk_policy,
         mode=snapshot.deployment.mode,
@@ -123,6 +130,7 @@ async def _entry_verdict(
         observation=observation,
         portfolio=portfolio_risk_for(snapshot.deployment),
         beta=beta,
+        futures_collateral=futures_collateral,
     )
     scope = current_trade_reason_scope()
     if scope is not None:

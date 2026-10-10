@@ -141,6 +141,13 @@ the primary `risk` payload (ADR 0125). When set, the entry gate denies
 cause: `insufficient_history n=…<60`, `stale last_close=…`, `fetch_failed`, `invalid_history`,
 or `not_loaded`). Both appear as decision `risk` rows and never pause a book.
 
+`risk.payload.futures` echoes the optional policy futures block and
+`risk.payload.futures_collateral` reports the shared-collateral gate (ADR 0129): `state`,
+`cause`, `observed_at`, `initial_margin_usd`, `open_orders_hold_usd`, `position_count`,
+`policy_quote`, `reserve_quote`, `peg_haircut`, `effect` (`none` \| `not_linked` \|
+`live_spot_entries_denied` \| `reserve_short_entries_denied` \| `reserve_withheld`),
+`reason_code` and `collateral_note`. USD and policy-quote figures stay separate.
+
 Configuration `payload` includes `yolo_enabled` and `yolo_tiers` (Safe vs YOLO advertisement), plus `settings_file`, `yaml_loaded`, and `yaml_source_of_truth` (always true), and `effective_api_base_url` — the loopback origin agent CLIs resolve for this checkout (`THYTRADER_API_BASE_URL` / settings). Non-secret knobs including YOLO live in `thytrader.yaml` and apply without restart; leftover `THYTRADER_YOLO_TIERS=paper` is valid. Those flags never grant playbook live authority. YOLO `live` may skip `--confirm` on runtime start/pause/resume/stop; live start, live resume, and live place-order still require `--i-understand-live`
 (HTTP `i_understand_live: true`). Live place-order, `set-risk-policy`, and `set-settings` still require `--confirm`. It also includes `notify_provider` and `notify_webhook_configured` (boolean only; the webhook URL is never returned).
 
