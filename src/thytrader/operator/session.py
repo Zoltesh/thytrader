@@ -15,6 +15,7 @@ from thytrader.audit_events import DisabledAuditEventStore
 from thytrader.backtest.results import DisabledBacktestResultStore
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
+from thytrader.exchanges.coinbase_futures_catalog import CoinbaseFuturesCatalog
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.execution.decision_store import DisabledDecisionJournalStore
 from thytrader.execution.user_feed_state import DisabledUserOrderFeedStateStore
@@ -149,4 +150,6 @@ def _market_data_service(settings: Settings) -> MarketDataService:
         api_secret=settings.coinbase_api_private_key.get_secret_value(),
         timeout=10,
     )
-    return MarketDataService(CoinbaseMarketData(client))
+    return MarketDataService(
+        CoinbaseMarketData(client), futures_provider=CoinbaseFuturesCatalog(client)
+    )

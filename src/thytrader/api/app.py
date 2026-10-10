@@ -60,6 +60,7 @@ from thytrader.backtest.submission import BacktestSubmitter, DisabledBacktestSub
 from thytrader.config import Settings
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
+from thytrader.exchanges.coinbase_futures_catalog import CoinbaseFuturesCatalog
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.exchanges.rest_transport import RestClientTransport
 from thytrader.execution.decision_store import DecisionJournalStore, DisabledDecisionJournalStore
@@ -758,7 +759,9 @@ def _build_market_data_service(settings: Settings) -> MarketDataService:
         api_secret=settings.coinbase_api_private_key.get_secret_value(),
         timeout=10,
     )
-    return MarketDataService(CoinbaseMarketData(client))
+    return MarketDataService(
+        CoinbaseMarketData(client), futures_provider=CoinbaseFuturesCatalog(client)
+    )
 
 
 def apply_coinbase_settings(app: FastAPI, settings: Settings) -> None:

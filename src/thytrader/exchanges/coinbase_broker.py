@@ -15,6 +15,7 @@ from thytrader.exchanges.rest_transport import (
     json_object,
 )
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, SubmitResult
+from thytrader.market_data.products import is_spot_product_id
 from thytrader.trading.models import Fill, Order, OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
@@ -77,9 +78,17 @@ class CoinbaseRestBroker:
         stop_trigger_price: Decimal | None = None,
         take_profit_price: Decimal | None = None,
     ) -> SubmitResult:
-        """POST /orders and map the JSON acknowledgement; GET the order if needed."""
+        """POST /orders and map the JSON acknowledgement; GET the order if needed.
+
+        Only spot product ids may reach the create-order endpoint. A futures (or any
+        other non-spot) id is refused before any request: there is no futures order
+        path (ADR 0126), and this guard is defence in depth behind the spot-only
+        patterns on every execution surface.
+        """
         if not client_order_id:
             raise BrokerError("client_order_id must not be empty.")
+        if not is_spot_product_id(product_id):
+            raise BrokerError("Only spot products can be ordered; futures orders are unsupported.")
         body: dict[str, object] = {
             "client_order_id": client_order_id,
             "product_id": product_id,

@@ -50,7 +50,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0042](0042-per-indicator-timeframes.md) | Optional per-indicator timeframes on LTF-list indicators; last-completed overlay | Accepted |
 | [0043](0043-yolo-live-skip-confirm.md) | Operator-enabled YOLO `live` tier skips `--confirm` on live start/pause/resume/stop; `--i-understand-live` remains | Accepted |
 | [0044](0044-parameter-sweeps-wfo-stitched-equity.md) | Parameter sweeps, walk-forward optimization, and derived stitched OOS equity as research composition | Accepted — superseded in part by 0082 |
-| [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted — amended by 0090 |
+| [0045](0045-spot-shorting-and-attached-entry-brackets.md) | Spot-capable shorting and attached entry brackets; live shorts fail closed without base | Accepted — amended by 0090 — superseded in part by 0126 (futures data and read surfaces only) |
 | [0046](0046-shipped-vs-remaining-0031-destination.md) | Restate 0031: `1m`/`2h` clocks and on-demand are shipped; multi-instrument documents are not | Accepted — superseded in part by 0056 |
 | [0047](0047-wider-fail-closed-indicator-catalog.md) | Stochastic, ADX, configurable rolling inputs, and sample stdev | Accepted — extended by 0086 |
 | [0048](0048-paper-deploy-fee-fields.md) | Paper deploy maker/taker fee assumptions; live Coinbase fees stay venue-authoritative | Accepted — superseded in part by 0122 |
@@ -61,7 +61,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0053](0053-workstation-ia-write-only-coinbase-credentials.md) | First-class workstation IA plus write-only Coinbase credentials UI/CLI | Accepted — superseded in part by 0079 |
 | [0054](0054-trade-reason-journals.md) | Per-intent why-trade journals; same payload for UI and operator reports | Accepted — surfaces amended by 0080, 0081, and 0087 |
 | [0055](0055-yaml-settings-runtime-reloadable-yolo.md) | YAML non-secret settings and runtime-reloadable YOLO | Accepted |
-| [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted |
+| [0056](0056-multi-instrument-documents-and-pyramiding.md) | Multi-instrument Coinbase USD spot documents and intra-strategy pyramiding | Accepted — superseded in part by 0126 (futures data and read surfaces only) |
 | [0057](0057-atomic-fill-ledger-and-product-isolation.md) | Atomic fill ledger and product isolation | Accepted |
 | [0058](0058-protection-lifecycle-accounting.md) | Verified protection, leases, stop vs flatten, live capital, durable loss baselines | Accepted — superseded in part by 0106; amended by 0097, 0098, 0107, 0110, and 0112 |
 | [0059](0059-coinbase-list-fills-cursor-pagination.md) | Cursor-terminated Coinbase List Fills with fail-closed parsing | Accepted |
@@ -130,6 +130,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0123](0123-package-layering.md) | Declared package layers with shrink-only upward imports; shared `evaluation` package below every mode | Accepted |
 | [0124](0124-inventory-adoption.md) | Live books adopt coins already held at the venue in kind (never routed); live-only; Alembic 0070 | Accepted |
 | [0125](0125-correlation-aware-risk-limits.md) | Opt-in BTC-beta-weighted exposure cap and fleet entry clustering cap; fail closed on missing or stale beta; correlation clusters deferred | Accepted |
+| [0126](0126-futures-instrument-catalog-read-only.md) | Read-only Coinbase CFM futures (P0): separate instrument model and strict FCM parser (perps detected by funding interval, underlying from `contract_root_unit`, unknown never zero), paged listing that fails closed, spot fingerprints byte-identical, hourly funding history recorded from the listing, 24/7 futures candles in the data lane; no futures order path (`place_order` refuses non-spot ids) | Accepted |
 
 ## Status values
 
