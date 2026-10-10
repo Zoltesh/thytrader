@@ -20,6 +20,20 @@ export function isFuturesProductId(productId: string): boolean {
 	return FUTURES_PRODUCT_ID.test(productId.trim().toUpperCase());
 }
 
+/** The currency every CFM futures book settles and reports in (ADR 0128). */
+export const FUTURES_DISPLAY_QUOTE = 'USD';
+
+/**
+ * Quote currency to show beside one bot's amounts: `USD` for a CFM futures contract
+ * (futures books settle in USD; the id's `20DEC30-CDE` tail is no currency), else the
+ * spot id's quote exactly as `productIdQuote` reads it. Display only: never group or total
+ * by it, since futures USD is never summed with spot USD.
+ */
+export function displayQuoteOf(productId: string): string | null {
+	if (isFuturesProductId(productId)) return FUTURES_DISPLAY_QUOTE;
+	return productIdQuote(productId);
+}
+
 /**
  * Whether a strategy definition trades a futures contract: `instrument.kind` is
  * `future`, or its product id is a CDE futures id. A null definition is not futures.
