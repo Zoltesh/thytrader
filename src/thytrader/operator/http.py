@@ -10,6 +10,7 @@ from thytrader.agent_http import request_json
 from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport
 from thytrader.operator.funding_report import FundingReport
+from thytrader.operator.futures_account_report import FuturesAccountReport
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -63,6 +64,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "venue-reconciliation": VenueReconciliationReport,
     "alerts": AlertsReport,
     "funding": FundingReport,
+    "futures-account": FuturesAccountReport,
 }
 
 

@@ -154,6 +154,14 @@ def _parser() -> argparse.ArgumentParser:
         help=f"Window ending at the current hour. Default {FUNDING_REPORT_DEFAULT_HOURS}.",
     )
     subparsers.add_parser(
+        "futures-account",
+        parents=[trailing],
+        help=(
+            "Latest read-only Coinbase futures (CFM) account mirror: enablement, USD balance "
+            "summary, positions in contracts, margin window, failed reads."
+        ),
+    )
+    subparsers.add_parser(
         "data-catalog",
         parents=[trailing],
         help=(
@@ -381,6 +389,7 @@ async def _dispatch(
         "portfolios": diagnostics.portfolios_report,
         "alerts": diagnostics.alerts,
         "support-bundle": diagnostics.support_bundle,
+        "futures-account": diagnostics.futures_account,
     }
     factory = factories.get(command)
     if factory is None:

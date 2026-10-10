@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -351,6 +351,21 @@ pending submissions match by client ID; a locally terminal managed order still w
 at the venue is `MANAGED_ORDER_STATUS_MISMATCH`, not external activity. Duplicate
 balance rows are summed; malformed balance evidence fails the listing. These are
 sequential REST reads, not an atomic snapshot. No account identifiers or secrets.
+
+## Futures account mirror (ADR 0127)
+
+`futures_account` is read-only (`balances_omitted=false`; no identifiers). `payload`:
+`observed_at`, `age_seconds`, `stale` (older than 180 s), `enablement` (`enabled` \|
+`not_enabled` \| `unknown`; `null` before the first snapshot), `read_failures` (`operation:reason`
+tokens), `balance` (`currency: USD` plus every balance-summary amount and the
+`intraday_margin` / `overnight_margin` measures as exact decimal strings or `null`),
+`positions` (`null` when unread, `[]` when none; each `product_id`, `side` `long` \| `short` \|
+`unknown`, `number_of_contracts` in contracts, USD prices and PnL, `expiration_time`),
+`intraday_margin_setting`, `margin_window_type`, `margin_window_end_at`,
+`intraday_killswitch_enabled`, `enrollment_killswitch_enabled` and `orderable: false`. Amounts
+are USD and are never added to USDC or USDT amounts. Component reason codes: `OK`,
+`STORE_DISABLED`, `STORE_UNAVAILABLE`, `FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE`,
+`FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_READ_FAILURES`.
 
 ## Futures funding history (ADR 0126)
 

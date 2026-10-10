@@ -34,6 +34,7 @@ from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
+from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_history import PostgresPortfolioHistoryStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
@@ -100,6 +101,7 @@ async def operator_diagnostics(
             research_queue=PostgresResearchQueue(engine),
             alert_store=PostgresAlertStore(engine),
             futures_store=PostgresFuturesObservationStore(engine),
+            futures_account_store=PostgresFuturesAccountStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(

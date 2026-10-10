@@ -166,7 +166,11 @@ class OpsContractPayload(_FrozenModel):
     )
     futures_observations: tuple[
         Literal[
-            "instrument_catalog", "funding_history", "operator_products_kind", "futures_candles"
+            "instrument_catalog",
+            "funding_history",
+            "operator_products_kind",
+            "futures_candles",
+            "account_mirror",
         ],
         ...,
     ]

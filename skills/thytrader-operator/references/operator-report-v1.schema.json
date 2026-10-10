@@ -4087,6 +4087,638 @@
       "title": "FundingReport",
       "type": "object"
     },
+    "FuturesAccountPayload": {
+      "additionalProperties": false,
+      "description": "The latest mirror snapshot, or nothing before the first one.\n\n``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the\nvenue reported none. ``read_failures`` lists ``operation:reason`` tokens.",
+      "properties": {
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "age_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Age Seconds"
+        },
+        "stale": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Stale"
+        },
+        "enablement": {
+          "anyOf": [
+            {
+              "enum": [
+                "enabled",
+                "not_enabled",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enablement"
+        },
+        "read_failures": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Read Failures",
+          "type": "array"
+        },
+        "balance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesBalancePayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FuturesPositionPayload"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Positions"
+        },
+        "intraday_margin_setting": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Intraday Margin Setting"
+        },
+        "margin_window_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Window Type"
+        },
+        "margin_window_end_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Window End At"
+        },
+        "intraday_killswitch_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Intraday Killswitch Enabled"
+        },
+        "enrollment_killswitch_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enrollment Killswitch Enabled"
+        },
+        "orderable": {
+          "const": false,
+          "default": false,
+          "title": "Orderable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "observed_at",
+        "age_seconds",
+        "stale",
+        "enablement",
+        "read_failures",
+        "balance",
+        "positions",
+        "intraday_margin_setting",
+        "margin_window_type",
+        "margin_window_end_at",
+        "intraday_killswitch_enabled",
+        "enrollment_killswitch_enabled"
+      ],
+      "title": "FuturesAccountPayload",
+      "type": "object"
+    },
+    "FuturesAccountReport": {
+      "additionalProperties": false,
+      "description": "Read-only CFM futures account mirror.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "futures_account",
+          "default": "futures_account",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FuturesAccountPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "FuturesAccountReport",
+      "type": "object"
+    },
+    "FuturesBalancePayload": {
+      "additionalProperties": false,
+      "description": "The CFM balance summary; every amount is USD (``currency``).",
+      "properties": {
+        "currency": {
+          "const": "USD",
+          "default": "USD",
+          "title": "Currency",
+          "type": "string"
+        },
+        "futures_buying_power": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Futures Buying Power"
+        },
+        "total_usd_balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Usd Balance"
+        },
+        "cbi_usd_balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cbi Usd Balance"
+        },
+        "cfm_usd_balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cfm Usd Balance"
+        },
+        "total_open_orders_hold_amount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Open Orders Hold Amount"
+        },
+        "unrealized_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl"
+        },
+        "daily_realized_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Daily Realized Pnl"
+        },
+        "initial_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Initial Margin"
+        },
+        "available_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Available Margin"
+        },
+        "liquidation_threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Threshold"
+        },
+        "liquidation_buffer_amount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Buffer Amount"
+        },
+        "liquidation_buffer_percentage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Buffer Percentage"
+        },
+        "total_pending_transfers_amount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Pending Transfers Amount"
+        },
+        "funding_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Pnl"
+        },
+        "intraday_margin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesMarginMeasurePayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overnight_margin": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesMarginMeasurePayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "futures_buying_power",
+        "total_usd_balance",
+        "cbi_usd_balance",
+        "cfm_usd_balance",
+        "total_open_orders_hold_amount",
+        "unrealized_pnl",
+        "daily_realized_pnl",
+        "initial_margin",
+        "available_margin",
+        "liquidation_threshold",
+        "liquidation_buffer_amount",
+        "liquidation_buffer_percentage",
+        "total_pending_transfers_amount",
+        "funding_pnl",
+        "intraday_margin",
+        "overnight_margin"
+      ],
+      "title": "FuturesBalancePayload",
+      "type": "object"
+    },
+    "FuturesMarginMeasurePayload": {
+      "additionalProperties": false,
+      "description": "One margin window's measures (USD strings).",
+      "properties": {
+        "margin_window_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Window Type"
+        },
+        "margin_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Level"
+        },
+        "initial_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Initial Margin"
+        },
+        "maintenance_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Maintenance Margin"
+        },
+        "liquidation_buffer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Liquidation Buffer"
+        },
+        "total_hold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Hold"
+        },
+        "futures_buying_power": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Futures Buying Power"
+        }
+      },
+      "required": [
+        "margin_window_type",
+        "margin_level",
+        "initial_margin",
+        "maintenance_margin",
+        "liquidation_buffer",
+        "total_hold",
+        "futures_buying_power"
+      ],
+      "title": "FuturesMarginMeasurePayload",
+      "type": "object"
+    },
+    "FuturesPositionPayload": {
+      "additionalProperties": false,
+      "description": "One open CFM position; ``number_of_contracts`` is in contracts, prices in USD.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "long",
+            "short",
+            "unknown"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "number_of_contracts": {
+          "title": "Number Of Contracts",
+          "type": "string"
+        },
+        "current_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Price"
+        },
+        "avg_entry_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Avg Entry Price"
+        },
+        "unrealized_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Unrealized Pnl"
+        },
+        "daily_realized_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Daily Realized Pnl"
+        },
+        "expiration_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expiration Time"
+        }
+      },
+      "required": [
+        "product_id",
+        "side",
+        "number_of_contracts",
+        "current_price",
+        "avg_entry_price",
+        "unrealized_pnl",
+        "daily_realized_pnl",
+        "expiration_time"
+      ],
+      "title": "FuturesPositionPayload",
+      "type": "object"
+    },
     "FuturesProductSummary": {
       "additionalProperties": false,
       "description": "One Coinbase CFM futures contract from the read-only listing (ADR 0126).\n\n``orderable`` is always false: no lane can order, adopt or deploy a futures contract.\n``base_increment`` and ``base_min_size`` are in contracts; ``contract_size`` is the\n``underlying`` quantity per contract. ``underlying`` is the venue's\n``contract_root_unit`` (``BIP`` is BTC), never the id prefix. ``expires_at`` is null for\na perp, whose ``venue_expiry_at`` is a far-future sentinel; ``listed_expiry`` is the day\nin the id. Margin rates are fractions of notional; ``funding_rate`` is per\n``funding_interval_seconds`` (longs pay when positive). ``null`` means unlisted (unknown),\nnever zero.",
@@ -6576,7 +7208,8 @@
               "instrument_catalog",
               "funding_history",
               "operator_products_kind",
-              "futures_candles"
+              "futures_candles",
+              "account_mirror"
             ],
             "type": "string"
           },
@@ -12334,7 +12967,8 @@
         "readiness",
         "venue_reconciliation",
         "alerts",
-        "funding"
+        "funding",
+        "futures_account"
       ]
     },
     "payload": {
@@ -12430,6 +13064,9 @@
     },
     {
       "$ref": "#/$defs/FundingReport"
+    },
+    {
+      "$ref": "#/$defs/FuturesAccountReport"
     }
   ]
 }
