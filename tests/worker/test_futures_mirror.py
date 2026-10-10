@@ -170,14 +170,14 @@ def test_spot_listing_records_usdc_and_usd_beside_the_cfm_reads() -> None:
     """USDC and USD rows are kept per currency; other assets are ignored; absent is zero."""
     spot = _Spot(
         (
-            _balance("USDC", "514.23", "1.5"),
+            _balance("USDC", "999.99", "1.5"),
             _balance("BTC", "0.01", "0"),
             _balance("USDC", "10", "0"),
         )
     )
     observation = asyncio.run(observe_futures_account(CoinbaseCfmAccount(_Transport()), _NOW, spot))
     assert observation.spot_balances == SpotCollateralBalances(
-        usdc_available=Decimal("524.23"),
+        usdc_available=Decimal("1009.99"),
         usdc_hold=Decimal("1.5"),
         usd_available=Decimal(0),
         usd_hold=Decimal(0),

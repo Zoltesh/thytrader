@@ -6,6 +6,10 @@ invariants, security, known gaps, and the docs map. Read it first. The `ops/` wo
 operator-only: never instruct an operating agent to update documentation or code, bootstrap
 GitNexus, or edit source.
 
+ThyTrader is open source: docs, ADRs, skills, comments, tests and commit/PR text never carry a
+specific operator's account data (names, balances, PnL, real ids, their policy or fleet). Use
+generic venue wording and synthetic fixtures (AGENTS.md, Security and privacy).
+
 ## Ops skills completion gate (summary of AGENTS.md)
 
 This gate applies to **contributors** changing ThyTrader. It does **not** apply in

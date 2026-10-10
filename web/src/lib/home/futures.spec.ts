@@ -13,10 +13,10 @@ function report(overrides: Partial<FuturesAccountReport['payload']> = {}): Futur
 			read_failures: [],
 			balance: {
 				currency: 'USD',
-				futures_buying_power: '514.24',
-				available_margin: '514.24',
+				futures_buying_power: '1000.00',
+				available_margin: '1000.00',
 				liquidation_threshold: '0',
-				liquidation_buffer_amount: '514.24',
+				liquidation_buffer_amount: '1000.00',
 				liquidation_buffer_percentage: '100',
 				funding_pnl: '-0.04',
 				unrealized_pnl: '0'
@@ -34,9 +34,9 @@ describe('futuresCardView', () => {
 		expect(view.kind).toBe('account');
 		if (view.kind !== 'account') return;
 		expect(view.facts).toEqual([
-			{ label: 'Buying power', value: '$514.24', hint: 'Shared with USDC spot' },
+			{ label: 'Buying power', value: '$1,000.00', hint: 'Shared with USDC spot' },
 			{ label: 'Margin ratio', value: '—', hint: 'No open positions' },
-			{ label: 'Liquidation buffer', value: '$514.24', hint: '100.00%' },
+			{ label: 'Liquidation buffer', value: '$1,000.00', hint: '100.00%' },
 			{ label: 'Funding PnL', value: '−$0.04', hint: 'As reported by Coinbase, USD' }
 		]);
 		expect(view.sharedNote).toBe(SHARED_BUYING_POWER_NOTE);

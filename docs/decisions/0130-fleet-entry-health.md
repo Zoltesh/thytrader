@@ -13,10 +13,10 @@
 
 On 2026-10-10 one legacy order in a stopped live book blocked every live USDC entry for days,
 and nobody could see it. The order was FILLED with `filled_quantity` `0` but had one applied
-fill of 0.00014174, so `risk.opening_accounting._orders_covered` failed,
+fill of a small BTC quantity, so `risk.opening_accounting._orders_covered` failed,
 `reconstruct_day_open` returned `None`, and the daily-loss breaker failed closed with
 `BREAKER_MARK_MISSING` for every live USDC entry. Operator `health`, `risk` and `readiness`
-looked healthy apart from three paused bots; only per-bot `decisions` rows showed the block.
+looked healthy apart from a few paused bots; only per-bot `decisions` rows showed the block.
 
 The entry gate fails closed on purpose (unknown evidence denies new risk). The defect was that
 a fail-closed denial that applies to *every* entry was only ever evaluated, and recorded, one
@@ -39,7 +39,7 @@ unnoticed.
    never fleet-wide), `linked_futures_breaker` and `entry_cluster`. Each scope gets
    `entries_admissible: yes | blocked | unknown`, the fleet-wide reason codes and the blocking
    books. `risk.opening_diagnosis` replays the opening-accounting rules and names the failed
-   one, for example `order X FILLED with filled_quantity 0 but fills sum 0.00014174`.
+   one, for example `order X FILLED with filled_quantity 0 but fills sum 0.0002`.
    `execution.fleet_entry_evidence` loads its inputs exactly as entry admission does (fresh
    accounting snapshots with recovered midnight marks, last-close marks, β evidence, the CFM
    mirror, the disarm latch). A failed read is `unknown`, never a pass.

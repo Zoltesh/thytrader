@@ -12,10 +12,10 @@
 ## Context
 
 The risk policy caps total exposure and per-product exposure as if every product moved
-independently. A fleet of long bots on about 20 USDC markets is not independent: most alts
-move with BTC at a beta above 1. A 490 USDC total cap on alts with beta near 1.2 is roughly
-590 USDC of BTC-equivalent exposure, so one 30% BTC drawdown would cost more than a third of
-a 500 USDC account before stops fire.
+independently. A fleet of long bots on many USDC alt markets is not independent: most alts
+move with BTC at a beta above 1. For example, a 1,000 USDC total cap on alts with beta near 1.2
+is roughly 1,200 USDC of BTC-equivalent exposure, so one 30% BTC drawdown would cost more than a
+third of a 1,000 USDC account before stops fire.
 
 The fleet also enters in bursts. The 2h, 4h, 6h and 1d bars all close together at 00:00
 UTC, so many bots can fire on one bar close and build the whole correlated bet within
@@ -129,7 +129,7 @@ when assets with low BTC beta join the fleet.
 ## Consequences
 
 - An operator can bound the standing BTC-equivalent bet and the speed it builds, separately,
-  without changing any existing limit. Recommended starting values for a ~500 USDC account:
+  without changing any existing limit. Recommended starting values for a small fleet of long alt bots:
   `max_btc_beta_exposure_fraction = 0.6` with no absolute beta cap, and
   `max_fleet_entries_per_window = 4` with `fleet_entry_window_minutes = 120`.
 - With the beta cap set, a product whose daily history cannot be read blocks new entries

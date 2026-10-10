@@ -69,7 +69,7 @@ checks the whole fleet ([ADR 0130](../decisions/0130-fleet-entry-health.md)):
 - `uv run thytrader-operator fleet-health` (or `GET /api/v1/operator/fleet-health`) says, for
   each mode and quote currency with a running or paused bot, whether new entries are admissible
   (`yes`, `blocked` or `unknown`), the blocking reason codes, and the exact books and records
-  responsible, for example `order … FILLED with filled_quantity 0 but fills sum 0.00014174`. It
+  responsible, for example `order … FILLED with filled_quantity 0 but fills sum 0.0002`. It
   also lists the `entry_blocked`/`skipped` reasons of running bots over the last 24 hours and
   flags systemic ones.
 - `readiness` and `risk` carry the same evaluation as `fleet_entries`.

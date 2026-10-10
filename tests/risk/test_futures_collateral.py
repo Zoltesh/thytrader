@@ -52,19 +52,19 @@ def _usd(value: str) -> Decimal:
 
 
 def _live_account_idle() -> FuturesAccountObservation:
-    """The live account on 2026-10-10: enabled, every read OK, flat, USDC is collateral."""
+    """An idle futures account: enabled, every read OK, flat, USDC is collateral."""
     balance = FuturesBalanceSummary(
-        futures_buying_power=_usd("514.24"),
-        total_usd_balance=_usd("0.01"),
-        cbi_usd_balance=_usd("0.01"),
+        futures_buying_power=_usd("1000.00"),
+        total_usd_balance=_usd("0"),
+        cbi_usd_balance=_usd("0"),
         cfm_usd_balance=_usd("0"),
         total_open_orders_hold_amount=_usd("0"),
         unrealized_pnl=_usd("0"),
         daily_realized_pnl=_usd("0"),
         initial_margin=_usd("0"),
-        available_margin=_usd("514.24"),
+        available_margin=_usd("1000.00"),
         liquidation_threshold=_usd("0"),
-        liquidation_buffer_amount=_usd("514.24"),
+        liquidation_buffer_amount=_usd("1000.00"),
         liquidation_buffer_percentage=None,
         total_pending_transfers_amount=_usd("0"),
         funding_pnl=_usd("0"),
@@ -181,7 +181,7 @@ def _verdict(
 @pytest.mark.parametrize("notional", ["1", "10", "60", "101"])
 @pytest.mark.parametrize("fraction", ["1", "0.5", "0.1"])
 def test_idle_and_absent_change_no_verdict(product: str, notional: str, fraction: str) -> None:
-    """For the live account's idle state, every verdict equals the gate without futures."""
+    """For an idle futures account, every verdict equals the gate without futures."""
     policy = _policy().model_copy(update={"max_portfolio_exposure_fraction": fraction})
     baseline = _verdict(policy, None, product=product, notional=notional)
     for latest in (_live_account_idle(), None):

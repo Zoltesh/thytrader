@@ -15,8 +15,8 @@
 
 ## Context
 
-ADR 0127 §8 records an observed fact (2026-10-10): with futures enabled, the live account showed
-`futures_buying_power` 514.24 against `cbi_usd_balance` 0.01 and `cfm_usd_balance` 0. **Coinbase
+ADR 0127 §8 records an observed fact (2026-10-10): a funded, futures-enabled account with no
+CFM USD balance reported `futures_buying_power` equal to its spot USDC balance. **Coinbase
 counts the USDC spot balance as CFM futures collateral.** The P0 plan assumed USDC could not
 margin CFM and only linked futures with USD-quoted spot books. That assumption is wrong:
 

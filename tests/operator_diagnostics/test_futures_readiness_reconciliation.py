@@ -69,7 +69,7 @@ class _FuturesExchange(ScriptedExchange):
         self, futures_orders: tuple[ExchangeOpenOrder, ...] = (), *, fail: bool = False
     ) -> None:
         """Script the futures listing on top of a USDC balance."""
-        super().__init__((_balance("USDC", "514.24"),))
+        super().__init__((_balance("USDC", "1000.00"),))
         self.futures_orders = futures_orders
         self.fail_futures = fail
 

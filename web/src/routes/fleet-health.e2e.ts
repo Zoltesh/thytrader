@@ -7,9 +7,9 @@ import { expect, test } from '../e2e/harness';
  * every other Home source reaches the hermetic demo API.
  */
 
-const LEGACY = '01a0f90a-9834-7d0e-afad-ef0b538fee40';
+const LEGACY = '01a10000-0000-7000-8000-00000000ea00';
 const GAP =
-	'order 01a0f93b-9591-7ee1-b037-eae7b079c1b6 FILLED with filled_quantity 0 but fills sum 0.00014174';
+	'order 01a10000-0000-7000-8000-00000000eb01 FILLED with filled_quantity 0 but fills sum 0.0002';
 
 function fleetReport(blocked: boolean): Record<string, unknown> {
 	return {

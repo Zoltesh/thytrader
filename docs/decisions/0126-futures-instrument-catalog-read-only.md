@@ -15,7 +15,7 @@
 
 ## Context
 
-Brayden has Coinbase Financial Markets (CFM) US futures enabled. Perp-style contracts (for
+An account can have Coinbase Financial Markets (CFM) US futures enabled. Perp-style contracts (for
 example `BIP-20DEC30-CDE`, nano BTC) charge funding every hour, and the venue publishes only
 the current rate: there is no public funding history, so history starts when ThyTrader starts
 recording it. A later phase may backtest, paper-trade and finally hedge with futures; this

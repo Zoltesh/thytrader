@@ -278,6 +278,11 @@ Python code must be strongly and explicitly typed. Types are part of ThyTrader's
 - The operator-chat LLM key lives in the API process only; it is not a Coinbase credential and is
   never echoed or logged.
 - `.env.example` contains names/placeholders only; `.env` must remain ignored.
+- ThyTrader is open source. Docs, ADRs, skills, code comments, tests and commit/PR text never
+  contain a specific operator's account data: names, balances, PnL, real deployment/order ids,
+  their policy values or fleet composition. State venue behavior generically and use synthetic
+  fixtures with round, clearly illustrative numbers. `tests/test_no_operator_data.py` fails on
+  tokens from past leaks.
 - Bind to loopback by default. Do not weaken startup safety to make remote access convenient.
   Public exposure would require TLS, authentication, secure sessions, CSRF protection, rate
   limiting, and a dedicated threat-model review; it is never enabled automatically.

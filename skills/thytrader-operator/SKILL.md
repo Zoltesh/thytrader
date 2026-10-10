@@ -530,7 +530,7 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   `entry_cluster`, each `pass`/`blocked`/`unknown`/`not_applicable`. `fleet_wide: false` means
   only the listed books are stopped (for example one strategy's drawdown latch).
   `deployments[].detail` names the exact record or rule, for example
-  `order X FILLED with filled_quantity 0 but fills sum 0.00014174`.
+  `order X FILLED with filled_quantity 0 but fills sum 0.0002`.
 - `blocker_class` says what clears it: `evidence` (a repair), `latch` (a breaker reset in the
   runtime lane), `policy` (manual CFM futures on the shared collateral without a reserve),
   `capacity` (slots or exposure caps full; an exit), `transient` (the clustering window
@@ -685,8 +685,8 @@ futures margin setting.
   External CFM positions are not managed by any bot.
 - `margin_ratio` is `available_margin / liquidation_threshold` (`null` on a flat account, which
   has no threshold). `collateral_note`: **Coinbase counts the USDC spot balance as futures
-  collateral** (observed 2026-10-10: buying power 514.24 with `cbi_usd_balance` 0.01 and
-  `cfm_usd_balance` 0). Futures buying power is the same money as USDC spot capital, not extra
+  (a futures-enabled account with no CFM USD balance reports futures buying power equal to its
+  spot USDC balance). Futures buying power is the same money as USDC spot capital, not extra
   capacity; never add it to the USDC balance.
 - `readiness` adds `payload.futures` (USD amounts, `margin_ratio`, positions, `collateral_note`)
   with findings `FUTURES_COLLATERAL_SHARED` (info), `FUTURES_POSITIONS_EXTERNAL` (advisory) and

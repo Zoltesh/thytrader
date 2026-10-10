@@ -90,11 +90,12 @@ Futures account capital (`cbi_usd_balance + cfm_usd_balance`, one read) and the 
 
 ### 8. Observed fact: USDC is CFM collateral (2026-10-10)
 
-The first live mirror snapshot after deployment (2026-10-10) read `enablement: enabled`, every
-read succeeded, no positions, `futures_buying_power` **514.24**, `cbi_usd_balance` **0.01** and
-`cfm_usd_balance` **0**, while the spot account held its cash as USDC. Futures buying power far
-exceeds the USD balances, so **Coinbase counts the USDC spot balance as CFM futures collateral**.
-The intraday and overnight margin-window types read `..._UNSPECIFIED` while the account is flat.
+A live mirror snapshot of a futures-enabled account that held its spot cash as USDC and had
+no CFM USD balance read `enablement: enabled`, every read succeeded, no positions, and
+`futures_buying_power` equal to its USDC spot balance while `cbi_usd_balance` and
+`cfm_usd_balance` were near zero. Futures buying power far exceeds the USD balances, so
+**Coinbase counts the USDC spot balance as CFM futures collateral**. The intraday and overnight
+margin-window types read `..._UNSPECIFIED` while the account is flat.
 
 This overturns the plan's assumption (open question 2) that USDC cannot margin CFM, and
 widens its shared-collateral rule, which covered only USD-quoted spot books:
