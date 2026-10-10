@@ -39,6 +39,7 @@ from thytrader.operator.futures_account_report import (
     FuturesAccountReport,
     build_futures_account_report,
 )
+from thytrader.operator.futures_fees import futures_fee_evidence
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -229,8 +230,12 @@ class OperatorDiagnostics:
         )
 
     async def fees_report(self) -> FeesReport:
-        """Return the current fee tier and research-only suggested rates."""
+        """Return the current fee tier and research-only suggested rates.
+
+        The futures fee tier is read separately and never fails the spot report.
+        """
         now = datetime.now(UTC)
+        futures = await futures_fee_evidence(self.portfolio)
         try:
             profile = await self.portfolio.get_fee_profile()
         except Exception:  # noqa: BLE001 - provider failures are redacted at this boundary.
@@ -256,6 +261,7 @@ class OperatorDiagnostics:
                     source="coinbase",
                     suggestion_source="unavailable",
                     suggestion_unavailable_reason="demo_or_missing_credentials",
+                    futures=futures,
                 ),
             )
         suggestion = suggest_research_fee_rates(profile=profile, demo=self.portfolio.demo)
@@ -302,6 +308,7 @@ class OperatorDiagnostics:
                 schedule_maker_fee_rate=_optional_rate(suggestion.schedule_maker_fee_rate),
                 schedule_taker_fee_rate=_optional_rate(suggestion.schedule_taker_fee_rate),
                 suggestion_fetched_at=suggestion.fetched_at,
+                futures=futures,
             ),
         )
 

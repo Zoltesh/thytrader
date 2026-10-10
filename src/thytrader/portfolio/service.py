@@ -108,6 +108,22 @@ class PortfolioService:
         """Fetch 30-day volume and current fee rates."""
         return await self._exchange.get_fee_profile()
 
+    async def get_futures_fee_profile(self) -> FeeProfile:
+        """Fetch the futures fee tier (read-only; ADR 0128, P1-3).
+
+        Optional on the account boundary: an adapter without it (demo) fails closed with
+        a typed ``unsupported`` read error, so the report says unavailable, never zero.
+        """
+        reader = getattr(self._exchange, "get_futures_fee_profile", None)
+        if reader is None:  # getattr is unavoidable: the protocol member is optional.
+            raise ExchangeReadError(
+                ExchangeReadFailure(
+                    operation=ExchangeReadOperation.FUTURES_FEES,
+                    kind=ExchangeReadFailureKind.UNSUPPORTED,
+                )
+            )
+        return await reader()
+
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
         """Fetch the venue's resting open orders through the neutral boundary.
 

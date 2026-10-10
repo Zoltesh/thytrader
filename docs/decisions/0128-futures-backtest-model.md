@@ -131,6 +131,15 @@ pinned by goldens):
     conservative model, and later entries skip with `insufficient_cash`.
   - Entries whose fill bar would start at or after the flatten time skip with
     `expiry_window`.
+- **P1-3 (fees and submission).**
+  - Fee evidence is the GET `transaction_summary?product_type=FUTURE`, shown as the operator
+    `fees` report's `futures` block. It reports rates, not the per-contract fee, so
+    `futures.fee_per_contract` is required operator input on every futures submission.
+  - The 1-contract `orders/preview` probe is a POST. It ships separately behind its own
+    allowlist for review (slice P1-3b) and is not part of this slice.
+  - The submission binds the latest recorded catalog observation (contract, overnight margin,
+    `observed_at` = last seen) and every settled funding hour of the window. An unsettled hour
+    counts as missing. The execution fingerprint covers the binding.
 
 ## Alternatives considered
 

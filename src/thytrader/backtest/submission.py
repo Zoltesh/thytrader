@@ -22,6 +22,7 @@ from thytrader.backtest.submission_bindings import (
     _require_reference_dataset_request,
 )
 from thytrader.backtest.submission_coverage import _filled_window
+from thytrader.backtest.submission_futures import FuturesBinding, bind_futures_run
 from thytrader.backtest.submission_models import (
     BacktestStartRequest,
     BacktestSubmissionError,
@@ -51,9 +52,9 @@ from thytrader.trading.ids import uuid7
 
 if TYPE_CHECKING:
     from thytrader.backtest.service import BacktestResultWriter
+    from thytrader.backtest.submission_futures import FuturesRunSource
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.products import SpotQuoteCurrency
-    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategyDatasetBinding, StrategySnapshot
 
 __all__ = [
@@ -151,6 +152,8 @@ class StoreBacktestSubmitter:
     PostgresBacktestSubmitter` binds the PostgreSQL ones.
     """
 
+    _futures_source: FuturesRunSource | None = None
+
     def __init__(
         self,
         *,
@@ -158,8 +161,14 @@ class StoreBacktestSubmitter:
         run_store: SubmissionRunStore,
         result_store: BacktestResultWriter,
         dataset_store: DatasetStore,
+        futures_source: FuturesRunSource | None = None,
     ) -> None:
-        """Use the given publication stores and immutable dataset root."""
+        """Use the given publication stores and immutable dataset root.
+
+        ``futures_source`` (the futures observation store) binds a futures run's contract,
+        margin and funding; without it futures submissions are rejected.
+        """
+        self._futures_source = futures_source
         self._dataset_store = dataset_store
         self._strategy_store = strategy_store
         self._run_store = run_store
@@ -170,7 +179,6 @@ class StoreBacktestSubmitter:
         try:
             _validate_submission_assumptions(request)
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
-            _require_spot_backtest(strategy.definition)
             request = _with_evaluation_window(request, strategy, self._dataset_store)
             _validate_submission_assumptions(
                 request, quote_currency=strategy.definition.instrument.quote_currency
@@ -179,6 +187,14 @@ class StoreBacktestSubmitter:
             _require_indicator_dataset_request(request, strategy.definition)
             _require_additional_instrument_request(request, strategy.definition)
             _require_reference_dataset_request(request, strategy.definition)
+            evaluation_start, evaluation_end = _filled_window(request)
+            futures = await bind_futures_run(
+                strategy.definition,
+                request.futures,
+                self._futures_source,
+                starts_at=evaluation_start,
+                ends_at=evaluation_end,
+            )
         except BacktestSubmissionRejectedError:
             raise
         except Exception as error:
@@ -187,7 +203,7 @@ class StoreBacktestSubmitter:
             now = _utc_millisecond(datetime.now(UTC))
             await self._bind_submission_datasets(request, now)
             execution_fingerprint = _execution_fingerprint(
-                request, strategy.definition.instrument.quote_currency
+                request, strategy.definition.instrument.quote_currency, futures=futures
             )
             published_run = await self._run_store.load_by_execution_fingerprint(
                 execution_fingerprint,
@@ -195,7 +211,7 @@ class StoreBacktestSubmitter:
             )
             if published_run is None:
                 published_run = await self._publish_run(
-                    request, strategy, now, execution_fingerprint
+                    request, strategy, now, execution_fingerprint, futures
                 )
             result = await evaluate_and_publish_backtest(
                 published_run.run_fingerprint,
@@ -203,6 +219,7 @@ class StoreBacktestSubmitter:
                 strategy_store=self._strategy_store,
                 dataset_store=self._dataset_store,
                 result_store=self._result_store,
+                futures_source=self._futures_source,
             )
         except BacktestSubmissionRejectedError:
             raise
@@ -274,6 +291,7 @@ class StoreBacktestSubmitter:
         strategy: StrategySnapshot,
         now: datetime,
         execution_fingerprint: str,
+        futures: FuturesBinding | None = None,
     ) -> PublishedResearchRunSpecification:
         """Build, verify, and idempotently publish one immutable run specification."""
         evaluation_start, evaluation_end = _filled_window(request)
@@ -305,6 +323,9 @@ class StoreBacktestSubmitter:
             ),
             costs=_cost_assumptions(request),
             random_seed=0,
+            instrument_contract=None if futures is None else futures.contract,
+            margin=None if futures is None else futures.margin,
+            funding=None if futures is None else futures.funding,
         )
         try:
             return await self._run_store.publish(
@@ -361,8 +382,14 @@ def resolve_backtest_window(
 def _execution_fingerprint(
     request: BacktestSubmissionRequest,
     quote_currency: SpotQuoteCurrency,
+    *,
+    futures: FuturesBinding | None = None,
 ) -> str:
-    """Hash normalized simulation semantics so equivalent submissions are idempotent."""
+    """Hash normalized simulation semantics so equivalent submissions are idempotent.
+
+    A futures run also hashes its bound contract, margin and funding, so a new catalog
+    observation or funding hour publishes a new run.
+    """
     evaluation_start, evaluation_end = _filled_window(request)
     capital = CapitalAssumptions(
         quote_currency=quote_currency,
@@ -394,6 +421,8 @@ def _execution_fingerprint(
         payload["reference_dataset_fingerprints"] = [
             item.model_dump(mode="json") for item in request.reference_dataset_fingerprints
         ]
+    if futures is not None:
+        payload["futures"] = futures.fingerprint_payload()
     canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return f"sha256:{sha256(canonical.encode()).hexdigest()}"
 
@@ -401,11 +430,3 @@ def _execution_fingerprint(
 def _utc_millisecond(value: datetime) -> datetime:
     """Normalize a server timestamp to the UUIDv7-representable UTC millisecond."""
     return value.astimezone(UTC).replace(microsecond=(value.microsecond // 1_000) * 1_000)
-
-
-def _require_spot_backtest(definition: StrategyDefinition) -> None:
-    """Refuse futures documents until submission binds contract, margin and funding (ADR 0128)."""
-    if definition.instrument.is_future:
-        raise BacktestSubmissionRejectedError(
-            "FUTURES_BACKTEST_UNSUPPORTED: futures backtests are not available yet."
-        )

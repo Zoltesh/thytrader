@@ -225,7 +225,10 @@ def _add_backtest_commands(
             "reference, pinnable with reference_dataset_fingerprints[] {reference_id, "
             "product_id, timeframe, dataset_fingerprint}), optional evaluation window, "
             "initial_quote_balance, maker/taker fee rates, fixed_slippage_bps, and optional "
-            "spread_bps stress. engine_contract_version is rejected."
+            "spread_bps stress. Futures strategies also need a futures block "
+            "({fee_per_contract, optional margin and funding_constant_rate overrides}); the "
+            "server binds the contract, margin and settled funding (ADR 0128). "
+            "engine_contract_version is rejected."
         ),
     )
     submit.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)

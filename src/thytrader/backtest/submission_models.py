@@ -31,6 +31,34 @@ if TYPE_CHECKING:
     from thytrader.market_data.products import SpotQuoteCurrency
 
 
+class FuturesBacktestAssumptions(BaseModel):
+    """Futures-only run inputs the operator chooses (ADR 0128, slice P1-3).
+
+    The server binds the contract and the overnight margin rates from the latest catalog
+    observation and the settled funding series from the recorded history; these fields
+    only choose what cannot be observed. ``fee_per_contract`` is required: there is no
+    compiled futures fee. Explicit ``long_margin_rate`` / ``short_margin_rate`` (both or
+    neither) replace the observed rates. ``funding_constant_rate`` (per hour) replaces
+    the recorded series for a perp and is disclosed as ``futures_constant_funding``.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    fee_per_contract: DecimalInputText
+    margin_stress_multiplier: DecimalInputText | None = None
+    maintenance_fraction_of_initial: DecimalInputText | None = None
+    min_liquidation_buffer_fraction: DecimalInputText | None = None
+    long_margin_rate: DecimalInputText | None = None
+    short_margin_rate: DecimalInputText | None = None
+    funding_constant_rate: DecimalInputText | None = None
+
+    @model_validator(mode="after")
+    def require_paired_rates(self) -> Self:
+        """Explicit margin rates come as a pair."""
+        if (self.long_margin_rate is None) != (self.short_margin_rate is None):
+            raise ValueError("long_margin_rate and short_margin_rate must be set together")
+        return self
+
+
 class BacktestAssumptions(BaseModel):
     """Extra datasets, window, capital, and costs for one unified-model simulation.
 
@@ -42,7 +70,8 @@ class BacktestAssumptions(BaseModel):
     fields accept JSON numbers as well as strings; numbers become canonical decimal
     strings before any fingerprint is computed (ADR 0094). ``reference_dataset_fingerprints``
     binds each declared reference instrument (ADR 0096); omitted ones bind the newest
-    complete catalog dataset like every other clock.
+    complete catalog dataset like every other clock. ``futures`` is required for a futures
+    strategy and refused for a spot one (ADR 0128).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -60,6 +89,9 @@ class BacktestAssumptions(BaseModel):
     fixed_slippage_bps: DecimalInputText
     spread_bps: DecimalInputText | None = None
     execution_stress: ExecutionStress | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    futures: FuturesBacktestAssumptions | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
 
@@ -152,4 +184,5 @@ def _cost_assumptions(request: BacktestAssumptions) -> CostAssumptions:
         fixed_slippage_bps=request.fixed_slippage_bps,
         spread_bps=request.spread_bps if request.spread_bps is not None else "0",
         execution_stress=request.execution_stress,
+        fee_per_contract=None if request.futures is None else request.futures.fee_per_contract,
     )

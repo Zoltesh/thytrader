@@ -175,6 +175,7 @@ class OpsContractPayload(_FrozenModel):
             "live_spot_collateral_gate",
             "futures_strategy_documents",
             "futures_backtest_kernel",
+            "futures_backtest_submission",
         ],
         ...,
     ]
