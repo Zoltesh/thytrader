@@ -3687,6 +3687,406 @@
       "title": "ForeignOpenOrderRow",
       "type": "object"
     },
+    "FundingContractSummary": {
+      "additionalProperties": false,
+      "description": "Funding coverage for one perp-style contract in the report window.\n\n``latest_rate`` is the newest stored hour's rate; ``latest_settled`` is false while\nthe listing still names that hour. ``gap_times`` lists at most 24 missing hours.\n``twenty_four_by_seven`` is false for a contract with trading sessions (index perps):\nits closed-session hours show as gaps but do not degrade the report; ``null`` means no\ncontract observation was recorded.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "history_starts_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "History Starts At"
+        },
+        "latest_funding_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Funding Time"
+        },
+        "latest_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Rate"
+        },
+        "latest_settled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Latest Settled"
+        },
+        "twenty_four_by_seven": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Twenty Four By Seven"
+        },
+        "stored_hours": {
+          "title": "Stored Hours",
+          "type": "integer"
+        },
+        "settled_hours": {
+          "title": "Settled Hours",
+          "type": "integer"
+        },
+        "gap_hours": {
+          "title": "Gap Hours",
+          "type": "integer"
+        },
+        "gap_times": {
+          "items": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "title": "Gap Times",
+          "type": "array"
+        },
+        "revision_count": {
+          "title": "Revision Count",
+          "type": "integer"
+        },
+        "conflict_count": {
+          "title": "Conflict Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "product_id",
+        "history_starts_at",
+        "latest_funding_time",
+        "latest_rate",
+        "latest_settled",
+        "twenty_four_by_seven",
+        "stored_hours",
+        "settled_hours",
+        "gap_hours",
+        "gap_times",
+        "revision_count",
+        "conflict_count"
+      ],
+      "title": "FundingContractSummary",
+      "type": "object"
+    },
+    "FundingPayload": {
+      "additionalProperties": false,
+      "description": "Funding history visible to agents; no account data is involved.",
+      "properties": {
+        "window_starts_at": {
+          "format": "date-time",
+          "title": "Window Starts At",
+          "type": "string"
+        },
+        "window_ends_at": {
+          "format": "date-time",
+          "title": "Window Ends At",
+          "type": "string"
+        },
+        "hours": {
+          "maximum": 720,
+          "minimum": 1,
+          "title": "Hours",
+          "type": "integer"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Product Id"
+        },
+        "poller": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FundingPollerSummary"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "contracts": {
+          "items": {
+            "$ref": "#/$defs/FundingContractSummary"
+          },
+          "title": "Contracts",
+          "type": "array"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/FundingRateRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        }
+      },
+      "required": [
+        "window_starts_at",
+        "window_ends_at",
+        "hours",
+        "product_id",
+        "poller",
+        "contracts",
+        "rows"
+      ],
+      "title": "FundingPayload",
+      "type": "object"
+    },
+    "FundingPollerSummary": {
+      "additionalProperties": false,
+      "description": "The futures poller's last attempt and success.",
+      "properties": {
+        "last_attempt_at": {
+          "format": "date-time",
+          "title": "Last Attempt At",
+          "type": "string"
+        },
+        "last_success_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Success At"
+        },
+        "consecutive_failures": {
+          "title": "Consecutive Failures",
+          "type": "integer"
+        },
+        "failure_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Code"
+        },
+        "contract_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Contract Count"
+        },
+        "perpetual_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Perpetual Count"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "last_attempt_at",
+        "last_success_at",
+        "consecutive_failures",
+        "failure_code",
+        "contract_count",
+        "perpetual_count",
+        "stale"
+      ],
+      "title": "FundingPollerSummary",
+      "type": "object"
+    },
+    "FundingRateRow": {
+      "additionalProperties": false,
+      "description": "One stored funding hour (only when the report is scoped to one contract).",
+      "properties": {
+        "funding_time": {
+          "format": "date-time",
+          "title": "Funding Time",
+          "type": "string"
+        },
+        "rate": {
+          "title": "Rate",
+          "type": "string"
+        },
+        "interval_seconds": {
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "settled": {
+          "title": "Settled",
+          "type": "boolean"
+        },
+        "observation_count": {
+          "title": "Observation Count",
+          "type": "integer"
+        },
+        "revision_count": {
+          "title": "Revision Count",
+          "type": "integer"
+        },
+        "conflict_count": {
+          "title": "Conflict Count",
+          "type": "integer"
+        },
+        "last_conflict_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Conflict Rate"
+        },
+        "first_observed_at": {
+          "format": "date-time",
+          "title": "First Observed At",
+          "type": "string"
+        },
+        "last_observed_at": {
+          "format": "date-time",
+          "title": "Last Observed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "funding_time",
+        "rate",
+        "interval_seconds",
+        "settled",
+        "observation_count",
+        "revision_count",
+        "conflict_count",
+        "last_conflict_rate",
+        "first_observed_at",
+        "last_observed_at"
+      ],
+      "title": "FundingRateRow",
+      "type": "object"
+    },
+    "FundingReport": {
+      "additionalProperties": false,
+      "description": "Read-only CFM funding-rate history and poller health.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "funding",
+          "default": "funding",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FundingPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "FundingReport",
+      "type": "object"
+    },
     "HealthPayload": {
       "additionalProperties": false,
       "description": "Process coverage included in the health report.",
@@ -5888,6 +6288,39 @@
           "title": "Runtime Observability",
           "type": "array"
         },
+        "instrument_kinds": {
+          "description": "Instrument kinds the read-only catalog reports (ADR 0126).",
+          "items": {
+            "enum": [
+              "spot",
+              "dated_future",
+              "perpetual_future"
+            ],
+            "type": "string"
+          },
+          "title": "Instrument Kinds",
+          "type": "array"
+        },
+        "futures_order_paths": {
+          "description": "Always empty: no surface can order a futures contract (ADR 0126).",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 0,
+          "title": "Futures Order Paths",
+          "type": "array"
+        },
+        "futures_observations": {
+          "items": {
+            "enum": [
+              "instrument_catalog",
+              "funding_history"
+            ],
+            "type": "string"
+          },
+          "title": "Futures Observations",
+          "type": "array"
+        },
         "expected_schema_revision": {
           "maxLength": 32,
           "minLength": 1,
@@ -5954,6 +6387,9 @@
         "portfolio_sleeve_operations",
         "same_bar_exit_precedence",
         "runtime_observability",
+        "instrument_kinds",
+        "futures_order_paths",
+        "futures_observations",
         "expected_schema_revision"
       ],
       "title": "OpsContractPayload",
@@ -11551,7 +11987,8 @@
         "portfolios",
         "readiness",
         "venue_reconciliation",
-        "alerts"
+        "alerts",
+        "funding"
       ]
     },
     "payload": {
@@ -11644,6 +12081,9 @@
     },
     {
       "$ref": "#/$defs/AlertsReport"
+    },
+    {
+      "$ref": "#/$defs/FundingReport"
     }
   ]
 }

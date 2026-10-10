@@ -78,6 +78,11 @@ from thytrader.persistence.tables.fleet import (
     fleet_control_operations,
     fleet_entry_inhibition,
 )
+from thytrader.persistence.tables.futures import (
+    futures_catalog_poll_state,
+    futures_funding_rates,
+    futures_instrument_observations,
+)
 # isort: on
 
 __all__ = [
@@ -97,6 +102,9 @@ __all__ = [
     "experiential_sentiment_snapshots",
     "fleet_control_operations",
     "fleet_entry_inhibition",
+    "futures_catalog_poll_state",
+    "futures_funding_rates",
+    "futures_instrument_observations",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",

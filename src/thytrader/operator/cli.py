@@ -20,8 +20,13 @@ from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
+from thytrader.market_data.instrument_ids import normalize_futures_product_id
 from thytrader.market_data.models import DATASET_TIMEFRAMES
 from thytrader.operator.data_health import data_health_report
+from thytrader.operator.funding_report import (
+    FUNDING_REPORT_DEFAULT_HOURS,
+    FUNDING_REPORT_MAX_HOURS,
+)
 from thytrader.operator.health_models import HealthReport
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
@@ -111,6 +116,27 @@ def _parser() -> argparse.ArgumentParser:
         "products",
         parents=[trailing],
         help="Enabled USD, USDC, and USDT spot products from the current catalog.",
+    )
+    funding = subparsers.add_parser(
+        "funding",
+        parents=[trailing],
+        help=(
+            "Recorded Coinbase futures (CFM) funding-rate history and futures poller health. "
+            "Read-only; futures cannot be ordered."
+        ),
+    )
+    funding.add_argument(
+        "--product-id",
+        type=_futures_product_id,
+        default=None,
+        help="One futures contract, e.g. BIP-20DEC30-CDE, to list every stored hour.",
+    )
+    funding.add_argument(
+        "--hours",
+        type=_funding_hours,
+        metavar=f"1..{FUNDING_REPORT_MAX_HOURS}",
+        default=FUNDING_REPORT_DEFAULT_HOURS,
+        help=f"Window ending at the current hour. Default {FUNDING_REPORT_DEFAULT_HOURS}.",
     )
     subparsers.add_parser(
         "data-catalog",
@@ -361,7 +387,29 @@ async def _argument_report(
         )
     if command == "venue-reconciliation":
         return await diagnostics.venue_reconciliation_report()
+    if command == "funding":
+        return await diagnostics.funding(product_id=arguments.product_id, hours=arguments.hours)
     return None
+
+
+def _funding_hours(value: str) -> int:
+    """Parse the funding window in whole hours within the report's bound."""
+    try:
+        hours = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("--hours must be a whole number.") from None
+    if not 1 <= hours <= FUNDING_REPORT_MAX_HOURS:
+        message = f"--hours must be between 1 and {FUNDING_REPORT_MAX_HOURS}."
+        raise argparse.ArgumentTypeError(message)
+    return hours
+
+
+def _futures_product_id(value: str) -> str:
+    """Normalize a futures id argument or reject it with a usage error."""
+    try:
+        return normalize_futures_product_id(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from None
 
 
 def _uuid_or_none(value: str | None) -> UUID | None:
@@ -394,6 +442,9 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     portfolio_id = getattr(arguments, "portfolio_id", None)
     if isinstance(portfolio_id, str) and portfolio_id:
         query["portfolio_id"] = portfolio_id
+    hours = getattr(arguments, "hours", None)
+    if isinstance(hours, int):
+        query["hours"] = str(hours)
     return query
 
 

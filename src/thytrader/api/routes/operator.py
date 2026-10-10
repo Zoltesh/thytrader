@@ -39,6 +39,7 @@ from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC0
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore  # noqa: TC001
 from thytrader.market_data.datasets import DatasetStore  # noqa: TC001
+from thytrader.market_data.instrument_ids import FUTURES_PRODUCT_ID_PATTERN
 from thytrader.market_data.models import DATASET_TIMEFRAME_PATTERN
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService  # noqa: TC001
@@ -47,6 +48,11 @@ from thytrader.market_data.worker_state import MarketDataWorkerStateStore  # noq
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
 from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport, data_health_report
+from thytrader.operator.funding_report import (
+    FUNDING_REPORT_DEFAULT_HOURS,
+    FUNDING_REPORT_MAX_HOURS,
+    FundingReport,
+)
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -71,6 +77,7 @@ from thytrader.operator.service import OperatorDiagnostics
 from thytrader.operator.support_bundle_models import SupportBundleReport
 from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_research_queue import (  # noqa: TC001 - FastAPI Depends.
     PostgresResearchQueue,
 )
@@ -136,6 +143,7 @@ def get_operator_diagnostics(
         portfolios=portfolios,
         research_queue=research_queue,
         alert_store=alert_store,
+        futures_store=None if engine is None else PostgresFuturesObservationStore(engine),
     )
 
 
@@ -179,6 +187,16 @@ async def get_operator_products(
 ) -> ProductsReport:
     """Return enabled USD spot products from the current catalog."""
     return await diagnostics.products()
+
+
+@router.get("/funding", response_model=FundingReport)
+async def get_operator_funding(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    product_id: Annotated[str | None, Query(pattern=FUTURES_PRODUCT_ID_PATTERN)] = None,
+    hours: Annotated[int, Query(ge=1, le=FUNDING_REPORT_MAX_HOURS)] = FUNDING_REPORT_DEFAULT_HOURS,
+) -> FundingReport:
+    """Return recorded CFM funding history and futures poller health (read-only)."""
+    return await diagnostics.funding(product_id=product_id, hours=hours)
 
 
 @router.get("/data-catalog", response_model=DataCatalogReport)

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from coinbase.rest import RESTClient
 
+from thytrader.exchanges.coinbase_futures_catalog import CoinbaseFuturesCatalog
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.demo import DemoMarketData
@@ -18,12 +19,14 @@ from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import ensure_default_watch_target
 from thytrader.market_data_worker.feed import run_public_market_feed
+from thytrader.market_data_worker.futures_catalog import run_futures_catalog_poller
 from thytrader.market_data_worker.retention import DatasetRetentionRunner
 from thytrader.market_data_worker.service import run_market_data_worker
 from thytrader.observability.logging import configure_logging
 from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_dataset_references import PostgresDatasetReferenceSource
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_market_data_watchlist import PostgresMarketDataWatchlistStore
 from thytrader.persistence.postgres_market_data_worker import PostgresMarketDataWorkerStateStore
 from thytrader.persistence.postgres_market_feed import PostgresMarketFeedStateStore
@@ -112,11 +115,27 @@ async def run() -> None:
                 feed_store=feed_store,
                 audit_store=audit_store,
             ),
+            run_futures_catalog_poller(
+                stop_requested,
+                provider=_futures_provider(provider),
+                store=PostgresFuturesObservationStore(engine),
+                audit_store=audit_store,
+            ),
         )
         _logger.info("market_data_worker_stopped")
     finally:
         _set_readiness(settings.market_data_worker_readiness_file, False)
         await dispose(engine)
+
+
+def _futures_provider(provider: str) -> CoinbaseFuturesCatalog | None:
+    """Read the public futures listing in Coinbase mode; demo mode records no futures.
+
+    The listing endpoint is public, so this client carries no credentials (ADR 0126).
+    """
+    if provider != "coinbase":
+        return None
+    return CoinbaseFuturesCatalog(RESTClient(timeout=10))
 
 
 def _build_service(settings: Settings) -> tuple[MarketDataService, str]:

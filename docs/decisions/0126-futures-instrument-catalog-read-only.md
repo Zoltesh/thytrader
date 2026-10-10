@@ -85,14 +85,32 @@ dataset and result fingerprints do not change; golden tests pin the spot catalog
 
 ### 5. Funding history and contract observations (P0-3)
 
-- A market-data-worker poller reads the futures listing every 5 minutes.
-- `futures_instrument_observations` stores a new row only when a contract's normalized
-  payload fingerprint changes (margin rates, sessions, maintenance windows, increments).
-- `futures_funding_rates` keys on `(product_id, funding_time)`. Each poll before the funding
-  instant updates the observed rate and its count. The **settled** rate is the last
-  observation strictly before `funding_time`; once the instant passes, the row is settled and
-  immutable. A later conflicting value for a settled hour is recorded as an alert and never
-  rewritten. Hours with no observation are reported as gaps, never filled.
+- The market-data worker polls the public futures listing every 5 minutes in Coinbase mode,
+  with an unauthenticated client (the endpoint is public). Demo mode records nothing.
+- `futures_catalog_poll_state` records the last attempt, last success, failure streak and
+  failure code, so a stopped or failing poller is visible.
+- `futures_instrument_observations` stores a new row only when a contract's payload
+  fingerprint changes (increments, margin rates, 24/7 flag, session state, maintenance window,
+  enablement); unchanged polls extend `last_seen_at`. Funding and per-session open/close
+  instants are excluded from the fingerprint.
+- `futures_funding_rates` keys on `(product_id, funding_time)`. Live evidence on 2026-10-10
+  (00:48Z) showed the listing's `funding_time` is the most recent funding hour (00:00Z), not
+  the next one, so the plan's "last observation strictly before `funding_time`" rule cannot
+  apply. Instead, an hour is **current** while the listing names it and **settled** once the
+  listing names a later hour for that contract. The settled rate is the last value observed
+  while the hour was current (`revision_count` counts changes while current). A settled row is
+  immutable: a later different value increments `conflict_count`, records the value and time,
+  writes a `futures_funding_conflict` audit event, and is never applied. A perp listed without
+  a rate or time contributes nothing (never a zero).
+- Hours after a contract's first recorded hour with no row are gaps. They are reported by the
+  operator `funding` report and never filled. Migration 0071's downgrade refuses while any
+  funding row exists, because the history cannot be re-fetched.
+- `thytrader-operator funding [--product-id ID] [--hours 1..720]` (`GET
+  /api/v1/operator/funding`) reports poller health, per-contract coverage, gaps and
+  conflicts. Ops contract v74 adds `instrument_kinds`, the empty `futures_order_paths` and
+  `futures_observations`.
+- A conflict is surfaced through the audit log and the report, not through the durable alert
+  feed of ADR 0115, whose supervision runs in the execution worker over trading state.
 
 ### 6. Futures candles (P0-4)
 

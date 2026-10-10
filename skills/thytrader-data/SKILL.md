@@ -94,6 +94,10 @@ was written, and repeating the same command is safe ([ADR 0089](../../docs/decis
 Research backtests and studies bind the newest complete dataset per clock automatically once it is
 ingested; their HTTP 422 `datasets_missing` names the `watch-add` / `ingest` commands to run.
 
+Coinbase futures funding rates need no command in this lane: the market-data worker records them
+from the public futures listing every 5 minutes, and `uv run thytrader-operator funding` reads
+them (read-only; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)).
+
 `watch-add` accepts USD, USDC, and USDT spot products. The web Test/Run **Download data** action uses
 the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation,
 and watches at the timeframe's ceiling. Optional `--lookback-hours` on `watch-add` defaults to 168

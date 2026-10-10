@@ -77,6 +77,9 @@ class HealthOpsContract(BaseModel):
     portfolio_sleeve_operations: list[str]
     same_bar_exit_precedence: list[str]
     runtime_observability: list[str]
+    instrument_kinds: list[str]
+    futures_order_paths: list[str]
+    futures_observations: list[str]
     expected_schema_revision: str
 
 

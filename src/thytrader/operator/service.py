@@ -33,6 +33,7 @@ from thytrader.operator.diagnostics.market_coverage import (
 )
 from thytrader.operator.diagnostics.performance import build_performance_report
 from thytrader.operator.diagnostics.runtime import build_runtime_report, build_strategies_report
+from thytrader.operator.funding_report import FundingReport, build_funding_report
 from thytrader.operator.indicator_report import indicator_catalog_entries
 from thytrader.operator.market_models import (
     DataCatalogReport,
@@ -95,6 +96,7 @@ if TYPE_CHECKING:
     from thytrader.execution.decisions import DecisionOutcome
     from thytrader.execution.user_feed_state import UserOrderFeedStateStore
     from thytrader.market_data.datasets import DatasetStore
+    from thytrader.market_data.futures_observations import FuturesObservationStore
     from thytrader.market_data.service import MarketDataService
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.market_data.worker_state import MarketDataWorkerStateStore
@@ -140,6 +142,7 @@ class OperatorDiagnostics:
     portfolios: PortfolioStorage | None = None
     research_queue: ResearchQueueSnapshotReader | None = None
     alert_store: AlertStore | None = None
+    futures_store: FuturesObservationStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -328,6 +331,10 @@ class OperatorDiagnostics:
     ) -> MarketDataReport:
         """Report coverage and freshness for one USD spot product and timeframe."""
         return await build_market_data_report(self, product_id, timeframe)
+
+    async def funding(self, *, product_id: str | None, hours: int) -> FundingReport:
+        """Return recorded CFM funding history and futures poller health (ADR 0126)."""
+        return await build_funding_report(self.futures_store, product_id=product_id, hours=hours)
 
     async def products(self) -> ProductsReport:
         """List enabled USD spot products from the current catalog."""

@@ -48,6 +48,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products` | `GET /api/v1/operator/products` |
+| Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
@@ -315,7 +316,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v74`, schema revision `0070`) and exits on any
+   this checkout's (`thytrader-ops-contract-v75`, schema revision `0071`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -326,6 +327,9 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    64 / 512); and `runtime_observability` (incl. `position_state`, `fee_adjusted_book_pnl`,
    `capital_normalized_performance`, `explicit_deployment_twins`,
    `rule_matched_deployment_twins`, `exchange_read_failures`, `audit_failure_evidence`).
+   `instrument_kinds` lists `spot`, `dated_future` and `perpetual_future`, and
+   `futures_order_paths` is empty: Coinbase futures are observation-only, and no command in any
+   lane can order one ([ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)).
    Multi-book reads follow [ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
@@ -510,7 +514,7 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-Health requires the shipped schema revision (`0069`). After updating main, use `make run` to
+Health requires the shipped schema revision (`0071`). After updating main, use `make run` to
 apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
@@ -520,3 +524,32 @@ read; no migration invents a past verification time. This is order-state evidenc
 independent venue-geometry or whole-account audit, nor a guarantee that a stop-limit will fill.
 A repeated revision mismatch after that is a contributor defect, not a reason to
 bypass the CLI check or keep restarting unchanged images.
+
+## Futures funding history (ADR 0126)
+
+`uv run thytrader-operator funding` is read-only. Coinbase publishes only the current funding
+rate of each perp-style futures contract (for example `BIP-20DEC30-CDE`, nano BTC), so
+ThyTrader records it: the market-data worker reads the public futures listing every 5 minutes
+when Coinbase credentials are configured. History starts when that poller first ran; there is no
+earlier history to fetch.
+
+- `payload.poller`: `last_attempt_at`, `last_success_at`, `consecutive_failures`,
+  `failure_code` (`FUTURES_LISTING_UNAVAILABLE` when the listing could not be read or could not
+  be proved complete), `contract_count`, `perpetual_count`, and `stale` (no success in the last
+  three intervals). `null` means the poller has never run.
+- `payload.contracts[]` (one per perp with history, or the one `--product-id`):
+  `history_starts_at`, `latest_funding_time`, `latest_rate` (exact decimal per funding interval,
+  hourly; longs pay when positive), `latest_settled`, `stored_hours`, `settled_hours`,
+  `gap_hours` and up to 24 `gap_times`, `revision_count`, `conflict_count`.
+- `payload.rows[]` (only with `--product-id`): every stored hour in the window.
+
+The listing names the most recent funding hour. That hour is **current** while the listing still
+names it, and **settled** once the listing names a later hour; the settled rate is the last value
+seen while it was current and never changes afterwards. A later disagreeing value is counted in
+`conflict_count` (component `FUNDING_RATE_CONFLICT`, plus a `futures_funding_conflict` audit
+event) and is not applied. `FUNDING_HISTORY_GAPS` names hours after `history_starts_at` that
+were never observed (the worker was down); gaps are never filled or treated as zero.
+Contracts with trading sessions (`twenty_four_by_seven: false`, such as index perps) have no
+funding hours while closed: their gaps are listed but do not degrade the report.
+`FUTURES_POLLER_NOT_RUN` and `FUTURES_POLLER_STALE` point at the market-data worker.
+Futures are observation-only: no lane can place, adopt or deploy a futures contract.

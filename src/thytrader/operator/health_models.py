@@ -157,6 +157,14 @@ class OpsContractPayload(_FrozenModel):
         ],
         ...,
     ]
+    instrument_kinds: tuple[Literal["spot", "dated_future", "perpetual_future"], ...] = Field(
+        description="Instrument kinds the read-only catalog reports (ADR 0126)."
+    )
+    futures_order_paths: tuple[str, ...] = Field(
+        max_length=0,
+        description="Always empty: no surface can order a futures contract (ADR 0126).",
+    )
+    futures_observations: tuple[Literal["instrument_catalog", "funding_history"], ...]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

@@ -15,6 +15,7 @@ alternative, not an automatic fallback.
 | GET | `/api/v1/operator/data-catalog` | `data_catalog` |
 | GET | `/api/v1/operator/data-health` | `data_health` |
 | GET | `/api/v1/operator/products` | `products` |
+| GET | `/api/v1/operator/funding` | `funding` (`?product_id=BIP-20DEC30-CDE&hours=1..720`) |
 | GET | `/api/v1/operator/indicators` | `indicators` |
 | GET | `/api/v1/operator/strategies` | `strategies` |
 | GET | `/api/v1/operator/performance` | `performance` |
