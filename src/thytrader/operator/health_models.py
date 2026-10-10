@@ -157,6 +157,7 @@ class OpsContractPayload(_FrozenModel):
             "backtest_bar_explanations",
             "fleet_entry_health",
             "execution_cycle_timing",
+            "execution_cycle_budget",
         ],
         ...,
     ]

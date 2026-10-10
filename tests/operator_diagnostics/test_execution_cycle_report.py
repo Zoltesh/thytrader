@@ -113,10 +113,26 @@ async def test_cycle_within_interval_is_healthy() -> None:
     assert graded is not None
     component, payload = graded
     assert component.status is ReportStatus.HEALTHY
-    assert component.reason_code == "CYCLE_WITHIN_INTERVAL"
+    assert component.reason_code == "CYCLE_WITHIN_BUDGET"
     assert payload is not None
     assert payload.summary.slow is False
     assert payload.summary.last_duration_seconds == 8.0
+
+
+async def test_cycle_over_interval_but_within_budget_is_healthy() -> None:
+    """A 45 s cycle on a 30 s interval stays within the 60 s budget health already allows."""
+    store = InMemoryExecutionCycleStore()
+    await store.complete_cycle(_report(started_at=_NOW - timedelta(seconds=80), duration=45.0))
+    graded = await execution_cycle_health(store, now=_NOW)
+    assert graded is not None
+    component, payload = graded
+    assert component.status is ReportStatus.HEALTHY
+    assert component.reason_code == "CYCLE_WITHIN_BUDGET"
+    assert "45.0s against a 30s interval (60s budget" in component.detail
+    assert payload is not None
+    assert payload.summary.budget_seconds == 60
+    assert payload.summary.slow is False
+    assert payload.recent_slow_cycles == 0
 
 
 async def test_slow_completed_cycle_names_phase_and_books() -> None:
@@ -149,7 +165,7 @@ async def test_running_cycle_past_its_interval_is_slow_even_after_a_fast_one() -
     assert graded is not None
     component, payload = graded
     assert component.reason_code == "CYCLE_SLOW"
-    assert "current cycle has run 95s" in component.detail
+    assert "current cycle has run 95.0s, over its 60s budget" in component.detail
     assert payload is not None
     assert payload.in_progress_started_at == _NOW - timedelta(seconds=95)
     assert payload.summary.in_progress_seconds == 95.0

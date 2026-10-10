@@ -478,9 +478,10 @@ instead (`OK`, `FLEET_ENTRIES_BLOCKED`, `FLEET_ENTRY_ALERTS_UNAVAILABLE`).
 ## Execution cycle timing (ADR 0131)
 
 `health.payload.execution_cycle` (`null` when the process has no cycle store or none is
-recorded): `interval_seconds`, `last_duration_seconds`, `last_completed_at`, `slowest_phase`,
-`in_progress_seconds` (set while the newest recorded cycle has not completed) and `slow`
-(duration, or the running cycle's age, above `interval_seconds`).
+recorded): `interval_seconds`, `budget_seconds` (interval plus 30 s, ADR 0132),
+`last_duration_seconds`, `last_completed_at`, `slowest_phase`, `in_progress_seconds` (set while
+the newest recorded cycle has not completed) and `slow` (duration, or the running cycle's age,
+above `budget_seconds`).
 
 `runtime.payload.execution_cycle`: `summary` (as above), `in_progress_started_at`, `latest`,
 `recent[]` (`started_at`, `duration_seconds`, `venue_requests`; up to 20, newest first, `null`
@@ -496,11 +497,13 @@ durations for unfinished cycles), `recent_median_seconds`, `recent_max_seconds` 
 (`requests`, `errors`, `seconds`, `max_seconds`, `endpoints[]` with `method`, `endpoint` (path
 shape, ids as `{id}`), `requests`, `errors`, `seconds`, `max_seconds`; up to 15, costliest
 first), `database` (`statements`, `seconds`: every SQL statement of the cycle, no SQL text)
-and `window_cache` (`windows`, `cached_candles`, `range_requests`, `warming_events`,
-`warming_books`). Venue figures count every Coinbase REST call the cycle made (market data,
+, `window_cache` (`windows`, `cached_candles`, `range_requests`, `warming_events`,
+`warming_books`), `book_groups[]` (`status`, `mode`, `books`, `seconds`, `venue_requests`,
+`venue_seconds`, `db_statements`, `db_seconds`) and `shared_reads` (reads served from an
+identical earlier read in the same cycle; ADR 0132). Venue figures count every Coinbase REST call the cycle made (market data,
 broker and balance reads); demo mode records none.
 
-Component `execution_cycle` (on `health` and `runtime`): `CYCLE_WITHIN_INTERVAL`,
+Component `execution_cycle` (on `health` and `runtime`): `CYCLE_WITHIN_BUDGET`,
 `CYCLE_IN_PROGRESS`, `CYCLE_SLOW` (degraded), `CYCLE_TIMING_MISSING` (degraded),
 `CYCLE_TIMING_UNAVAILABLE` (degraded).
 

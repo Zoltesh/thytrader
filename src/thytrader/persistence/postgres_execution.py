@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.fleet_control.commands import confirmed_command
+from thytrader.persistence.postgres_execution_batch import load_snapshots
 from thytrader.persistence.postgres_execution_rows import (
     _deployment_from_row,
     _deployment_values,
@@ -294,6 +295,16 @@ class PostgresExecutionStore:
                 if row is None:
                     raise ExecutionStoreError("Deployment was not found.")
                 return await _snapshot(connection, _deployment_from_row(row))
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def get_deployments(
+        self, deployment_ids: Sequence[UUID]
+    ) -> tuple[DeploymentSnapshot, ...]:
+        """Load many full snapshots, one statement per table (``DeploymentSnapshotBatchReader``)."""
+        try:
+            async with self._engine.connect() as connection:
+                return await load_snapshots(connection, deployment_ids)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 

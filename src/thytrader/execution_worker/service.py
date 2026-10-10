@@ -55,6 +55,7 @@ from thytrader.execution_worker.windows import (
     new_closed_bars,
 )
 from thytrader.fleet_control.admission import refresh_process_entry_inhibition
+from thytrader.market_data.cycle_reads import CycleReads, cycle_reads_scope
 from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
@@ -62,6 +63,7 @@ from thytrader.trading.exposure import daily_loss_snapshots
 from thytrader.trading.futures_book import futures_book_scope
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import DeploymentKind, DeploymentMode, DeploymentStatus
+from thytrader.trading.store import DeploymentSnapshotBatchReader
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -288,7 +290,8 @@ async def _run_cycle(
         interval_seconds=worker_interval_seconds,
         window_cache=window_cache_of(market_data),
     )
-    with timer.bound():
+    reads = CycleReads()
+    with timer.bound(), cycle_reads_scope(reads):
         with timer.phase("setup"):
             await refresh_process_entry_inhibition(store)
             policy = (await load_effective_policy(risk_store)).definition
@@ -352,15 +355,19 @@ async def _run_cycle(
                 policy=policy,
                 observed_at=cycle_started_at,
             )
-    return _cycle_report(timer, deployments, book_failures=len(cycle_failures))
+    return _cycle_report(
+        timer, deployments, book_failures=len(cycle_failures), shared_reads=reads.hits
+    )
 
 
 def _cycle_report(
-    timer: CycleTimer, deployments: Sequence[Deployment], *, book_failures: int
+    timer: CycleTimer, deployments: Sequence[Deployment], *, book_failures: int, shared_reads: int
 ) -> ExecutionCycleReport | None:
     """Assemble the cycle's timing report; a malformed measurement never fails the cycle."""
     try:
-        return timer.report(deployments=deployments, book_failures=book_failures)
+        return timer.report(
+            deployments=deployments, book_failures=book_failures, shared_reads=shared_reads
+        )
     except ValueError, TypeError:
         _logger.exception("execution_cycle_report_failed cycle_id=%s", timer.cycle_id)
         return None
@@ -457,9 +464,14 @@ async def _risk_snapshots(
     """Load snapshots used by the entry gate, including stopped flat loss evidence.
 
     Exposure and rate limits re-filter to risk-bearing books. Daily loss and latches
-    need stopped flat rows, so this set must not drop them.
+    need stopped flat rows, so this set must not drop them. The cycle reloads every book
+    after each one it processes; a store that reads many snapshots at once (ADR 0131)
+    returns the same snapshots with one statement per table instead of six per book.
     """
-    loaded = [await store.get_deployment(item.id) for item in deployments]
+    if isinstance(store, DeploymentSnapshotBatchReader):
+        loaded = list(await store.get_deployments([item.id for item in deployments]))
+    else:
+        loaded = [await store.get_deployment(item.id) for item in deployments]
     paper = daily_loss_snapshots(loaded, DeploymentMode.PAPER)
     live = daily_loss_snapshots(loaded, DeploymentMode.LIVE)
     return paper + live

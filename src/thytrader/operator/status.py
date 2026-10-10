@@ -38,8 +38,8 @@ _RECOMMENDATIONS: dict[str, str] = {
     ),
     "HEARTBEAT_STALE": "Restart the named worker; its last heartbeat is older than two loops.",
     "CYCLE_SLOW": (
-        "The execution worker cycle overran its interval, delaying entries, exits and "
-        "protection checks. Read payload.execution_cycle of `thytrader-operator runtime` "
+        "The execution worker cycle overran its budget (interval + 30 s), delaying entries, "
+        "exits and protection checks. Read payload.execution_cycle of `thytrader-operator runtime` "
         "(slowest_phase, slowest_books, venue endpoints); do not restart a progressing worker."
     ),
     "CYCLE_TIMING_MISSING": (

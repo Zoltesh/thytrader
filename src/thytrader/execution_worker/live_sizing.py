@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.capital import apply_venue_quote
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
+from thytrader.market_data.cycle_reads import shared_read
 from thytrader.trading.ids import utc_now
 from thytrader.trading.inventory_claims import unmanaged_available_base
 from thytrader.trading.models import DeploymentStatus, with_runtime
@@ -71,7 +72,8 @@ async def _live_fee_profile(
     if get_profile is None:
         return None
     try:
-        return await get_profile()
+        # One fee-tier read per cycle serves every live book (ADR 0131).
+        return await shared_read(("fee_profile", str(id(quote_reader))), get_profile)
     except RuntimeError, ValueError, TypeError, OSError:
         _logger.exception("live_fee_profile_fetch_failed")
         return None

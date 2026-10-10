@@ -35,8 +35,27 @@ from thytrader.trading.models import (
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncConnection
+    from sqlalchemy.sql.elements import ColumnElement
 
     from thytrader.trading.models import Deployment
+
+
+# Row order of every full snapshot, shared with the batched loader (ADR 0131). The ``id`` and
+# ``product_id`` tie-breakers make equal timestamps order deterministically.
+INTENT_ORDER: tuple[ColumnElement[object], ...] = (
+    order_intents.c.created_at.desc(),
+    order_intents.c.id.desc(),
+)
+ORDER_ORDER: tuple[ColumnElement[object], ...] = (
+    execution_orders.c.created_at.desc(),
+    execution_orders.c.id.desc(),
+)
+FILL_ORDER: tuple[ColumnElement[object], ...] = (
+    execution_fills.c.filled_at.desc(),
+    execution_fills.c.id.desc(),
+)
+POSITION_ORDER: tuple[ColumnElement[object], ...] = (execution_positions.c.product_id,)
+RUNTIME_ORDER: tuple[ColumnElement[object], ...] = (execution_instrument_state.c.product_id,)
 
 
 async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> DeploymentSnapshot:
@@ -46,7 +65,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
             await connection.execute(
                 select(order_intents)
                 .where(order_intents.c.deployment_id == deployment.id)
-                .order_by(order_intents.c.created_at.desc())
+                .order_by(*INTENT_ORDER)
             )
         )
         .mappings()
@@ -57,7 +76,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
             await connection.execute(
                 select(execution_orders)
                 .where(execution_orders.c.deployment_id == deployment.id)
-                .order_by(execution_orders.c.created_at.desc())
+                .order_by(*ORDER_ORDER)
             )
         )
         .mappings()
@@ -68,7 +87,7 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
             await connection.execute(
                 select(execution_fills)
                 .where(execution_fills.c.deployment_id == deployment.id)
-                .order_by(execution_fills.c.filled_at.desc())
+                .order_by(*FILL_ORDER)
             )
         )
         .mappings()
@@ -77,9 +96,9 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
     position_rows = (
         (
             await connection.execute(
-                select(execution_positions).where(
-                    execution_positions.c.deployment_id == deployment.id
-                )
+                select(execution_positions)
+                .where(execution_positions.c.deployment_id == deployment.id)
+                .order_by(*POSITION_ORDER)
             )
         )
         .mappings()
@@ -88,9 +107,9 @@ async def _snapshot(connection: AsyncConnection, deployment: Deployment) -> Depl
     runtime_rows = (
         (
             await connection.execute(
-                select(execution_instrument_state).where(
-                    execution_instrument_state.c.deployment_id == deployment.id
-                )
+                select(execution_instrument_state)
+                .where(execution_instrument_state.c.deployment_id == deployment.id)
+                .order_by(*RUNTIME_ORDER)
             )
         )
         .mappings()
