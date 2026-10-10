@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from thytrader.config import Settings
-    from thytrader.exchanges.protocols import FuturesAccountReader
+    from thytrader.exchanges.protocols import FuturesAccountReader, SpotBalanceReader
     from thytrader.portfolio.models import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -65,19 +65,27 @@ class _ReloadingPortfolioFetcher:
 
 
 class _ReloadingFuturesReader:
-    """Hold the GET-only CFM reader; credential reloads rebuild it (ADR 0127)."""
+    """Hold the GET-only CFM and spot-listing readers; credential reloads rebuild them.
+
+    The spot listing gives the mirror the USDC and USD balances that CFM draws on as
+    collateral (ADR 0127 §10).
+    """
 
     def __init__(self, settings: Settings) -> None:
-        """Build the first reader, or none in demo mode."""
-        self._reader = _build_futures_reader(settings)
+        """Build the first readers, or none in demo mode."""
+        self._reader, self._spot = _build_futures_readers(settings)
 
     def replace(self, settings: Settings) -> None:
-        """Rebuild the reader from fresh settings."""
-        self._reader = _build_futures_reader(settings)
+        """Rebuild the readers from fresh settings."""
+        self._reader, self._spot = _build_futures_readers(settings)
 
     def current(self) -> FuturesAccountReader | None:
-        """Return the reader for this cycle, or ``None`` without credentials."""
+        """Return the CFM reader for this cycle, or ``None`` without credentials."""
         return self._reader
+
+    def spot(self) -> SpotBalanceReader | None:
+        """Return the spot-listing reader for this cycle, or ``None`` without credentials."""
+        return self._spot
 
 
 async def run() -> None:
@@ -107,6 +115,7 @@ async def run() -> None:
             stop_requested,
             reader=futures_reader.current,
             store=PostgresFuturesAccountStore(engine),
+            spot_reader=futures_reader.spot,
         )
     )
 
@@ -138,16 +147,18 @@ async def _idle(stop_requested: asyncio.Event) -> None:
     await stop_requested.wait()
 
 
-def _build_futures_reader(settings: Settings) -> FuturesAccountReader | None:
-    """Build the GET-only CFM reader when Coinbase credentials exist (ADR 0127)."""
+def _build_futures_readers(
+    settings: Settings,
+) -> tuple[FuturesAccountReader | None, SpotBalanceReader | None]:
+    """Build the GET-only CFM reader and the spot listing when credentials exist."""
     if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
-        return None
+        return None, None
     client = RESTClient(
         api_key=settings.coinbase_api_key_name.get_secret_value(),
         api_secret=settings.coinbase_api_private_key.get_secret_value(),
         timeout=10,
     )
-    return CoinbaseCfmAccount(RestClientTransport(client))
+    return CoinbaseCfmAccount(RestClientTransport(client)), CoinbaseAccount(client)
 
 
 def _mark_ready(readiness_file: Path | None) -> None:

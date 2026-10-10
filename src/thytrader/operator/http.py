@@ -11,6 +11,7 @@ from thytrader.operator.alerts_report import AlertsReport
 from thytrader.operator.data_health import DataHealthReport
 from thytrader.operator.fleet_health_models import FleetHealthReport
 from thytrader.operator.funding_report import FundingReport
+from thytrader.operator.futures_account_history_report import FuturesAccountHistoryReport
 from thytrader.operator.futures_account_report import FuturesAccountReport
 from thytrader.operator.futures_books_report import FuturesBooksReport
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
@@ -67,6 +68,7 @@ _REPORT_MODELS: dict[str, type[OperatorEnvelope]] = {
     "alerts": AlertsReport,
     "funding": FundingReport,
     "futures-account": FuturesAccountReport,
+    "futures-account/history": FuturesAccountHistoryReport,
     "futures-books": FuturesBooksReport,
     "fleet-health": FleetHealthReport,
 }

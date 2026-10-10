@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account` \| `futures_books` \| `fleet_health`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account` \| `futures_books` \| `fleet_health` \| `futures_account_history`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -385,10 +385,29 @@ tokens), `balance` (`currency: USD` plus every balance-summary amount and the
 `positions` (`null` when unread, `[]` when none; each `product_id`, `side` `long` \| `short` \|
 `unknown`, `number_of_contracts` in contracts, USD prices and PnL, `expiration_time`),
 `intraday_margin_setting`, `margin_window_type`, `margin_window_end_at`,
-`intraday_killswitch_enabled`, `enrollment_killswitch_enabled` and `orderable: false`. Amounts
-are USD and are never added to USDC or USDT amounts. Component reason codes: `OK`,
-`STORE_DISABLED`, `STORE_UNAVAILABLE`, `FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE`,
-`FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_READ_FAILURES`.
+`intraday_killswitch_enabled`, `enrollment_killswitch_enabled`, `margin_ratio`,
+`spot_collateral` and `orderable: false`. `spot_collateral` is the same cycle's spot
+`usdc_available`, `usdc_hold`, `usd_available`, `usd_hold` (exact strings, each in its own
+currency) or `null` when that read failed (`spot_balances:<reason>` in `read_failures`) or the
+snapshot predates schema revision `0074`. Amounts are USD and are never added to USDC or USDT
+amounts. Component reason codes: `OK`, `STORE_DISABLED`, `STORE_UNAVAILABLE`,
+`FUTURES_MIRROR_NOT_RUN`, `FUTURES_MIRROR_STALE`, `FUTURES_ACCOUNT_UNKNOWN`,
+`FUTURES_READ_FAILURES` (any failed CFM or spot read).
+
+## Futures account history (ADR 0127 §10)
+
+`futures_account_history` is read-only (`balances_omitted=false`; no identifiers). `payload`:
+`since`, `until` (exclusive), `mirror_interval_seconds` (60), `max_rows` (2880), `row_count`,
+`truncated` (more rows matched; the oldest `max_rows` are returned), `rows[]`, `gaps[]`,
+`margin_window_changes[]`, `read_failure_rows`, `spot_unknown_rows`, `collateral_note` and
+`orderable: false`. Each row: `observed_at`, `enablement`, `read_failures`, `balance` (the
+`futures_account` balance object), `positions` (`null` unread, `[]` flat), `intraday_margin_setting`,
+`margin_window_type`, `margin_window_end_at`, `margin_ratio`, `spot_collateral`. Each gap:
+`start`, `end`, `seconds` (more than 180 s without a snapshot, the window's start and end
+included; no trailing gap on a truncated page). Each window change: `observed_at`,
+`previous_window_type`, `window_type`. Component reason codes: `OK`, `STORE_DISABLED`,
+`STORE_UNAVAILABLE`, `FUTURES_HISTORY_EMPTY`, `FUTURES_HISTORY_TRUNCATED`,
+`FUTURES_HISTORY_GAPS`, `FUTURES_READ_FAILURES`, `FUTURES_SPOT_BALANCES_UNKNOWN`.
 
 ## Paper futures books (ADR 0129)
 

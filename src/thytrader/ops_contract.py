@@ -109,7 +109,10 @@ or the paper futures runtime lane (the operator ``futures-books`` report,
 ``FUTURES_LIVE_UNSUPPORTED`` refusal of a live futures start; ADR 0129, P1-6),
 or fleet entry health (the operator ``fleet-health`` report, the ``fleet_entries`` sections
 of ``readiness`` and ``risk``, the ``fleet_entries`` health component, and the
-``FLEET_ENTRIES_BLOCKED`` alert with its ``fleet`` scope; ADR 0130) change.
+``FLEET_ENTRIES_BLOCKED`` alert with its ``fleet`` scope; ADR 0130),
+or the futures account mirror history (the operator ``futures-account --history`` report,
+``GET /api/v1/operator/futures-account/history``, the same-cycle spot USDC/USD balances of
+Alembic 0074 and ``spot_collateral`` on ``futures-account``; ADR 0127 §10) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -138,8 +141,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v89"
-EXPECTED_SCHEMA_REVISION = "0073"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v90"
+EXPECTED_SCHEMA_REVISION = "0074"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -302,6 +305,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "paper_futures_books",
     "futures_entry_gate",
     "paper_futures_runtime_lane",
+    "account_mirror_history",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

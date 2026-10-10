@@ -22,6 +22,13 @@ from thytrader.config import Settings
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.market_data.instrument_ids import normalize_futures_product_id
 from thytrader.market_data.models import DATASET_TIMEFRAMES
+from thytrader.operator.cli_futures_account import (
+    HISTORY_ROUTE,
+    add_futures_account_parser,
+    history_query,
+    history_usage_error,
+    wants_history,
+)
 from thytrader.operator.data_health import data_health_report
 from thytrader.operator.funding_report import (
     FUNDING_REPORT_DEFAULT_HOURS,
@@ -156,14 +163,7 @@ def _parser() -> argparse.ArgumentParser:
         default=FUNDING_REPORT_DEFAULT_HOURS,
         help=f"Window ending at the current hour. Default {FUNDING_REPORT_DEFAULT_HOURS}.",
     )
-    subparsers.add_parser(
-        "futures-account",
-        parents=[trailing],
-        help=(
-            "Latest read-only Coinbase futures (CFM) account mirror: enablement, USD balance "
-            "summary, positions in contracts, margin window, failed reads."
-        ),
-    )
+    add_futures_account_parser(subparsers, trailing)
     subparsers.add_parser(
         "futures-books",
         parents=[trailing],
@@ -455,6 +455,10 @@ async def _argument_report(
         return await diagnostics.funding(product_id=arguments.product_id, hours=arguments.hours)
     if command == "fees":
         return await diagnostics.fees_report(arguments.futures_preview_product_id)
+    if wants_history(arguments):
+        return await diagnostics.futures_account_history(
+            since=arguments.since, until=arguments.until
+        )
     return None
 
 
@@ -500,6 +504,7 @@ def _query(arguments: argparse.Namespace) -> dict[str, str | tuple[str, ...]]:
     hours = getattr(arguments, "hours", None)
     if isinstance(hours, int):
         query["hours"] = str(hours)
+    query.update(history_query(arguments))
     return query
 
 
@@ -579,7 +584,7 @@ def _run_http(arguments: argparse.Namespace) -> int:
     require_matching_ops_contract(base_url)
     report = fetch_operator_report(
         base_url=base_url,
-        command=arguments.command,
+        command=HISTORY_ROUTE if wants_history(arguments) else arguments.command,
         query=_query(arguments),
     )
     _reject_stale_report(report)
@@ -677,8 +682,8 @@ def _execution_quality_text(payload: dict[str, object], *, twin: bool) -> str:
     return f"net_pnl={net}\nevidence_complete={complete}"
 
 
-def main(argv: Sequence[str] | None = None) -> None:
-    """Print one operator report and exit with 0/1/2 for healthy/degraded/failed."""
+def _parse_arguments(argv: Sequence[str] | None) -> argparse.Namespace:
+    """Parse flags; usage errors exit with ``EXIT_USAGE`` before any report is read."""
     parser = _parser()
     try:
         arguments = parser.parse_args(argv)
@@ -686,6 +691,17 @@ def main(argv: Sequence[str] | None = None) -> None:
         raise SystemExit(int(error.code) if isinstance(error.code, int) else EXIT_USAGE) from error
     if arguments.local and arguments.base_url:
         raise SystemExit("Use either --local or --base-url, not both.")
+    usage_error = history_usage_error(arguments)
+    if usage_error is not None:
+        parser.print_usage(sys.stderr)
+        sys.stderr.write(f"thytrader-operator: error: {usage_error}\n")
+        raise SystemExit(EXIT_USAGE)
+    return arguments
+
+
+def main(argv: Sequence[str] | None = None) -> None:
+    """Print one operator report and exit with 0/1/2 for healthy/degraded/failed."""
+    arguments = _parse_arguments(argv)
     try:
         if arguments.command == "schema-check":
             code = _run_schema_check(fmt=arguments.format)

@@ -1,4 +1,8 @@
-"""PostgreSQL store for CFM futures account mirror snapshots (ADR 0127)."""
+"""PostgreSQL store for CFM futures account mirror snapshots (ADR 0127).
+
+``latest`` serves the current report; ``history`` serves a time window for supervising a
+manual futures trade (ADR 0127 §10).
+"""
 
 from __future__ import annotations
 
@@ -20,11 +24,13 @@ from thytrader.exchanges.futures_models import (
     FuturesMarginWindow,
     FuturesPosition,
     FuturesPositionSide,
+    SpotCollateralBalances,
 )
 from thytrader.persistence.schema import futures_account_snapshots, futures_position_snapshots
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from sqlalchemy.engine import Row
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -35,6 +41,7 @@ _BALANCE_AMOUNTS = tuple(
     for field in fields(FuturesBalanceSummary)
     if field.name not in {"intraday_margin", "overnight_margin"}
 )
+_SPOT_COLUMNS = ("spot_usdc_available", "spot_usdc_hold", "spot_usd_available", "spot_usd_hold")
 _MEASURE_FIELDS = tuple(field.name for field in fields(FuturesMarginMeasure))
 _MEASURE_DECIMALS = frozenset(
     {
@@ -86,6 +93,7 @@ class PostgresFuturesAccountStore:
         for name in _BALANCE_AMOUNTS:
             amount = None if balance is None else getattr(balance, name)
             values[name] = None if amount is None else format(amount, "f")
+        values.update(_spot_values(observation.spot_balances))
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(insert(futures_account_snapshots).values(**values))
@@ -123,6 +131,79 @@ class PostgresFuturesAccountStore:
             message = "Futures account mirror storage is unavailable."
             raise FuturesAccountStoreUnavailableError(message) from error
         return _observation(row, position_rows)
+
+    async def history(
+        self, *, since: datetime, until: datetime, limit: int
+    ) -> tuple[FuturesAccountObservation, ...]:
+        """Return up to ``limit`` observations with ``since <= observed_at < until``, oldest first.
+
+        Positions of every returned snapshot are read in one query and attached in product
+        order, exactly as ``latest`` attaches them.
+        """
+        snapshots = futures_account_snapshots
+        statement = (
+            select(snapshots)
+            .where(
+                snapshots.c.provider == _PROVIDER,
+                snapshots.c.observed_at >= since,
+                snapshots.c.observed_at < until,
+            )
+            .order_by(snapshots.c.observed_at.asc(), snapshots.c.id.asc())
+            .limit(limit)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).all()
+                identifiers = [row.id for row in rows]
+                position_rows = (
+                    (
+                        await connection.execute(
+                            select(futures_position_snapshots)
+                            .where(futures_position_snapshots.c.snapshot_id.in_(identifiers))
+                            .order_by(
+                                futures_position_snapshots.c.snapshot_id,
+                                futures_position_snapshots.c.product_id,
+                            )
+                        )
+                    ).all()
+                    if identifiers
+                    else []
+                )
+        except SQLAlchemyError as error:
+            message = "Futures account mirror storage is unavailable."
+            raise FuturesAccountStoreUnavailableError(message) from error
+        by_snapshot: dict[object, list[Row[tuple[object, ...]]]] = {}
+        for position in position_rows:
+            by_snapshot.setdefault(position.snapshot_id, []).append(position)
+        return tuple(_observation(row, by_snapshot.get(row.id, [])) for row in rows)
+
+
+def _spot_values(spot: SpotCollateralBalances | None) -> dict[str, str | None]:
+    """Map the cycle's spot balances to their columns; ``None`` stays unknown."""
+    if spot is None:
+        return dict.fromkeys(_SPOT_COLUMNS)
+    return {
+        "spot_usdc_available": format(spot.usdc_available, "f"),
+        "spot_usdc_hold": format(spot.usdc_hold, "f"),
+        "spot_usd_available": format(spot.usd_available, "f"),
+        "spot_usd_hold": format(spot.usd_hold, "f"),
+    }
+
+
+def _spot_balances(row: Row[tuple[object, ...]]) -> SpotCollateralBalances | None:
+    """Rebuild the cycle's spot balances; all four or none, else the row is corrupt."""
+    amounts = [_decimal(getattr(row, name)) for name in _SPOT_COLUMNS]
+    if all(amount is None for amount in amounts):
+        return None
+    usdc_available, usdc_hold, usd_available, usd_hold = amounts
+    if usdc_available is None or usdc_hold is None or usd_available is None or usd_hold is None:
+        raise FuturesAccountStoreUnavailableError("Stored spot balances are corrupt.")
+    return SpotCollateralBalances(
+        usdc_available=usdc_available,
+        usdc_hold=usdc_hold,
+        usd_available=usd_available,
+        usd_hold=usd_hold,
+    )
 
 
 def _position_values(snapshot_id: object, position: FuturesPosition) -> dict[str, object]:
@@ -220,6 +301,7 @@ def _observation(
         intraday_margin_setting=row.intraday_margin_setting,
         margin_window=window,
         read_failures=tuple(failures),
+        spot_balances=_spot_balances(row),
     )
 
 

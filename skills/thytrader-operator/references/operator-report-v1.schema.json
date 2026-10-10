@@ -4735,9 +4735,292 @@
       "title": "FundingReport",
       "type": "object"
     },
+    "FuturesAccountHistoryPayload": {
+      "additionalProperties": false,
+      "description": "Mirror snapshots with ``since <= observed_at < until``, oldest first.\n\n``truncated`` is true when more than ``max_rows`` rows matched: the oldest ``max_rows``\nare returned, and the next page starts at the last row's ``observed_at`` plus one\nsecond. ``spot_unknown_rows`` counts rows without spot balances (the spot read failed,\nor the row predates Alembic 0074); ``read_failure_rows`` counts rows with any failed read.",
+      "properties": {
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "until": {
+          "format": "date-time",
+          "title": "Until",
+          "type": "string"
+        },
+        "mirror_interval_seconds": {
+          "default": 60,
+          "title": "Mirror Interval Seconds",
+          "type": "integer"
+        },
+        "max_rows": {
+          "default": 2880,
+          "title": "Max Rows",
+          "type": "integer"
+        },
+        "row_count": {
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "rows": {
+          "items": {
+            "$ref": "#/$defs/FuturesAccountHistoryRow"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "gaps": {
+          "items": {
+            "$ref": "#/$defs/FuturesMirrorGap"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "margin_window_changes": {
+          "items": {
+            "$ref": "#/$defs/FuturesMarginWindowChange"
+          },
+          "title": "Margin Window Changes",
+          "type": "array"
+        },
+        "read_failure_rows": {
+          "title": "Read Failure Rows",
+          "type": "integer"
+        },
+        "spot_unknown_rows": {
+          "title": "Spot Unknown Rows",
+          "type": "integer"
+        },
+        "collateral_note": {
+          "default": "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): futures buying power is shared with USDC spot capital, not additional money. Amounts here are USD and are never added to USDC amounts.",
+          "title": "Collateral Note",
+          "type": "string"
+        },
+        "orderable": {
+          "const": false,
+          "default": false,
+          "title": "Orderable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "since",
+        "until",
+        "row_count",
+        "truncated",
+        "rows",
+        "gaps",
+        "margin_window_changes",
+        "read_failure_rows",
+        "spot_unknown_rows"
+      ],
+      "title": "FuturesAccountHistoryPayload",
+      "type": "object"
+    },
+    "FuturesAccountHistoryReport": {
+      "additionalProperties": false,
+      "description": "Read-only CFM futures account mirror history.",
+      "properties": {
+        "schema_version": {
+          "const": "thytrader-operator-report-v1",
+          "default": "thytrader-operator-report-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "application_version": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Application Version",
+          "type": "string"
+        },
+        "generated_at": {
+          "format": "date-time",
+          "title": "Generated At",
+          "type": "string"
+        },
+        "timezone": {
+          "const": "UTC",
+          "default": "UTC",
+          "title": "Timezone",
+          "type": "string"
+        },
+        "overall_status": {
+          "$ref": "#/$defs/ReportStatus"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/ComponentReport"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "redaction": {
+          "$ref": "#/$defs/RedactionMetadata"
+        },
+        "partial_result_warnings": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Partial Result Warnings",
+          "type": "array"
+        },
+        "recommended_next_action": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Recommended Next Action",
+          "type": "string"
+        },
+        "report_kind": {
+          "const": "futures_account_history",
+          "default": "futures_account_history",
+          "title": "Report Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/FuturesAccountHistoryPayload"
+        }
+      },
+      "required": [
+        "application_version",
+        "generated_at",
+        "overall_status",
+        "components",
+        "redaction",
+        "recommended_next_action",
+        "payload"
+      ],
+      "title": "FuturesAccountHistoryReport",
+      "type": "object"
+    },
+    "FuturesAccountHistoryRow": {
+      "additionalProperties": false,
+      "description": "One mirror cycle. ``null`` is unknown, never zero; ``positions: []`` is flat.",
+      "properties": {
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "enablement": {
+          "enum": [
+            "enabled",
+            "not_enabled",
+            "unknown"
+          ],
+          "title": "Enablement",
+          "type": "string"
+        },
+        "read_failures": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Read Failures",
+          "type": "array"
+        },
+        "balance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesBalancePayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "positions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FuturesPositionPayload"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Positions"
+        },
+        "intraday_margin_setting": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Intraday Margin Setting"
+        },
+        "margin_window_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Window Type"
+        },
+        "margin_window_end_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Window End At"
+        },
+        "margin_ratio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Margin Ratio"
+        },
+        "spot_collateral": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpotCollateralPayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "observed_at",
+        "enablement",
+        "read_failures",
+        "balance",
+        "positions",
+        "intraday_margin_setting",
+        "margin_window_type",
+        "margin_window_end_at",
+        "margin_ratio",
+        "spot_collateral"
+      ],
+      "title": "FuturesAccountHistoryRow",
+      "type": "object"
+    },
     "FuturesAccountPayload": {
       "additionalProperties": false,
-      "description": "The latest mirror snapshot, or nothing before the first one.\n\n``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the\nvenue reported none. ``read_failures`` lists ``operation:reason`` tokens.\n``margin_ratio`` is ``available_margin / liquidation_threshold`` (``null`` when either\nis unknown or the threshold is not positive, as on a flat account).\n``collateral_note`` states that futures buying power is shared with the USDC spot\nbalance.",
+      "description": "The latest mirror snapshot, or nothing before the first one.\n\n``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the\nvenue reported none. ``read_failures`` lists ``operation:reason`` tokens.\n``margin_ratio`` is ``available_margin / liquidation_threshold`` (``null`` when either\nis unknown or the threshold is not positive, as on a flat account).\n``collateral_note`` states that futures buying power is shared with the USDC spot\nbalance. ``spot_collateral`` is the same cycle's spot USDC and USD balances, ``null``\nwhen that read failed (see ``read_failures``) or the snapshot predates it.",
       "properties": {
         "observed_at": {
           "anyOf": [
@@ -4887,6 +5170,17 @@
           ],
           "default": null,
           "title": "Margin Ratio"
+        },
+        "spot_collateral": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SpotCollateralPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "collateral_note": {
           "default": "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): futures buying power is shared with USDC spot capital, not additional money. Amounts here are USD and are never added to USDC amounts.",
@@ -6289,6 +6583,73 @@
         "futures_buying_power"
       ],
       "title": "FuturesMarginMeasurePayload",
+      "type": "object"
+    },
+    "FuturesMarginWindowChange": {
+      "additionalProperties": false,
+      "description": "The first row whose ``margin_window_type`` differs from the previous row's.",
+      "properties": {
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "previous_window_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Previous Window Type"
+        },
+        "window_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Window Type"
+        }
+      },
+      "required": [
+        "observed_at",
+        "previous_window_type",
+        "window_type"
+      ],
+      "title": "FuturesMarginWindowChange",
+      "type": "object"
+    },
+    "FuturesMirrorGap": {
+      "additionalProperties": false,
+      "description": "A stretch longer than three mirror cycles with no snapshot (window edges included).",
+      "properties": {
+        "start": {
+          "format": "date-time",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date-time",
+          "title": "End",
+          "type": "string"
+        },
+        "seconds": {
+          "title": "Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "seconds"
+      ],
+      "title": "FuturesMirrorGap",
       "type": "object"
     },
     "FuturesPositionPayload": {
@@ -9118,7 +9479,8 @@
               "futures_fee_preview_probe",
               "paper_futures_books",
               "futures_entry_gate",
-              "paper_futures_runtime_lane"
+              "paper_futures_runtime_lane",
+              "account_mirror_history"
             ],
             "type": "string"
           },
@@ -13543,6 +13905,36 @@
       "title": "SignalTraceRecord",
       "type": "object"
     },
+    "SpotCollateralPayload": {
+      "additionalProperties": false,
+      "description": "Spot balances read in the same mirror cycle as the CFM figures (ADR 0127 §10).\n\nUSDC (CFM collateral) and USD each keep their own currency; neither is added to the\nother or to a CFM amount. ``*_hold`` is the amount the venue holds against open orders\nor other reservations.",
+      "properties": {
+        "usdc_available": {
+          "title": "Usdc Available",
+          "type": "string"
+        },
+        "usdc_hold": {
+          "title": "Usdc Hold",
+          "type": "string"
+        },
+        "usd_available": {
+          "title": "Usd Available",
+          "type": "string"
+        },
+        "usd_hold": {
+          "title": "Usd Hold",
+          "type": "string"
+        }
+      },
+      "required": [
+        "usdc_available",
+        "usdc_hold",
+        "usd_available",
+        "usd_hold"
+      ],
+      "title": "SpotCollateralPayload",
+      "type": "object"
+    },
     "StrategiesPayload": {
       "additionalProperties": false,
       "description": "Mutable strategies and runtime books visible to operators.",
@@ -15164,7 +15556,8 @@
         "funding",
         "futures_account",
         "futures_books",
-        "fleet_health"
+        "fleet_health",
+        "futures_account_history"
       ]
     },
     "payload": {
@@ -15263,6 +15656,9 @@
     },
     {
       "$ref": "#/$defs/FuturesAccountReport"
+    },
+    {
+      "$ref": "#/$defs/FuturesAccountHistoryReport"
     },
     {
       "$ref": "#/$defs/FuturesBooksReport"

@@ -57,6 +57,12 @@ futures_account_snapshots = Table(
     Column("enrollment_killswitch_enabled", Boolean(), nullable=True),
     # NULL when the position read failed (unknown); otherwise the number of child rows.
     Column("position_count", Integer(), nullable=True),
+    # Spot USDC and USD balances from the same cycle (Alembic 0074, ADR 0127 §10). Each
+    # currency stays its own figure. NULL: the spot read failed or the row predates 0074.
+    Column("spot_usdc_available", _AMOUNT, nullable=True),
+    Column("spot_usdc_hold", _AMOUNT, nullable=True),
+    Column("spot_usd_available", _AMOUNT, nullable=True),
+    Column("spot_usd_hold", _AMOUNT, nullable=True),
     CheckConstraint(
         "enablement IN ('enabled', 'not_enabled', 'unknown')",
         name="ck_futures_account_snapshots_enablement",

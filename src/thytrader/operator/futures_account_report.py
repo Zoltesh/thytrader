@@ -1,9 +1,11 @@
 """Operator ``futures-account`` report: the latest CFM account mirror snapshot (ADR 0127).
 
 Read-only. It shows what the worker's GET-only mirror last recorded: enablement, failed
-reads, the balance summary (USD), open positions (contracts) and the margin window. Every
-amount is a USD decimal string and is never added to a USDC or USDT amount; ``null`` is
-unknown, never zero. Nothing here can order, close, sweep or change margin settings.
+reads, the balance summary (USD), open positions (contracts), the margin window and the
+same cycle's spot USDC and USD balances. Every CFM amount is a USD decimal string and is
+never added to a USDC or USDT amount; ``null`` is unknown, never zero. Nothing here can
+order, close, sweep or change margin settings. The projections here also build each row
+of the ``futures-account --history`` report.
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ if TYPE_CHECKING:
         FuturesAccountSnapshotStore,
         FuturesMarginMeasure,
         FuturesPosition,
+        SpotCollateralBalances,
     )
 
 # Three missed 60-second mirror cycles make the snapshot stale.
@@ -90,6 +93,20 @@ class FuturesPositionPayload(_FrozenModel):
     expiration_time: datetime | None
 
 
+class SpotCollateralPayload(_FrozenModel):
+    """Spot balances read in the same mirror cycle as the CFM figures (ADR 0127 §10).
+
+    USDC (CFM collateral) and USD each keep their own currency; neither is added to the
+    other or to a CFM amount. ``*_hold`` is the amount the venue holds against open orders
+    or other reservations.
+    """
+
+    usdc_available: str
+    usdc_hold: str
+    usd_available: str
+    usd_hold: str
+
+
 class FuturesAccountPayload(_FrozenModel):
     """The latest mirror snapshot, or nothing before the first one.
 
@@ -98,7 +115,8 @@ class FuturesAccountPayload(_FrozenModel):
     ``margin_ratio`` is ``available_margin / liquidation_threshold`` (``null`` when either
     is unknown or the threshold is not positive, as on a flat account).
     ``collateral_note`` states that futures buying power is shared with the USDC spot
-    balance.
+    balance. ``spot_collateral`` is the same cycle's spot USDC and USD balances, ``null``
+    when that read failed (see ``read_failures``) or the snapshot predates it.
     """
 
     observed_at: datetime | None
@@ -114,6 +132,7 @@ class FuturesAccountPayload(_FrozenModel):
     intraday_killswitch_enabled: bool | None
     enrollment_killswitch_enabled: bool | None
     margin_ratio: str | None = None
+    spot_collateral: SpotCollateralPayload | None = None
     collateral_note: str = SHARED_COLLATERAL_NOTE
     orderable: Literal[False] = False
 
@@ -152,7 +171,9 @@ _DETAILS: dict[str, str] = {
         "The balance summary could not be read, so futures enablement is unknown; see "
         "read_failures. Nothing is assumed."
     ),
-    "FUTURES_READ_FAILURES": "Some futures account reads failed; their values are unknown.",
+    "FUTURES_READ_FAILURES": (
+        "Some mirror reads failed (CFM or the spot account listing); their values are unknown."
+    ),
 }
 
 
@@ -199,10 +220,8 @@ def _payload(latest: FuturesAccountObservation, age: timedelta) -> FuturesAccoun
         stale=age > _STALE_AFTER,
         enablement=latest.enablement.value,
         read_failures=latest.read_failures,
-        balance=None if latest.balance is None else _balance(latest.balance),
-        positions=(
-            None if latest.positions is None else tuple(_position(p) for p in latest.positions)
-        ),
+        balance=None if latest.balance is None else balance_payload(latest.balance),
+        positions=positions_payload(latest.positions),
         intraday_margin_setting=latest.intraday_margin_setting,
         margin_window_type=None if window is None else window.margin_window_type,
         margin_window_end_at=None if window is None else window.end_time,
@@ -210,7 +229,35 @@ def _payload(latest: FuturesAccountObservation, age: timedelta) -> FuturesAccoun
         enrollment_killswitch_enabled=(
             None if window is None else window.enrollment_killswitch_enabled
         ),
-        margin_ratio=_text(None if latest.balance is None else margin_ratio(latest.balance)),
+        margin_ratio=margin_ratio_text(latest),
+        spot_collateral=spot_collateral_payload(latest.spot_balances),
+    )
+
+
+def margin_ratio_text(observation: FuturesAccountObservation) -> str | None:
+    """``available_margin / liquidation_threshold`` as a string, or ``None`` when undefined."""
+    balance = observation.balance
+    return _text(None if balance is None else margin_ratio(balance))
+
+
+def positions_payload(
+    positions: tuple[FuturesPosition, ...] | None,
+) -> tuple[FuturesPositionPayload, ...] | None:
+    """Project the positions; ``None`` (read failed) stays ``None``."""
+    return None if positions is None else tuple(_position(item) for item in positions)
+
+
+def spot_collateral_payload(
+    spot: SpotCollateralBalances | None,
+) -> SpotCollateralPayload | None:
+    """Project the cycle's spot USDC and USD balances, or ``None`` when unknown."""
+    if spot is None:
+        return None
+    return SpotCollateralPayload(
+        usdc_available=format(spot.usdc_available, "f"),
+        usdc_hold=format(spot.usdc_hold, "f"),
+        usd_available=format(spot.usd_available, "f"),
+        usd_hold=format(spot.usd_hold, "f"),
     )
 
 
@@ -221,7 +268,7 @@ _BALANCE_AMOUNTS = tuple(
 )
 
 
-def _balance(balance: FuturesBalanceSummary) -> FuturesBalancePayload:
+def balance_payload(balance: FuturesBalanceSummary) -> FuturesBalancePayload:
     """Project the balance summary."""
     fields_by_name: dict[str, object] = {
         name: _text(getattr(balance, name)) for name in _BALANCE_AMOUNTS

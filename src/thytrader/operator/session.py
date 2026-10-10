@@ -108,6 +108,7 @@ async def operator_diagnostics(
                 contracts=PostgresFuturesContractStore(engine),
                 observations=PostgresFuturesObservationStore(engine),
             ),
+            futures_account_history_store=PostgresFuturesAccountStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncEngine  # noqa: TC002
 
 from thytrader.alerts.store import AlertStore  # noqa: TC001 - FastAPI evaluates hints at runtime.
@@ -58,6 +59,7 @@ from thytrader.operator.funding_report import (
     FUNDING_REPORT_MAX_HOURS,
     FundingReport,
 )
+from thytrader.operator.futures_account_history_report import FuturesAccountHistoryReport
 from thytrader.operator.futures_account_report import FuturesAccountReport
 from thytrader.operator.futures_books_report import FuturesBooksReport
 from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
@@ -155,6 +157,9 @@ def get_operator_diagnostics(
         futures_store=None if engine is None else PostgresFuturesObservationStore(engine),
         futures_account_store=None if engine is None else PostgresFuturesAccountStore(engine),
         futures_book_stores=futures_book_stores,
+        futures_account_history_store=(
+            None if engine is None else PostgresFuturesAccountStore(engine)
+        ),
     )
 
 
@@ -233,6 +238,29 @@ async def get_operator_futures_account(
 ) -> FuturesAccountReport:
     """Return the latest read-only CFM futures account mirror snapshot."""
     return await diagnostics.futures_account()
+
+
+@router.get("/futures-account/history", response_model=FuturesAccountHistoryReport)
+async def get_operator_futures_account_history(
+    diagnostics: Annotated[OperatorDiagnostics, Depends(get_operator_diagnostics)],
+    since: Annotated[datetime, Query(description="Window start, ISO 8601 with offset.")],
+    until: Annotated[
+        datetime | None, Query(description="Window end (exclusive); default now.")
+    ] = None,
+) -> FuturesAccountHistoryReport:
+    """Return the CFM mirror snapshots in ``[since, until)`` for supervising a futures trade."""
+    for name, value in (("since", since), ("until", until)):
+        if value is not None and value.utcoffset() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"{name} needs a UTC offset, for example 2026-10-10T15:00:00Z.",
+            )
+    if until is not None and until <= since:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="until must be later than since.",
+        )
+    return await diagnostics.futures_account_history(since=since, until=until)
 
 
 @router.get("/data-catalog", response_model=DataCatalogReport)
