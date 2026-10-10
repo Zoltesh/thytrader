@@ -10,6 +10,11 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 from requests.exceptions import RequestException
 
+from thytrader.exchanges.coinbase_futures_catalog import (
+    CoinbaseFuturesCatalogError,
+    parse_futures_row,
+)
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import (
     HISTORICAL_REQUEST_MAX_CANDLES,
     MAX_HISTORICAL_INTERVAL_COUNT,
@@ -171,7 +176,7 @@ class CoinbaseMarketData:
             message = "Historical range is outside the supported closed-candle request bounds."
             raise CoinbaseMarketDataError(message)
         product_response = await _rate_limited_call(partial(self._client.get_product, product_id))
-        _parse_product(product_response.to_dict())
+        _verify_range_product(product_id, product_response.to_dict())
         candles: list[Candle] = []
         page_start = starts_at
         while page_start < ends_at:
@@ -257,6 +262,25 @@ def _granularity(interval: CandleInterval) -> str:
     except KeyError as error:
         message = f"Coinbase market data does not support interval {interval.value}."
         raise CoinbaseMarketDataError(message) from error
+
+
+def _verify_range_product(product_id: str, payload: dict[str, Any]) -> None:
+    """Verify the product a candle range is read for, with the parser for its kind.
+
+    A futures id is checked with the strict FCM parser (ADR 0126); the spot parser is
+    never loosened to accept it. Candles of both kinds share one OHLCV shape (futures
+    volume is in contracts).
+    """
+    if not is_futures_product_id(product_id):
+        _parse_product(payload)
+        return
+    try:
+        future = parse_futures_row(payload)
+    except CoinbaseFuturesCatalogError as error:
+        raise CoinbaseMarketDataError(str(error)) from error
+    if future is None or future.product_id != product_id:
+        message = "Coinbase futures product verification returned a different identity."
+        raise CoinbaseMarketDataError(message)
 
 
 def _parse_product(payload: dict[str, Any]) -> MarketProduct:

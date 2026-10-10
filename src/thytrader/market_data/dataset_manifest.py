@@ -3,13 +3,16 @@
 :class:`DatasetManifest` identifies one immutable persisted candle range and its files;
 :class:`DatasetStoreError` is raised by every dataset check. This module also owns the
 supported manifest schema versions, the JSON payload a manifest is published as, and the
-optional no-trade bar count (ADR 0095). Imports no other dataset module.
+optional no-trade bar count (ADR 0095) and the futures volume unit (ADR 0126). Imports no
+other dataset module.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
+
+from thytrader.market_data.instrument_ids import is_futures_product_id
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -79,7 +82,27 @@ def _manifest_payload(manifest: DatasetManifest) -> dict[str, object]:
     if manifest.synthetic_no_trade_intervals:
         # Written only when non-zero, so gap-free manifests keep their exact bytes.
         payload["synthetic_no_trade_intervals"] = manifest.synthetic_no_trade_intervals
+    if is_futures_product_id(manifest.product_id):
+        # Futures volume is in contracts; written only for futures, so spot bytes never move.
+        payload[_VOLUME_UNIT_KEY] = FUTURES_VOLUME_UNIT
     return payload
+
+
+_VOLUME_UNIT_KEY = "volume_unit"
+FUTURES_VOLUME_UNIT = "contracts"
+
+
+def _require_volume_unit(payload: dict[str, object], product_id: str) -> None:
+    """A futures manifest must say its volume is in contracts; a spot manifest says nothing.
+
+    The content fingerprint is unchanged: the product id already binds the unit.
+    """
+    expected = FUTURES_VOLUME_UNIT if is_futures_product_id(product_id) else None
+    if payload.get(_VOLUME_UNIT_KEY) != expected or (
+        expected is None and _VOLUME_UNIT_KEY in payload
+    ):
+        message = "Dataset verification failed because the manifest volume unit is inconsistent."
+        raise DatasetStoreError(message)
 
 
 _NO_TRADE_COUNT_KEY = "synthetic_no_trade_intervals"

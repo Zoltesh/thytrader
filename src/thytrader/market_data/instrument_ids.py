@@ -13,7 +13,7 @@ read-only data surfaces only.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 import re
 
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
@@ -69,6 +69,17 @@ def futures_listed_expiry(product_id: str) -> date:
     except ValueError as error:
         message = f"Futures product id {normalized} has an invalid expiry date."
         raise ValueError(message) from error
+
+
+def futures_watch_retires_at(product_id: str) -> datetime:
+    """Return when a futures watch target retires: the UTC midnight after its listed day.
+
+    Every CDE contract, perp-style included, carries its expiry day in the id; a watch on
+    it has nothing to ingest after that day ends.
+    """
+    return datetime.combine(futures_listed_expiry(product_id), time(0), tzinfo=UTC) + timedelta(
+        days=1
+    )
 
 
 def futures_contract_code(product_id: str) -> str:

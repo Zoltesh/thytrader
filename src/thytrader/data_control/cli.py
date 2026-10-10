@@ -68,7 +68,10 @@ def _parser() -> argparse.ArgumentParser:
     watch_add = subparsers.add_parser(
         "watch-add",
         parents=[trailing],
-        help=f"Watch one {_SPOT_QUOTES_TEXT} spot product and timeframe.",
+        help=(
+            f"Watch one {_SPOT_QUOTES_TEXT} spot product, or one 24/7 Coinbase futures "
+            "contract (read-only data), and timeframe."
+        ),
     )
     _target_args(watch_add)
     watch_add.add_argument("--lookback-hours", type=int, default=168, help=_LOOKBACK_HELP)
@@ -119,8 +122,15 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _target_args(parser: argparse.ArgumentParser) -> None:
-    """Require a spot product and a complete-only dataset timeframe."""
-    parser.add_argument("--product-id", required=True, help="Spot product such as ETH-USDC.")
+    """Require a spot product or futures contract and a complete-only dataset timeframe."""
+    parser.add_argument(
+        "--product-id",
+        required=True,
+        help=(
+            "Spot product such as ETH-USDC, or a 24/7 futures contract such as "
+            "BIP-20DEC30-CDE (volume in contracts)."
+        ),
+    )
     parser.add_argument(
         "--timeframe",
         required=True,

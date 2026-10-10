@@ -7,11 +7,13 @@ records failures with their capped exponential retry instant.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import IntEnum
+import logging
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.instrument_ids import futures_watch_retires_at, is_futures_product_id
 from thytrader.market_data.watch_coverage import island_covers_watch, safe_shift
 from thytrader.market_data.watchlist import (
     INGEST_REQUEST_POLL_SECONDS,
@@ -29,6 +31,8 @@ from thytrader.market_data.worker_state import (
 if TYPE_CHECKING:
     from thytrader.market_data.models import CandleInterval
 
+
+_logger = logging.getLogger(__name__)
 
 # Fair share of provider requests one target may spend per worker cycle. A target with a
 # pending ``ingest_requested_at`` gets the larger share; every due target is visited
@@ -57,9 +61,13 @@ async def _cycle_targets(
     lookback_hours: int,
     now: datetime,
 ) -> tuple[MarketDataWatchTarget, ...]:
-    """Prefer enabled or requested watchlist rows, otherwise the configured default."""
+    """Prefer enabled or requested watchlist rows, otherwise the configured default.
+
+    A futures watch past its listed expiry day is retired: disabled durably and never
+    ingested again (ADR 0126).
+    """
     if watchlist is not None:
-        listed = await watchlist.list_all()
+        listed = await _retire_expired_futures(watchlist, await watchlist.list_all(), now)
         due = tuple(
             target for target in listed if target.enabled or target.ingest_requested_at is not None
         )
@@ -75,6 +83,32 @@ async def _cycle_targets(
             updated_at=now.astimezone(UTC),
         ),
     )
+
+
+async def _retire_expired_futures(
+    watchlist: MarketDataWatchlistStore,
+    listed: tuple[MarketDataWatchTarget, ...],
+    now: datetime,
+) -> tuple[MarketDataWatchTarget, ...]:
+    """Disable expired futures watches and drop them, with any pending request, from the cycle.
+
+    The row stays on the watchlist (disabled) so the data catalog still shows its coverage.
+    """
+    kept: list[MarketDataWatchTarget] = []
+    for target in listed:
+        if not is_futures_product_id(target.product_id) or now < futures_watch_retires_at(
+            target.product_id
+        ):
+            kept.append(target)
+            continue
+        if target.enabled:
+            await watchlist.upsert(replace(target, enabled=False, updated_at=now.astimezone(UTC)))
+            _logger.info(
+                "futures_watch_retired product=%s timeframe=%s",
+                target.product_id,
+                target.timeframe.value,
+            )
+    return tuple(kept)
 
 
 class _TargetPriority(IntEnum):
