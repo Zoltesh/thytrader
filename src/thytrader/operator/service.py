@@ -37,6 +37,10 @@ from thytrader.operator.diagnostics.runtime import build_runtime_report, build_s
 from thytrader.operator.fleet_entries import fleet_entries_payload
 from thytrader.operator.fleet_health_report import build_fleet_health_report
 from thytrader.operator.funding_report import FundingReport, build_funding_report
+from thytrader.operator.futures_account_history_report import (
+    FuturesAccountHistoryReport,
+    build_futures_account_history_report,
+)
 from thytrader.operator.futures_account_report import (
     FuturesAccountReport,
     build_futures_account_report,
@@ -106,7 +110,10 @@ if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore
     from thytrader.backtest.results import BacktestResultReader
     from thytrader.config import Settings
-    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.exchanges.futures_models import (
+        FuturesAccountHistoryStore,
+        FuturesAccountSnapshotStore,
+    )
     from thytrader.execution.decision_store import DecisionJournalStore
     from thytrader.execution.decisions import DecisionOutcome
     from thytrader.execution.futures_start import FuturesStart
@@ -162,6 +169,7 @@ class OperatorDiagnostics:
     futures_store: FuturesObservationStore | None = None
     futures_account_store: FuturesAccountSnapshotStore | None = None
     futures_book_stores: FuturesStart | None = None
+    futures_account_history_store: FuturesAccountHistoryStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""
@@ -388,6 +396,14 @@ class OperatorDiagnostics:
     async def futures_account(self) -> FuturesAccountReport:
         """Return the latest read-only CFM futures account mirror snapshot (ADR 0127)."""
         return await build_futures_account_report(self.futures_account_store)
+
+    async def futures_account_history(
+        self, *, since: datetime, until: datetime | None
+    ) -> FuturesAccountHistoryReport:
+        """Return the CFM mirror snapshots in ``[since, until)`` (default until: now)."""
+        return await build_futures_account_history_report(
+            self.futures_account_history_store, since=since, until=until
+        )
 
     async def futures_books(self) -> FuturesBooksReport:
         """Return every paper futures book with margin, buffer, leverage and funding (P1-6)."""

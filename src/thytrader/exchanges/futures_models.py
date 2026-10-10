@@ -14,7 +14,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
+
+    from thytrader.exchanges.models import ExchangeBalance
 
 FUTURES_ACCOUNT_CURRENCY = "USD"
 # Observed 2026-10-10 on the live account (ADR 0127): futures buying power 514.24 with
@@ -26,6 +29,7 @@ SHARED_COLLATERAL_NOTE = (
     "here are USD and are never added to USDC amounts."
 )
 _RATIO_PLACES = Decimal("0.0001")
+_USDC = "USDC"
 
 
 class FuturesEnablement(StrEnum):
@@ -114,12 +118,49 @@ class FuturesMarginWindow:
 
 
 @dataclass(frozen=True, slots=True)
+class SpotCollateralBalances:
+    """Spot USDC and USD balances read in the same mirror cycle as the CFM account.
+
+    USDC is CFM collateral (ADR 0127 §8), so its available and held amounts sit beside the
+    futures figures to show how a futures trade draws on it. Each currency is its own
+    figure: USDC is never added to USD. A currency the complete account listing did not
+    report has a zero balance (the listing omits empty accounts).
+    """
+
+    usdc_available: Decimal
+    usdc_hold: Decimal
+    usd_available: Decimal
+    usd_hold: Decimal
+
+
+def spot_collateral_from(balances: Iterable[ExchangeBalance]) -> SpotCollateralBalances:
+    """Collect the USDC and USD rows of one complete spot account listing.
+
+    Rows of the same currency (one per portfolio account) are added within that currency
+    only; every other currency is ignored.
+    """
+    totals = {currency: [Decimal(0), Decimal(0)] for currency in (_USDC, FUTURES_ACCOUNT_CURRENCY)}
+    for balance in balances:
+        pair = totals.get(balance.currency)
+        if pair is not None:
+            pair[0] += balance.available
+            pair[1] += balance.hold
+    return SpotCollateralBalances(
+        usdc_available=totals[_USDC][0],
+        usdc_hold=totals[_USDC][1],
+        usd_available=totals[FUTURES_ACCOUNT_CURRENCY][0],
+        usd_hold=totals[FUTURES_ACCOUNT_CURRENCY][1],
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class FuturesAccountObservation:
     """One mirror cycle: every read's result or its failure, never a guess.
 
     ``positions`` is ``None`` when the position read failed (unknown), ``()`` when the
     venue reported none. ``read_failures`` names each failed read as
-    ``<operation>:<reason>`` with no venue text.
+    ``<operation>:<reason>`` with no venue text. ``spot_balances`` is ``None`` when the
+    spot account read failed or was not attempted (unknown, never zero).
     """
 
     observed_at: datetime
@@ -129,6 +170,7 @@ class FuturesAccountObservation:
     intraday_margin_setting: str | None
     margin_window: FuturesMarginWindow | None
     read_failures: tuple[str, ...]
+    spot_balances: SpotCollateralBalances | None = None
 
 
 class FuturesAccountReadError(RuntimeError):
@@ -167,4 +209,14 @@ class FuturesAccountSnapshotStore(Protocol):
 
     async def latest(self) -> FuturesAccountObservation | None:
         """Return the newest observation, or ``None`` before the first."""
+        ...
+
+
+class FuturesAccountHistoryStore(Protocol):
+    """Read mirror snapshots over a time window (the supervised-trade history)."""
+
+    async def history(
+        self, *, since: datetime, until: datetime, limit: int
+    ) -> tuple[FuturesAccountObservation, ...]:
+        """Return up to ``limit`` observations in ``[since, until)``, oldest first."""
         ...

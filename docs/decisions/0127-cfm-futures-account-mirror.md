@@ -122,13 +122,47 @@ widens its shared-collateral rule, which covered only USD-quoted spot books:
 - Home shows a read-only futures card (buying power, margin ratio, liquidation buffer, funding
   PnL) that states buying power is shared with the USDC spot balance.
 
+### 10. History and same-cycle spot collateral (2026-10-10)
+
+Before ThyTrader gets a live futures order path, the operator places one manual 1-contract
+ETP short in the Coinbase app and closes it, and the lead measures from the mirror: how CFM
+draws on USDC collateral, the commission, funding against our calculation, the
+`liquidation_threshold` against initial margin (maintenance calibration), and the 16:00 ET
+margin step-up.
+
+- **Spot balances in the mirror cycle.** Spot USDC and USD were already recorded
+  historically, but only inside the portfolio worker's snapshot JSON every 300 s, read at
+  other instants than the CFM snapshots. That cannot show whether USDC available drops,
+  converts or is held at the moment margin is posted. Each mirror cycle therefore also reads
+  the complete spot account listing (the existing read-only `CoinbaseAccount.list_balances`,
+  not the CFM adapter, whose four-path allowlist is unchanged) and stores
+  `spot_usdc_available`, `spot_usdc_hold`, `spot_usd_available` and `spot_usd_hold` on the
+  snapshot (Alembic 0074). A currency the complete listing omits is zero; a failed listing is
+  unknown (`NULL`) with a `spot_balances:<reason>` read failure. The reads are sequential, not
+  one atomic venue snapshot. USDC and USD stay separate figures.
+- **History report.** `thytrader-operator futures-account --history --since ISO [--until ISO]`
+  (`GET /api/v1/operator/futures-account/history`, `futures_account_history`) returns every
+  snapshot in `[since, until)`, oldest first, at most 2880 rows (48 hours) per report with
+  `truncated` paging, the gaps longer than three cycles (window edges included) and the
+  margin-window changes. Each row carries the full balance summary with both margin-window
+  measures (initial and maintenance margin), positions with contracts, side and average entry,
+  the margin window type and the spot balances. `futures-account` gains `spot_collateral`.
+- **Cadence stays 60 s.** Each quantity to be measured changes in steps at discrete events (a
+  fill, an hourly funding settlement, the 16:00 ET window change). One-minute resolution puts a
+  snapshot on each side of every step as long as the manual steps are a couple of minutes
+  apart, and a faster cycle would multiply venue reads without adding evidence.
+- **Visibility.** Missing evidence is never silent: gaps, rows with failed reads, rows without
+  spot balances, an empty window and truncation each degrade the report with a reason code.
+
+Ops contract v90 adds `account_mirror_history` to `futures_observations`.
+
 ## Consequences
 
 - The account's futures state is observable and auditable from the day this is deployed,
   including failures.
 - No new permission is needed, and no code path can change the futures account.
-- One snapshot per minute is about 525,000 rows a year; a retention policy can follow when the
-  report needs history.
+- One snapshot per minute is about 525,000 rows a year; a retention policy can follow now that
+  the history report reads them (§10).
 - An account without futures access shows `unknown` with its read failures, not `not_enabled`.
 
 ## Alternatives considered

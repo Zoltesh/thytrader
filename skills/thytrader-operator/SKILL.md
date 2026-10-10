@@ -49,7 +49,8 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
-| Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
+| Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting, the same cycle's spot USDC/USD `spot_collateral`; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
+| Futures account history (read-only) | `uv run thytrader-operator futures-account --history --since 2026-10-12T19:00:00Z [--until 2026-10-12T22:00:00Z]` | `GET /api/v1/operator/futures-account/history?since=…[&until=…]` (`futures_account_history`: every mirror snapshot in `[since, until)`, oldest first, at most 2880 rows; `gaps`, `margin_window_changes`; for supervising a manual futures trade; [ADR 0127 §10](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Paper futures books (read-only) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
@@ -332,7 +333,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v89`, schema revision `0073`) and exits on any
+   this checkout's (`thytrader-ops-contract-v90`, schema revision `0074`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -573,7 +574,7 @@ Tiny Decimal rounding differences are disclosed separately. Paper/live reports
 leave this backtest-only field null; those modes retain their fill-ledger reports.
 For bounded research reads/exports and legacy-null warnings, use the research skill.
 
-Health requires the shipped schema revision (`0073`). After updating main, use `make run` to
+Health requires the shipped schema revision (`0074`). After updating main, use `make run` to
 apply migrations and rebuild the services.
 
 Venue order-state observation time is persisted separately from local `updated_at`
@@ -652,6 +653,51 @@ futures margin setting.
   read-only listing, with findings `FUTURES_EXTERNAL_POSITIONS`, `FUTURES_EXTERNAL_ORDERS`
   (info), `FUTURES_POSITIONS_UNKNOWN` and `FUTURES_ORDERS_LISTING_INCOMPLETE` (unknown). They
   are disclosed, never flattened or adopted.
+
+### Futures account history (supervising a manual trade)
+
+`futures-account` also reports `spot_collateral`: the spot `usdc_available`, `usdc_hold`,
+`usd_available` and `usd_hold` the worker read in the same cycle from the spot account listing
+(`null` when that read failed, with a `spot_balances:<reason>` token in `read_failures`, or for
+snapshots before schema revision `0074`). USDC and USD are separate figures; never add them.
+
+`uv run thytrader-operator futures-account --history --since ISO [--until ISO]` (both instants
+need an offset, for example `2026-10-12T19:00:00Z`; `--until` defaults to now and is exclusive)
+returns `report_kind: futures_account_history`. `payload.rows[]` holds one row per 60-second
+mirror cycle, oldest first: `observed_at`, `enablement`, `read_failures`, the full USD `balance`
+(including `intraday_margin` / `overnight_margin` measures with `maintenance_margin`),
+`positions` (`product_id`, `side`, `number_of_contracts`, `avg_entry_price`, `current_price`,
+PnL), `margin_window_type`, `margin_window_end_at`, `intraday_margin_setting`, `margin_ratio`
+and `spot_collateral`. `margin_window_changes[]` names each row where the window type changed;
+`gaps[]` lists stretches longer than three cycles with no snapshot (window edges included);
+`read_failure_rows` and `spot_unknown_rows` count incomplete rows. At most `max_rows` (2880, 48
+hours) are returned: `truncated: true` means continue with `--since` just after the last row's
+`observed_at`. Reason codes: `OK`, `FUTURES_HISTORY_EMPTY`, `FUTURES_HISTORY_TRUNCATED`,
+`FUTURES_HISTORY_GAPS`, `FUTURES_READ_FAILURES`, `FUTURES_SPOT_BALANCES_UNKNOWN`,
+`STORE_DISABLED`, `STORE_UNAVAILABLE`. Any of them except `OK` exits 1 (2 for
+`STORE_UNAVAILABLE`), so an incomplete history is never silent.
+
+What to read from consecutive rows around a manual trade (take `--since` a few minutes before
+the open and `--until` a few minutes after the close; do the steps at least two minutes apart):
+
+- **USDC collateral draw**: `spot_collateral.usdc_available` / `usdc_hold` against
+  `balance.cbi_usd_balance`, `cfm_usd_balance`, `total_usd_balance`,
+  `total_pending_transfers_amount` and `futures_buying_power` before and after the open. A drop
+  in USDC available with a rise in a USD balance is a conversion or sweep; a rise in USDC hold
+  is a hold; neither moving while buying power falls means margin is counted against USDC in
+  place. Compare within each currency; never add USD to USDC.
+- **Commission**: across the open (no realized PnL yet) the fall in cash (`cfm_usd_balance`,
+  `cbi_usd_balance`, then USDC if it moved) is the fee; `daily_realized_pnl` after the open shows
+  whether Coinbase books the fee there. Across the close, subtract the realized PnL.
+- **Funding**: `funding_pnl` steps once per funding hour; compare each step with
+  `thytrader-operator funding --product-id <contract>` rate x contracts x contract size
+  (`products --kind future`) x the row's `current_price`, signed for the side.
+- **Maintenance calibration**: `balance.liquidation_threshold` against `balance.initial_margin`
+  and the `overnight_margin` / `intraday_margin` `initial_margin` and `maintenance_margin`
+  while the position is open.
+- **16:00 ET step-up**: the `margin_window_changes` entry (for example `…INTRADAY` to
+  `…OVERNIGHT`) and `initial_margin`, `available_margin` and `futures_buying_power` in the rows
+  on either side of it.
 
 ## Paper futures books (ADR 0129)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import os
@@ -13,6 +14,7 @@ import pytest
 
 from tests.exchanges.test_coinbase_cfm import _transport
 from thytrader.exchanges.coinbase_cfm import CoinbaseCfmAccount
+from thytrader.exchanges.futures_models import SpotCollateralBalances
 from thytrader.exchanges.rest_transport import CoinbaseHttpStatusError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
@@ -88,5 +90,69 @@ def test_unknown_reads_stay_unknown_after_storage() -> None:
         assert loaded is not None
         assert loaded.balance is None
         assert loaded.read_failures == ("balance_summary:http_503",)
+
+    _run(body)
+
+
+_SPOT = SpotCollateralBalances(
+    usdc_available=Decimal("514.23"),
+    usdc_hold=Decimal("12.50"),
+    usd_available=Decimal("0.01"),
+    usd_hold=Decimal(0),
+)
+
+
+def test_spot_balances_round_trip_and_unknown_stays_unknown() -> None:
+    """The cycle's spot USDC/USD reload exactly; a cycle without them reloads as unknown."""
+
+    async def body(engine: AsyncEngine) -> None:
+        """Record one cycle with and one without spot balances."""
+        store = PostgresFuturesAccountStore(engine)
+        observed = await observe_futures_account(
+            CoinbaseCfmAccount(_transport()), _unique_instant() + timedelta(days=2)
+        )
+        with_spot = replace(observed, spot_balances=_SPOT)
+        await store.record(with_spot)
+        assert await store.latest() == with_spot
+        later = replace(observed, observed_at=observed.observed_at + timedelta(minutes=1))
+        await store.record(later)
+        loaded = await store.latest()
+        assert loaded is not None
+        assert loaded.spot_balances is None
+
+    _run(body)
+
+
+def test_history_returns_the_window_oldest_first_with_positions() -> None:
+    """``[since, until)`` bounds the rows, positions attach per snapshot, limit caps them."""
+
+    async def body(engine: AsyncEngine) -> None:
+        """Record four cycles a minute apart and read windows of them."""
+        store = PostgresFuturesAccountStore(engine)
+        start = _unique_instant() + timedelta(days=5)
+        observed = await observe_futures_account(CoinbaseCfmAccount(_transport()), start)
+        cycles = [
+            replace(
+                observed,
+                observed_at=start + timedelta(minutes=index),
+                spot_balances=_SPOT if index % 2 == 0 else None,
+                positions=observed.positions if index < 2 else (),
+            )
+            for index in range(4)
+        ]
+        for cycle in reversed(cycles):
+            await store.record(cycle)
+        window = await store.history(
+            since=start + timedelta(minutes=1), until=start + timedelta(minutes=3), limit=10
+        )
+        assert window == tuple(cycles[1:3])
+        assert window[0].positions == observed.positions
+        assert window[1].positions == ()
+        capped = await store.history(since=start, until=start + timedelta(hours=1), limit=2)
+        assert capped == tuple(cycles[:2])
+        empty = await store.history(
+            since=start - timedelta(hours=2), until=start - timedelta(hours=1), limit=10
+        )
+        assert empty == ()
 
     _run(body)

@@ -54,3 +54,11 @@ class FuturesAccountReader(Protocol):
     async def current_margin_window(self) -> FuturesMarginWindow:
         """Return the margin window in effect or raise ``FuturesAccountReadError``."""
         ...
+
+
+class SpotBalanceReader(Protocol):
+    """The one spot read the futures mirror needs: the complete account listing."""
+
+    async def list_balances(self) -> tuple[ExchangeBalance, ...]:
+        """Return every non-empty spot balance, or raise a redacted read error."""
+        ...

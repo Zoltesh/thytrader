@@ -181,6 +181,7 @@ class OpsContractPayload(_FrozenModel):
             "paper_futures_books",
             "futures_entry_gate",
             "paper_futures_runtime_lane",
+            "account_mirror_history",
         ],
         ...,
     ]
