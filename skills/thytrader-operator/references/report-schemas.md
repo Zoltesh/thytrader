@@ -8,7 +8,7 @@ Operator agents read the committed schema, never regenerate it on a running inst
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`
-- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account` \| `futures_books`
+- `report_kind`: `health` \| `configuration` \| `exchange` \| `market_data` \| `data_catalog` \| `data_health` \| `products` \| `indicators` \| `strategies` \| `performance` \| `risk` \| `reconciliation` \| `runtime` \| `monitor` \| `studies` \| `trade_reasons` \| `decisions` \| `support_bundle` \| `portfolio` \| `fees` \| `portfolios` \| `readiness` \| `venue_reconciliation` \| `alerts` \| `funding` \| `futures_account` \| `futures_books` \| `fleet_health`
 - `application_version`: ThyTrader package version
 - `generated_at`: timezone-aware UTC timestamp
 - `timezone`: `UTC`
@@ -426,9 +426,40 @@ are listed but do not degrade the report. Component reason codes: `OK`, `STORE_D
 `FUTURES_POLLER_NOT_RUN`, `FUTURES_POLLER_STALE`, `FUNDING_HISTORY_GAPS`,
 `FUNDING_RATE_CONFLICT`. No account data is read.
 
+## Fleet entry health (ADR 0130)
+
+`fleet_health` (`GET /api/v1/operator/fleet-health`) payload:
+
+- `entries` (also `readiness.payload.fleet_entries` and `risk.payload.fleet_entries`, `null`
+  only on reports built without it): `evaluated_at`, `complete` (false when deployments could
+  not be listed; `scopes` is then empty and `detail` says why), `live_entries_admissible`
+  and `paper_entries_admissible` (worst scope of the mode; `yes` when none is occupied), and
+  `scopes[]` with `mode`, `scope`, `entries_admissible` (`yes`/`blocked`/`unknown`),
+  `reason_codes`, `blocking_deployment_ids`, `running_deployments`, `occupied_deployments`,
+  `alert_subject`, and `checks[]` (`check`, `status` `pass`/`blocked`/`unknown`/
+  `not_applicable`, `reason_code`, `blocker_class` `evidence`/`latch`/`policy`/`capacity`/
+  `transient`/`operator`, `fleet_wide`, `detail`, `deployments[]` with `deployment_id`,
+  `status`, `product_id`, `detail`; at most 20 books per check).
+- `decisions`: `storage`, `window_hours` (24), `since`, `running_deployments`, `rows_read`,
+  `truncated`, `unreadable_deployment_ids`, `reasons[]` (`outcome`, `reason_code`,
+  `skip_reason`, `rows`, `deployments`, up to 20 `deployment_ids`, `latest_bar_closes_at`)
+  and `systemic[]` (`kind` `evidence_block`/`shared_reason`/`sizing_skips`/`warmup_stuck`,
+  `outcome`, `reason_code`, `rows`, `deployments`, `deployment_ids`, `detail`).
+- `alert_storage` and `open_fleet_alerts[]` (`subject`, `severity`, `detail`,
+  `first_seen_at`, `last_seen_at`, `occurrences`).
+
+Components: `fleet_entries` (`OK`; `FLEET_ENTRIES_BLOCKED` failed for a live evidence block,
+degraded otherwise; `FLEET_ENTRY_CAPACITY_FULL` when only capacity, clustering or a disarm
+block; `FLEET_ENTRIES_UNKNOWN`) and `fleet_decisions` (`OK`, `SYSTEMIC_ENTRY_BLOCKERS`,
+`DECISION_STORAGE_UNAVAILABLE`, `DECISION_JOURNAL_READ_FAILED`). `readiness` and `risk` add the
+same `fleet_entries` component. `health`'s `fleet_entries` component reads the open alerts
+instead (`OK`, `FLEET_ENTRIES_BLOCKED`, `FLEET_ENTRY_ALERTS_UNAVAILABLE`).
+
 ## Safety alerts (ADR 0115)
 
-`alerts` is read-only. `payload.storage` is `available` or `unavailable`. `payload.open_alerts`
+`alerts` is read-only. `payload.storage` is `available` or `unavailable`. Row `scope` is
+`deployment`, `worker` or `fleet` (`FLEET_ENTRIES_BLOCKED`, subject `fleet:<mode>:<scope>`;
+ADR 0130). `payload.open_alerts`
 and `payload.resolved_alerts` are durable rows (`code`, `severity`, `subject`, `detail`,
 `occurrences`, `delivery.status`). `delivery_warning` is set when `notify_provider=none`:
 the local feed still works and no webhook destination is invented. Open critical alerts

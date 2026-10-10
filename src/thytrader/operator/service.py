@@ -34,6 +34,8 @@ from thytrader.operator.diagnostics.market_coverage import (
 )
 from thytrader.operator.diagnostics.performance import build_performance_report
 from thytrader.operator.diagnostics.runtime import build_runtime_report, build_strategies_report
+from thytrader.operator.fleet_entries import fleet_entries_payload
+from thytrader.operator.fleet_health_report import build_fleet_health_report
 from thytrader.operator.funding_report import FundingReport, build_funding_report
 from thytrader.operator.futures_account_report import (
     FuturesAccountReport,
@@ -114,6 +116,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.market_data.worker_state import MarketDataWorkerStateStore
+    from thytrader.operator.fleet_health_models import FleetEntriesPayload, FleetHealthReport
     from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
     from thytrader.operator.research_workers import ResearchQueueSnapshotReader
     from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
@@ -342,7 +345,21 @@ class OperatorDiagnostics:
             deployment_id=deployment_id,
             portfolio_id=portfolio_id,
             futures_account=self.futures_account_store,
+            fleet_entries=await self.fleet_entries(),
         )
+
+    async def fleet_entries(self) -> FleetEntriesPayload:
+        """Evaluate fleet entry readiness now with the gate's own checks (ADR 0130)."""
+        return await fleet_entries_payload(
+            self.execution,
+            self.risk_policies,
+            market_data=self.market_data,
+            futures_account=self.futures_account_store,
+        )
+
+    async def fleet_health(self) -> FleetHealthReport:
+        """Fleet entry readiness, systemic decision-log blockers and open fleet alerts."""
+        return await build_fleet_health_report(self)
 
     async def venue_reconciliation_report(self) -> VenueReconciliationReport:
         """Compare managed live books with a fresh venue listing (ADR 0114).

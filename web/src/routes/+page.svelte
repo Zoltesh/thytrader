@@ -1,8 +1,8 @@
 <script lang="ts">
 	/**
-	 * Home (ADR 0084): connection status and primary actions, four KPI tiles, the
-	 * portfolio value chart, Needs attention, Your bots, Holdings, the fee tier,
-	 * and a Data health disclosure.
+	 * Home (ADR 0084): connection status and primary actions, the fleet entry banner
+	 * (ADR 0130), four KPI tiles, the portfolio value chart, Needs attention, Your bots,
+	 * Holdings, the fee tier, and a Data health disclosure.
 	 *
 	 * Every card reads its own sources through a `Resource`, so a slow or failing
 	 * endpoint (the data catalog can take ~20 s; the Coinbase portfolio is slow)
@@ -21,6 +21,7 @@
 	import BotsCard from '$lib/home/BotsCard.svelte';
 	import DataHealth from '$lib/home/DataHealth.svelte';
 	import FeeTierCard from '$lib/home/FeeTierCard.svelte';
+	import FleetEntryBanner from '$lib/home/FleetEntryBanner.svelte';
 	import FuturesCard from '$lib/home/FuturesCard.svelte';
 	import PreflightPanel from '$lib/PreflightPanel.svelte';
 	import HoldingsCard from '$lib/home/HoldingsCard.svelte';
@@ -334,6 +335,8 @@
 			<a class="btn primary" href={resolve('/strategies')}>New strategy</a>
 		</div>
 	</header>
+
+	<FleetEntryBanner />
 
 	{#if current !== null && current.demo}
 		{#if current.assets.length === 0}

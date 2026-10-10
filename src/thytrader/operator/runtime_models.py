@@ -19,6 +19,7 @@ from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
+from thytrader.operator.fleet_health_models import FleetEntriesPayload
 from thytrader.operator.futures_collateral_report import FuturesCollateralPayload
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.research.catalog import StudyCatalogSummary
@@ -220,6 +221,13 @@ class RiskPayload(_FrozenModel):
     futures: FuturesRiskPolicy | None = None
     futures_collateral: FuturesCollateralPayload | None = None
     findings: tuple[RiskFinding, ...]
+    fleet_entries: FleetEntriesPayload | None = Field(
+        default=None,
+        description=(
+            "Fleet entry readiness (ADR 0130): per mode and quote scope, whether the entry "
+            "gate admits any new entry, and the blocking codes and books."
+        ),
+    )
 
 
 class RiskReport(OperatorEnvelope):

@@ -12,6 +12,7 @@ from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
 from thytrader.memory.service import build_monitor, storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore
 from thytrader.operator.audit_findings import audit_failure_findings
+from thytrader.operator.fleet_entries import fleet_entries_component
 from thytrader.operator.futures_collateral_report import futures_collateral_payload
 from thytrader.operator.models import STANDARD_REDACTION, ComponentReport, ReportStatus
 from thytrader.operator.runtime_models import (
@@ -46,7 +47,7 @@ _BREAKER_FINDING_CODES = {"DAILY_LOSS_LIMIT", "STRATEGY_DRAWDOWN_LIMIT"}
 
 
 async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
-    """Surface pause/mismatch findings and the effective risk-policy registry."""
+    """Surface pause/mismatch findings, the policy registry and fleet entry readiness."""
     now = datetime.now(UTC)
     findings, components = await _risk_findings(diagnostics)
     active = await load_effective_policy(diagnostics.risk_policies)
@@ -69,6 +70,7 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
                 ),
             ),
         )
+    fleet_entries = await diagnostics.fleet_entries()
     components = [
         ComponentReport(
             name="risk_policy_registry",
@@ -77,6 +79,7 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
             detail=f"Active risk policy {active.policy_fingerprint} ({active.source.value}).",
         ),
         *components,
+        fleet_entries_component(fleet_entries),
     ]
     return RiskReport(
         application_version=__version__,
@@ -117,6 +120,7 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
                 diagnostics.futures_account_store, policy
             ),
             findings=findings,
+            fleet_entries=fleet_entries,
         ),
     )
 

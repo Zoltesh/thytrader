@@ -22,10 +22,15 @@ class AlertSeverity(StrEnum):
 
 
 class AlertScope(StrEnum):
-    """What one alert subject names: a single book or the worker itself."""
+    """What one alert subject names: a single book, the worker, or a fleet entry scope.
+
+    A ``fleet`` subject is ``fleet:<mode>:<scope>``, for example ``fleet:live:USDC``
+    (ADR 0130).
+    """
 
     DEPLOYMENT = "deployment"
     WORKER = "worker"
+    FLEET = "fleet"
 
 
 class AlertCode(StrEnum):
@@ -35,6 +40,10 @@ class AlertCode(StrEnum):
     successful decision, not since an ambiguous no-op or lease skip. Counts
     survive restart; observing the persisted entry-pause latch keeps evidence
     open without fabricating another raised error.
+
+    ``FLEET_ENTRIES_BLOCKED`` (ADR 0130) is one mode and quote scope in which the entry
+    gate denies every new entry for a reason that does not clear by itself. It resolves on
+    the first complete evaluation that finds the scope admissible again.
     """
 
     BOOK_PAUSED_MISMATCH = "BOOK_PAUSED_MISMATCH"
@@ -46,6 +55,7 @@ class AlertCode(StrEnum):
     MAINTENANCE_DEADLINE_MISSED = "MAINTENANCE_DEADLINE_MISSED"
     WORKER_LEASE_STALE = "WORKER_LEASE_STALE"
     WORKER_BOOK_FAILURES = "WORKER_BOOK_FAILURES"
+    FLEET_ENTRIES_BLOCKED = "FLEET_ENTRIES_BLOCKED"
 
 
 #: Delivery outcome values persisted on alert rows. ``skipped`` means the

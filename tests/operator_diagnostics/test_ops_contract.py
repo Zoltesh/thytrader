@@ -35,7 +35,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v88"
+    assert expected["id"] == "thytrader-ops-contract-v89"
     assert expected["same_bar_exit_precedence"] == [
         "stop",
         "take_profit",
@@ -66,6 +66,7 @@ def test_ops_contract_matches_requires_payload() -> None:
         "complete_fleet_inventory",
         "revision_fenced_fleet_controls",
         "backtest_bar_explanations",
+        "fleet_entry_health",
     ]
     assert expected["research_honesty"] == [
         "result_window",

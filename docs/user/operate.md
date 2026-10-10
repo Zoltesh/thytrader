@@ -59,6 +59,27 @@ guaranteed. See
 [ADR 0115](../decisions/0115-durable-safety-alerts-and-supervision.md) and the
 [operator skill](../../skills/thytrader-operator/SKILL.md).
 
+## Fleet entry health
+
+A single bad record can make the entry gate refuse every new entry in a mode and quote
+currency while each bot only logs its own `entry_blocked` decision. On 2026-10-10 one legacy
+order of a stopped live book did exactly that to every live USDC bot for days. ThyTrader now
+checks the whole fleet ([ADR 0130](../decisions/0130-fleet-entry-health.md)):
+
+- `uv run thytrader-operator fleet-health` (or `GET /api/v1/operator/fleet-health`) says, for
+  each mode and quote currency with a running or paused bot, whether new entries are admissible
+  (`yes`, `blocked` or `unknown`), the blocking reason codes, and the exact books and records
+  responsible, for example `order … FILLED with filled_quantity 0 but fills sum 0.00014174`. It
+  also lists the `entry_blocked`/`skipped` reasons of running bots over the last 24 hours and
+  flags systemic ones.
+- `readiness` and `risk` carry the same evaluation as `fleet_entries`.
+- The execution worker evaluates it every cycle and raises one durable `FLEET_ENTRIES_BLOCKED`
+  alert per blocked scope (critical for a live scope blocked by missing evidence), delivered
+  like every other alert and resolved when the block clears. The fleet entry clustering cap is
+  reported but never alerted: it frees itself as its window slides.
+- `health` has a `fleet_entries` component that fails or degrades while such an alert is open.
+- Home shows a banner (below).
+
 ## Fleet controls
 
 **Fleet controls** on **Portfolio** (`/deployments`), `uv run thytrader-runtime fleet-*`, and
@@ -128,6 +149,14 @@ about 20 seconds; the Coinbase portfolio call is slow) never blocks the rest. A 
 be known shows `—` with the reason, never a guess. Home summarises live bots but is not a live
 context: it shows no amber strip; live rows and items carry a **LIVE** tag.
 
+- **Fleet entry banner.** When the entry gate would refuse every new entry in a mode and quote
+  currency (for example "Live USDC entries are blocked fleet-wide · BREAKER_MARK_MISSING"), a
+  banner at the top names each blocking bot with a link to it and the exact record or rule
+  responsible, and says what clears it (a repair, a breaker reset, a policy decision, or time).
+  It also lists systemic blockers seen in the last 24 hours of bot decisions. It is hidden while
+  every scope admits entries, and says "Fleet entry health could not be checked" with a
+  **Retry** when the report cannot be read; it never hides a failure as healthy
+  ([ADR 0130](../decisions/0130-fleet-entry-health.md)).
 - **Header.** One line with the Coinbase connection, every detected permission (for example
   `View + Trade + Transfer`; extra permissions are reported, never treated as consent), and how old
   the last balance snapshot is. **New order** opens Trade; **New strategy** opens Strategies.

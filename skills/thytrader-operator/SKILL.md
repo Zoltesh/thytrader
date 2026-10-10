@@ -41,7 +41,8 @@ Prefer the CLI. HTTP is the same contract on loopback.
 
 | Need | CLI | HTTP |
 |---|---|---|
-| Health | `uv run thytrader-operator health` | `GET /api/v1/operator/health` |
+| Health | `uv run thytrader-operator health` | `GET /api/v1/operator/health` (includes the `fleet_entries` component: `FAILED` while a live scope's entries are blocked fleet-wide by missing evidence, `DEGRADED` for any other open `FLEET_ENTRIES_BLOCKED` alert; [ADR 0130](../../docs/decisions/0130-fleet-entry-health.md)) |
+| Fleet entry health | `uv run thytrader-operator fleet-health` | `GET /api/v1/operator/fleet-health` (can the fleet enter at all? per mode and quote scope `entries_admissible` `yes`/`blocked`/`unknown` from the entry gate's own checks, blocking reason codes and the exact blocking books and records; 24 h blocked/skipped reasons of running bots with systemic flags; open `FLEET_ENTRIES_BLOCKED` alerts; see [Fleet entry health](#fleet-entry-health-adr-0130)) |
 | Configuration | `uv run thytrader-operator configuration` | `GET /api/v1/operator/configuration` |
 | Exchange | `uv run thytrader-operator exchange` | `GET /api/v1/operator/exchange` |
 | Market data | `uv run thytrader-operator market-data [--product-id BTC-USD\|BIP-20DEC30-CDE] [--timeframe 1h\|5m\|15m\|30m\|6h\|1d\|1m\|2h\|4h]` | `GET /api/v1/operator/market-data` |
@@ -55,17 +56,17 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
 | Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
 | Monitor | `uv run thytrader-operator monitor` | `GET /api/v1/operator/monitor` (deployments, recent journals, notify delivery; omits balances and webhook URLs) |
-| Safety alerts | `uv run thytrader-operator alerts` | `GET /api/v1/operator/alerts` (durable pause/mismatch, breaker, uncovered or unknown stop cover, stop-triggered-but-unfilled, missed decision/maintenance deadlines, worker lease age including unknown, consecutive worker failures; local feed works with `notify_provider=none` and sets `delivery_warning`; no webhook URL; no order authority; ADR 0115) |
+| Safety alerts | `uv run thytrader-operator alerts` | `GET /api/v1/operator/alerts` (durable pause/mismatch, breaker, uncovered or unknown stop cover, stop-triggered-but-unfilled, missed decision/maintenance deadlines, worker lease age including unknown, consecutive worker failures, `FLEET_ENTRIES_BLOCKED` with scope `fleet` (ADR 0130); local feed works with `notify_provider=none` and sets `delivery_warning`; no webhook URL; no order authority; ADR 0115) |
 | Why-trade review | `uv run thytrader-operator trade-reasons [--intent-id UUID] [--deployment-id UUID]` | `GET /api/v1/operator/trade-reasons` |
 | Decision timeline | `uv run thytrader-operator decisions [--deployment-id UUID \| --strategy-id UUID] [--outcome OUTCOME ...] [--limit N] [--cursor C]` | `GET /api/v1/operator/decisions` (per-bar `thytrader-bar-decision-v1` rows, newest first; repeated `outcome`; `next_cursor` paging) |
 | Performance | `uv run thytrader-operator performance --result-fingerprint sha256:…` or `--deployment-id UUID` | `GET /api/v1/operator/performance` |
-| Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` (registry identity, slot counts, breaker fractions/ints, pause/mismatch; omits balances) |
+| Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` (registry identity, slot counts, breaker fractions/ints, pause/mismatch, `fleet_entries` (ADR 0130); omits balances) |
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` (every paused `mismatch_detail` is a `STATE_MISMATCH` finding whose `detail` is the mismatch text; split pending-entry state adds `FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`; a live order Coinbase reports FILLED with no List Fills rows (`Filled order has no REST fills.`) adds `FILLED_WITHOUT_FILL` next to `STATE_MISMATCH`; `unknown` orders add `UNKNOWN_ORDERS`; recent audit failures add `AUDIT_FAILURES`) |
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
 | Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials; `totals` are exact per currency (USD, USDC, USDT) and never added together; `total_value` is only the labelled `usd_pegged_approximate` sum at 1:1, `null` when the account could not be read) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only; `payload.futures` is the separate futures fee tier; `fee_per_contract` is null unless you pass `--futures-preview-product-id CDE_ID`, which sends one Coinbase `orders/preview` POST for one contract (it places **no** order) and reports the quoted commission with `fee_per_contract_source: orders_preview`) |
 | Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins with verified identical trading rules; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
-| Readiness preflight | `uv run thytrader-operator readiness [--deployment-id UUID] [--portfolio-id UUID]` | `GET /api/v1/operator/readiness` (advisory allocation vs venue quote vs account and portfolio caps, per-asset caps, remaining entry capacity, paper fee assumptions vs account fee evidence, and which daily-loss breaker binds tighter; never changes policy; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md)) |
+| Readiness preflight | `uv run thytrader-operator readiness [--deployment-id UUID] [--portfolio-id UUID]` | `GET /api/v1/operator/readiness` (advisory allocation vs venue quote vs account and portfolio caps, per-asset caps, remaining entry capacity, paper fee assumptions vs account fee evidence, which daily-loss breaker binds tighter, and `fleet_entries` (ADR 0130); never changes policy; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md)) |
 | Venue reconciliation | `uv run thytrader-operator venue-reconciliation` | `GET /api/v1/operator/venue-reconciliation` (managed live inventory and working orders versus a fresh venue listing; foreign holdings are not errors and are not flattened; incomplete listings stay unknown; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md). To protect or sell `external_inventory`, a person uses the runtime lane's `adoption-preview`, `place-order --entry-kind adopt` and `sell-holdings`; [ADR 0124](../../docs/decisions/0124-inventory-adoption.md)) |
 | Support bundle | `uv run thytrader-operator support-bundle` | `GET /api/v1/operator/support-bundle` |
 | Schema check | `uv run thytrader-operator schema-check` | (local files only) |
@@ -331,7 +332,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v88`, schema revision `0073`) and exits on any
+   this checkout's (`thytrader-ops-contract-v89`, schema revision `0073`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -348,6 +349,8 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    Multi-book reads follow [ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
+   A `fleet_entries` component that is not `READY`/`OK` means new entries are blocked or
+   unknown fleet-wide: run `fleet-health` next (see [Fleet entry health](#fleet-entry-health-adr-0130)).
 4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
    `products` lists each enabled spot product's order constraints: `price_increment`,
    `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
@@ -503,6 +506,40 @@ classification rather than being mistaken for a canceled entry. Legacy rows are
 unchanged and may lack this trace. The runtime decision timeline displays the trace.
 Read-only campaign/economic tools and bounded exports live in the research skill;
 operator observation grants no research mutation or runtime/order authority.
+
+## Fleet entry health (ADR 0130)
+
+`uv run thytrader-operator fleet-health` is read-only. Run it whenever `health` shows a
+`fleet_entries` component that is not healthy, an alert `FLEET_ENTRIES_BLOCKED` is open, or
+bots have signals but no entries. It answers whether the entry gate would admit **any** new
+entry, per mode and quote scope, whether or not a bot currently has a signal.
+
+- `payload.entries.scopes[]`: one row per mode (`live`/`paper`) and scope (`USD`, `USDC`,
+  `USDT`, `CFM-USD`) with a running or paused book. `entries_admissible` is `yes`, `blocked`
+  (some check denies every entry) or `unknown` (a check could not be read; never treat it as
+  `yes`). `reason_codes` are the gate's own codes; `blocking_deployment_ids` are the books
+  responsible; `alert_subject` is the matching alert subject (`fleet:live:USDC`).
+- `checks[]`: `fleet_disarm`, `accounting_inventory`, `quote_scope`, `venue_quote_balance`,
+  `futures_collateral`, `open_position_slots`, `exposure_cap`, `btc_beta`,
+  `unresolved_accounting`, `daily_loss`, `drawdown_latch`, `linked_futures_breaker`,
+  `entry_cluster`, each `pass`/`blocked`/`unknown`/`not_applicable`. `fleet_wide: false` means
+  only the listed books are stopped (for example one strategy's drawdown latch).
+  `deployments[].detail` names the exact record or rule, for example
+  `order X FILLED with filled_quantity 0 but fills sum 0.00014174`.
+- `blocker_class` says what clears it: `evidence` (a repair), `latch` (a breaker reset in the
+  runtime lane), `policy` (manual CFM futures on the shared collateral without a reserve),
+  `capacity` (slots or exposure caps full; an exit), `transient` (the clustering window
+  slides), `operator` (a fleet rearm). Only `evidence`, `latch` and `policy` raise the alert;
+  it is `critical` for a live scope blocked by `evidence`.
+- `payload.decisions`: 24 h of `entry_blocked` and `skipped` reasons of running bots
+  (`reasons[]`) and `systemic[]` flags: `evidence_block`, `shared_reason` (same reason on 2+
+  bots), `sizing_skips` (for example `NOTIONAL_BELOW_MINIMUM` on 2+ bars), `warmup_stuck`
+  (12+ warmup skips on one bot). `truncated` means counts are a floor.
+- `payload.open_fleet_alerts`: the open `FLEET_ENTRIES_BLOCKED` alerts the worker raised.
+
+The same `entries` object is `fleet_entries` in `readiness` and `risk`. Report the blocking
+record to the user. This lane never repairs records or resets breakers: a repair is a person's
+or contributor's decision, and resets and rearms belong to `thytrader-runtime` with `--confirm`.
 
 ## Safety alert recovery and delivery (ADR 0115)
 

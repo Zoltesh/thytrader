@@ -106,7 +106,10 @@ opt-in ``beta_netting``, with ``FUTURES_EXPOSURE_EXCEEDED``,
 ``FUTURES_ORDER_CONTRACTS_EXCEEDED`` and ``FUTURES_FUNDING_RATE_EXCEEDED``; ADR 0129, P1-5),
 or the paper futures runtime lane (the operator ``futures-books`` report,
 ``GET /api/v1/deployments/{id}/futures``, the runtime ``show`` ``futures`` view and the
-``FUTURES_LIVE_UNSUPPORTED`` refusal of a live futures start; ADR 0129, P1-6) change.
+``FUTURES_LIVE_UNSUPPORTED`` refusal of a live futures start; ADR 0129, P1-6),
+or fleet entry health (the operator ``fleet-health`` report, the ``fleet_entries`` sections
+of ``readiness`` and ``risk``, the ``fleet_entries`` health component, and the
+``FLEET_ENTRIES_BLOCKED`` alert with its ``fleet`` scope; ADR 0130) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -135,7 +138,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v88"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v89"
 EXPECTED_SCHEMA_REVISION = "0073"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -278,6 +281,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "complete_fleet_inventory",
     "revision_fenced_fleet_controls",
     "backtest_bar_explanations",
+    "fleet_entry_health",
 )
 # Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
 # no execution, live, adoption or discretionary surface accepts a futures id.
