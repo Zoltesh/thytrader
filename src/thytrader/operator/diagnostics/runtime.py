@@ -11,6 +11,7 @@ from thytrader.credentials.service import credentials_are_configured
 from thytrader.execution.book_marks import last_bar_marks
 from thytrader.execution.user_feed_state import UserOrderFeedUnavailableError
 from thytrader.operator.diagnostics.common import _runtime_timeframe, _supported_clock
+from thytrader.operator.execution_cycle_report import execution_cycle_health
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
@@ -101,8 +102,9 @@ async def build_strategies_report(diagnostics: OperatorDiagnostics) -> Strategie
 async def build_runtime_report(
     diagnostics: OperatorDiagnostics, deployment_id: UUID | None = None
 ) -> RuntimeReport:
-    """Combine deployment status with risk and reconciliation findings."""
+    """Combine deployment status with risk, reconciliation and execution cycle timing."""
     now = datetime.now(UTC)
+    cycle = await execution_cycle_health(diagnostics.cycle_store, now=now)
     strategies = await diagnostics.strategies()
     risk = await diagnostics.risk()
     reconciliation = await diagnostics.reconciliation()
@@ -118,6 +120,7 @@ async def build_runtime_report(
         *reconciliation.components,
         *extra,
         *(await _execution_market_data_components(diagnostics)),
+        *(() if cycle is None else (cycle[0],)),
     )
     return RuntimeReport(
         application_version=__version__,
@@ -136,6 +139,7 @@ async def build_runtime_report(
             risk_findings=risk_findings,
             reconciliation_findings=recon_findings,
             user_order_feed=await _user_order_feed_payload(diagnostics),
+            execution_cycle=None if cycle is None else cycle[1],
         ),
     )
 

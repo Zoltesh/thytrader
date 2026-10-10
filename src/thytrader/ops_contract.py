@@ -112,7 +112,10 @@ of ``readiness`` and ``risk``, the ``fleet_entries`` health component, and the
 ``FLEET_ENTRIES_BLOCKED`` alert with its ``fleet`` scope; ADR 0130),
 or the futures account mirror history (the operator ``futures-account --history`` report,
 ``GET /api/v1/operator/futures-account/history``, the same-cycle spot USDC/USD balances of
-Alembic 0074 and ``spot_collateral`` on ``futures-account``; ADR 0127 §10) change.
+Alembic 0074 and ``spot_collateral`` on ``futures-account``; ADR 0127 §10),
+or execution cycle timing (the ``execution_cycle`` health component and ``CYCLE_SLOW``,
+``payload.execution_cycle`` on ``health`` and ``runtime`` and the ``execution_cycles`` table of
+Alembic 0075; ADR 0131) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -141,8 +144,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v90"
-EXPECTED_SCHEMA_REVISION = "0074"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v91"
+EXPECTED_SCHEMA_REVISION = "0075"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -285,6 +288,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "revision_fenced_fleet_controls",
     "backtest_bar_explanations",
     "fleet_entry_health",
+    "execution_cycle_timing",
 )
 # Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
 # no execution, live, adoption or discretionary surface accepts a futures id.

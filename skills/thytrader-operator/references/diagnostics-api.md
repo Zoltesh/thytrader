@@ -52,7 +52,11 @@ Query parameters:
 HTTP `200` means the diagnostics document was produced. Judge instance health from `overall_status`, not from the HTTP status code.
 
 Worker components use PostgreSQL heartbeats (`portfolio_worker`, `market_data_worker`,
-`execution_worker`, `research_worker`). Docker `/tmp` readiness files are not operator health. Database health is an
+`execution_worker`, `research_worker`). Docker `/tmp` readiness files are not operator health.
+The `execution_cycle` component grades the execution worker's newest cycle against its interval
+(`CYCLE_SLOW`, `CYCLE_WITHIN_INTERVAL`, `CYCLE_IN_PROGRESS`, `CYCLE_TIMING_MISSING`,
+`CYCLE_TIMING_UNAVAILABLE`); `runtime.payload.execution_cycle` carries the phase, book and venue
+timings (ADR 0131). Database health is an
 engine ping when `THYTRADER_DATABASE_URL` is set (`DATABASE_UNCONFIGURED`, `DATABASE_ENGINE_MISSING`,
 or `DATABASE_UNREACHABLE`).
 

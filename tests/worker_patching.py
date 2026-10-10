@@ -15,6 +15,7 @@ from thytrader.execution import closed_windows
 from thytrader.execution_worker import (
     bar_journal,
     between_bars,
+    cycle_timing,
     discretionary_step,
     fleet_supervision,
     live_sizing,
@@ -49,6 +50,7 @@ WORKER_CYCLE_MODULES: tuple[ModuleType, ...] = (
     stopped_step,
     discretionary_step,
     fleet_supervision,
+    cycle_timing,
     closed_windows,
 )
 

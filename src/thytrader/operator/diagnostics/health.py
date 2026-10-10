@@ -13,6 +13,7 @@ from thytrader import __version__
 from thytrader.config import Settings, default_api_base_url
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
+from thytrader.operator.execution_cycle_report import execution_cycle_health
 from thytrader.operator.fleet_health_report import fleet_alert_health_component
 from thytrader.operator.health_models import (
     ConfigurationPayload,
@@ -48,10 +49,12 @@ async def build_health_report(
     """Summarize process, database, worker, research pool, exchange and fleet entry health.
 
     ``fleet_entries`` reads the worker's open ``FLEET_ENTRIES_BLOCKED`` alerts (ADR 0130), so
-    a fleet-wide entry block can never leave health reporting healthy.
+    a fleet-wide entry block can never leave health reporting healthy. ``execution_cycle``
+    grades the newest execution-worker cycle against its interval (``CYCLE_SLOW``, ADR 0131).
     """
     now = datetime.now(UTC)
     research_component, research_payload = await _research_worker_health(diagnostics)
+    cycle = await execution_cycle_health(diagnostics.cycle_store, now=now)
     components = [
         await _api_component(diagnostics, probe_api=probe_api),
         await _database_component(diagnostics),
@@ -59,6 +62,7 @@ async def build_health_report(
         await _worker_component(diagnostics, "portfolio_worker"),
         await _worker_component(diagnostics, "market_data_worker"),
         await _worker_component(diagnostics, "execution_worker"),
+        *(() if cycle is None else (cycle[0],)),
         research_component,
         await _exchange_component(diagnostics),
         await fleet_alert_health_component(diagnostics.alert_store),
@@ -82,6 +86,7 @@ async def build_health_report(
             ops_contract=current_ops_contract(),
             applied_schema_revision=await _applied_schema_revision(diagnostics),
             research_workers=research_payload,
+            execution_cycle=None if cycle is None or cycle[1] is None else cycle[1].summary,
         ),
     )
 

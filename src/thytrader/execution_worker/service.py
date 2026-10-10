@@ -18,6 +18,13 @@ from thytrader.execution.decision_journal import (
 from thytrader.execution.futures_paper import prepare_futures_book
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution_worker.bar_journal import _journaled_bar
+from thytrader.execution_worker.cycle_timing import (
+    CycleTimer,
+    progress_heartbeat,
+    record_cycle_report,
+    record_cycle_start,
+    window_cache_of,
+)
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
@@ -53,11 +60,11 @@ from thytrader.risk.portfolio_scope import portfolio_risk_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.exposure import daily_loss_snapshots
 from thytrader.trading.futures_book import futures_book_scope
-from thytrader.trading.ids import utc_now
+from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import DeploymentKind, DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
     from uuid import UUID
 
     from thytrader.alerts.models import SupervisionFinding
@@ -69,6 +76,8 @@ if TYPE_CHECKING:
     from thytrader.execution_worker.venue import ExecutionVenue
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
+    from thytrader.observability.execution_cycle import ExecutionCycleReport
+    from thytrader.persistence.execution_cycles import ExecutionCycleStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.portfolios.store import PortfolioRuntimeStore
     from thytrader.risk.models import RiskPolicyDefinition
@@ -133,6 +142,7 @@ async def run_execution_worker(
     decision_store: DecisionJournalStore | None = None,
     portfolio_store: PortfolioRuntimeStore | None = None,
     alert_service: AlertService | None = None,
+    cycle_store: ExecutionCycleStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown.
 
@@ -145,14 +155,19 @@ async def run_execution_worker(
     bounded schedule; journal failures never stop or alter a cycle (ADR 0087).
     ``alert_service`` records durable safety supervision alerts each cycle
     (ADR 0115); alert-store failures never stop or alter a cycle either.
+    ``cycle_store`` records each cycle's start and its timing report (ADR 0131); the
+    heartbeat is also refreshed between books (at most every 10 seconds), so a slow cycle
+    that is still making progress is reported as ``CYCLE_SLOW``, not as a dead worker.
+    Cycle-telemetry failures never stop or alter a cycle.
     """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
     next_prune_at = datetime.now(UTC)
     try:
         while not stop_requested.is_set():
+            cycle_started_at = datetime.now(UTC)
             if heartbeat_store is not None:
-                await heartbeat_store.touch("execution_worker", datetime.now(UTC))
+                await heartbeat_store.touch("execution_worker", cycle_started_at)
             cycle_market_data, cycle_live_broker, cycle_quote_reader = (
                 market_data,
                 live_broker,
@@ -168,8 +183,15 @@ async def run_execution_worker(
                 if settings_store is not None
                 else interval_seconds
             )
+            timer = CycleTimer(
+                cycle_id=uuid7(cycle_started_at),
+                started_at=cycle_started_at,
+                interval_seconds=wait_seconds,
+                window_cache=window_cache_of(cycle_market_data),
+            )
+            await record_cycle_start(cycle_store, timer)
             with execution_audit_scope(audit_store), decision_journal_scope(decision_store):
-                await _run_cycle(
+                report = await _run_cycle(
                     store=store,
                     publication_store=publication_store,
                     market_data=cycle_market_data,
@@ -182,7 +204,10 @@ async def run_execution_worker(
                     portfolio_store=portfolio_store,
                     alert_service=alert_service,
                     worker_interval_seconds=wait_seconds,
+                    timer=timer,
+                    on_book_done=progress_heartbeat(heartbeat_store),
                 )
+                await record_cycle_report(cycle_store, report)
                 next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
             if wake_requested is not None:
                 wake_requested.clear()
@@ -239,7 +264,9 @@ async def _run_cycle(
     portfolio_store: PortfolioRuntimeStore | None = None,
     alert_service: AlertService | None = None,
     worker_interval_seconds: int = 30,
-) -> None:
+    timer: CycleTimer | None = None,
+    on_book_done: Callable[[], Awaitable[None]] | None = None,
+) -> ExecutionCycleReport | None:
     """Process occupied deployments once, refreshing occupancy after each for the entry gate.
 
     Deployed portfolios are supervised first (capital sync, equity, breakers; ADR 0091),
@@ -249,61 +276,94 @@ async def _run_cycle(
     a book that fails too many consecutive cycles has its entries paused while
     exits and reconciliation keep running. Fleet entry readiness (ADR 0130) then raises or
     resolves the fleet entry block alerts.
+
+    ``timer`` measures each phase and book and the venue calls they make (ADR 0131); the
+    returned report is ``None`` only when the timing evidence could not be assembled.
+    ``on_book_done`` runs after every visited book (the worker's progress heartbeat).
     """
     cycle_started_at = utc_now()
-    await refresh_process_entry_inhibition(store)
-    policy = (await load_effective_policy(risk_store)).definition
-    deployments = await store.list_deployments()
-    books = await supervise_portfolios(
-        store=store, portfolios=portfolio_store, deployments=deployments, now=utc_now()
+    timer = timer or CycleTimer(
+        cycle_id=uuid7(cycle_started_at),
+        started_at=cycle_started_at,
+        interval_seconds=worker_interval_seconds,
+        window_cache=window_cache_of(market_data),
     )
-    portfolio = await _risk_snapshots(store, deployments)
-    cycle_failures: list[SupervisionFinding] = []
-    for deployment in deployments:
-        if deployment.status not in {
-            DeploymentStatus.RUNNING,
-            DeploymentStatus.PAUSED,
-            DeploymentStatus.STOPPED,
-        }:
-            continue
-        book = None if deployment.portfolio_id is None else books.get(deployment.portfolio_id)
-        try:
-            with portfolio_risk_scope(book):
-                await _process_one(
-                    deployment_id=deployment.id,
-                    store=store,
-                    publication_store=publication_store,
-                    market_data=market_data,
-                    paper_broker=paper_broker,
-                    live_broker=live_broker,
-                    quote_reader=quote_reader,
-                    risk_policy=policy,
-                    portfolio=portfolio,
-                    user_feed_store=user_feed_store,
-                    memory_store=memory_store,
-                )
-        except (RuntimeError, ValueError, TypeError, OSError) as error:
-            _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
-            cycle_failures.append(
-                worker_book_failure_finding(deployment, error_type=type(error).__name__)
+    with timer.bound():
+        with timer.phase("setup"):
+            await refresh_process_entry_inhibition(store)
+            policy = (await load_effective_policy(risk_store)).definition
+            deployments = await store.list_deployments()
+        with timer.phase("portfolio_supervision"):
+            books = await supervise_portfolios(
+                store=store, portfolios=portfolio_store, deployments=deployments, now=utc_now()
             )
-        portfolio = await _risk_snapshots(store, deployments)
-    await _supervise_safety(
-        alert_service=alert_service,
-        store=store,
-        market_data=market_data,
-        deployments=deployments,
-        cycle_failures=cycle_failures,
-        worker_interval_seconds=worker_interval_seconds,
-        observed_at=cycle_started_at,
-    )
-    await _supervise_fleet_entries(
-        alert_service=alert_service,
-        store=store,
-        market_data=market_data,
-        policy=policy,
-        observed_at=cycle_started_at,
-    )
+        with timer.phase("risk_snapshots"):
+            portfolio = await _risk_snapshots(store, deployments)
+        cycle_failures: list[SupervisionFinding] = []
+        for deployment in deployments:
+            if deployment.status not in {
+                DeploymentStatus.RUNNING,
+                DeploymentStatus.PAUSED,
+                DeploymentStatus.STOPPED,
+            }:
+                continue
+            book = None if deployment.portfolio_id is None else books.get(deployment.portfolio_id)
+            with timer.book(deployment) as probe:
+                try:
+                    with portfolio_risk_scope(book):
+                        await _process_one(
+                            deployment_id=deployment.id,
+                            store=store,
+                            publication_store=publication_store,
+                            market_data=market_data,
+                            paper_broker=paper_broker,
+                            live_broker=live_broker,
+                            quote_reader=quote_reader,
+                            risk_policy=policy,
+                            portfolio=portfolio,
+                            user_feed_store=user_feed_store,
+                            memory_store=memory_store,
+                        )
+                except (RuntimeError, ValueError, TypeError, OSError) as error:
+                    probe.failed = True
+                    _logger.exception("execution_cycle_failed deployment_id=%s", deployment.id)
+                    cycle_failures.append(
+                        worker_book_failure_finding(deployment, error_type=type(error).__name__)
+                    )
+            with timer.phase("risk_snapshots"):
+                portfolio = await _risk_snapshots(store, deployments)
+            if on_book_done is not None:
+                await on_book_done()
+        with timer.phase("safety_supervision"):
+            await _supervise_safety(
+                alert_service=alert_service,
+                store=store,
+                market_data=market_data,
+                deployments=deployments,
+                cycle_failures=cycle_failures,
+                worker_interval_seconds=worker_interval_seconds,
+                observed_at=cycle_started_at,
+            )
+        with timer.phase("fleet_supervision"):
+            await _supervise_fleet_entries(
+                alert_service=alert_service,
+                store=store,
+                market_data=market_data,
+                policy=policy,
+                observed_at=cycle_started_at,
+            )
+    return _cycle_report(timer, deployments, book_failures=len(cycle_failures))
+
+
+def _cycle_report(
+    timer: CycleTimer, deployments: Sequence[Deployment], *, book_failures: int
+) -> ExecutionCycleReport | None:
+    """Assemble the cycle's timing report; a malformed measurement never fails the cycle."""
+    try:
+        return timer.report(deployments=deployments, book_failures=book_failures)
+    except ValueError, TypeError:
+        _logger.exception("execution_cycle_report_failed cycle_id=%s", timer.cycle_id)
+        return None
 
 
 async def _process_one(

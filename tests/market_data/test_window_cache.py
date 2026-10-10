@@ -423,3 +423,23 @@ def test_nonpositive_memory_budget_is_rejected() -> None:
     """A cache that could not retain any seed is a configuration error, not endless warming."""
     with pytest.raises(ValueError, match="positive"):
         DeployWindowCache(max_total_candles=0)
+
+
+async def test_stats_count_range_fetches_warming_and_retained_candles() -> None:
+    """Cycle telemetry reads cumulative fetch and warming counters and retained size (ADR 0131)."""
+    count = MAX_HISTORICAL_INTERVAL_COUNT + RANGE_BLOCK_INTERVALS
+    provider = _Provider(count)
+    cache = DeployWindowCache()
+    assert cache.stats() == window_cache.WindowCacheStats(0, 0, 0, 0)
+    with pytest.raises(WindowCacheWarmingError):
+        await _load(cache, provider, through=count - 1)
+    warming = cache.stats()
+    assert warming.windows == 1
+    assert warming.range_requests == len(provider.calls)
+    assert warming.range_requests == window_cache.MAX_RANGE_REQUESTS_PER_CYCLE
+    assert warming.warming_events == 1
+    assert warming.cached_candles > 0
+    await _eventually(cache, provider, through=count - 1)
+    done = cache.stats()
+    assert done.range_requests == len(provider.calls)
+    assert done.cached_candles >= count - 1

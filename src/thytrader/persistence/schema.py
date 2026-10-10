@@ -91,6 +91,7 @@ from thytrader.persistence.tables.futures_books import (
     deployment_instrument_contracts,
     futures_funding_entries,
 )
+from thytrader.persistence.tables.execution_cycles import execution_cycles
 # isort: on
 
 __all__ = [
@@ -100,6 +101,7 @@ __all__ = [
     "deployment_instrument_contracts",
     "deployment_twin_links",
     "deployments",
+    "execution_cycles",
     "execution_fills",
     "execution_instrument_state",
     "execution_orders",

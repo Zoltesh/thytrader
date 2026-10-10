@@ -19,6 +19,7 @@ from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.market_data.products import SpotQuoteCurrency
 from thytrader.memory.models import MonitorSnapshot
 from thytrader.memory.trade_reasons import TradeReasonRecord
+from thytrader.operator.execution_cycle_report import ExecutionCyclePayload
 from thytrader.operator.fleet_health_models import FleetEntriesPayload
 from thytrader.operator.futures_collateral_report import FuturesCollateralPayload
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
@@ -279,6 +280,7 @@ class RuntimePayload(_FrozenModel):
     risk_findings: tuple[RiskFinding, ...]
     reconciliation_findings: tuple[ReconciliationFinding, ...]
     user_order_feed: UserOrderFeedPayload | None = None
+    execution_cycle: ExecutionCyclePayload | None = None
 
 
 class RuntimeReport(OperatorEnvelope):

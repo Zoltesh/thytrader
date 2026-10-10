@@ -27,6 +27,7 @@ from coinbase.rest import RESTClient
 from thytrader.exchanges.coinbase import CoinbaseAccount
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
+from thytrader.exchanges.request_timing import instrument_rest_client
 from thytrader.exchanges.rest_transport import RestClientTransport
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
@@ -86,6 +87,8 @@ def build_execution_venue(settings: Settings, generation: int) -> ExecutionVenue
     key_name = key.get_secret_value()
     private_key = secret.get_secret_value()
     client = RESTClient(api_key=key_name, api_secret=private_key, timeout=10)
+    # Every REST call of this generation is counted and timed per cycle (ADR 0131).
+    instrument_rest_client(client)
     return ExecutionVenue(
         market_data=MarketDataService(CoinbaseMarketData(client)),
         live_broker=CoinbaseRestBroker(RestClientTransport(client)),

@@ -1078,6 +1078,34 @@
       "title": "BarDecision",
       "type": "object"
     },
+    "BookStatusCounts": {
+      "additionalProperties": false,
+      "description": "Books the cycle visited, by lifecycle status at the start of the cycle.",
+      "properties": {
+        "running": {
+          "minimum": 0,
+          "title": "Running",
+          "type": "integer"
+        },
+        "paused": {
+          "minimum": 0,
+          "title": "Paused",
+          "type": "integer"
+        },
+        "stopped": {
+          "minimum": 0,
+          "title": "Stopped",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "running",
+        "paused",
+        "stopped"
+      ],
+      "title": "BookStatusCounts",
+      "type": "object"
+    },
     "ComparisonOperator": {
       "description": "Pure comparison operations supported by the first reference profile.",
       "enum": [
@@ -1438,6 +1466,158 @@
       "title": "ConfigurationReport",
       "type": "object"
     },
+    "CycleBookTiming": {
+      "additionalProperties": false,
+      "description": "One book's processing time in a cycle, with the venue and database calls it made.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "product_id": {
+          "maxLength": 64,
+          "title": "Product Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "anyOf": [
+            {
+              "maxLength": 16,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeframe"
+        },
+        "status": {
+          "maxLength": 16,
+          "title": "Status",
+          "type": "string"
+        },
+        "mode": {
+          "maxLength": 16,
+          "title": "Mode",
+          "type": "string"
+        },
+        "kind": {
+          "maxLength": 16,
+          "title": "Kind",
+          "type": "string"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "venue_requests": {
+          "minimum": 0,
+          "title": "Venue Requests",
+          "type": "integer"
+        },
+        "venue_seconds": {
+          "minimum": 0,
+          "title": "Venue Seconds",
+          "type": "number"
+        },
+        "db_statements": {
+          "minimum": 0,
+          "title": "Db Statements",
+          "type": "integer"
+        },
+        "db_seconds": {
+          "minimum": 0,
+          "title": "Db Seconds",
+          "type": "number"
+        },
+        "window_range_requests": {
+          "minimum": 0,
+          "title": "Window Range Requests",
+          "type": "integer"
+        },
+        "warming": {
+          "default": false,
+          "title": "Warming",
+          "type": "boolean"
+        },
+        "failed": {
+          "default": false,
+          "title": "Failed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "product_id",
+        "status",
+        "mode",
+        "kind",
+        "seconds",
+        "venue_requests",
+        "venue_seconds",
+        "db_statements",
+        "db_seconds",
+        "window_range_requests"
+      ],
+      "title": "CycleBookTiming",
+      "type": "object"
+    },
+    "CyclePhaseTiming": {
+      "additionalProperties": false,
+      "description": "Wall time, venue requests and database statements of one cycle phase.\n\n``books`` is the per-book processing; ``risk_snapshots`` is the entry-gate evidence\nreload the cycle runs before and after every book, reported apart from ``books``.",
+      "properties": {
+        "name": {
+          "enum": [
+            "setup",
+            "portfolio_supervision",
+            "books",
+            "risk_snapshots",
+            "safety_supervision",
+            "fleet_supervision"
+          ],
+          "title": "Name",
+          "type": "string"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "venue_requests": {
+          "minimum": 0,
+          "title": "Venue Requests",
+          "type": "integer"
+        },
+        "venue_seconds": {
+          "minimum": 0,
+          "title": "Venue Seconds",
+          "type": "number"
+        },
+        "db_statements": {
+          "minimum": 0,
+          "title": "Db Statements",
+          "type": "integer"
+        },
+        "db_seconds": {
+          "minimum": 0,
+          "title": "Db Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "name",
+        "seconds",
+        "venue_requests",
+        "venue_seconds",
+        "db_statements",
+        "db_seconds"
+      ],
+      "title": "CyclePhaseTiming",
+      "type": "object"
+    },
     "DataCatalogPayload": {
       "additionalProperties": false,
       "description": "Agent-visible dataset catalog for Coinbase-listed complete-only coverage.",
@@ -1679,6 +1859,28 @@
         "payload"
       ],
       "title": "DataHealthReport",
+      "type": "object"
+    },
+    "DatabaseCallSummary": {
+      "additionalProperties": false,
+      "description": "Every SQL statement of one cycle: count and summed latency (no SQL text).",
+      "properties": {
+        "statements": {
+          "minimum": 0,
+          "title": "Statements",
+          "type": "integer"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "statements",
+        "seconds"
+      ],
+      "title": "DatabaseCallSummary",
       "type": "object"
     },
     "DatasetCoverageRow": {
@@ -3342,6 +3544,298 @@
         "payload"
       ],
       "title": "ExchangeReport",
+      "type": "object"
+    },
+    "ExecutionCyclePayload": {
+      "additionalProperties": false,
+      "description": "Runtime's view: the newest completed cycle report plus recent durations.\n\n``in_progress_started_at`` is set when the newest recorded cycle has not completed;\n``latest`` is the newest completed cycle. ``recent`` lists up to 20 cycles, newest first.",
+      "properties": {
+        "summary": {
+          "$ref": "#/$defs/ExecutionCycleSummary"
+        },
+        "in_progress_started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Progress Started At"
+        },
+        "latest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionCycleReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recent": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ExecutionCycleSample"
+          },
+          "title": "Recent",
+          "type": "array"
+        },
+        "recent_median_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recent Median Seconds"
+        },
+        "recent_max_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recent Max Seconds"
+        },
+        "recent_slow_cycles": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Recent Slow Cycles",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "title": "ExecutionCyclePayload",
+      "type": "object"
+    },
+    "ExecutionCycleReport": {
+      "additionalProperties": false,
+      "description": "Timing evidence for one completed execution-worker cycle.",
+      "properties": {
+        "cycle_id": {
+          "format": "uuid",
+          "title": "Cycle Id",
+          "type": "string"
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "minimum": 0,
+          "title": "Duration Seconds",
+          "type": "number"
+        },
+        "interval_seconds": {
+          "minimum": 1,
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "deployments_listed": {
+          "minimum": 0,
+          "title": "Deployments Listed",
+          "type": "integer"
+        },
+        "books": {
+          "$ref": "#/$defs/BookStatusCounts"
+        },
+        "book_failures": {
+          "minimum": 0,
+          "title": "Book Failures",
+          "type": "integer"
+        },
+        "slowest_phase": {
+          "enum": [
+            "setup",
+            "portfolio_supervision",
+            "books",
+            "risk_snapshots",
+            "safety_supervision",
+            "fleet_supervision"
+          ],
+          "title": "Slowest Phase",
+          "type": "string"
+        },
+        "phases": {
+          "items": {
+            "$ref": "#/$defs/CyclePhaseTiming"
+          },
+          "title": "Phases",
+          "type": "array"
+        },
+        "slowest_books": {
+          "items": {
+            "$ref": "#/$defs/CycleBookTiming"
+          },
+          "maxItems": 10,
+          "title": "Slowest Books",
+          "type": "array"
+        },
+        "venue": {
+          "$ref": "#/$defs/VenueCallSummary"
+        },
+        "database": {
+          "$ref": "#/$defs/DatabaseCallSummary"
+        },
+        "window_cache": {
+          "$ref": "#/$defs/WindowCacheCycleState"
+        }
+      },
+      "required": [
+        "cycle_id",
+        "started_at",
+        "completed_at",
+        "duration_seconds",
+        "interval_seconds",
+        "deployments_listed",
+        "books",
+        "book_failures",
+        "slowest_phase",
+        "phases",
+        "slowest_books",
+        "venue",
+        "database",
+        "window_cache"
+      ],
+      "title": "ExecutionCycleReport",
+      "type": "object"
+    },
+    "ExecutionCycleSample": {
+      "additionalProperties": false,
+      "description": "One recent cycle's start and duration (``None`` while running or if it never ended).",
+      "properties": {
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        },
+        "duration_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duration Seconds"
+        },
+        "venue_requests": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Requests"
+        }
+      },
+      "required": [
+        "started_at"
+      ],
+      "title": "ExecutionCycleSample",
+      "type": "object"
+    },
+    "ExecutionCycleSummary": {
+      "additionalProperties": false,
+      "description": "Health's compact view of the worker cycle against its interval.",
+      "properties": {
+        "interval_seconds": {
+          "minimum": 1,
+          "title": "Interval Seconds",
+          "type": "integer"
+        },
+        "last_duration_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Duration Seconds"
+        },
+        "last_completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Completed At"
+        },
+        "slowest_phase": {
+          "anyOf": [
+            {
+              "enum": [
+                "setup",
+                "portfolio_supervision",
+                "books",
+                "risk_snapshots",
+                "safety_supervision",
+                "fleet_supervision"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slowest Phase"
+        },
+        "in_progress_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "In Progress Seconds"
+        },
+        "slow": {
+          "title": "Slow",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "interval_seconds",
+        "slow"
+      ],
+      "title": "ExecutionCycleSummary",
       "type": "object"
     },
     "ExitRuleTrace": {
@@ -7287,6 +7781,17 @@
             }
           ],
           "default": null
+        },
+        "execution_cycle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionCycleSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -9434,7 +9939,8 @@
               "complete_fleet_inventory",
               "revision_fenced_fleet_controls",
               "backtest_bar_explanations",
-              "fleet_entry_health"
+              "fleet_entry_health",
+              "execution_cycle_timing"
             ],
             "type": "string"
           },
@@ -13769,6 +14275,17 @@
             }
           ],
           "default": null
+        },
+        "execution_cycle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ExecutionCyclePayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -15048,6 +15565,95 @@
       "title": "UserOrderFeedPayload",
       "type": "object"
     },
+    "VenueCallSummary": {
+      "additionalProperties": false,
+      "description": "Every venue REST call of one cycle, with the costliest endpoints listed.",
+      "properties": {
+        "requests": {
+          "minimum": 0,
+          "title": "Requests",
+          "type": "integer"
+        },
+        "errors": {
+          "minimum": 0,
+          "title": "Errors",
+          "type": "integer"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "max_seconds": {
+          "minimum": 0,
+          "title": "Max Seconds",
+          "type": "number"
+        },
+        "endpoints": {
+          "items": {
+            "$ref": "#/$defs/VenueEndpointTiming"
+          },
+          "maxItems": 15,
+          "title": "Endpoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requests",
+        "errors",
+        "seconds",
+        "max_seconds",
+        "endpoints"
+      ],
+      "title": "VenueCallSummary",
+      "type": "object"
+    },
+    "VenueEndpointTiming": {
+      "additionalProperties": false,
+      "description": "Venue REST traffic to one endpoint shape (ids replaced by ``{id}``).",
+      "properties": {
+        "method": {
+          "maxLength": 8,
+          "title": "Method",
+          "type": "string"
+        },
+        "endpoint": {
+          "maxLength": 128,
+          "title": "Endpoint",
+          "type": "string"
+        },
+        "requests": {
+          "minimum": 0,
+          "title": "Requests",
+          "type": "integer"
+        },
+        "errors": {
+          "minimum": 0,
+          "title": "Errors",
+          "type": "integer"
+        },
+        "seconds": {
+          "minimum": 0,
+          "title": "Seconds",
+          "type": "number"
+        },
+        "max_seconds": {
+          "minimum": 0,
+          "title": "Max Seconds",
+          "type": "number"
+        }
+      },
+      "required": [
+        "method",
+        "endpoint",
+        "requests",
+        "errors",
+        "seconds",
+        "max_seconds"
+      ],
+      "title": "VenueEndpointTiming",
+      "type": "object"
+    },
     "VenueFinding": {
       "additionalProperties": false,
       "description": "One venue-side observation with a stable code and severity.",
@@ -15470,6 +16076,46 @@
         "failure_code"
       ],
       "title": "WatchedTail",
+      "type": "object"
+    },
+    "WindowCacheCycleState": {
+      "additionalProperties": false,
+      "description": "Deploy-window cache (ADR 0113) state after a cycle and its work during it.\n\n``warming_books`` counts books whose window was still rebuilding within its request\nbudget (no entries, retried next cycle); a cold cache after a restart shows here.",
+      "properties": {
+        "windows": {
+          "minimum": 0,
+          "title": "Windows",
+          "type": "integer"
+        },
+        "cached_candles": {
+          "minimum": 0,
+          "title": "Cached Candles",
+          "type": "integer"
+        },
+        "range_requests": {
+          "minimum": 0,
+          "title": "Range Requests",
+          "type": "integer"
+        },
+        "warming_events": {
+          "minimum": 0,
+          "title": "Warming Events",
+          "type": "integer"
+        },
+        "warming_books": {
+          "minimum": 0,
+          "title": "Warming Books",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "windows",
+        "cached_candles",
+        "range_requests",
+        "warming_events",
+        "warming_books"
+      ],
+      "title": "WindowCacheCycleState",
       "type": "object"
     }
   },

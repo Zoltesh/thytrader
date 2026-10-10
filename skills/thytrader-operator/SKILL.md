@@ -41,7 +41,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 
 | Need | CLI | HTTP |
 |---|---|---|
-| Health | `uv run thytrader-operator health` | `GET /api/v1/operator/health` (includes the `fleet_entries` component: `FAILED` while a live scope's entries are blocked fleet-wide by missing evidence, `DEGRADED` for any other open `FLEET_ENTRIES_BLOCKED` alert; [ADR 0130](../../docs/decisions/0130-fleet-entry-health.md)) |
+| Health | `uv run thytrader-operator health` | `GET /api/v1/operator/health` (includes the `fleet_entries` component: `FAILED` while a live scope's entries are blocked fleet-wide by missing evidence, `DEGRADED` for any other open `FLEET_ENTRIES_BLOCKED` alert; [ADR 0130](../../docs/decisions/0130-fleet-entry-health.md); and the `execution_cycle` component: `CYCLE_SLOW` when the execution worker's last cycle, or the one still running, overran its interval, with `payload.execution_cycle` duration vs interval; see [Execution cycle timing](#execution-cycle-timing-adr-0131)) |
 | Fleet entry health | `uv run thytrader-operator fleet-health` | `GET /api/v1/operator/fleet-health` (can the fleet enter at all? per mode and quote scope `entries_admissible` `yes`/`blocked`/`unknown` from the entry gate's own checks, blocking reason codes and the exact blocking books and records; 24 h blocked/skipped reasons of running bots with systemic flags; open `FLEET_ENTRIES_BLOCKED` alerts; see [Fleet entry health](#fleet-entry-health-adr-0130)) |
 | Configuration | `uv run thytrader-operator configuration` | `GET /api/v1/operator/configuration` |
 | Exchange | `uv run thytrader-operator exchange` | `GET /api/v1/operator/exchange` |
@@ -55,7 +55,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
-| Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles) |
+| Runtime watch | `uv run thytrader-operator runtime [--deployment-id UUID]` | `GET /api/v1/operator/runtime` (component `execution_market_data` / `DEMO_MARKET_DATA` when Coinbase credentials are absent and paper books evaluate synthetic demo candles; `payload.execution_cycle`: the last cycle's phase timings, slowest books, venue request counts and latency, window-cache warming, and recent durations; ADR 0131) |
 | Monitor | `uv run thytrader-operator monitor` | `GET /api/v1/operator/monitor` (deployments, recent journals, notify delivery; omits balances and webhook URLs) |
 | Safety alerts | `uv run thytrader-operator alerts` | `GET /api/v1/operator/alerts` (durable pause/mismatch, breaker, uncovered or unknown stop cover, stop-triggered-but-unfilled, missed decision/maintenance deadlines, worker lease age including unknown, consecutive worker failures, `FLEET_ENTRIES_BLOCKED` with scope `fleet` (ADR 0130); local feed works with `notify_provider=none` and sets `delivery_warning`; no webhook URL; no order authority; ADR 0115) |
 | Why-trade review | `uv run thytrader-operator trade-reasons [--intent-id UUID] [--deployment-id UUID]` | `GET /api/v1/operator/trade-reasons` |
@@ -333,7 +333,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v90`, schema revision `0074`) and exits on any
+   this checkout's (`thytrader-ops-contract-v91`, schema revision `0075`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -352,6 +352,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
    A `fleet_entries` component that is not `READY`/`OK` means new entries are blocked or
    unknown fleet-wide: run `fleet-health` next (see [Fleet entry health](#fleet-entry-health-adr-0130)).
+   An `execution_cycle` component with `CYCLE_SLOW` means the execution worker is slower than
+   its interval: run `runtime` and read `payload.execution_cycle` (see
+   [Execution cycle timing](#execution-cycle-timing-adr-0131)). Do not restart a worker whose
+   heartbeat is fresh; restarting empties its candle cache and makes the next cycle slower.
 4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
    `products` lists each enabled spot product's order constraints: `price_increment`,
    `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
@@ -541,6 +545,39 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
 The same `entries` object is `fleet_entries` in `readiness` and `risk`. Report the blocking
 record to the user. This lane never repairs records or resets breakers: a repair is a person's
 or contributor's decision, and resets and rearms belong to `thytrader-runtime` with `--confirm`.
+
+## Execution cycle timing (ADR 0131)
+
+The execution worker records every cycle in PostgreSQL: when it started and, once it
+finishes, how long it took against its configured interval and where the time went
+([ADR 0131](../../docs/decisions/0131-execution-cycle-timing.md)). Read-only; no command
+changes it.
+
+- `health` component `execution_cycle`: `CYCLE_WITHIN_INTERVAL` (healthy), `CYCLE_IN_PROGRESS`
+  (healthy: the first recorded cycle is still within its interval), `CYCLE_SLOW` (degraded:
+  the last completed cycle took longer than `interval_seconds`, or the running cycle has
+  already overrun it; the detail names the slowest phase, venue requests and the three
+  slowest books), `CYCLE_TIMING_MISSING` (degraded: no cycle recorded yet, or the worker
+  image predates ADR 0131) and `CYCLE_TIMING_UNAVAILABLE` (degraded: PostgreSQL unreadable).
+  `health.payload.execution_cycle` is the compact summary (`interval_seconds`,
+  `last_duration_seconds`, `last_completed_at`, `slowest_phase`, `in_progress_seconds`,
+  `slow`).
+- `runtime.payload.execution_cycle` is the full evidence: `latest` (the newest completed
+  cycle) with `phases[]` (`setup`, `portfolio_supervision`, `books`, `risk_snapshots`,
+  `safety_supervision`, `fleet_supervision`: seconds, venue requests and seconds, database
+  statements and seconds each), `slowest_books[]` (up to 10: deployment id, product,
+  timeframe, status, mode, seconds, venue requests, database statements, window range
+  requests, `warming`, `failed`), `venue` (requests, errors, summed latency and the costliest
+  endpoint shapes with ids replaced by `{id}`), `database` (statements, seconds) and
+  `window_cache` (cached windows and candles, this cycle's range requests and warming
+  books); plus `recent[]` (up to 20 cycles, newest first) with their median and maximum.
+- The worker's heartbeat is refreshed between books, so `HEARTBEAT_STALE` on
+  `execution_worker` means one step has been stuck past the stale window or the worker is
+  down; a slow but progressing cycle shows only `CYCLE_SLOW`.
+
+Report the slowest phase and books, the venue and database time, and whether books
+were `warming` (a cold candle cache after a restart is slow for a few cycles and clears by
+itself). Escalate a persistent `CYCLE_SLOW` to a contributor; operators cannot tune it.
 
 ## Safety alert recovery and delivery (ADR 0115)
 

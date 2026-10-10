@@ -45,7 +45,8 @@ candle equity curve ([ADR 0107](../../../docs/decisions/0107-capital-normalized-
 
 Performance `payload.currency` is the exact snapshot instrument quote (`USD`, `USDC`, or `USDT`) for strategy-backed reports, or the parsed product quote for discretionary deployments. It is `null` with a `partial_result_warnings[]` explanation when provenance cannot be established; never read a null as USDC or convert a USD amount by relabeling it. Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Backtest `payload.metrics` is the derived `thytrader-performance-metrics-v1` block (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) and does not change result fingerprints. Backtest `payload.window` (ADR 0094) states the evaluated bars: `timeframe`, `evaluation_start`, `evaluation_end` (exclusive; its bar's open liquidates what is held), `first_evaluated_bar`, `last_evaluated_bar`, `evaluation_bars`, `warmup_bars`, and `warmup_start`, derived from the result's run outside the fingerprinted result bytes (`null` for paper/live and when the run cannot be read). Two backtests are comparable only when their `evaluation_start` / `evaluation_end` match: omitted bounds start after each strategy's own warmup. Backtest performance carries no engine field: every result uses the single `thytrader-backtest` model; `total_spread_cost` is present only when the run used `spread_bps` stress. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown includes fill-event marks and durable worker observations, not a complete historical bar equity curve.
 
-The `runtime` payload lists deployment identities plus risk and reconciliation findings. It also
+The `runtime` payload lists deployment identities plus risk and reconciliation findings, and
+`execution_cycle` timing (ADR 0131; see below). It also
 reports `user_order_feed` lifecycle state (`connected` / `stale` / `disabled`, timestamps) without
 JWT material or order payloads. It omits cash, quantities, and order payloads. Each deployment
 includes `kind` (`strategy` or `discretionary`) and optional strategy identity. Multi-instrument
@@ -473,6 +474,35 @@ block; `FLEET_ENTRIES_UNKNOWN`) and `fleet_decisions` (`OK`, `SYSTEMIC_ENTRY_BLO
 `DECISION_STORAGE_UNAVAILABLE`, `DECISION_JOURNAL_READ_FAILED`). `readiness` and `risk` add the
 same `fleet_entries` component. `health`'s `fleet_entries` component reads the open alerts
 instead (`OK`, `FLEET_ENTRIES_BLOCKED`, `FLEET_ENTRY_ALERTS_UNAVAILABLE`).
+
+## Execution cycle timing (ADR 0131)
+
+`health.payload.execution_cycle` (`null` when the process has no cycle store or none is
+recorded): `interval_seconds`, `last_duration_seconds`, `last_completed_at`, `slowest_phase`,
+`in_progress_seconds` (set while the newest recorded cycle has not completed) and `slow`
+(duration, or the running cycle's age, above `interval_seconds`).
+
+`runtime.payload.execution_cycle`: `summary` (as above), `in_progress_started_at`, `latest`,
+`recent[]` (`started_at`, `duration_seconds`, `venue_requests`; up to 20, newest first, `null`
+durations for unfinished cycles), `recent_median_seconds`, `recent_max_seconds` and
+`recent_slow_cycles`. `latest` is one cycle report: `cycle_id`, `started_at`, `completed_at`,
+`duration_seconds`, `interval_seconds`, `deployments_listed`, `books` (`running`, `paused`,
+`stopped` visited), `book_failures`, `slowest_phase`, `phases[]` (`name` `setup` \|
+`portfolio_supervision` \| `books` \| `risk_snapshots` \| `safety_supervision` \|
+`fleet_supervision`, `seconds`, `venue_requests`, `venue_seconds`, `db_statements`,
+`db_seconds`), `slowest_books[]` (up to 10: `deployment_id`, `product_id`, `timeframe`, `status`,
+`mode`, `kind`, `seconds`, `venue_requests`, `venue_seconds`, `db_statements`, `db_seconds`,
+`window_range_requests`, `warming`, `failed`), `venue`
+(`requests`, `errors`, `seconds`, `max_seconds`, `endpoints[]` with `method`, `endpoint` (path
+shape, ids as `{id}`), `requests`, `errors`, `seconds`, `max_seconds`; up to 15, costliest
+first), `database` (`statements`, `seconds`: every SQL statement of the cycle, no SQL text)
+and `window_cache` (`windows`, `cached_candles`, `range_requests`, `warming_events`,
+`warming_books`). Venue figures count every Coinbase REST call the cycle made (market data,
+broker and balance reads); demo mode records none.
+
+Component `execution_cycle` (on `health` and `runtime`): `CYCLE_WITHIN_INTERVAL`,
+`CYCLE_IN_PROGRESS`, `CYCLE_SLOW` (degraded), `CYCLE_TIMING_MISSING` (degraded),
+`CYCLE_TIMING_UNAVAILABLE` (degraded).
 
 ## Safety alerts (ADR 0115)
 
