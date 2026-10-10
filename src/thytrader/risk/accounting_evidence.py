@@ -33,6 +33,15 @@ def risk_market_data_scope(service: MarketDataService) -> Iterator[None]:
         _MARKET_DATA.reset(token)
 
 
+def bound_risk_market_data() -> MarketDataService | None:
+    """Return the market data bound by ``risk_market_data_scope``, or ``None`` outside one.
+
+    Callers that need read-only historical risk evidence (BTC beta, ADR 0125) use this
+    instead of taking a new dependency; an unbound scope means the evidence is unknown.
+    """
+    return _MARKET_DATA.get()
+
+
 async def accounting_snapshot(
     store: ExecutionStore, deployment_id: UUID, *, as_of: datetime
 ) -> DeploymentSnapshot:
