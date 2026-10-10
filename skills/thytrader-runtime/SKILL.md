@@ -203,8 +203,8 @@ A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**;
   `FUTURES_CONTRACT_UNOBSERVED` / `FUTURES_UNDERLYING_MISMATCH` name a catalog problem.
 
 Each cycle the book reads the overnight margin rates (never intraday), sizes whole contracts
-within the strategy's `max_leverage` and a 0.5 liquidation buffer, and pays maker/taker plus the
-per-contract fee on every fill. Funding is charged hourly while a position is held
+within the lower of the strategy's and the policy's `max_leverage` and the policy's liquidation
+buffer (0.5 while unset), and pays maker/taker plus the per-contract fee on every fill. Funding is charged hourly while a position is held
 (longs pay positive rates) at the close of the bar containing the hour, once per hour. New
 entries are denied, never paused, while evidence is unknown: `FUTURES_CONTRACT_UNBOUND`,
 `FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING` (a settled hour still missing 75 minutes
@@ -215,6 +215,21 @@ their own breaker scope (`CFM-USD`: daily loss against the futures envelope, per
 drawdown); a latched futures daily-loss breaker denies paper USD/USDC spot entries and a latched
 paper USD/USDC breaker denies futures entries (`SHARED_COLLATERAL_BREAKER`, naming the latched
 scope). Losses are never added across scopes.
+
+Futures gate caps (ADR 0129 §5), all optional on `set-risk-policy` and resupplied on every
+publication: `--futures-max-leverage` (1–20; `FUTURES_LEVERAGE_EXCEEDED`),
+`--futures-min-liquidation-buffer-fraction` (`FUTURES_LIQUIDATION_BUFFER`),
+`--futures-max-exposure-fraction` (gross futures notional over the futures envelope;
+`FUTURES_EXPOSURE_EXCEEDED`), `--futures-max-order-contracts`
+(`FUTURES_ORDER_CONTRACTS_EXCEEDED`), `--futures-max-hourly-funding-rate-abs` (latest settled
+rate; `FUTURES_FUNDING_RATE_EXCEEDED`, or `FUNDING_HISTORY_MISSING` while it is unknown),
+`--futures-max-daily-loss-usd` (absolute futures-scope ceiling, paper included) and
+`--futures-max-btc-beta-exposure-fraction` (the futures scope's own BTC-beta cap over the
+envelope; β of `<underlying>-<policy quote>`; `BTC_BETA_EXPOSURE_EXCEEDED` /
+`BTC_BETA_UNAVAILABLE`). `--futures-beta-netting net_by_underlying` lets managed paper futures
+offset same-underlying paper spot inventory in base units for the **spot** BTC-beta cap only;
+an unbound book, an overdue funding hour or a missing mark falls back to gross, netting only
+ever lowers the spot figure, and live is never netted. All are policy limits, not faults.
 
 In-app operator chat (`/chat`, `/api/v1/operator-chat`) may invoke these same HTTP routes. It is
 not extra authority: mutations still need in-app confirmation, and live start, live resume, and

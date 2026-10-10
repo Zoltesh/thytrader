@@ -30,9 +30,6 @@ if TYPE_CHECKING:
 FUNDING_SETTLE_GRACE = timedelta(minutes=15)
 """How long after a funding hour's settlement (the next hour) a missing rate is overdue."""
 
-DEFAULT_PAPER_BUFFER_FRACTION = Decimal("0.5")
-"""Minimum (equity - maintenance) / equity after a paper futures entry (ADR 0128 default)."""
-
 _HOUR = timedelta(hours=1)
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
@@ -88,6 +85,8 @@ class FuturesBookState:
     ``margin`` is built from the binding and the latest observed overnight rates.
     ``funding_overdue`` is the first funding hour whose settled rate or mark is still
     missing after :data:`FUNDING_SETTLE_GRACE`; while set, new entries are denied.
+    ``latest_funding_rate`` is the newest settled hourly rate of a perp (None when unknown),
+    which the policy's funding-rate cap reads.
     """
 
     deployment_id: UUID
@@ -97,6 +96,7 @@ class FuturesBookState:
     margin: FuturesMarginTerms | None
     margin_observed_at: datetime | None = None
     funding_overdue: datetime | None = None
+    latest_funding_rate: Decimal | None = None
 
     def entry_block(self) -> tuple[str, str] | None:
         """The reason code and detail that deny a new entry, or None when known."""

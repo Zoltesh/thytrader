@@ -325,7 +325,11 @@ async def _process_one(
         futures_book = None
         if strategy is not None:
             futures_book, snapshot = await prepare_futures_book(
-                snapshot, strategy=strategy, store=store, market_data=market_data
+                snapshot,
+                strategy=strategy,
+                store=store,
+                market_data=market_data,
+                policy=risk_policy,
             )
         with futures_book_scope(futures_book):
             await _process_stopped(
@@ -358,7 +362,7 @@ async def _process_one(
     if strategy is None:
         return
     futures_book, snapshot = await prepare_futures_book(
-        snapshot, strategy=strategy, store=store, market_data=market_data
+        snapshot, strategy=strategy, store=store, market_data=market_data, policy=risk_policy
     )
     with risk_market_data_scope(market_data), futures_book_scope(futures_book):
         await _advance_strategy(

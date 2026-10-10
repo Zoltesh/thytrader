@@ -178,6 +178,7 @@ class OpsContractPayload(_FrozenModel):
             "futures_backtest_submission",
             "futures_fee_preview_probe",
             "paper_futures_books",
+            "futures_entry_gate",
         ],
         ...,
     ]

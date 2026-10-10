@@ -35,6 +35,9 @@ class ProposedEntry:
     ``readmits_working_entry`` marks a reprice of a working entry that was already admitted:
     the fleet clustering cap counted it when it was first placed and does not gate it again
     (ADR 0125). Every other check, exposure included, applies to the remaining notional.
+
+    ``side`` is the entry direction when the caller knows it; base-unit beta netting
+    (ADR 0129 §6) needs it and stays gross without it.
     """
 
     product_id: str
@@ -44,6 +47,7 @@ class ProposedEntry:
     quantity: Decimal | None = None
     funding: EntryFunding = "quote"
     readmits_working_entry: bool = False
+    side: Literal["long", "short"] | None = None
 
     @property
     def in_kind(self) -> bool:
