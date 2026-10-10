@@ -6,7 +6,7 @@ import {
 	readParameter
 } from './indicator-catalog';
 import type { BuilderModel, ConditionDraft, IndicatorDraft } from './strategies';
-import { quoteLabelFor, takeProfitMultiple } from './strategies';
+import { builderQuoteLabel, takeProfitMultiple } from './strategies';
 
 export type FieldChange = {
 	path: string;
@@ -169,6 +169,11 @@ const FIELD_LABELS: Record<string, string> = {
 	name: 'Strategy name',
 	description: 'Description',
 	product_id: 'Market',
+	instrument_kind: 'Instrument kind',
+	base_currency: 'Underlying',
+	'derivatives.max_leverage': 'Maximum leverage',
+	'derivatives.margin_mode': 'Margin mode',
+	'derivatives.flatten_before_expiry_hours': 'Flatten before expiry (hours)',
 	timeframe: 'Timeframe',
 	warmup_bars: 'Warmup bars',
 	'entry.when': 'Entry conditions',
@@ -197,7 +202,7 @@ const FIELD_LABELS: Record<string, string> = {
  */
 export function semanticDiff(before: BuilderModel, after: BuilderModel): SemanticDiff {
 	const changes: FieldChange[] = [];
-	const quote = quoteLabelFor(after.product_id);
+	const quote = builderQuoteLabel(after);
 	const labels: Record<string, string> = {
 		...FIELD_LABELS,
 		'sizing.min_quote_notional': `Minimum ${quote} notional`,
@@ -212,6 +217,25 @@ export function semanticDiff(before: BuilderModel, after: BuilderModel): Semanti
 	changed('name', before.name, after.name);
 	changed('description', before.description, after.description);
 	changed('product_id', before.product_id, after.product_id);
+	changed('instrument_kind', before.instrument_kind, after.instrument_kind);
+	if (before.instrument_kind === 'future' || after.instrument_kind === 'future') {
+		changed('base_currency', before.base_currency, after.base_currency);
+		changed(
+			'derivatives.max_leverage',
+			before.derivatives?.max_leverage ?? 'none',
+			after.derivatives?.max_leverage ?? 'none'
+		);
+		changed(
+			'derivatives.margin_mode',
+			before.derivatives?.margin_mode ?? 'none',
+			after.derivatives?.margin_mode ?? 'none'
+		);
+		changed(
+			'derivatives.flatten_before_expiry_hours',
+			String(before.derivatives?.flatten_before_expiry_hours ?? 'none'),
+			String(after.derivatives?.flatten_before_expiry_hours ?? 'none')
+		);
+	}
 	changed('timeframe', before.timeframe, after.timeframe);
 	changed('warmup_bars', String(before.warmup_bars), String(after.warmup_bars));
 	changed('entry.when', conditionToText(before.entry.when), conditionToText(after.entry.when));

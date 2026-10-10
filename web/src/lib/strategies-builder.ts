@@ -13,6 +13,14 @@ import {
 	type ConditionDraft,
 	defaultIndicatorOperand
 } from './strategies-operands';
+import {
+	type DerivativesDraft,
+	FUTURES_QUOTE_CURRENCY,
+	type InstrumentKind,
+	instrumentKindOf,
+	serializeDerivatives,
+	toDerivativesDraft
+} from './strategies-derivatives';
 import { validHtfTimeframes, validReferenceTimeframes } from './strategies-timeframes';
 
 export type HtfFilterDraft = {
@@ -41,6 +49,10 @@ export type BuilderModel = {
 	created_at: string;
 	product_id: string;
 	base_currency: string;
+	/** `instrument.kind` (ADR 0128): `spot` omits the key; `future` trades one CFM contract. */
+	instrument_kind: InstrumentKind;
+	/** The futures `derivatives` block; null for spot (the document then omits it). */
+	derivatives: DerivativesDraft | null;
 	additional_instruments: CoveredInstrumentDraft[];
 	timeframe: string;
 	warmup_bars: number;
@@ -136,6 +148,18 @@ export function quoteLabelFor(productId: string): string {
 	return quoteCurrencyFor(productId.trim().toUpperCase(), 'quote');
 }
 
+/**
+ * Quote label of the strategy the form edits: `USD` for a futures contract (CFM
+ * contracts settle in USD), else the spot product id's quote via `quoteLabelFor`.
+ */
+export function builderQuoteLabel(
+	model: Pick<BuilderModel, 'product_id' | 'instrument_kind'>
+): string {
+	return model.instrument_kind === 'future'
+		? FUTURES_QUOTE_CURRENCY
+		: quoteLabelFor(model.product_id);
+}
+
 /** A new reference: BTC in the strategy's quote on 1d (or the coarsest legal clock). */
 export function defaultReferenceInstrument(model: BuilderModel): ReferenceInstrumentDraft {
 	const taken = new Set(model.reference_instruments.map((reference) => reference.id));
@@ -207,6 +231,8 @@ export function toBuilderModel(strategy: StrategyDefinition, revision: number): 
 		created_at: strategy.created_at,
 		product_id: (strategy.instrument as { product_id: string }).product_id,
 		base_currency: (strategy.instrument as { base_currency: string }).base_currency,
+		instrument_kind: instrumentKindOf(strategy.instrument),
+		derivatives: toDerivativesDraft(strategy.derivatives),
 		additional_instruments: extras.map((item) => ({
 			product_id: item.product_id,
 			base_currency: item.base_currency,
@@ -262,11 +288,19 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 		name: model.name,
 		description: model.description.trim().length > 0 ? model.description : null,
 		created_at: model.created_at,
-		instrument: {
-			product_id: model.product_id,
-			base_currency: model.base_currency,
-			quote_currency: quoteCurrencyFor(model.product_id)
-		},
+		instrument:
+			model.instrument_kind === 'future'
+				? {
+						product_id: model.product_id,
+						base_currency: model.base_currency,
+						quote_currency: FUTURES_QUOTE_CURRENCY,
+						kind: 'future'
+					}
+				: {
+						product_id: model.product_id,
+						base_currency: model.base_currency,
+						quote_currency: quoteCurrencyFor(model.product_id)
+					},
 		...(model.additional_instruments.length === 0
 			? {}
 			: {
@@ -321,7 +355,10 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 		},
 		exits: model.exits,
 		execution: model.execution,
-		metadata: model.metadata
+		metadata: model.metadata,
+		...(model.instrument_kind !== 'future' || model.derivatives === null
+			? {}
+			: { derivatives: serializeDerivatives(model.derivatives) })
 	};
 }
 

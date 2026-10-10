@@ -570,6 +570,18 @@ missing they skip new entries (timeline: **reference data stale** / **reference 
 keep managing open positions. Orders always go to the strategy's own market. The **BTC regime
 gate** template starts from this shape.
 
+**Futures strategies** (Build → Market and data,
+[ADR 0128](../decisions/0128-futures-backtest-model.md)): set **Instrument
+kind** to **Futures (CFM contract)** and enter the **Contract** (for example `ETP-20DEC30-CDE`).
+Futures settle in USD, so sizing labels read USD. Three more fields appear: **Underlying** (the
+contract's root unit from `thytrader-operator products --kind future`; `BIP` settles on BTC, `ETP`
+on ETH, and a backtest or paper start refuses a mismatch), **Maximum leverage** (1 to 20; the risk
+policy's ceiling applies too and the lower wins) and **Margin mode** (overnight only). A saved
+`flatten_before_expiry_hours` is kept and shown read-only. Saving writes `instrument.kind` and the
+whole `derivatives` block; switching back to **Spot** removes them, so a spot strategy's document
+never carries futures keys. A futures strategy cannot pyramid, cover more markets, or read
+reference instruments, and the Build stage names any such block left over.
+
 ### Portfolio and bot detail
 
 **Portfolios** ([ADR 0088](../decisions/0088-portfolio-model-and-portfolio-backtest.md),
