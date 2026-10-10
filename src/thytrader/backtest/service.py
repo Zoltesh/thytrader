@@ -6,12 +6,18 @@ import asyncio
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 from thytrader.backtest.kernel import simulate_backtest_with_diagnostics
+from thytrader.backtest.submission_futures import load_funding_rates
 from thytrader.evaluation.signal_evaluator import evaluate_signal_trace
 from thytrader.evaluation.trace import signal_trace_fingerprint
 from thytrader.strategies.models import lockstep_product_ids
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from datetime import datetime
+    from decimal import Decimal
+
     from thytrader.backtest.models import BacktestDiagnostics, BacktestResult
+    from thytrader.backtest.submission_futures import FuturesRunSource
     from thytrader.evaluation.models import ResearchRunSpecification
     from thytrader.evaluation.publication import PublishedResearchRunSpecification
     from thytrader.evaluation.trace import SignalTrace
@@ -76,18 +82,25 @@ async def evaluate_and_publish_backtest(  # noqa: UP047 - tooling parses legacy 
     strategy_store: PublishedStrategyReader,
     dataset_store: _DatasetReaderT,
     result_store: BacktestResultWriter,
+    futures_source: FuturesRunSource | None = None,
 ) -> BacktestResult:
-    """Load exact source publications, simulate deterministically, then append the result."""
+    """Load exact source publications, simulate deterministically, then append the result.
+
+    A perp run bound to a recorded funding series reads its settled hours from
+    ``futures_source``; the kernel verifies them against the bound fingerprint and fails
+    ``FUNDING_HISTORY_MISSING`` when no source or no row is available (ADR 0128).
+    """
     published_run = await run_store.load(run_fingerprint, dataset_store=dataset_store)
     specification = published_run.specification
     published_strategy = await strategy_store.load(specification.strategy_fingerprint)
     definition = published_strategy.definition
+    funding_rates = await _recorded_funding(specification, futures_source)
     # Dataset reverification, signal-trace evaluation, and bar-level simulation are
     # synchronous CPU-bound work. A large study run inline on the event loop would
     # delay concurrent pause/stop/status requests handled by the same API process
     # (audit F16). Run the bounded blocking segment on a worker thread instead.
     result, diagnostics, trace = await asyncio.to_thread(
-        _load_and_simulate, dataset_store, specification, definition
+        _load_and_simulate, dataset_store, specification, definition, funding_rates
     )
     if result.signal_trace_fingerprint != signal_trace_fingerprint(trace):
         raise RuntimeError(
@@ -100,6 +113,7 @@ def _load_and_simulate(
     dataset_store: VerifiedCandleReader,
     specification: ResearchRunSpecification,
     definition: StrategyDefinition,
+    funding_rates: Mapping[datetime, Decimal] | None = None,
 ) -> tuple[BacktestResult, BacktestDiagnostics, SignalTrace]:
     """Reverify datasets and run the deterministic simulation off the event loop."""
     candles = dataset_store.load_candles(specification.dataset_fingerprint)
@@ -138,8 +152,28 @@ def _load_and_simulate(
         additional_htf,
         additional_indicator,
         reference_candles=references,
+        funding_rates=funding_rates,
     )
     return result, diagnostics, trace
+
+
+async def _recorded_funding(
+    specification: ResearchRunSpecification, source: FuturesRunSource | None
+) -> Mapping[datetime, Decimal] | None:
+    """The settled funding rates a series-bound perp run consumes, else None."""
+    funding = specification.funding
+    contract = specification.instrument_contract
+    if funding is None or funding.series_fingerprint is None or contract is None:
+        return None
+    if source is None:
+        return None
+    rates, _missing = await load_funding_rates(
+        source,
+        contract.product_id,
+        specification.evaluation.starts_at,
+        specification.evaluation.ends_at,
+    )
+    return rates
 
 
 def _optional_htf_candles(

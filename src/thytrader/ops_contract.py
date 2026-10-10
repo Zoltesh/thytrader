@@ -87,7 +87,10 @@ block; ADR 0129, P1-2a), or futures strategy documents and run-spec fields
 ``FUTURES_*_UNSUPPORTED`` refusals; ADR 0128, P1-1),
 or the futures backtest kernel (whole-contract sizing under margin bounds, funding,
 liquidation and expiry exits, ``total_funding`` and the ``futures_*`` validity limits;
-ADR 0128, P1-2) change.
+ADR 0128, P1-2),
+or futures backtest submission (the request ``futures`` block, server-bound contract, margin
+and settled funding series, the ``FUTURES_*`` / ``FUNDING_HISTORY_MISSING`` rejections) and
+the ``fees`` report ``futures`` evidence (``futures_fees`` read; ADR 0128, P1-3) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -116,7 +119,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v83"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v84"
 EXPECTED_SCHEMA_REVISION = "0072"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -274,6 +277,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "live_spot_collateral_gate",
     "futures_strategy_documents",
     "futures_backtest_kernel",
+    "futures_backtest_submission",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

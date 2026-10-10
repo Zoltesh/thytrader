@@ -200,6 +200,18 @@ class CoinbaseAccount:
         payload = await self._read(ExchangeReadOperation.FEES, self._client.get_transaction_summary)
         return self._parse_fee_profile(payload)
 
+    async def get_futures_fee_profile(self) -> FeeProfile:
+        """Fetch the CFM futures transaction summary (``product_type=FUTURE``); a GET.
+
+        Fee evidence for futures research (ADR 0128, P1-3). The rates are what Coinbase
+        reports for futures; the per-contract fee is not part of this response.
+        """
+        payload = await self._read(
+            ExchangeReadOperation.FUTURES_FEES,
+            partial(self._client.get_transaction_summary, product_type="FUTURE"),
+        )
+        return self._parse_fee_profile(payload)
+
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
         """Page spot order history and retain every recognized nonterminal order.
 

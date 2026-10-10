@@ -179,8 +179,41 @@ class PortfoliosReport(OperatorEnvelope):
     payload: PortfoliosPayload
 
 
+class FuturesFeesPayload(_FrozenModel):
+    """CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).
+
+    The rates are what Coinbase reports for the futures product type. Coinbase also bills
+    futures per contract; no read-only endpoint reports that amount, so
+    ``fee_per_contract`` stays null and a futures backtest's ``futures.fee_per_contract``
+    is operator input (there is no compiled futures fee).
+    """
+
+    status: Literal["available", "unavailable"]
+    maker_fee_rate: str | None = None
+    taker_fee_rate: str | None = None
+    usd_volume_30d: str | None = None
+    fee_tier: str | None = None
+    as_of: datetime | None = None
+    fee_per_contract: None = None
+    fee_per_contract_source: Literal["operator_input"] = "operator_input"
+    unavailable_reason: Literal["unsupported", "read_failed"] | None = None
+
+    @field_validator("as_of")
+    @classmethod
+    def require_utc(cls, value: datetime | None) -> datetime | None:
+        """Keep the evidence timestamp timezone-aware UTC."""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("datetime must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
 class FeesPayload(_FrozenModel):
-    """Coinbase fee tier plus the research/paper prefill (account rates) and schedule context."""
+    """Coinbase fee tier plus the research/paper prefill (account rates) and schedule context.
+
+    ``futures`` is the separate futures fee evidence (never merged into the spot rates).
+    """
 
     taker_fee_rate: str
     maker_fee_rate: str
@@ -199,6 +232,7 @@ class FeesPayload(_FrozenModel):
     schedule_maker_fee_rate: str | None = None
     schedule_taker_fee_rate: str | None = None
     suggestion_fetched_at: datetime | None = None
+    futures: FuturesFeesPayload | None = None
 
     @field_validator("as_of", "suggestion_fetched_at")
     @classmethod

@@ -18,6 +18,7 @@ from thytrader.market_data.futures_observations import (
     FuturesObservationUnavailableError,
     FuturesPollState,
 )
+from thytrader.market_data.instruments import InstrumentKind
 from thytrader.persistence.schema import (
     futures_catalog_poll_state,
     futures_funding_rates,
@@ -131,6 +132,33 @@ class PostgresFuturesObservationStore:
         except SQLAlchemyError as error:
             raise FuturesObservationUnavailableError(_UNAVAILABLE) from error
         return tuple(_funding_record(row) for row in rows)
+
+    async def latest_instrument(
+        self, product_id: str
+    ) -> tuple[FuturesInstrumentObservation, datetime] | None:
+        """Return one contract's newest recorded facts and when they were last seen.
+
+        The stored payload fingerprint is re-derived from the row; a mismatch is
+        corruption and fails closed. ``None`` means the contract was never observed.
+        """
+        table = futures_instrument_observations
+        statement = (
+            select(table)
+            .where(table.c.product_id == product_id)
+            .order_by(table.c.first_seen_at.desc())
+            .limit(1)
+        )
+        try:
+            async with self._engine.connect() as connection:
+                row = (await connection.execute(statement)).one_or_none()
+        except SQLAlchemyError as error:
+            raise FuturesObservationUnavailableError(_UNAVAILABLE) from error
+        if row is None:
+            return None
+        observation = _observation(row)
+        if observation.payload_fingerprint != row.payload_fingerprint:
+            raise FuturesObservationUnavailableError("A stored futures observation is corrupt.")
+        return observation, row.last_seen_at
 
     async def funding_history_starts(self) -> dict[str, datetime]:
         """Return each contract's first recorded funding hour."""
@@ -338,6 +366,34 @@ async def _record_sample(
         values["revision_count"] = table.c.revision_count + 1
     await connection.execute(update(table).where(*key).values(**values))
     return "confirmed" if same_rate else "revised"
+
+
+def _observation(row: Row[tuple[object, ...]]) -> FuturesInstrumentObservation:
+    """Map one stored observation row back onto the recorded facts."""
+    return FuturesInstrumentObservation(
+        product_id=str(row.product_id),
+        kind=InstrumentKind(str(row.kind)),
+        contract_code=str(row.contract_code),
+        underlying=str(row.underlying),
+        settlement_currency=str(row.settlement_currency),
+        contract_size=str(row.contract_size),
+        price_increment=str(row.price_increment),
+        base_increment=str(row.base_increment),
+        base_min_size=str(row.base_min_size),
+        venue_expiry_at=row.venue_expiry_at,
+        listed_expiry=row.listed_expiry,
+        twenty_four_by_seven=bool(row.twenty_four_by_seven),
+        intraday_long_margin_rate=row.intraday_long_margin_rate,
+        intraday_short_margin_rate=row.intraday_short_margin_rate,
+        overnight_long_margin_rate=row.overnight_long_margin_rate,
+        overnight_short_margin_rate=row.overnight_short_margin_rate,
+        funding_interval_seconds=row.funding_interval_seconds,
+        session_state=row.session_state,
+        maintenance_starts_at=row.maintenance_starts_at,
+        maintenance_ends_at=row.maintenance_ends_at,
+        asset_type=row.asset_type,
+        trading_enabled=bool(row.trading_enabled),
+    )
 
 
 def _funding_record(row: Row[tuple[object, ...]]) -> FundingRateRecord:

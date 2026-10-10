@@ -122,11 +122,29 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   future` shows it; `BIP` is BTC), `quote_currency` is `USD`, the settlement currency. A futures
   document has no `additional_instruments` and no reference instruments. Spot documents omit
   `kind` and `derivatives`, so their bytes and fingerprints never change. Futures documents cannot
-  pyramid (`entry.pyramiding` is refused). **Status:** futures documents can be saved and
-  validated, and the kernel simulates them (see **Futures simulation** below), but backtest
-  submission still returns `FUTURES_BACKTEST_UNSUPPORTED` until the run binds its contract, margin
-  and funding server-side, and deployments return `FUTURES_PAPER_UNSUPPORTED` /
-  `FUTURES_LIVE_UNSUPPORTED` until paper futures books ship. Never invent a futures result.
+  pyramid (`entry.pyramiding` is refused). **Status:** futures documents can be saved,
+  validated and backtested (see **Futures backtests** and **Futures simulation** below);
+  deployments return `FUTURES_PAPER_UNSUPPORTED` / `FUTURES_LIVE_UNSUPPORTED` until paper futures
+  books ship. Never invent a futures result.
+- **Futures backtests** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)). The
+  `submit-backtest --file` JSON adds a `futures` block, required for a futures strategy and
+  refused for a spot one: `{"fee_per_contract": "0.15"}` at minimum (USD per contract; there is
+  no compiled futures fee, so state the venue's per-contract fee yourself). Optional:
+  `margin_stress_multiplier` (1–5), `maintenance_fraction_of_initial`,
+  `min_liquidation_buffer_fraction` (default 0.5), `long_margin_rate` + `short_margin_rate`
+  (both or neither; replaces the observed overnight rates), and `funding_constant_rate` (per
+  hour, ±0.01; replaces recorded funding). `initial_quote_balance` is USD. Use
+  `maker_fee_rate` / `taker_fee_rate` from `thytrader-operator fees` → `payload.futures` (the
+  futures tier; `fee_per_contract` there is always null). The server binds the contract and
+  overnight margin from the latest catalog observation and, for perps, the settled funding of
+  every hour in the window. Rejections name the gap: `FUTURES_ASSUMPTIONS_REQUIRED`,
+  `FUTURES_CONTRACT_UNOBSERVED`, `FUTURES_UNDERLYING_MISMATCH`, `FUTURES_MARGIN_UNKNOWN`,
+  `FUNDING_HISTORY_MISSING` (names the first missing hour; funding history starts when the
+  poller started on 2026-10-10, so pick a later window or declare `funding_constant_rate`).
+  `thytrader-operator funding` shows which hours exist. The run spec records
+  `instrument_contract`, `margin` and `funding`; a new observation or funding hour is a new run.
+  The derived buy-and-hold benchmark of a futures run is an unlevered long at the rate fees,
+  without per-contract fees or funding.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they

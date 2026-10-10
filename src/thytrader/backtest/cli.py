@@ -15,6 +15,7 @@ from thytrader.config import Settings
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 
@@ -102,6 +103,7 @@ async def _evaluate(run_fingerprint: str) -> BacktestResult:
                 research_run_store=PostgresResearchRunStore(engine),
                 dataset_store=dataset_store,
             ),
+            futures_source=PostgresFuturesObservationStore(engine),
         )
     finally:
         await dispose(engine)

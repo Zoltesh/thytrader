@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.backtest.submission import StoreBacktestSubmitter
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 
@@ -30,4 +31,5 @@ class PostgresBacktestSubmitter(StoreBacktestSubmitter):
                 dataset_store=dataset_store,
             ),
             dataset_store=dataset_store,
+            futures_source=PostgresFuturesObservationStore(engine),
         )

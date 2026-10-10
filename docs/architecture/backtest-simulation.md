@@ -255,6 +255,14 @@ runs never reach them, so spot result bytes are unchanged.
   `evaluation.ends_at`], match `funding.settled_hours`, and hash to `funding.series_fingerprint`
   (`funding_series_fingerprint`), or the run fails `FUNDING_HISTORY_MISSING` (naming the first
   missing hour) or `FUNDING_SERIES_MISMATCH`. A declared `constant_rate` takes no series.
+- **Submission.** `BacktestStartRequest.futures` (required for futures strategies, refused for
+  spot) carries `fee_per_contract` and optional margin and funding overrides. The submitter
+  (`backtest/submission_futures.py`) binds the contract and overnight margin from the latest
+  `futures_instrument_observations` row (`catalog_fingerprint` is its payload fingerprint,
+  `observed_at` its last-seen time) and a perp's settled funding hours from
+  `futures_funding_rates`; an unsettled or absent hour rejects with `FUNDING_HISTORY_MISSING`.
+  The execution fingerprint covers the binding. The evaluation service reloads the same settled
+  rows and the kernel re-verifies them against the bound fingerprint.
 - **Refusals.** A window ending after a dated contract's expiry fails
   `FUTURES_WINDOW_PAST_EXPIRY`; a dated strategy without `flatten_before_expiry_hours` fails
   `FUTURES_EXPIRY_UNSET`.

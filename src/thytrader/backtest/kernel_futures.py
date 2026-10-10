@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 from thytrader.backtest.kernel_exits import _taker_exit_quote
 from thytrader.backtest.kernel_fills import _close_position
 from thytrader.backtest.kernel_state import BacktestSimulationError, _FuturesTerms
-from thytrader.evaluation.futures_spec import funding_series_fingerprint
+from thytrader.evaluation.futures_spec import funding_hours, funding_series_fingerprint
 from thytrader.trading.geometry import EntrySkipReason
 
 if TYPE_CHECKING:
@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     from thytrader.strategies.models import StrategyDefinition
 
 _HOUR = timedelta(hours=1)
-_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _futures_terms(
@@ -133,7 +132,7 @@ def _funding_terms(
         raise BacktestSimulationError(
             "FUNDING_HISTORY_MISSING: the run binds a funding series but none was supplied."
         )
-    hours = _funding_hours(specification.evaluation.starts_at, specification.evaluation.ends_at)
+    hours = funding_hours(specification.evaluation.starts_at, specification.evaluation.ends_at)
     missing = [hour for hour in hours if hour not in funding_rates]
     if missing:
         raise BacktestSimulationError(
@@ -153,16 +152,6 @@ def _funding_terms(
             "FUNDING_SERIES_MISMATCH: the funding rows do not match the bound series."
         )
     return funding_rates, None
-
-
-def _funding_hours(starts_at: datetime, ends_at: datetime) -> tuple[datetime, ...]:
-    """Every funding hour ``T`` with ``starts_at < T <= ends_at``."""
-    cursor = _EPOCH + ((starts_at - _EPOCH) // _HOUR + 1) * _HOUR
-    hours: list[datetime] = []
-    while cursor <= ends_at:
-        hours.append(cursor)
-        cursor += _HOUR
-    return tuple(hours)
 
 
 def _hour_text(hour: datetime) -> str:
@@ -312,7 +301,7 @@ def _charge_funding(
     position = book.position
     if terms is None or position is None or not terms.perpetual:
         return cash
-    hours = _funding_hours(candle.starts_at, candle.starts_at + bar_duration)
+    hours = funding_hours(candle.starts_at, candle.starts_at + bar_duration)
     if not hours:
         return cash
     quantity = Decimal(position.entry.quantity)

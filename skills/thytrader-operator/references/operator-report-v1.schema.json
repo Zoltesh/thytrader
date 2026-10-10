@@ -3260,7 +3260,8 @@
         "price",
         "fees",
         "open_orders",
-        "futures_open_orders"
+        "futures_open_orders",
+        "futures_fees"
       ],
       "title": "ExchangeReadOperation",
       "type": "string"
@@ -3378,7 +3379,7 @@
     },
     "FeesPayload": {
       "additionalProperties": false,
-      "description": "Coinbase fee tier plus the research/paper prefill (account rates) and schedule context.",
+      "description": "Coinbase fee tier plus the research/paper prefill (account rates) and schedule context.\n\n``futures`` is the separate futures fee evidence (never merged into the spot rates).",
       "properties": {
         "taker_fee_rate": {
           "title": "Taker Fee Rate",
@@ -3535,6 +3536,17 @@
           ],
           "default": null,
           "title": "Suggestion Fetched At"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesFeesPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -4767,6 +4779,113 @@
         "number_of_contracts"
       ],
       "title": "FuturesExternalPositionRow",
+      "type": "object"
+    },
+    "FuturesFeesPayload": {
+      "additionalProperties": false,
+      "description": "CFM futures fee evidence from ``transaction_summary?product_type=FUTURE`` (ADR 0128).\n\nThe rates are what Coinbase reports for the futures product type. Coinbase also bills\nfutures per contract; no read-only endpoint reports that amount, so\n``fee_per_contract`` stays null and a futures backtest's ``futures.fee_per_contract``\nis operator input (there is no compiled futures fee).",
+      "properties": {
+        "status": {
+          "enum": [
+            "available",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "maker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maker Fee Rate"
+        },
+        "taker_fee_rate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Taker Fee Rate"
+        },
+        "usd_volume_30d": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usd Volume 30D"
+        },
+        "fee_tier": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fee Tier"
+        },
+        "as_of": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "As Of"
+        },
+        "fee_per_contract": {
+          "default": null,
+          "title": "Fee Per Contract",
+          "type": "null"
+        },
+        "fee_per_contract_source": {
+          "const": "operator_input",
+          "default": "operator_input",
+          "title": "Fee Per Contract Source",
+          "type": "string"
+        },
+        "unavailable_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "unsupported",
+                "read_failed"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unavailable Reason"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "FuturesFeesPayload",
       "type": "object"
     },
     "FuturesMarginMeasurePayload": {
@@ -7557,7 +7676,8 @@
               "readiness_reconciliation",
               "live_spot_collateral_gate",
               "futures_strategy_documents",
-              "futures_backtest_kernel"
+              "futures_backtest_kernel",
+              "futures_backtest_submission"
             ],
             "type": "string"
           },

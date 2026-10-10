@@ -27,6 +27,8 @@ _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _MAX_STRESS_MULTIPLIER = Decimal(5)
 _MAX_FEE_PER_CONTRACT = Decimal(100)
 _MAX_FUNDING_RATE = Decimal("0.01")
+_HOUR = timedelta(hours=1)
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 def _utc(value: datetime | None, label: str) -> datetime | None:
@@ -204,3 +206,17 @@ def funding_series_fingerprint(product_id: str, rates: Mapping[datetime, Decimal
         {"product_id": product_id, "rates": rows}, sort_keys=True, separators=(",", ":")
     )
     return "sha256:" + sha256(canonical.encode()).hexdigest()
+
+
+def funding_hours(starts_at: datetime, ends_at: datetime) -> tuple[datetime, ...]:
+    """Every funding hour ``T`` with ``starts_at < T <= ends_at``.
+
+    These are the hours a perp run over the window ``[starts_at, ends_at)`` consumes: the
+    kernel charges hour ``T`` on the bar that ends at or after it (ADR 0128).
+    """
+    cursor = _EPOCH + ((starts_at - _EPOCH) // _HOUR + 1) * _HOUR
+    hours: list[datetime] = []
+    while cursor <= ends_at:
+        hours.append(cursor)
+        cursor += _HOUR
+    return tuple(hours)
