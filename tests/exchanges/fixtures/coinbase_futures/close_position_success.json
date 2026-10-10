@@ -1,0 +1,12 @@
+{
+  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (Close Position, POST /orders/close_position); not observed. The venue accepted a close of one contract of a short.",
+  "body": {
+    "success": true,
+    "success_response": {
+      "order_id": "00000000-0000-4000-8000-00000000a201",
+      "product_id": "ETP-20DEC30-CDE",
+      "side": "BUY",
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:signal_exit:20260105T1500:00000000-0000-7000-8000-000000000201"
+    }
+  }
+}

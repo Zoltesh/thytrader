@@ -1,0 +1,57 @@
+{
+  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (List Fills, FillFutureLeg); not observed. A calendar-spread combo fill: non-empty future_legs sharing one combo_id.",
+  "body": {
+    "fills": [
+      {
+        "entry_id": "0000000000000000000000000000000000000000000000000000000000000065",
+        "trade_id": "00000000-0000-4000-8000-00000000f101",
+        "order_id": "00000000-0000-4000-8000-00000000a101",
+        "trade_time": "2026-01-05T14:00:00.100000Z",
+        "trade_type": "FILL",
+        "price": "2500",
+        "size": "1",
+        "commission": "0.36",
+        "product_id": "ET-27FEB26-CDE",
+        "sequence_timestamp": "2026-01-05T14:00:00.110000Z",
+        "liquidity_indicator": "TAKER",
+        "size_in_quote": false,
+        "side": "BUY",
+        "fillSource": "FILL_SOURCE_CLOB",
+        "commission_detail_total": {
+          "total_commission": "0.36",
+          "gst_commission": "",
+          "withholding_commission": "",
+          "client_commission": "0.25",
+          "venue_commission": "0.1",
+          "regulatory_commission": "0",
+          "clearing_commission": "0.01"
+        },
+        "option_legs": [],
+        "order_data_source": "ORDER_DATA_SOURCE_TRADING_PROXY",
+        "future_legs": [
+          {
+            "product_id": "ET-27FEB26-CDE",
+            "combo_id": "00000000-0000-4000-8000-00000000b001",
+            "trade_id": "00000000-0000-4000-8000-00000000f201",
+            "filled_price": "2500",
+            "filled_size": "1",
+            "side": "BUY"
+          },
+          {
+            "product_id": "ET-27MAR26-CDE",
+            "combo_id": "00000000-0000-4000-8000-00000000b001",
+            "trade_id": "00000000-0000-4000-8000-00000000f202",
+            "filled_price": "2520",
+            "filled_size": "1",
+            "side": "SELL"
+          }
+        ],
+        "realized_pl": "",
+        "product_type": "FUTURE",
+        "is_rebalance": false,
+        "session_realized_pl": ""
+      }
+    ],
+    "cursor": ""
+  }
+}
