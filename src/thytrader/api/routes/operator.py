@@ -86,6 +86,7 @@ from thytrader.operator.service import OperatorDiagnostics
 from thytrader.operator.support_bundle_models import SupportBundleReport
 from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
 from thytrader.persistence.portfolio_history import PortfolioHistoryStore  # noqa: TC001
+from thytrader.persistence.postgres_execution_cycles import PostgresExecutionCycleStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_research_queue import (  # noqa: TC001 - FastAPI Depends.
@@ -160,6 +161,7 @@ def get_operator_diagnostics(
         futures_account_history_store=(
             None if engine is None else PostgresFuturesAccountStore(engine)
         ),
+        cycle_store=None if engine is None else PostgresExecutionCycleStore(engine),
     )
 
 

@@ -127,6 +127,7 @@ if TYPE_CHECKING:
     from thytrader.operator.health_models import ConfigurationReport, ExchangeReport, HealthReport
     from thytrader.operator.research_workers import ResearchQueueSnapshotReader
     from thytrader.operator.venue_reconciliation_models import VenueReconciliationReport
+    from thytrader.persistence.execution_cycles import ExecutionCycleStore
     from thytrader.persistence.portfolio_history import PortfolioHistoryStore
     from thytrader.persistence.worker_heartbeats import WorkerHeartbeatStore
     from thytrader.portfolio.models import PortfolioAsset
@@ -170,6 +171,7 @@ class OperatorDiagnostics:
     futures_account_store: FuturesAccountSnapshotStore | None = None
     futures_book_stores: FuturesStart | None = None
     futures_account_history_store: FuturesAccountHistoryStore | None = None
+    cycle_store: ExecutionCycleStore | None = None
 
     async def health(self, *, probe_api: bool = False) -> HealthReport:
         """Summarize process, database, worker, research pool, and exchange health."""

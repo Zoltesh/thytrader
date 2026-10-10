@@ -37,6 +37,18 @@ _RECOMMENDATIONS: dict[str, str] = {
         "Start the named worker process. Docker /tmp readiness files are not health."
     ),
     "HEARTBEAT_STALE": "Restart the named worker; its last heartbeat is older than two loops.",
+    "CYCLE_SLOW": (
+        "The execution worker cycle overran its interval, delaying entries, exits and "
+        "protection checks. Read payload.execution_cycle of `thytrader-operator runtime` "
+        "(slowest_phase, slowest_books, venue endpoints); do not restart a progressing worker."
+    ),
+    "CYCLE_TIMING_MISSING": (
+        "Wait for the execution worker to finish its first cycle, or rebuild with `make run` "
+        "if its image predates cycle timing."
+    ),
+    "CYCLE_TIMING_UNAVAILABLE": (
+        "Verify PostgreSQL is reachable and migrated (0075) so health can read cycle timing."
+    ),
     "RESEARCH_WORKER_MISSING": (
         "Start the research-worker service (`make run`); queued backtests, studies, and "
         "portfolio backtests wait until a research worker claims them."

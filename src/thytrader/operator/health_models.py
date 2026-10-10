@@ -13,6 +13,7 @@ from uuid import UUID
 from pydantic import Field
 
 from thytrader.exchanges.read_errors import ExchangeReadFailure
+from thytrader.operator.execution_cycle_report import ExecutionCycleSummary
 from thytrader.operator.models import OperatorEnvelope, SupportedTimeframe, _FrozenModel
 from thytrader.ops_contract import expected_ops_contract
 
@@ -155,6 +156,7 @@ class OpsContractPayload(_FrozenModel):
             "revision_fenced_fleet_controls",
             "backtest_bar_explanations",
             "fleet_entry_health",
+            "execution_cycle_timing",
         ],
         ...,
     ]
@@ -246,6 +248,7 @@ class HealthPayload(_FrozenModel):
     ops_contract: OpsContractPayload | None = None
     applied_schema_revision: str | None = None
     research_workers: ResearchWorkersPayload | None = None
+    execution_cycle: ExecutionCycleSummary | None = None
 
 
 class HealthReport(OperatorEnvelope):

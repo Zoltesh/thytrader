@@ -23,6 +23,7 @@ from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_execution_cycles import PostgresExecutionCycleStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
@@ -32,6 +33,7 @@ from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
 from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
+from thytrader.persistence.query_timing import instrument_engine
 from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.settings_yaml import SettingsStore
 
@@ -51,6 +53,8 @@ async def run() -> None:
         raise RuntimeError(message)
 
     engine = create_engine(settings.database_url)
+    # Every statement this worker runs is counted and timed per cycle (ADR 0131).
+    instrument_engine(engine)
     store = PostgresExecutionStore(engine)
     publication_store = PostgresStrategyStore(engine)
     risk_store = PostgresRiskPolicyStore(engine)
@@ -124,6 +128,7 @@ async def run() -> None:
                     decision_store=decision_store,
                     portfolio_store=portfolio_store,
                     alert_service=alert_service,
+                    cycle_store=PostgresExecutionCycleStore(engine),
                 ),
                 run_venue_user_order_feed(
                     stop_requested,

@@ -34,6 +34,7 @@ from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_execution_cycles import PostgresExecutionCycleStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
@@ -109,6 +110,7 @@ async def operator_diagnostics(
                 observations=PostgresFuturesObservationStore(engine),
             ),
             futures_account_history_store=PostgresFuturesAccountStore(engine),
+            cycle_store=PostgresExecutionCycleStore(engine),
         )
     else:
         diagnostics = OperatorDiagnostics(

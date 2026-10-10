@@ -88,6 +88,21 @@ class _Budget:
         return self.used < MAX_RANGE_REQUESTS_PER_CYCLE
 
 
+@dataclass(frozen=True, slots=True)
+class WindowCacheStats:
+    """Cumulative cache counters for execution-cycle telemetry (ADR 0131).
+
+    ``range_requests`` counts provider range fetches and ``warming_events`` counts
+    ``WindowCacheWarmingError`` raises since this cache was created; callers diff two
+    readings to attribute work to a cycle or a book.
+    """
+
+    windows: int
+    cached_candles: int
+    range_requests: int
+    warming_events: int
+
+
 class DeployWindowCache:
     """Provider-generation-local anchored prefix cache with serialized mutation.
 
@@ -104,6 +119,17 @@ class DeployWindowCache:
         self._max_total_candles = max_total_candles
         self._windows: dict[_WindowKey, _WindowState] = {}
         self._lock = asyncio.Lock()
+        self._range_requests = 0
+        self._warming_events = 0
+
+    def stats(self) -> WindowCacheStats:
+        """Return retained windows and candles plus cumulative fetch and warming counts."""
+        return WindowCacheStats(
+            windows=len(self._windows),
+            cached_candles=sum(_retained_count(window) for window in self._windows.values()),
+            range_requests=self._range_requests,
+            warming_events=self._warming_events,
+        )
 
     async def closed_window(
         self,
@@ -201,6 +227,7 @@ class DeployWindowCache:
     ) -> tuple[Candle, ...]:
         """Count one request and reject out-of-range provider evidence at this boundary."""
         budget.used += 1
+        self._range_requests += 1
         report = await fetch_range(start, end)
         return tuple(candle for candle in report.quality.candles if start <= candle.starts_at < end)
 
@@ -219,6 +246,7 @@ class DeployWindowCache:
         self, key: _WindowKey, state: _WindowState, requested_end: datetime, budget: _Budget
     ) -> WindowCacheWarmingError:
         """Distinguish unfinished local work from completed but genuinely short coverage."""
+        self._warming_events += 1
         return WindowCacheWarmingError(
             product_id=key.product_id,
             interval=key.interval,
