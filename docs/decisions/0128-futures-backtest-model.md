@@ -1,6 +1,6 @@
 # 0128: Futures in the strategy schema, run spec and backtest kernel
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-10
 - Relates to: [0083](0083-unified-backtest-model.md),
   [0090](0090-research-correctness-optional-take-profit-diagnostics.md),
@@ -34,6 +34,10 @@ Facts that shape the model:
   backtest's capital is a USD figure, but the money that backs it in reality is the same USDC
   that funds spot books. The kernel models one futures book; the shared pool is a risk-layer
   concern (ADR 0129) and a disclosure here.
+
+## Decisions (2026-10-10)
+
+Reviewed and accepted by the lead with ADR 0129. No changes to this ADR were requested.
 
 ## Decision
 

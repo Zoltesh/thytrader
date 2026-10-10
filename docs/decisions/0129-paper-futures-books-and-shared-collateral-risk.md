@@ -1,6 +1,6 @@
 # 0129: Paper futures books and risk on a shared USDC collateral pool
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-10-10
 - Relates to: [0033](0033-phase-10-risk-policy-registry.md),
   [0050](0050-daily-loss-drawdown-rate-collars.md),
@@ -39,6 +39,16 @@ Unverified and therefore treated conservatively until observed:
 - Whether USDT also counts as collateral. Assumed **not**; USDT stays an unlinked scope until
   observed.
 - The margin-window types read `..._UNSPECIFIED` while flat.
+
+## Decisions (2026-10-10)
+
+The lead reviewed and accepted this ADR with three answers:
+
+1. Live USDC/USD spot entries are denied by default while manual futures are `in_use` (L2),
+   with the opt-in reserve (L3) exactly as written.
+2. `peg_haircut` defaults to 1.25 with a minimum of 1.0.
+3. Base-unit netting ships in P1 as the opt-in `futures.beta_netting: net_by_underlying`, for
+   managed same-mode books only (paper in P1). External or manual hedges never net.
 
 ## Decision
 
