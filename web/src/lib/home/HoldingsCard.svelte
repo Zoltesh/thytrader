@@ -18,6 +18,7 @@
 	import { analyzeDust, formatQuantityDisplay } from '$lib/money';
 	import { formatUsd, type Portfolio, type PortfolioAsset } from '$lib/portfolio';
 	import { resolve } from '$app/paths';
+	import { formatQuoteAmount } from '$lib/deployment-portfolio';
 	import type { Deployment } from '$lib/deployments';
 	import HoldingActions from './HoldingActions.svelte';
 	import { holdingActionsAvailable, type HoldingAction } from './holding-actions';
@@ -81,7 +82,9 @@
 	}
 
 	function valueText(asset: PortfolioAsset): string {
-		return asset.value ? formatUsd(asset.value.amount) : 'Unavailable';
+		if (!asset.value) return 'Unavailable';
+		if (asset.value.currency === 'USD') return formatUsd(asset.value.amount);
+		return `${formatQuoteAmount(asset.value.amount)} ${asset.value.currency}`;
 	}
 </script>
 

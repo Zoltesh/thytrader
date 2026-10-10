@@ -36,13 +36,21 @@ class OperatorPortfolioAssetPayload(_FrozenModel):
 
 
 class PortfolioPayload(_FrozenModel):
-    """Point-in-time portfolio matching GET /api/v1/portfolio without secrets."""
+    """Point-in-time portfolio matching GET /api/v1/portfolio without secrets.
+
+    ``totals`` are exact per-currency totals (USD, USDC, USDT), never added together.
+    ``total_value`` is the labelled USD-pegged approximation (those totals added 1:1;
+    ``total_value_basis`` says so). Both are ``null`` / empty when the account could not
+    be read: an unknown balance is never reported as zero.
+    """
 
     as_of: datetime
     demo: bool
     connection_status: str
     permissions: tuple[str, ...]
-    total_value: OperatorMoneyPayload
+    total_value: OperatorMoneyPayload | None
+    total_value_basis: Literal["usd_pegged_approximate"] | None
+    totals: tuple[OperatorMoneyPayload, ...]
     assets: tuple[OperatorPortfolioAssetPayload, ...]
     unvalued_assets: tuple[str, ...]
 

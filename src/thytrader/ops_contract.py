@@ -70,7 +70,9 @@ BTC-beta-weighted exposure cap (``max_btc_beta_exposure_fraction`` /
 ``max_btc_beta_exposure_quote``, ``BTC_BETA_EXPOSURE_EXCEEDED`` and
 ``BTC_BETA_UNAVAILABLE``; ADR 0125), or the read-only Coinbase futures surfaces
 (``instrument_kinds``, the empty ``futures_order_paths``, the futures observation tables of
-Alembic 0071 and the operator ``funding`` report; ADR 0126) change.
+Alembic 0071 and the operator ``funding`` report; ADR 0126), or the per-currency portfolio
+totals (``totals`` and the labelled ``usd_pegged_approximate`` ``total_value``, which is
+``null`` when the account cannot be read) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -99,7 +101,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v75"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v76"
 EXPECTED_SCHEMA_REVISION = "0071"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

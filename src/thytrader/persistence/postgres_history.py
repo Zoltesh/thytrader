@@ -131,6 +131,11 @@ def _portfolio_to_snapshot(portfolio: Portfolio) -> dict[str, object]:
             "amount": format(portfolio.total_value.amount, "f"),
             "currency": portfolio.total_value.currency,
         },
+        "total_value_basis": portfolio.total_value_basis,
+        "totals": [
+            {"amount": format(total.amount, "f"), "currency": total.currency}
+            for total in portfolio.totals
+        ],
         "assets": [
             {
                 "currency": asset.currency,

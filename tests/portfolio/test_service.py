@@ -79,3 +79,45 @@ def test_demo_flag_is_readable_for_research_fee_suggestions() -> None:
     live_service = PortfolioService(StubExchangeAccount(), demo=False)
     assert demo_service.demo is True
     assert live_service.demo is False
+
+
+class _MixedCashAccount(StubExchangeAccount):
+    """USD, USDC and USDT cash beside one USD-valued coin."""
+
+    async def list_balances(self) -> tuple[ExchangeBalance, ...]:
+        """Return all three cash currencies and BTC."""
+        return (
+            ExchangeBalance("USD", "US Dollar", Decimal("10.005"), Decimal("0")),
+            ExchangeBalance("USDC", "USD Coin", Decimal("200.50"), Decimal("4.50")),
+            ExchangeBalance("USDT", "Tether", Decimal("3"), Decimal("0")),
+            ExchangeBalance("BTC", "Bitcoin", Decimal("0.001"), Decimal("0")),
+        )
+
+
+def test_cash_currencies_are_never_added_together_exactly() -> None:
+    """Each cash balance keeps its own currency; only the labelled total adds them 1:1."""
+    portfolio = asyncio.run(PortfolioService(_MixedCashAccount()).get_portfolio())
+    values = {asset.currency: asset.value for asset in portfolio.assets}
+    assert values["USDC"] is not None
+    assert (values["USDC"].amount, values["USDC"].currency) == (Decimal("205.00"), "USDC")
+    assert values["USDT"] is not None
+    assert values["USDT"].currency == "USDT"
+    assert values["BTC"] is not None
+    assert values["BTC"].currency == "USD"
+    assert [(total.currency, total.amount) for total in portfolio.totals] == [
+        ("USD", Decimal("70.00")),
+        ("USDC", Decimal("205.00")),
+        ("USDT", Decimal("3.00")),
+    ]
+    assert portfolio.total_value_basis == "usd_pegged_approximate"
+    assert portfolio.total_value.currency == "USD"
+    assert portfolio.total_value.amount == Decimal("278.00")
+
+
+def test_totals_omit_currencies_without_balances_and_skip_unvalued_assets() -> None:
+    """An unvalued coin is excluded from every total, never counted as zero value."""
+    portfolio = asyncio.run(PortfolioService(StubExchangeAccount()).get_portfolio())
+    assert [(total.currency, total.amount) for total in portfolio.totals] == [
+        ("USD", Decimal("36110.00"))
+    ]
+    assert portfolio.unvalued_assets == ("OBSCURE",)

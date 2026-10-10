@@ -60,7 +60,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Risk | `uv run thytrader-operator risk` | `GET /api/v1/operator/risk` (registry identity, slot counts, breaker fractions/ints, pause/mismatch; omits balances) |
 | Reconciliation | `uv run thytrader-operator reconciliation` | `GET /api/v1/operator/reconciliation` (every paused `mismatch_detail` is a `STATE_MISMATCH` finding whose `detail` is the mismatch text; split pending-entry state adds `FILLED_WITHOUT_FILL` or `PENDING_ENTRY_WITHOUT_ENTRY`; a live order Coinbase reports FILLED with no List Fills rows (`Filled order has no REST fills.`) adds `FILLED_WITHOUT_FILL` next to `STATE_MISMATCH`; `unknown` orders add `UNKNOWN_ORDERS`; recent audit failures add `AUDIT_FAILURES`) |
 | Studies | `uv run thytrader-operator studies` | `GET /api/v1/operator/studies` (persisted research-study catalog rows; omits child equity) |
-| Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials) |
+| Portfolio | `uv run thytrader-operator portfolio` | `GET /api/v1/operator/portfolio` (balances with `balances_omitted=false`; never credentials; `totals` are exact per currency (USD, USDC, USDT) and never added together; `total_value` is only the labelled `usd_pegged_approximate` sum at 1:1, `null` when the account could not be read) |
 | Fees | `uv run thytrader-operator fees` | `GET /api/v1/operator/fees` (fee tier plus suggested maker/taker = the account's reported Coinbase rates; `schedule_*` is context only) |
 | Portfolios | `uv run thytrader-operator portfolios` | `GET /api/v1/operator/portfolios` (sleeves, issues, allocation, limits, manager settings, `deployable`, `deployment_state`, `breaker_latched` / `breaker_reason_code`, `pending_proposals`, newest portfolio backtest, and `paper_live_fill_comparisons` for explicitly linked paper/live twins with verified identical trading rules; component `PORTFOLIO_BREAKER_LATCHED` when a breaker holds sleeves paused). Edit portfolios and act as the manager with `thytrader-portfolio`; start/stop them with `thytrader-runtime portfolio-*` (ADR 0088, ADR 0091) |
 | Readiness preflight | `uv run thytrader-operator readiness [--deployment-id UUID] [--portfolio-id UUID]` | `GET /api/v1/operator/readiness` (advisory allocation vs venue quote vs account and portfolio caps, per-asset caps, remaining entry capacity, paper fee assumptions vs account fee evidence, and which daily-loss breaker binds tighter; never changes policy; [ADR 0114](../../docs/decisions/0114-readiness-preflight-and-venue-reconciliation.md)) |
@@ -316,7 +316,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v75`, schema revision `0071`) and exits on any
+   this checkout's (`thytrader-ops-contract-v76`, schema revision `0071`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

@@ -10,12 +10,23 @@ from thytrader.exchanges.read_errors import (
     ExchangeReadFailureKind,
     ExchangeReadOperation,
 )
-from thytrader.portfolio.models import Money, Portfolio, PortfolioAsset, PortfolioConnection
+from thytrader.portfolio.models import (
+    USD_PEGGED_APPROXIMATE,
+    Money,
+    Portfolio,
+    PortfolioAsset,
+    PortfolioConnection,
+)
 
 if TYPE_CHECKING:
     from thytrader.exchanges.fees import FeeProfile
-    from thytrader.exchanges.models import ExchangeOpenOrder
+    from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
     from thytrader.exchanges.protocols import ExchangeAccount
+
+
+# Valued in their own currency; USD, USDC and USDT are never added together exactly.
+_CASH_CURRENCIES: tuple[str, ...] = ("USD", "USDC", "USDT")
+_CENT = Decimal("0.01")
 
 
 class PortfolioService:
@@ -32,20 +43,23 @@ class PortfolioService:
         return self._demo
 
     async def get_portfolio(self) -> Portfolio:
-        """Fetch balances, value direct USD markets, and report all permissions."""
+        """Fetch balances, value them per currency, and report all permissions.
+
+        Exact totals stay per currency. ``total_value`` is the explicitly labelled
+        USD-pegged approximation of those totals added 1:1.
+        """
         balances = await self._exchange.list_balances()
         permissions = await self._exchange.get_permissions()
         assets: list[PortfolioAsset] = []
         unvalued: list[str] = []
-        total_value = Decimal("0")
+        totals: dict[str, Decimal] = {}
 
         for balance in balances:
-            price = await self._price_for(balance.currency)
-            value = None if price is None else Money(amount=balance.total * price, currency="USDC")
+            value = await self._value_of(balance)
             if value is None:
                 unvalued.append(balance.currency)
             else:
-                total_value += value.amount
+                totals[value.currency] = totals.get(value.currency, Decimal(0)) + value.amount
             assets.append(
                 PortfolioAsset(
                     currency=balance.currency,
@@ -65,16 +79,30 @@ class PortfolioService:
                 permissions=permissions,
             ),
             demo=self._demo,
-            total_value=Money(amount=total_value.quantize(Decimal("0.01")), currency="USDC"),
+            total_value=Money(
+                amount=sum(totals.values(), Decimal(0)).quantize(_CENT), currency="USD"
+            ),
+            total_value_basis=USD_PEGGED_APPROXIMATE,
+            totals=tuple(
+                Money(amount=totals[currency].quantize(_CENT), currency=currency)
+                for currency in _CASH_CURRENCIES
+                if currency in totals
+            ),
             assets=tuple(assets),
             unvalued_assets=tuple(unvalued),
         )
 
-    async def _price_for(self, currency: str) -> Decimal | None:
-        """Resolve stable USD at par and delegate all other direct markets."""
-        if currency in {"USD", "USDC", "USDT"}:
-            return Decimal("1")
-        return await self._exchange.get_usd_price(currency)
+    async def _value_of(self, balance: ExchangeBalance) -> Money | None:
+        """Value cash in its own currency and other assets through ``<asset>-USD``.
+
+        A USDC balance is USDC, not USD: it is never relabelled or converted.
+        """
+        if balance.currency in _CASH_CURRENCIES:
+            return Money(amount=balance.total, currency=balance.currency)
+        price = await self._exchange.get_usd_price(balance.currency)
+        if price is None:
+            return None
+        return Money(amount=balance.total * price, currency="USD")
 
     async def get_fee_profile(self) -> FeeProfile:
         """Fetch 30-day volume and current fee rates."""

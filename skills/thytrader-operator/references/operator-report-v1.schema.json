@@ -7254,7 +7254,7 @@
     },
     "PortfolioPayload": {
       "additionalProperties": false,
-      "description": "Point-in-time portfolio matching GET /api/v1/portfolio without secrets.",
+      "description": "Point-in-time portfolio matching GET /api/v1/portfolio without secrets.\n\n``totals`` are exact per-currency totals (USD, USDC, USDT), never added together.\n``total_value`` is the labelled USD-pegged approximation (those totals added 1:1;\n``total_value_basis`` says so). Both are ``null`` / empty when the account could not\nbe read: an unknown balance is never reported as zero.",
       "properties": {
         "as_of": {
           "format": "date-time",
@@ -7277,7 +7277,33 @@
           "type": "array"
         },
         "total_value": {
-          "$ref": "#/$defs/OperatorMoneyPayload"
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OperatorMoneyPayload"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "total_value_basis": {
+          "anyOf": [
+            {
+              "const": "usd_pegged_approximate",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Total Value Basis"
+        },
+        "totals": {
+          "items": {
+            "$ref": "#/$defs/OperatorMoneyPayload"
+          },
+          "title": "Totals",
+          "type": "array"
         },
         "assets": {
           "items": {
@@ -7300,6 +7326,8 @@
         "connection_status",
         "permissions",
         "total_value",
+        "total_value_basis",
+        "totals",
         "assets",
         "unvalued_assets"
       ],
