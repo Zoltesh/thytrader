@@ -303,6 +303,21 @@ This report does not change canonical result bytes and is null for paper/live.
 
 ## Readiness preflight and venue reconciliation (ADR 0114)
 
+Futures (ADR 0127): `readiness.payload.futures` is `null` when no CFM mirror snapshot exists;
+otherwise `observed_at`, `stale`, `enablement`, `currency: USD`, `futures_buying_power`,
+`cbi_usd_balance`, `cfm_usd_balance`, `available_margin`, `liquidation_threshold`,
+`liquidation_buffer_amount`, `liquidation_buffer_percentage`, `margin_ratio`, `unrealized_pnl`,
+`funding_pnl`, `positions` (`product_id`, `side`, `number_of_contracts`; `null` when unknown) and
+`collateral_note`. `venue_reconciliation.payload.futures`: `positions_source`
+(`mirror_snapshot` \| `stale` \| `unavailable` \| `not_observed`), `positions_observed_at`,
+`positions[]` (`product_id`, `side`, `number_of_contracts`, `contract_size`, `underlying`,
+`current_price`, `notional_usd`, `classification: external_unmanaged`),
+`unmanaged_notional_usd` (only when every notional is known), `orders[]` (same shape as foreign
+spot orders), `orders_listing` (scope `futures_order_history_nonterminal`) and `note`. An
+account adapter without a futures listing reports the orders as not observed (`failure.kind:
+unsupported`) without a finding. The futures-account report adds `margin_ratio` and
+`collateral_note`.
+
 `readiness` (`GET /api/v1/operator/readiness`, optional `deployment_id` or `portfolio_id`;
 neither is the fleet) is advisory. `payload.account.enforcement` is `advisory_only`.
 `capital_base` is venue available quote in the policy quote currency plus managed long

@@ -31,6 +31,7 @@ from thytrader.operator.readiness_account import (
     _VenueRead,
 )
 from thytrader.operator.readiness_fees import _fee_evidence, _paper_section
+from thytrader.operator.readiness_futures import futures_section
 from thytrader.operator.readiness_models import (
     ReadinessFeeEvidence,
     ReadinessFinding,
@@ -57,6 +58,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from uuid import UUID
 
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.portfolio.service import PortfolioService
     from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
@@ -92,8 +94,13 @@ async def build_readiness_report(
     portfolios: ReadinessPortfolioDirectory | None,
     deployment_id: UUID | None = None,
     portfolio_id: UUID | None = None,
+    futures_account: FuturesAccountSnapshotStore | None = None,
 ) -> ReadinessReport:
-    """Build the advisory preflight for one deployment, one portfolio, or the fleet."""
+    """Build the advisory preflight for one deployment, one portfolio, or the fleet.
+
+    ``futures_account`` adds the CFM futures section (ADR 0127) when a mirror snapshot
+    exists.
+    """
     now = datetime.now(UTC)
     warnings: list[str] = []
     findings: list[ReadinessFinding] = []
@@ -144,6 +151,7 @@ async def build_readiness_report(
     ]
     fee_evidence = await _fee_evidence(portfolio, snapshots, findings)
     paper = _paper_section(policy, scoped, warnings)
+    futures = await futures_section(futures_account, findings)
     if warnings:
         findings.append(
             ReadinessFinding(
@@ -178,6 +186,7 @@ async def build_readiness_report(
             deployments=rows,
             portfolios=tuple(portfolio_sections),
             fee_evidence=fee_evidence,
+            futures=futures,
             findings=tuple(findings),
         ),
     )

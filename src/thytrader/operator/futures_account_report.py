@@ -14,9 +14,11 @@ from typing import TYPE_CHECKING, Literal
 
 from thytrader import __version__
 from thytrader.exchanges.futures_models import (
+    SHARED_COLLATERAL_NOTE,
     FuturesAccountStoreUnavailableError,
     FuturesBalanceSummary,
     FuturesEnablement,
+    margin_ratio,
 )
 from thytrader.operator.models import (
     PORTFOLIO_REDACTION,
@@ -93,6 +95,10 @@ class FuturesAccountPayload(_FrozenModel):
 
     ``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the
     venue reported none. ``read_failures`` lists ``operation:reason`` tokens.
+    ``margin_ratio`` is ``available_margin / liquidation_threshold`` (``null`` when either
+    is unknown or the threshold is not positive, as on a flat account).
+    ``collateral_note`` states that futures buying power is shared with the USDC spot
+    balance.
     """
 
     observed_at: datetime | None
@@ -107,6 +113,8 @@ class FuturesAccountPayload(_FrozenModel):
     margin_window_end_at: datetime | None
     intraday_killswitch_enabled: bool | None
     enrollment_killswitch_enabled: bool | None
+    margin_ratio: str | None = None
+    collateral_note: str = SHARED_COLLATERAL_NOTE
     orderable: Literal[False] = False
 
 
@@ -202,6 +210,7 @@ def _payload(latest: FuturesAccountObservation, age: timedelta) -> FuturesAccoun
         enrollment_killswitch_enabled=(
             None if window is None else window.enrollment_killswitch_enabled
         ),
+        margin_ratio=_text(None if latest.balance is None else margin_ratio(latest.balance)),
     )
 
 

@@ -37,6 +37,7 @@ from thytrader.operator.models import (
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.operator.venue_reconciliation_compare import _asset_rows, _order_section, _quote_rows
+from thytrader.operator.venue_reconciliation_futures import futures_reconciliation
 from thytrader.operator.venue_reconciliation_listing import _read_balances, _read_open_orders
 from thytrader.operator.venue_reconciliation_managed import (
     _collect_inventory,
@@ -54,6 +55,8 @@ from thytrader.operator.venue_reconciliation_models import (
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.market_data.service import MarketDataService
     from thytrader.portfolio.service import PortfolioService
     from thytrader.trading.store import ExecutionStore
 
@@ -62,8 +65,14 @@ async def build_venue_reconciliation_report(
     *,
     portfolio: PortfolioService,
     execution: ExecutionStore | None,
+    futures_account: FuturesAccountSnapshotStore | None = None,
+    market_data: MarketDataService | None = None,
 ) -> VenueReconciliationReport:
-    """Compare managed live books against fresh venue balances and open orders."""
+    """Compare managed live books against fresh venue balances and open orders.
+
+    The futures section (ADR 0127) lists external CFM positions and futures orders as
+    unmanaged exposure; ThyTrader manages no futures.
+    """
     now = datetime.now(UTC)
     findings: list[VenueFinding] = []
     warnings: list[str] = []
@@ -80,6 +89,9 @@ async def build_venue_reconciliation_report(
     quotes = _quote_rows(inventory, balance_rows, listing_complete, managed_complete)
     orders_section = _order_section(
         inventory, venue_orders, orders_evidence, findings, managed_complete
+    )
+    futures = await futures_reconciliation(
+        portfolio=portfolio, store=futures_account, market_data=market_data, findings=findings
     )
     demo = balances.demo or orders_evidence.demo
     if demo:
@@ -111,6 +123,7 @@ async def build_venue_reconciliation_report(
             assets=assets,
             quote_currencies=quotes,
             orders=orders_section,
+            futures=futures,
             findings=tuple(findings),
         ),
     )

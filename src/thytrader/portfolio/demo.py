@@ -40,3 +40,7 @@ class DemoExchangeAccount:
     async def list_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
         """The demo venue rests no orders."""
         return ()
+
+    async def list_futures_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """The demo venue rests no futures orders."""
+        return ()

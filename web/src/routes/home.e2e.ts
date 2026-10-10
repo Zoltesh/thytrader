@@ -1653,3 +1653,129 @@ test('loading skeletons hold still under prefers-reduced-motion', async ({ page 
 		.poll(() => skeleton.evaluate((node) => getComputedStyle(node).animationName))
 		.toBe('shimmer');
 });
+
+// ---------------------------------------------------------------- futures (ADR 0127)
+
+function futuresReport(
+	enablement: 'enabled' | 'not_enabled' | 'unknown' | null,
+	overrides: Record<string, unknown> = {},
+	reasonCode = 'OK'
+): unknown {
+	const enabled = enablement === 'enabled';
+	return {
+		schema_version: 'thytrader-operator-report-v1',
+		application_version: '0.1.0',
+		generated_at: iso(0),
+		timezone: 'UTC',
+		overall_status: reasonCode === 'OK' ? 'healthy' : 'degraded',
+		components: [
+			{ name: 'futures_account', status: 'healthy', reason_code: reasonCode, detail: 'x' }
+		],
+		redaction: {
+			secrets_redacted: true,
+			raw_environment_omitted: true,
+			account_identifiers_omitted: true,
+			balances_omitted: false
+		},
+		partial_result_warnings: [],
+		recommended_next_action: 'No action required.',
+		payload: {
+			observed_at: enablement === null ? null : iso(30_000),
+			age_seconds: enablement === null ? null : 30,
+			stale: enablement === null ? null : false,
+			enablement,
+			read_failures: enablement === 'unknown' ? ['balance_summary:http_401'] : [],
+			balance: enabled
+				? {
+						currency: 'USD',
+						futures_buying_power: '514.24',
+						total_usd_balance: '0.01',
+						cbi_usd_balance: '0.01',
+						cfm_usd_balance: '0',
+						total_open_orders_hold_amount: '0',
+						unrealized_pnl: '0',
+						daily_realized_pnl: '0',
+						initial_margin: '0',
+						available_margin: '514.24',
+						liquidation_threshold: '0',
+						liquidation_buffer_amount: '514.24',
+						liquidation_buffer_percentage: '100',
+						total_pending_transfers_amount: '0',
+						funding_pnl: '0',
+						intraday_margin: null,
+						overnight_margin: null
+					}
+				: null,
+			positions: enabled ? [] : null,
+			intraday_margin_setting: null,
+			margin_window_type: null,
+			margin_window_end_at: null,
+			intraday_killswitch_enabled: null,
+			enrollment_killswitch_enabled: null,
+			margin_ratio: null,
+			collateral_note: 'note',
+			orderable: false,
+			...overrides
+		}
+	};
+}
+
+async function openWithFutures(page: Page, report: unknown): Promise<void> {
+	await mockHome(page);
+	await page.route('**/api/v1/operator/futures-account', (route) =>
+		route.fulfill({ json: report })
+	);
+	await openHome(page);
+}
+
+test('futures card shows buying power shared with USDC and no positions', async ({ page }) => {
+	await openWithFutures(page, futuresReport('enabled'));
+	const card = page.getByTestId('futures-card');
+	await expect(card.getByTestId('futures-enablement')).toHaveText('Enabled');
+	await expect(card).toContainText('Buying power');
+	await expect(card).toContainText('$514.24');
+	await expect(card).toContainText('Margin ratio');
+	await expect(card).toContainText('No open positions');
+	await expect(card.getByTestId('futures-shared-note')).toContainText(
+		'shared with your USDC spot balance'
+	);
+	await expect(card.getByTestId('futures-positions')).toHaveText('No open futures positions');
+});
+
+test('futures card lists an external position with its margin ratio', async ({ page }) => {
+	await openWithFutures(
+		page,
+		futuresReport('enabled', {
+			margin_ratio: '11.2304',
+			positions: [{ product_id: 'ETP-20DEC30-CDE', side: 'short', number_of_contracts: '1' }]
+		})
+	);
+	const card = page.getByTestId('futures-card');
+	await expect(card).toContainText('11.23');
+	await expect(card.getByTestId('futures-positions')).toContainText(
+		'External, not managed by any bot: ETP-20DEC30-CDE short 1 contract(s)'
+	);
+});
+
+test('futures card says not enabled without inventing balances', async ({ page }) => {
+	await openWithFutures(page, futuresReport('not_enabled'));
+	const card = page.getByTestId('futures-card');
+	await expect(card.getByTestId('futures-enablement')).toHaveText('Not enabled');
+	await expect(card.getByTestId('futures-not-enabled')).toBeVisible();
+	await expect(card).not.toContainText('$');
+});
+
+test('futures card says unknown when the balance read failed', async ({ page }) => {
+	await openWithFutures(page, futuresReport('unknown', {}, 'FUTURES_ACCOUNT_UNKNOWN'));
+	const card = page.getByTestId('futures-card');
+	await expect(card.getByTestId('futures-enablement')).toHaveText('Unknown');
+	await expect(card.getByTestId('futures-unknown')).toContainText('unknown, not zero');
+	await expect(card).toContainText('balance_summary:http_401');
+	await expect(card.getByTestId('futures-positions')).toContainText('unknown');
+});
+
+test('futures card stays hidden when futures were never observed', async ({ page }) => {
+	await openWithFutures(page, futuresReport(null, {}, 'FUTURES_MIRROR_NOT_RUN'));
+	await expect(page.getByTestId('fee-tier')).toBeVisible();
+	await expect(page.getByTestId('futures-card')).toHaveCount(0);
+});

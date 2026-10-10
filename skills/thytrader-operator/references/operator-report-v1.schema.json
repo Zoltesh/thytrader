@@ -3259,7 +3259,8 @@
         "permissions",
         "price",
         "fees",
-        "open_orders"
+        "open_orders",
+        "futures_open_orders"
       ],
       "title": "ExchangeReadOperation",
       "type": "string"
@@ -4089,7 +4090,7 @@
     },
     "FuturesAccountPayload": {
       "additionalProperties": false,
-      "description": "The latest mirror snapshot, or nothing before the first one.\n\n``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the\nvenue reported none. ``read_failures`` lists ``operation:reason`` tokens.",
+      "description": "The latest mirror snapshot, or nothing before the first one.\n\n``positions`` is ``null`` when the position read failed (unknown) and ``[]`` when the\nvenue reported none. ``read_failures`` lists ``operation:reason`` tokens.\n``margin_ratio`` is ``available_margin / liquidation_threshold`` (``null`` when either\nis unknown or the threshold is not positive, as on a flat account).\n``collateral_note`` states that futures buying power is shared with the USDC spot\nbalance.",
       "properties": {
         "observed_at": {
           "anyOf": [
@@ -4227,6 +4228,23 @@
             }
           ],
           "title": "Enrollment Killswitch Enabled"
+        },
+        "margin_ratio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Ratio"
+        },
+        "collateral_note": {
+          "default": "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): futures buying power is shared with USDC spot capital, not additional money. Amounts here are USD and are never added to USDC amounts.",
+          "title": "Collateral Note",
+          "type": "string"
         },
         "orderable": {
           "const": false,
@@ -4532,6 +4550,90 @@
         "overnight_margin"
       ],
       "title": "FuturesBalancePayload",
+      "type": "object"
+    },
+    "FuturesExternalPositionRow": {
+      "additionalProperties": false,
+      "description": "One CFM position; ``notional_usd`` is ``null`` when its contract size is unknown.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "long",
+            "short",
+            "unknown"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "number_of_contracts": {
+          "title": "Number Of Contracts",
+          "type": "string"
+        },
+        "contract_size": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Size"
+        },
+        "underlying": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Underlying"
+        },
+        "current_price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Price"
+        },
+        "notional_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notional Usd"
+        },
+        "classification": {
+          "const": "external_unmanaged",
+          "default": "external_unmanaged",
+          "title": "Classification",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "side",
+        "number_of_contracts"
+      ],
+      "title": "FuturesExternalPositionRow",
       "type": "object"
     },
     "FuturesMarginMeasurePayload": {
@@ -4977,6 +5079,90 @@
         "display_name"
       ],
       "title": "FuturesProductSummary",
+      "type": "object"
+    },
+    "FuturesReconciliationSection": {
+      "additionalProperties": false,
+      "description": "External CFM positions (mirror snapshot) and futures orders (fresh listing).\n\n``positions_source`` is ``mirror_snapshot`` for a current snapshot, ``stale`` when it\nis older than 180 s (positions then still shown but unproved), ``unavailable`` when the\nposition read failed and ``not_observed`` when no snapshot exists. ``positions`` is\n``null`` when unknown. ``unmanaged_notional_usd`` sums every position's notional only\nwhen all are known.",
+      "properties": {
+        "positions_source": {
+          "enum": [
+            "mirror_snapshot",
+            "stale",
+            "unavailable",
+            "not_observed"
+          ],
+          "title": "Positions Source",
+          "type": "string"
+        },
+        "positions_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Positions Observed At"
+        },
+        "positions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/FuturesExternalPositionRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Positions"
+        },
+        "unmanaged_notional_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unmanaged Notional Usd"
+        },
+        "orders": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ForeignOpenOrderRow"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Orders"
+        },
+        "orders_listing": {
+          "$ref": "#/$defs/VenueListingEvidence"
+        },
+        "note": {
+          "default": "ThyTrader manages no futures, so every CFM position and futures order is external, unmanaged exposure (ADR 0127). Positions come from the newest read-only mirror snapshot; notional is USD (contracts x contract size x current price) and is never added to USDC. Futures margin draws on the USDC spot balance, which Coinbase counts as collateral.",
+          "title": "Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "positions_source"
+      ],
+      "title": "FuturesReconciliationSection",
       "type": "object"
     },
     "HealthPayload": {
@@ -7209,7 +7395,8 @@
               "funding_history",
               "operator_products_kind",
               "futures_candles",
-              "account_mirror"
+              "account_mirror",
+              "readiness_reconciliation"
             ],
             "type": "string"
           },
@@ -9714,6 +9901,220 @@
       "title": "ReadinessFinding",
       "type": "object"
     },
+    "ReadinessFuturesPosition": {
+      "additionalProperties": false,
+      "description": "One external CFM position: unmanaged, never part of any book.",
+      "properties": {
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "long",
+            "short",
+            "unknown"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "number_of_contracts": {
+          "title": "Number Of Contracts",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "side",
+        "number_of_contracts"
+      ],
+      "title": "ReadinessFuturesPosition",
+      "type": "object"
+    },
+    "ReadinessFuturesSection": {
+      "additionalProperties": false,
+      "description": "The CFM futures account from the newest mirror snapshot (ADR 0127).\n\nEvery amount is USD and is never added to a USDC amount. Coinbase counts the USDC\nspot balance as futures collateral, so ``futures_buying_power`` is shared with USDC\nspot capital (``collateral_note``). ``positions`` is ``null`` when unknown.",
+      "properties": {
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Observed At"
+        },
+        "stale": {
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "enablement": {
+          "enum": [
+            "enabled",
+            "not_enabled",
+            "unknown"
+          ],
+          "title": "Enablement",
+          "type": "string"
+        },
+        "currency": {
+          "const": "USD",
+          "default": "USD",
+          "title": "Currency",
+          "type": "string"
+        },
+        "futures_buying_power": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Buying Power"
+        },
+        "cbi_usd_balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cbi Usd Balance"
+        },
+        "cfm_usd_balance": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cfm Usd Balance"
+        },
+        "available_margin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Available Margin"
+        },
+        "liquidation_threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Liquidation Threshold"
+        },
+        "liquidation_buffer_amount": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Liquidation Buffer Amount"
+        },
+        "liquidation_buffer_percentage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Liquidation Buffer Percentage"
+        },
+        "margin_ratio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Margin Ratio"
+        },
+        "unrealized_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unrealized Pnl"
+        },
+        "funding_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Funding Pnl"
+        },
+        "positions": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ReadinessFuturesPosition"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Positions"
+        },
+        "collateral_note": {
+          "title": "Collateral Note",
+          "type": "string"
+        }
+      },
+      "required": [
+        "observed_at",
+        "stale",
+        "enablement",
+        "collateral_note"
+      ],
+      "title": "ReadinessFuturesSection",
+      "type": "object"
+    },
     "ReadinessInventoryEvidence": {
       "additionalProperties": false,
       "description": "Storage-read completeness and economic completeness are independent evidence.",
@@ -9944,6 +10345,17 @@
         },
         "fee_evidence": {
           "$ref": "#/$defs/ReadinessFeeEvidence"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReadinessFuturesSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "findings": {
           "default": [],
@@ -12532,7 +12944,8 @@
           "enum": [
             "not_observed",
             "venue_balances",
-            "spot_order_history_nonterminal"
+            "spot_order_history_nonterminal",
+            "futures_order_history_nonterminal"
           ],
           "title": "Scope",
           "type": "string"
@@ -12630,6 +13043,17 @@
         },
         "orders": {
           "$ref": "#/$defs/OrderReconciliationSection"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesReconciliationSection"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "findings": {
           "default": [],

@@ -9,14 +9,23 @@ reported as a fact here and is not added to any spot total.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from datetime import datetime
-    from decimal import Decimal
 
 FUTURES_ACCOUNT_CURRENCY = "USD"
+# Observed 2026-10-10 on the live account (ADR 0127): futures buying power 514.24 with
+# cbi_usd_balance 0.01 and cfm_usd_balance 0, so Coinbase counts the USDC spot balance as
+# CFM collateral. Futures margin and USDC spot books draw on one collateral pool.
+SHARED_COLLATERAL_NOTE = (
+    "Coinbase counts the USDC spot balance as CFM futures collateral (observed 2026-10-10): "
+    "futures buying power is shared with USDC spot capital, not additional money. Amounts "
+    "here are USD and are never added to USDC amounts."
+)
+_RATIO_PLACES = Decimal("0.0001")
 
 
 class FuturesEnablement(StrEnum):
@@ -130,6 +139,19 @@ class FuturesAccountReadError(RuntimeError):
         super().__init__(f"Coinbase futures {operation} read failed ({reason}).")
         self.operation = operation
         self.reason = reason
+
+
+def margin_ratio(balance: FuturesBalanceSummary) -> Decimal | None:
+    """Return ``available_margin / liquidation_threshold`` to four places, when defined.
+
+    ``None`` when either amount is unknown or the threshold is not positive (a flat
+    account has no liquidation threshold); never a guessed ratio.
+    """
+    available = balance.available_margin
+    threshold = balance.liquidation_threshold
+    if available is None or threshold is None or threshold <= 0:
+        return None
+    return (available / threshold).quantize(_RATIO_PLACES)
 
 
 class FuturesAccountStoreUnavailableError(RuntimeError):

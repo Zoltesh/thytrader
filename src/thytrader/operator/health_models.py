@@ -171,6 +171,7 @@ class OpsContractPayload(_FrozenModel):
             "operator_products_kind",
             "futures_candles",
             "account_mirror",
+            "readiness_reconciliation",
         ],
         ...,
     ]
