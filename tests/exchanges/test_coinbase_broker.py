@@ -653,3 +653,22 @@ async def test_get_order_offloads_the_blocking_transport_call() -> None:
     assert result.status is OrderStatus.OPEN
     assert ticks == 8
     assert elapsed < delay_seconds * 1.5
+
+
+@pytest.mark.parametrize("product_id", ["BIP-20DEC30-CDE", "BIT-30OCT26-CDE", "BTC-PERP-INTX"])
+def test_place_order_refuses_non_spot_ids_before_any_request(product_id: str) -> None:
+    """ADR 0126: no futures order path; the broker refuses before touching the venue."""
+    transport = FakeTransport(gets={})
+    broker = CoinbaseRestBroker(transport)
+    with pytest.raises(BrokerError, match="futures orders are unsupported"):
+        asyncio.run(
+            broker.place_order(
+                client_order_id="c-1",
+                product_id=product_id,
+                side=OrderSide.BUY,
+                kind=OrderKind.POST_ONLY_LIMIT,
+                quantity=Decimal(1),
+                price=Decimal(100),
+            )
+        )
+    assert transport.calls == []

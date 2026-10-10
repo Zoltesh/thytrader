@@ -10,6 +10,17 @@ import json
 import time
 from typing import Protocol, cast, runtime_checkable
 
+from thytrader.market_data.instrument_catalog import (
+    FuturesCatalogCache,
+    build_instrument_catalog,
+)
+from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.market_data.instruments import (
+    FuturesCatalogProvider,
+    Instrument,
+    InstrumentCatalog,
+    InstrumentKind,
+)
 from thytrader.market_data.models import (
     CandleInterval,
     CandleRangeReport,
@@ -88,14 +99,20 @@ class MarketDataService:
         provider: MarketDataProvider,
         *,
         window_cache: DeployWindowCache | None = None,
+        futures_provider: FuturesCatalogProvider | None = None,
     ) -> None:
         """Initialize the service around a provider-neutral data boundary.
 
         ``window_cache`` remembers deploy-anchored execution windows for this service's
         provider (ADR 0113). Each service instance gets its own cache, so a venue
         credential swap starts empty and demo candles never mix with venue candles.
+        ``futures_provider`` adds the read-only futures listing (ADR 0126); without it
+        (demo mode) the instrument catalog is spot-only and futures ids are unknown.
         """
         self._provider = provider
+        self.futures_catalog = (
+            None if futures_provider is None else FuturesCatalogCache(futures_provider)
+        )
         self.window_cache = window_cache if window_cache is not None else DeployWindowCache()
         self._catalog_lock = asyncio.Lock()
         self._catalog: ProductCatalogSnapshot | None = None
@@ -155,6 +172,31 @@ class MarketDataService:
         ):
             return None
         return found
+
+    async def instrument_catalog(self) -> InstrumentCatalog:
+        """Return spot and futures instruments; each keeps its own fingerprint (ADR 0126)."""
+        spot = await self.catalog_snapshot()
+        futures = None if self.futures_catalog is None else await self.futures_catalog.snapshot()
+        return build_instrument_catalog(spot, futures)
+
+    async def enabled_instrument(self, product_id: str) -> Instrument | None:
+        """Return one enabled spot or futures instrument, or ``None`` when absent/disabled.
+
+        Spot ids take the existing spot path unchanged. A futures id without a configured
+        futures provider is ``None`` (unknown, never assumed enabled).
+        """
+        if not is_futures_product_id(product_id):
+            spot = await self.enabled_spot_product(product_id)
+            if spot is None:
+                return None
+            return Instrument(product_id=spot.product_id, kind=InstrumentKind.SPOT, spot=spot)
+        if self.futures_catalog is None:
+            return None
+        snapshot = await self.futures_catalog.snapshot()
+        found = next((p for p in snapshot.products if p.product_id == product_id), None)
+        if found is None or not found.trading_enabled:
+            return None
+        return Instrument(product_id=found.product_id, kind=found.kind, future=found)
 
     def _set_catalog(
         self, products: tuple[MarketProduct, ...], *, observed_at: datetime | None = None

@@ -1,6 +1,7 @@
 # 0045: Spot shorting and attached entry brackets
 
-- Status: Accepted
+- Status: Accepted — superseded in part by [0126](0126-futures-instrument-catalog-read-only.md)
+  (futures on data and read-only surfaces only; every order rule here stands)
 - Date: 2026-09-16
 - Relates to: [0004](0004-safe-execution-and-access.md), [0005](0005-canonical-strategy-schema.md),
   [0009](0009-deterministic-bar-level-backtest-engine.md),
