@@ -114,6 +114,17 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   cross-instrument orders and a strategy still trades one instrument (or its ADR 0056 covered
   products, which all share the same references). Omitting the list keeps canonical bytes and
   fingerprints; declaring one changes the fingerprint.
+- **Futures documents** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)) trade one
+  Coinbase CFM contract: `"instrument": {"product_id": "BIP-20DEC30-CDE", "base_currency": "BTC",
+  "quote_currency": "USD", "kind": "future"}` plus `"derivatives": {"max_leverage": "2"}`
+  (1–20; optional `flatten_before_expiry_hours` 1–720 for dated contracts; `margin_mode` is always
+  `overnight`). `base_currency` is the contract's underlying (`thytrader-operator products --kind
+  future` shows it; `BIP` is BTC), `quote_currency` is `USD`, the settlement currency. A futures
+  document has no `additional_instruments` and no reference instruments. Spot documents omit
+  `kind` and `derivatives`, so their bytes and fingerprints never change. **Status:** futures
+  documents can be saved and validated, but backtests return `FUTURES_BACKTEST_UNSUPPORTED` and
+  deployments `FUTURES_PAPER_UNSUPPORTED` / `FUTURES_LIVE_UNSUPPORTED` until the kernel and paper
+  futures books ship. Never invent a futures result.
 - Starting a backtest, study, or deployment **snapshots** the current definition automatically:
   canonical JSON addressed by `strategy_fingerprint` (`sha256:` + 64 hex), deduplicated. Results,
   studies, jobs, and bots record `strategy_id` plus that snapshot `strategy_fingerprint`, so they

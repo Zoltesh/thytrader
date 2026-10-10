@@ -22,6 +22,12 @@ from pydantic import (
     model_validator,
 )
 
+from thytrader.evaluation.futures_spec import (
+    FundingAssumption,
+    InstrumentContract,
+    MarginAssumption,
+    validate_fee_per_contract,
+)
 from thytrader.evaluation.stress import ExecutionStress
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
@@ -234,6 +240,16 @@ class CostAssumptions(_FrozenModel):
     execution_stress: ExecutionStress | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
+    # Futures only (ADR 0128): USD per contract per fill, beside the rate fees.
+    fee_per_contract: DecimalText | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+
+    @field_validator("fee_per_contract")
+    @classmethod
+    def require_bounded_contract_fee(cls, value: str | None) -> str | None:
+        """Bound the per-contract fee when set."""
+        return validate_fee_per_contract(value)
 
     @field_validator("maker_fee_rate", "taker_fee_rate")
     @classmethod
@@ -327,6 +343,27 @@ class ResearchRunSpecification(_FrozenModel):
     costs: CostAssumptions
     engine: BacktestEngine = BACKTEST_ENGINE
     random_seed: int = Field(strict=True, ge=0, le=2**63 - 1)
+    # Futures only (ADR 0128); every field is omitted for spot so spot specs keep bytes.
+    instrument_contract: InstrumentContract | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    margin: MarginAssumption | None = Field(default=None, exclude_if=lambda value: value is None)
+    funding: FundingAssumption | None = Field(default=None, exclude_if=lambda value: value is None)
+
+    @model_validator(mode="after")
+    def require_consistent_futures_fields(self) -> Self:
+        """A contract needs a margin assumption; only a perp needs (and allows) funding."""
+        contract = self.instrument_contract
+        if (contract is None) != (self.margin is None):
+            raise ValueError("instrument_contract and margin are set together")
+        perp = contract is not None and contract.kind == "perpetual_future"
+        if perp != (self.funding is not None):
+            raise ValueError("funding is required for perpetual contracts and only for them")
+        if contract is None and self.costs.fee_per_contract is not None:
+            raise ValueError("costs.fee_per_contract applies to futures runs only")
+        if contract is not None and self.capital.quote_currency != "USD":
+            raise ValueError("a futures run's capital is in USD, the settlement currency")
+        return self
 
     @field_validator("run_id")
     @classmethod

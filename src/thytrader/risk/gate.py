@@ -20,6 +20,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.risk.beta_exposure import beta_verdict
 from thytrader.risk.breakers import (
@@ -87,8 +88,10 @@ def evaluate_new_deployment(
             "Live trading requires an operator-published risk policy; the compiled "
             "default cannot arm live orders.",
         )
-    occupied = _occupied(deployments, mode)
     covered = tuple(product_ids) if product_ids else (product_id,)
+    if any(is_futures_product_id(covered_product) for covered_product in covered):
+        return _futures_deployment_refused(mode)
+    occupied = _occupied(deployments, mode)
     for covered_product in covered:
         allowlisted = _allowlist_verdict(policy, covered_product)
         if allowlisted.decision is RiskDecision.DENY:
@@ -108,6 +111,19 @@ def evaluate_new_deployment(
             policy, occupied, strategy_id, paper_starting_cash, product_id=product_id
         )
     return _allow()
+
+
+def _futures_deployment_refused(mode: DeploymentMode) -> RiskVerdict:
+    """No futures deployment exists in this release (ADR 0128/0129)."""
+    if mode is DeploymentMode.LIVE:
+        return _deny(
+            RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
+            "Live futures deployments are not supported; there is no futures order path.",
+        )
+    return _deny(
+        RiskReasonCode.FUTURES_PAPER_UNSUPPORTED,
+        "Paper futures deployments are not available yet.",
+    )
 
 
 def evaluate_new_entry(

@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     from thytrader.backtest.service import BacktestResultWriter
     from thytrader.market_data.datasets import DatasetStore
     from thytrader.market_data.products import SpotQuoteCurrency
+    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategyDatasetBinding, StrategySnapshot
 
 __all__ = [
@@ -169,6 +170,7 @@ class StoreBacktestSubmitter:
         try:
             _validate_submission_assumptions(request)
             strategy = await self._strategy_store.load(request.strategy_fingerprint)
+            _require_spot_backtest(strategy.definition)
             request = _with_evaluation_window(request, strategy, self._dataset_store)
             _validate_submission_assumptions(
                 request, quote_currency=strategy.definition.instrument.quote_currency
@@ -399,3 +401,11 @@ def _execution_fingerprint(
 def _utc_millisecond(value: datetime) -> datetime:
     """Normalize a server timestamp to the UUIDv7-representable UTC millisecond."""
     return value.astimezone(UTC).replace(microsecond=(value.microsecond // 1_000) * 1_000)
+
+
+def _require_spot_backtest(definition: StrategyDefinition) -> None:
+    """Refuse futures documents until the kernel simulates them (ADR 0128)."""
+    if definition.instrument.is_future:
+        raise BacktestSubmissionRejectedError(
+            "FUTURES_BACKTEST_UNSUPPORTED: futures backtests are not available yet."
+        )
