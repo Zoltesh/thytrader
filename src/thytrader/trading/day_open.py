@@ -39,11 +39,15 @@ class DailyOpeningEvidence(BaseModel):
     """Reconstructed day equity with fill identity and actual overnight inventory marks.
 
     Readers revalidate the fill fingerprint and projections. This is derived evidence,
-    not permission to rewrite legacy equity stamps or operational cash.
+    not permission to rewrite legacy equity stamps or operational cash. A paper futures
+    book also reverses its applied funding (``per_product_applied_fills_and_funding_v1``,
+    ADR 0129 §4); its fingerprint then covers the funding hours too.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
-    source: Literal["per_product_applied_fills_v1"] = "per_product_applied_fills_v1"
+    source: Literal["per_product_applied_fills_v1", "per_product_applied_fills_and_funding_v1"] = (
+        "per_product_applied_fills_v1"
+    )
     day_start: datetime
     equity: Decimal = Field(allow_inf_nan=False)
     fills_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")

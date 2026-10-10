@@ -111,7 +111,9 @@ class IntentPurpose(StrEnum):
     ``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``
     rule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the
     venue account already held (ADR 0124); it is not an entry, so it never consumes the
-    entry-rate cap and is never cancelled as risk-increasing.
+    entry-rate cap and is never cancelled as risk-increasing. ``LIQUIDATION`` is the
+    protective marketable exit a paper futures book sends when its equity falls below
+    maintenance (ADR 0129 §4); like every exit it is never gated.
     """
 
     ENTRY = "entry"
@@ -121,6 +123,7 @@ class IntentPurpose(StrEnum):
     BRACKET = "bracket"
     SIGNAL_EXIT = "signal_exit"
     ADOPTION = "adoption"
+    LIQUIDATION = "liquidation"
 
 
 INVENTORY_OPENING_PURPOSES: frozenset[IntentPurpose] = frozenset(
@@ -218,6 +221,25 @@ class Fill:
     filled_at: datetime
     venue_order_id: str | None = None
     economics_applied_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FundingCashFlow:
+    """One funding hour applied to a paper futures book's cash (ADR 0129 §4).
+
+    ``amount`` is ``-signed_quantity x mark_price x rate`` in USD: longs pay a positive
+    rate and shorts receive it. It is applied once, in the same row-locked transaction that
+    updates the book's cash, and is part of the book's ledger like a fill.
+    """
+
+    deployment_id: UUID
+    product_id: str
+    funding_time: datetime
+    signed_quantity: Decimal
+    mark_price: Decimal
+    rate: Decimal
+    amount: Decimal
+    applied_at: datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +406,8 @@ class DeploymentSnapshot:
     instrument_runtimes: tuple[InstrumentRuntime, ...] = field(default_factory=tuple)
     accounting_complete: bool = True
     """False for product overlays: omitted sibling economics cannot prove account risk."""
+    funding: tuple[FundingCashFlow, ...] = field(default_factory=tuple)
+    """Applied funding of a paper futures book; always empty for spot books."""
 
 
 def with_runtime(

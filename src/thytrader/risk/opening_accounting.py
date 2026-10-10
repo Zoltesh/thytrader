@@ -22,7 +22,7 @@ from thytrader.trading.protection import missing_occupied_inventory_products
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from thytrader.trading.models import DeploymentSnapshot, Fill, Order
+    from thytrader.trading.models import DeploymentSnapshot, Fill, FundingCashFlow, Order
 
 _ZERO = Decimal("0")
 
@@ -34,6 +34,7 @@ class OpeningReplay:
     day_cash_change: Decimal
     midnight_quantities: dict[str, Decimal]
     fills_fingerprint: str
+    includes_funding: bool = False
 
 
 def utc_day_start(moment: datetime) -> datetime:
@@ -47,6 +48,8 @@ def opening_replay(snapshot: DeploymentSnapshot, *, as_of: datetime) -> OpeningR
 
     A product overlay, orphan/unapplied fill, future fill, or contradictory cash/base
     projection is incomplete. Signed BTC and ETH quantities never cancel each other.
+    Applied funding of a paper futures book (ADR 0129 §4) is cash movement like a fill:
+    it counts toward the projection and, from the UTC day start, toward the day's change.
     """
     if (
         not snapshot.accounting_complete
@@ -89,10 +92,45 @@ def opening_replay(snapshot: DeploymentSnapshot, *, as_of: datetime) -> OpeningR
                 fill.filled_at.isoformat(),
             )
         )
+    for flow in snapshot.funding:
+        if not _funding_qualified(flow, snapshot, as_of=as_of):
+            return None
+        cash_change += flow.amount
+        if flow.funding_time >= day_start:
+            day_cash_change += flow.amount
+        records.append(
+            (
+                "funding",
+                flow.product_id,
+                flow.funding_time.isoformat(),
+                str(flow.signed_quantity),
+                str(flow.mark_price),
+                str(flow.rate),
+                str(flow.amount),
+            )
+        )
     if not _projection_matches(snapshot, current, cash_change):
         return None
     fingerprint = sha256(json.dumps(sorted(records), separators=(",", ":")).encode()).hexdigest()
-    return OpeningReplay(day_cash_change, midnight, "sha256:" + fingerprint)
+    return OpeningReplay(
+        day_cash_change,
+        midnight,
+        "sha256:" + fingerprint,
+        includes_funding=bool(snapshot.funding),
+    )
+
+
+def _funding_qualified(
+    flow: FundingCashFlow, snapshot: DeploymentSnapshot, *, as_of: datetime
+) -> bool:
+    """An applied funding hour belongs to this book, is exact, and is not in the future."""
+    numbers = (flow.signed_quantity, flow.mark_price, flow.rate, flow.amount)
+    return (
+        flow.deployment_id == snapshot.deployment.id
+        and all(isinstance(value, Decimal) and value.is_finite() for value in numbers)
+        and flow.funding_time.tzinfo is not None
+        and flow.funding_time <= as_of
+    )
 
 
 def _orders_covered(snapshot: DeploymentSnapshot, *, as_of: datetime) -> bool:
@@ -181,6 +219,11 @@ def reconstruct_day_open(
         equity += quantity * mark.price
         midnight_marks.append(mark)
     return DailyOpeningEvidence(
+        source=(
+            "per_product_applied_fills_and_funding_v1"
+            if replay.includes_funding
+            else "per_product_applied_fills_v1"
+        ),
         day_start=day_start,
         equity=equity,
         fills_fingerprint=replay.fills_fingerprint,

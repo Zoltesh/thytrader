@@ -869,7 +869,7 @@
           "title": "Strategy Fingerprint"
         },
         "product_id": {
-          "pattern": "^[A-Z0-9]{2,20}-(?:USD|USDC|USDT)$",
+          "pattern": "^(?:[A-Z0-9]{2,20}-(?:USD|USDC|USDT)|[A-Z0-9]{2,6}-\\d{2}[A-Z]{3}\\d{2}-CDE)$",
           "title": "Product Id",
           "type": "string"
         },
@@ -2021,14 +2021,15 @@
       "type": "string"
     },
     "DecisionExitReason": {
-      "description": "Which exit rule closed (or is closing) the position on this bar.\n\n``signal`` is the strategy's ``exits.signal_exit`` rule (ADR 0093).",
+      "description": "Which exit rule closed (or is closing) the position on this bar.\n\n``signal`` is the strategy's ``exits.signal_exit`` rule (ADR 0093). ``liquidation`` is a\npaper futures book closed below maintenance (ADR 0129 §4).",
       "enum": [
         "stop",
         "trail",
         "target",
         "time",
         "flatten",
-        "signal"
+        "signal",
+        "liquidation"
       ],
       "title": "DecisionExitReason",
       "type": "string"
@@ -5478,7 +5479,7 @@
     },
     "FuturesRiskPolicy": {
       "additionalProperties": false,
-      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.",
+      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital.",
       "properties": {
         "live_spot_collateral_reserve_quote": {
           "anyOf": [
@@ -5496,6 +5497,30 @@
           "default": "1.25",
           "title": "Peg Haircut",
           "type": "string"
+        },
+        "paper_capital_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Capital Usd"
+        },
+        "daily_loss_limit_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Loss Limit Fraction"
         }
       },
       "title": "FuturesRiskPolicy",
@@ -6074,7 +6099,7 @@
       "type": "object"
     },
     "IntentPurpose": {
-      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing.",
+      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing. ``LIQUIDATION`` is the\nprotective marketable exit a paper futures book sends when its equity falls below\nmaintenance (ADR 0129 §4); like every exit it is never gated.",
       "enum": [
         "entry",
         "take_profit",
@@ -6082,7 +6107,8 @@
         "time_exit",
         "bracket",
         "signal_exit",
-        "adoption"
+        "adoption",
+        "liquidation"
       ],
       "title": "IntentPurpose",
       "type": "string"
@@ -7737,7 +7763,8 @@
               "futures_strategy_documents",
               "futures_backtest_kernel",
               "futures_backtest_submission",
-              "futures_fee_preview_probe"
+              "futures_fee_preview_probe",
+              "paper_futures_books"
             ],
             "type": "string"
           },
@@ -12873,7 +12900,7 @@
           "type": "string"
         },
         "product_id": {
-          "pattern": "^[A-Z0-9]{2,20}-(?:USD|USDC|USDT)$",
+          "pattern": "^(?:[A-Z0-9]{2,20}-(?:USD|USDC|USDT)|[A-Z0-9]{2,6}-\\d{2}[A-Z]{3}\\d{2}-CDE)$",
           "title": "Product Id",
           "type": "string"
         },
@@ -12885,7 +12912,8 @@
             "time_exit",
             "bracket",
             "signal_exit",
-            "adoption"
+            "adoption",
+            "liquidation"
           ],
           "title": "Purpose",
           "type": "string"
@@ -13045,7 +13073,8 @@
         "time_exit",
         "bracket",
         "signal_exit",
-        "adoption"
+        "adoption",
+        "liquidation"
       ],
       "title": "TradeReasonSignalKind",
       "type": "string"

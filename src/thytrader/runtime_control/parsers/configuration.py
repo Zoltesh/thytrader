@@ -207,6 +207,24 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--futures-paper-capital-usd",
+        default=None,
+        help=(
+            "Simulated USD envelope for paper futures books (ADR 0129 §4), separate from "
+            "--paper-capital-quote. Unset refuses every paper futures start "
+            "(FUTURES_POLICY_UNSET). Omitting this flag unsets it."
+        ),
+    )
+    set_policy.add_argument(
+        "--futures-daily-loss-limit-fraction",
+        default=None,
+        help=(
+            "Futures-scope daily loss limit as a fraction (0, 1] of --futures-paper-capital-usd; "
+            "unset uses --daily-loss-limit-fraction. A latched futures breaker also denies "
+            "paper spot entries in USD/USDC (SHARED_COLLATERAL_BREAKER), and vice versa."
+        ),
+    )
+    set_policy.add_argument(
         "--allocation",
         action="append",
         default=[],

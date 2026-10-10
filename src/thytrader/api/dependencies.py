@@ -14,6 +14,7 @@ from thytrader.data_control.service import ingestion_provider
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
 from thytrader.execution.decision_store import DecisionJournalStore
+from thytrader.execution.futures_start import FuturesStart
 from thytrader.execution.user_feed_state import UserOrderFeedStateStore
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.feed_state import MarketFeedStateStore
@@ -29,7 +30,9 @@ from thytrader.persistence.postgres_adoption import PostgresInventoryAdoptionSto
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
+from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
 from thytrader.persistence.postgres_research_jobs import PostgresResearchJobStore
 from thytrader.persistence.postgres_research_queue import PostgresResearchQueue
 from thytrader.persistence.postgres_research_runs import PostgresResearchRunStore
@@ -371,6 +374,24 @@ def get_futures_account_store(request: Request) -> FuturesAccountSnapshotStore |
         return injected
     engine = get_database_engine(request)
     return None if engine is None else PostgresFuturesAccountStore(engine)
+
+
+def get_futures_start(request: Request) -> FuturesStart | None:
+    """Return the stores a paper futures start binds its contract with (ADR 0129 §4).
+
+    Tests may inject one on ``app.state.futures_start``; without a database there is none
+    and a futures start is refused.
+    """
+    injected = getattr(request.app.state, "futures_start", None)
+    if injected is not None:
+        return injected
+    engine = get_database_engine(request)
+    if engine is None:
+        return None
+    return FuturesStart(
+        contracts=PostgresFuturesContractStore(engine),
+        observations=PostgresFuturesObservationStore(engine),
+    )
 
 
 def get_database_engine(request: Request) -> AsyncEngine | None:

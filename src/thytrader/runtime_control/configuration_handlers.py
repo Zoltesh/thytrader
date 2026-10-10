@@ -183,16 +183,14 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
 
 def _futures_block(arguments: argparse.Namespace) -> dict[str, str] | None:
     """Map the futures flags onto the optional policy block (ADR 0129); ``None`` when unset."""
-    reserve = arguments.futures_live_spot_collateral_reserve_quote
-    haircut = arguments.futures_peg_haircut
-    if reserve is None and haircut is None:
-        return None
-    block: dict[str, str] = {}
-    if reserve is not None:
-        block["live_spot_collateral_reserve_quote"] = reserve
-    if haircut is not None:
-        block["peg_haircut"] = haircut
-    return block
+    fields = {
+        "live_spot_collateral_reserve_quote": arguments.futures_live_spot_collateral_reserve_quote,
+        "peg_haircut": arguments.futures_peg_haircut,
+        "paper_capital_usd": arguments.futures_paper_capital_usd,
+        "daily_loss_limit_fraction": arguments.futures_daily_loss_limit_fraction,
+    }
+    block = {name: value for name, value in fields.items() if value is not None}
+    return block or None
 
 
 def _parse_allocation(value: str) -> dict[str, str]:

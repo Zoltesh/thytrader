@@ -87,12 +87,17 @@ from thytrader.persistence.tables.futures import (
     futures_funding_rates,
     futures_instrument_observations,
 )
+from thytrader.persistence.tables.futures_books import (
+    deployment_instrument_contracts,
+    futures_funding_entries,
+)
 # isort: on
 
 __all__ = [
     "active_risk_policy",
     "audit_events",
     "bar_decisions",
+    "deployment_instrument_contracts",
     "deployment_twin_links",
     "deployments",
     "execution_fills",
@@ -108,6 +113,7 @@ __all__ = [
     "fleet_entry_inhibition",
     "futures_account_snapshots",
     "futures_catalog_poll_state",
+    "futures_funding_entries",
     "futures_funding_rates",
     "futures_instrument_observations",
     "futures_position_snapshots",

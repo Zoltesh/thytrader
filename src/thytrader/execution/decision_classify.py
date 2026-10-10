@@ -54,11 +54,19 @@ _EXIT_PURPOSES = frozenset(
         IntentPurpose.TIME_EXIT,
         IntentPurpose.BRACKET,
         IntentPurpose.SIGNAL_EXIT,
+        IntentPurpose.LIQUIDATION,
     }
 )
 
 
-_MARKET_EXITS = frozenset({IntentPurpose.STOP, IntentPurpose.TIME_EXIT, IntentPurpose.SIGNAL_EXIT})
+_MARKET_EXITS = frozenset(
+    {
+        IntentPurpose.STOP,
+        IntentPurpose.TIME_EXIT,
+        IntentPurpose.SIGNAL_EXIT,
+        IntentPurpose.LIQUIDATION,
+    }
+)
 
 
 _SUBMITTED = frozenset(
@@ -220,6 +228,8 @@ def _market_exit_reason(context: BarContext, purpose: IntentPurpose) -> Decision
         return DecisionExitReason.TIME
     if purpose is IntentPurpose.SIGNAL_EXIT:
         return DecisionExitReason.SIGNAL
+    if purpose is IntentPurpose.LIQUIDATION:
+        return DecisionExitReason.LIQUIDATION
     deployment = (context.after or context.before).deployment
     if deployment.lifecycle_command is LifecycleCommand.FLATTEN:
         return DecisionExitReason.FLATTEN

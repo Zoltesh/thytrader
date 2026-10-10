@@ -30,8 +30,16 @@ if TYPE_CHECKING:
     from thytrader.trading.models import DeploymentSnapshot, Order, Position
 
 _ACTIVE = frozenset({OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN})
-_EXIT_PURPOSES = frozenset({IntentPurpose.STOP, IntentPurpose.TIME_EXIT, IntentPurpose.SIGNAL_EXIT})
-"""Marketable exits: stop/flatten, time exit, and the ``exits.signal_exit`` rule (ADR 0093)."""
+_EXIT_PURPOSES = frozenset(
+    {
+        IntentPurpose.STOP,
+        IntentPurpose.TIME_EXIT,
+        IntentPurpose.SIGNAL_EXIT,
+        IntentPurpose.LIQUIDATION,
+    }
+)
+"""Marketable exits: stop/flatten, time exit, the ``exits.signal_exit`` rule (ADR 0093) and
+a paper futures liquidation (ADR 0129)."""
 _FLAT_PHASES = frozenset({RuntimePhase.FLAT})
 
 CANCEL_BEFORE_EXIT_DETAIL = "Could not cancel resting orders before a marketable exit."

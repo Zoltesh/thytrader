@@ -84,6 +84,7 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         settings=settings,
         i_understand_live=live and arguments.i_understand_live,
         adopt_holdings=arguments.adopt_holdings,
+        paper_fee_per_contract=getattr(arguments, "fee_per_contract", None),
     )
 
 

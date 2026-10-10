@@ -37,9 +37,11 @@ from thytrader.execution.freshness import entry_prerequisites, signal_still_vali
 from thytrader.execution.runtime_ops import _active_entry, _flatten_pending, _pause
 from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr
 from thytrader.execution.submit import submit_intent
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
 from thytrader.strategies.models import can_pyramid_add
+from thytrader.trading.futures_book import current_futures_book
 from thytrader.trading.geometry import EntrySkipReason, entry_order_side
 from thytrader.trading.ids import utc_now
 from thytrader.trading.lifecycle import entries_allowed
@@ -316,9 +318,9 @@ async def _submit_sized_entry(
     fee_profile: FeeProfile | None = None,
 ) -> DeploymentSnapshot:
     """Size an entry or same-side add and rest a post-only order when policy allows it."""
-    atr = latest_atr(strategy, candles)
-    if atr is None:
-        note_entry_block("ATR_UNDEFINED", "The initial-stop ATR has no value on this bar.")
+    atr = _sizing_atr(snapshot, strategy=strategy, candles=candles, product_id=product.product_id)
+    if isinstance(atr, tuple):
+        note_entry_block(*atr)
         return snapshot
     side = PositionSide(strategy.entry.side)
     open_side = entry_order_side(side)
@@ -418,6 +420,35 @@ async def _submit_sized_entry(
             snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
         )
     return snapshot
+
+
+def _sizing_atr(
+    snapshot: DeploymentSnapshot,
+    *,
+    strategy: StrategyDefinition,
+    candles: Sequence[Candle],
+    product_id: str,
+) -> Decimal | tuple[str, str]:
+    """The initial-stop ATR, or the code and detail of why no entry can be sized."""
+    blocked = _futures_entry_block(snapshot, product_id=product_id)
+    if blocked is not None:
+        return blocked
+    atr = latest_atr(strategy, candles)
+    if atr is None:
+        return ("ATR_UNDEFINED", "The initial-stop ATR has no value on this bar.")
+    return atr
+
+
+def _futures_entry_block(
+    snapshot: DeploymentSnapshot, *, product_id: str
+) -> tuple[str, str] | None:
+    """A paper futures entry needs its binding, margin and funding evidence (ADR 0129)."""
+    if not is_futures_product_id(product_id):
+        return None
+    state = current_futures_book(snapshot.deployment.id)
+    if state is None:
+        return ("FUTURES_CONTRACT_UNBOUND", "The paper futures book state is not loaded.")
+    return state.entry_block()
 
 
 def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:

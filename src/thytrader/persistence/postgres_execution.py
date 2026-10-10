@@ -48,6 +48,7 @@ from thytrader.persistence.postgres_execution_statements import (
     _worker_lease_update,
 )
 from thytrader.persistence.postgres_fleet_admission import refuse_postgres_entry
+from thytrader.persistence.postgres_futures_funding import apply_funding
 from thytrader.persistence.postgres_inventory_lock import lock_entry_base
 from thytrader.persistence.schema import (
     deployment_twin_links,
@@ -105,6 +106,7 @@ if TYPE_CHECKING:
         TargetResult,
     )
     from thytrader.strategies.snapshots import StrategySnapshot
+    from thytrader.trading.models import FundingCashFlow
 
 
 __all__ = ["PostgresExecutionStore", "_deployment_values", "_snapshot"]
@@ -665,6 +667,23 @@ class PostgresExecutionStore:
                     )
                 refreshed = await _snapshot(connection, replace(parent, revision=next_revision))
                 return True, refreshed
+        except SQLAlchemyError as error:
+            raise ExecutionStoreError("Execution storage is unavailable.") from error
+
+    async def apply_funding_transaction(
+        self,
+        deployment_id: UUID,
+        *,
+        flows: tuple[FundingCashFlow, ...],
+        expected_revision: int | None = None,
+    ) -> tuple[int, DeploymentSnapshot]:
+        """Apply unseen paper futures funding hours to cash under the row lock (ADR 0129)."""
+        try:
+            async with self._engine.begin() as connection:
+                applied, deployment = await apply_funding(
+                    connection, deployment_id, flows, expected_revision=expected_revision
+                )
+                return applied, await _snapshot(connection, deployment)
         except SQLAlchemyError as error:
             raise ExecutionStoreError("Execution storage is unavailable.") from error
 

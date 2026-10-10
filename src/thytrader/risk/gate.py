@@ -41,6 +41,12 @@ from thytrader.risk.entry_limits import (
     _occupied,
 )
 from thytrader.risk.futures_collateral import collateral_verdict
+from thytrader.risk.futures_entry import (
+    evaluate_futures_entry,
+    futures_capital,
+    futures_deployment_verdict,
+    linked_breaker_verdict,
+)
 from thytrader.risk.gate_common import ProposedEntry, _allow, _deny
 from thytrader.risk.models import (
     RiskDecision,
@@ -89,7 +95,8 @@ def evaluate_new_deployment(
             "default cannot arm live orders.",
         )
     covered = tuple(product_ids) if product_ids else (product_id,)
-    if any(is_futures_product_id(covered_product) for covered_product in covered):
+    futures = any(is_futures_product_id(covered_product) for covered_product in covered)
+    if futures and mode is DeploymentMode.LIVE:
         return _futures_deployment_refused(mode)
     occupied = _occupied(deployments, mode)
     for covered_product in covered:
@@ -106,23 +113,30 @@ def evaluate_new_deployment(
             RiskReasonCode.MAX_RUNNING_DEPLOYMENTS,
             "Occupied deployments already use every running slot for this mode.",
         )
+    if futures:
+        return futures_deployment_verdict(
+            policy,
+            mode=mode,
+            covered=covered,
+            paper_starting_cash=paper_starting_cash,
+            deployments=deployments,
+        )
     if mode is DeploymentMode.PAPER:
+        spot_occupied = tuple(
+            item for item in occupied if not is_futures_product_id(item.product_id)
+        )
         return _paper_deploy_capital(
-            policy, occupied, strategy_id, paper_starting_cash, product_id=product_id
+            policy, spot_occupied, strategy_id, paper_starting_cash, product_id=product_id
         )
     return _allow()
 
 
 def _futures_deployment_refused(mode: DeploymentMode) -> RiskVerdict:
-    """No futures deployment exists in this release (ADR 0128/0129)."""
-    if mode is DeploymentMode.LIVE:
-        return _deny(
-            RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
-            "Live futures deployments are not supported; there is no futures order path.",
-        )
+    """Live futures deployments wait for P2 (ADR 0128/0129); paper uses its own envelope."""
+    del mode
     return _deny(
-        RiskReasonCode.FUTURES_PAPER_UNSUPPORTED,
-        "Paper futures deployments are not available yet.",
+        RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
+        "Live futures deployments are not supported; there is no futures order path.",
     )
 
 
@@ -146,8 +160,15 @@ def evaluate_new_entry(
     the BTC-beta evidence for the β cap (ADR 0125); it is ignored while no β cap binds
     in ``mode`` and denies as unavailable when a cap binds and it is missing.
     ``futures_collateral`` is the classified CFM account (ADR 0129); ``None`` means no
-    evidence was requested (paper) and changes nothing.
+    evidence was requested (paper) and changes nothing. A futures product is admitted by the
+    futures scope (``evaluate_futures_entry``); a USD/USDC paper spot entry is also denied
+    while a paper futures book's daily-loss breaker is latched (collateral-linked, §7).
     """
+    scoped = _scope_verdict(
+        policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+    )
+    if scoped is not None:
+        return scoped
     occupied = tuple(
         item
         for item in snapshots
@@ -230,6 +251,22 @@ def evaluate_new_entry(
     )
 
 
+def _scope_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    snapshots: Sequence[DeploymentSnapshot],
+    observation: EntryObservation | None,
+) -> RiskVerdict | None:
+    """Admit futures in their own scope; deny linked spot entries under a futures latch."""
+    if is_futures_product_id(proposed.product_id):
+        return evaluate_futures_entry(
+            policy, mode=mode, proposed=proposed, snapshots=snapshots, observation=observation
+        )
+    return linked_breaker_verdict(mode=mode, product_id=proposed.product_id, snapshots=snapshots)
+
+
 def _portfolio_verdict(
     portfolio: PortfolioRiskBook | None,
     *,
@@ -272,7 +309,11 @@ def evaluate_runtime_breakers(
     )
     if incomplete is not None:
         return incomplete
-    capital = _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
+    capital = (
+        futures_capital(policy, mode)
+        if is_futures_product_id(snapshot.deployment.product_id)
+        else _capital_base(policy, mode=mode, live_quote_cash=live_quote_cash, occupied=occupied)
+    )
     tripped = evaluate_circuit_breakers(
         policy,
         mode=mode,

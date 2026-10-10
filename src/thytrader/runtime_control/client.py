@@ -134,6 +134,7 @@ def start_deployment(
     settings: Settings | None = None,
     i_understand_live: bool = False,
     adopt_holdings: str | None = None,
+    paper_fee_per_contract: str | None = None,
 ) -> object:
     """Start one paper or live deployment from a strategy's current rules.
 
@@ -156,6 +157,8 @@ def start_deployment(
         payload["taker_fee_rate"] = taker_fee_rate
     if adopt_holdings is not None:
         payload["adopt_holdings"] = adopt_holdings
+    if paper_fee_per_contract is not None:
+        payload["paper_fee_per_contract"] = paper_fee_per_contract
     return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}",

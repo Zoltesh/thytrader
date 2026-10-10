@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.capital import live_sizing_cash
 from thytrader.strategies.models import atr_trailing_stop
+from thytrader.trading.futures_book import current_futures_book
 from thytrader.trading.geometry import EntrySkipReason
 from thytrader.trading.ids import utc_now
 from thytrader.trading.ledger import PAPER_MAKER_FEE_RATE, effective_paper_fee_rates
@@ -62,6 +63,7 @@ def _size_entry_or_add(
     if sizing_cash is None:
         return EntrySkipReason.SIZING_CASH_UNAVAILABLE
     if not is_pyramid_add:
+        futures = current_futures_book(snapshot.deployment.id)
         return size_entry_or_skip(
             strategy=strategy,
             cash=sizing_cash,
@@ -70,6 +72,7 @@ def _size_entry_or_add(
             product=product,
             fee_rate=fee_rate,
             side=side,
+            margin=None if futures is None else futures.margin,
         )
     position = snapshot.position
     if position is None:

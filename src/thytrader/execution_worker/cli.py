@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
+from thytrader.execution.futures_paper import FuturesRuntime, futures_runtime_scope
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.service import run_execution_worker
 from thytrader.execution_worker.venue import ExecutionVenueRuntime
@@ -22,7 +23,9 @@ from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
+from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
@@ -86,9 +89,17 @@ async def run() -> None:
         _logger.info("execution_worker_started")
         user_feed_store = PostgresUserOrderFeedStateStore(engine)
         initial = venue_runtime.current()
-        # Live entry admission reads the CFM mirror for the shared-collateral gate
-        # (ADR 0129); tasks created below inherit this binding.
-        with risk_futures_account_scope(PostgresFuturesAccountStore(engine)):
+        # Live entry admission reads the CFM mirror for the shared-collateral gate, and
+        # paper futures books read their bound contract, margin and funding (ADR 0129);
+        # tasks created below inherit these bindings.
+        futures_runtime = FuturesRuntime(
+            contracts=PostgresFuturesContractStore(engine),
+            observations=PostgresFuturesObservationStore(engine),
+        )
+        with (
+            risk_futures_account_scope(PostgresFuturesAccountStore(engine)),
+            futures_runtime_scope(futures_runtime),
+        ):
             await asyncio.gather(
                 run_execution_worker(
                     stop_requested,

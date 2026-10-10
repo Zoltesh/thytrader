@@ -17,11 +17,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.market_data.models import MarketProduct
+
 if TYPE_CHECKING:
     from datetime import date, datetime, timedelta
     from decimal import Decimal
-
-    from thytrader.market_data.models import MarketProduct
 
 
 class InstrumentKind(StrEnum):
@@ -188,3 +188,24 @@ class FuturesCatalogProvider(Protocol):
     async def list_futures_products(self) -> tuple[FuturesProduct, ...]:
         """Return the complete current futures listing or raise; never a partial list."""
         ...
+
+
+def futures_market_product(product: FuturesProduct) -> MarketProduct:
+    """Express one futures contract's venue constraints in base units (ADR 0129 §4).
+
+    Paper futures books keep base-equivalent quantities (contracts x ``contract_size``), so
+    the order step and minimum are ``contract_size`` times the venue's contract counts.
+    Quote fields have no venue meaning for a futures contract; the price tick stands in
+    for them, and futures sizing never reads them.
+    """
+    return MarketProduct(
+        product_id=product.product_id,
+        base_currency=product.underlying,
+        quote_currency=product.settlement_currency,
+        price_increment=product.price_increment,
+        base_increment=product.base_increment * product.contract_size,
+        quote_increment=product.price_increment,
+        base_min_size=product.base_min_size * product.contract_size,
+        quote_min_size=product.price_increment,
+        trading_enabled=product.trading_enabled,
+    )

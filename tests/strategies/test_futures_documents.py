@@ -233,11 +233,11 @@ def test_spot_specs_refuse_futures_only_fields_and_futures_need_usd() -> None:
     ("mode", "code"),
     [
         (DeploymentMode.LIVE, RiskReasonCode.FUTURES_LIVE_UNSUPPORTED),
-        (DeploymentMode.PAPER, RiskReasonCode.FUTURES_PAPER_UNSUPPORTED),
+        (DeploymentMode.PAPER, RiskReasonCode.FUTURES_POLICY_UNSET),
     ],
 )
 def test_futures_strategies_cannot_be_deployed(mode: DeploymentMode, code: RiskReasonCode) -> None:
-    """No deployment path admits a futures product in this release."""
+    """Live futures wait for P2; paper futures need the policy's futures envelope."""
     verdict = evaluate_new_deployment(
         compiled_default_risk_policy(),
         mode=mode,

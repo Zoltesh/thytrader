@@ -18,10 +18,13 @@ from pydantic import Field, field_serializer, field_validator, model_validator
 
 from thytrader.decimal_text import canonical_decimal
 from thytrader.market_data.instrument_ids import FUTURES_PRODUCT_ID_PATTERN
+from thytrader.market_data.instruments import InstrumentKind
 from thytrader.strategies.schema.primitives import DecimalText, _FrozenModel
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from thytrader.market_data.futures_observations import FuturesInstrumentObservation
 
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _MAX_STRESS_MULTIPLIER = Decimal(5)
@@ -220,3 +223,20 @@ def funding_hours(starts_at: datetime, ends_at: datetime) -> tuple[datetime, ...
         hours.append(cursor)
         cursor += _HOUR
     return tuple(hours)
+
+
+def contract_from_observation(observation: FuturesInstrumentObservation) -> InstrumentContract:
+    """The contract binding of one recorded catalog observation (its payload fingerprint).
+
+    Perp-style contracts carry no expiry (the venue's far-future sentinel is dropped).
+    """
+    perpetual = observation.kind is InstrumentKind.PERPETUAL_FUTURE
+    return InstrumentContract(
+        product_id=observation.product_id,
+        kind="perpetual_future" if perpetual else "dated_future",
+        underlying=observation.underlying,
+        contract_size=observation.contract_size,
+        expires_at=None if perpetual else observation.venue_expiry_at,
+        listed_expiry=observation.listed_expiry,
+        catalog_fingerprint=observation.payload_fingerprint,
+    )

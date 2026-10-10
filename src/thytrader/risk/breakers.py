@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.risk.models import RiskDecision, RiskPolicyDefinition, RiskReasonCode, RiskVerdict
 from thytrader.risk.opening_accounting import reconstruct_day_open
@@ -217,7 +218,7 @@ def _daily_loss_verdict(
             RiskReasonCode.BREAKER_MARK_MISSING,
             "Daily-loss unavailable: missing positive same-quote account capital.",
         )
-    limit = capital * Decimal(policy.daily_loss_limit_fraction)
+    limit = capital * _daily_loss_fraction(policy, occupied)
     # The absolute quote ceiling protects real money; paper uses the capital fraction only.
     if policy.max_daily_loss_quote is not None and mode is DeploymentMode.LIVE:
         limit = min(limit, Decimal(policy.max_daily_loss_quote))
@@ -227,6 +228,20 @@ def _daily_loss_verdict(
         RiskReasonCode.DAILY_LOSS_LIMIT,
         "Daily realized plus unrealized loss reached the risk-policy limit.",
     )
+
+
+def _daily_loss_fraction(
+    policy: RiskPolicyDefinition, occupied: Sequence[DeploymentSnapshot]
+) -> Decimal:
+    """The futures scope may set its own daily loss fraction (ADR 0129 §7)."""
+    futures = policy.futures
+    if (
+        futures is not None
+        and futures.daily_loss_limit_fraction is not None
+        and any(is_futures_product_id(item.deployment.product_id) for item in occupied)
+    ):
+        return Decimal(futures.daily_loss_limit_fraction)
+    return Decimal(policy.daily_loss_limit_fraction)
 
 
 def _drawdown_verdict(
@@ -567,8 +582,19 @@ def _snapshot_products(snapshot: DeploymentSnapshot) -> tuple[str, ...]:
     return tuple(product for product in products if product)
 
 
+FUTURES_SCOPE = "CFM-USD"
+"""The settlement scope key of CFM futures books (ADR 0129 §1).
+
+Futures books are USD but a separate scope: they are never summed with spot USD, USDC or
+USDT books, so their own key keeps every same-quote bucket (capital, exposure, daily loss,
+drawdown) apart from spot.
+"""
+
+
 def _product_quote(product_id: str) -> str | None:
-    """Return USD, USDC, or USDT, or None for an unsupported product id."""
+    """Return USD, USDC, USDT, the futures scope, or None for an unsupported product id."""
+    if is_futures_product_id(product_id):
+        return FUTURES_SCOPE
     if not is_spot_product_id(product_id):
         return None
     return quote_currency(product_id)

@@ -26,6 +26,14 @@ class CreateDeploymentRequest(BaseModel):
     paper_starting_cash: str | None = None
     maker_fee_rate: str | None = None
     taker_fee_rate: str | None = None
+    paper_fee_per_contract: str | None = Field(
+        default=None,
+        description=(
+            "Paper futures only (ADR 0129 §4): the USD fee per contract the book pays on "
+            "every fill. Required, with explicit maker_fee_rate and taker_fee_rate, for a "
+            "futures strategy; refused for spot."
+        ),
+    )
     adopt_holdings: str | None = Field(
         default=None,
         pattern=r"^(all|\d+(\.\d+)?)$",
