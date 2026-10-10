@@ -7,10 +7,10 @@
  * here invents state: absent values render as explicit unknowns.
  */
 import { canonicalPositions, type Deployment } from './deployments';
-import { productIdQuote } from './product-id';
+import { displayQuoteOf, isFuturesProductId, productIdQuote } from './product-id';
 import { workspaceHref } from './strategy-workspace';
 
-export { productIdQuote };
+export { displayQuoteOf, productIdQuote };
 
 export const LIFECYCLE_INSTRUCTION_LABELS: Record<string, string> = {
 	none: 'Entries enabled',
@@ -56,8 +56,9 @@ export function resumeBreakerNote(deployment: Deployment): string | null {
 		: `${latched} breaker is latched. Resume changes the lifecycle to Running, but new entries remain blocked until the latch is reset separately.`;
 }
 
+/** Currency label of a bot's amounts: USD for a futures book, else the spot id's quote. */
 function quoteOf(deployment: Deployment): string {
-	return productIdQuote(deployment.product_id) ?? 'unknown quote';
+	return displayQuoteOf(deployment.product_id) ?? 'unknown quote';
 }
 
 /** Build the accessible title for a lifecycle confirmation dialog. */
@@ -188,9 +189,11 @@ export function workingOrderCount(deployment: Deployment): number {
  * Human market label for a Coinbase product id.
  *
  * `UNI-USDC` renders `UNI / USDC` by reading the quote from the id itself —
- * never a blanket USD→USDC substitution. Ids without a dash render unchanged.
+ * never a blanket USD→USDC substitution. Ids without a dash, and CFM futures
+ * contracts (`BIP-20DEC30-CDE`, whose tail is an expiry, not a quote), render unchanged.
  */
 export function marketLabel(productId: string): string {
+	if (isFuturesProductId(productId)) return productId;
 	const quote = productIdQuote(productId);
 	if (quote === null) return productId;
 	return `${productId.slice(0, productId.length - quote.length - 1)} / ${quote}`;

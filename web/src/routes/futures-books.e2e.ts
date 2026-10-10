@@ -244,6 +244,54 @@ test('a spot bot makes no futures request and shows no futures card', async ({ p
 	expect(futuresRequests()).toBe(0);
 });
 
+const headlineLedger = {
+	trade_count: 2,
+	total_net_pnl: '-19.70',
+	total_return_fraction: '-0.0197',
+	mark_complete: true,
+	marked_exposure: null
+};
+
+test('futures bot headline figures are labelled USD, never the contract tail', async ({ page }) => {
+	await mockDetail(
+		page,
+		futuresDeployment({
+			ledger: headlineLedger,
+			capital: { allocated_capital: '1000', performance_equity: '980.30' }
+		}),
+		book()
+	);
+	await page.goto(`/deployments/${futuresId}`);
+	await expect(page.getByTestId('bot-lede')).toContainText(`${product} · 1h`);
+	await expect(page.getByTestId('kpi-capital')).toContainText('1000 USD');
+	await expect(page.getByTestId('kpi-capital')).toContainText('Performance equity 980.30 USD');
+	await expect(page.getByTestId('performance-error')).toContainText('net P&L -19.70 USD');
+	const headline = page.locator('[data-testid="bot-lede"], .kpis');
+	for (const text of await headline.allInnerTexts()) {
+		// An amount labelled with the contract tail (`1000 20DEC30-CDE`) is the old bug.
+		expect(text).not.toMatch(/\d 20DEC30-CDE/);
+		expect(text).not.toContain('/ 20DEC30-CDE');
+	}
+	await expect(page.getByTestId('kpi-capital')).not.toContainText('CDE');
+});
+
+test('spot bot headline figures keep the product quote', async ({ page }) => {
+	await mockDetail(
+		page,
+		deployment({
+			id: spotId,
+			ledger: headlineLedger,
+			capital: { allocated_capital: '1000', performance_equity: '980.30' }
+		}),
+		{}
+	);
+	await page.goto(`/deployments/${spotId}`);
+	await expect(page.getByTestId('bot-lede')).toContainText('BTC / USDC · 1h');
+	await expect(page.getByTestId('kpi-capital')).toContainText('1000 USDC');
+	await expect(page.getByTestId('kpi-capital')).toContainText('Performance equity 980.30 USDC');
+	await expect(page.getByTestId('performance-error')).toContainText('net P&L -19.70 USDC');
+});
+
 test('Portfolio marks a futures book with a USD paper badge', async ({ page }) => {
 	await page.route(
 		(url) => url.pathname === '/api/v1/deployments',

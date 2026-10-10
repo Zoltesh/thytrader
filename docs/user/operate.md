@@ -737,7 +737,10 @@ minimum, the liquidation price, the funding total and hours charged, and the mos
 hours (a negative amount was paid). **New entries denied: …** names each reason in plain words
 with its code, and anything unreadable is listed as "Unknown, not zero"; those figures read
 **Unknown**. The card states that the book is paper only and that, in reality, Coinbase counts
-your USDC spot balance as futures collateral. Spot bots do not show it.
+your USDC spot balance as futures collateral. Spot bots do not show it. On a futures bot the
+header names the contract as is (`BIP-20DEC30-CDE`, not split into a base and quote) and the four
+cards, the capital breakdown and the positions table label amounts **USD**, the currency the
+book settles in; a spot bot keeps its product's own quote (`BTC / USDC`, amounts in USDC).
 Start a new deployment on the Run stage; manage an existing one there or on its detail page.
 
 ### Trade

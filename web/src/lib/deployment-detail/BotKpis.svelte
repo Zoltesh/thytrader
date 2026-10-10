@@ -14,7 +14,7 @@
 		performanceCurrencySuffix,
 		performanceHeadline,
 		performanceReportText,
-		productIdQuote,
+		displayQuoteOf,
 		quoteAmountLabel
 	} from '$lib/deployment-detail';
 	import { pnlOf, positionText, protectionText } from '$lib/deployment-portfolio';
@@ -109,7 +109,7 @@
 		<p class="delta">{protectionText(current, positions)}</p>
 		{#if positions.length === 1}
 			{@const book = positions[0]!}
-			{@const pnl = unrealizedText(book, productIdQuote(book.product_id) ?? '')}
+			{@const pnl = unrealizedText(book, displayQuoteOf(book.product_id) ?? '')}
 			{@const held = `held ${heldText(book.entered_bar, now)}`}
 			<p class="delta" data-testid="kpi-position-pnl">
 				{#if pnl !== null}<span class="upnl {pnl.tone}" title={markTitle(book)}

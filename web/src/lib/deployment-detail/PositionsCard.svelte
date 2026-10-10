@@ -3,7 +3,7 @@
 	 * Open books of a bot with their stop, target, last-bar unrealized PnL,
 	 * time held (ADR 0098), and truthful protection badge (ADR 0112).
 	 */
-	import { productIdQuote } from '$lib/deployment-detail';
+	import { displayQuoteOf } from '$lib/deployment-detail';
 	import type { DeploymentPosition } from '$lib/deployments';
 	import { heldText, markTitle, unrealizedText } from '$lib/open-books';
 	import { protectionBadge } from '$lib/protection-evidence';
@@ -39,7 +39,7 @@
 			</thead>
 			<tbody>
 				{#each positions as position (position.product_id)}
-					{@const pnl = unrealizedText(position, productIdQuote(position.product_id) ?? '')}
+					{@const pnl = unrealizedText(position, displayQuoteOf(position.product_id) ?? '')}
 					{@const badge = protectionBadge(position, { fallback: 'sentence' })}
 					<tr>
 						<td>{position.product_id}</td>
