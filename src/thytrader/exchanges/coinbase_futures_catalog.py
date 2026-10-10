@@ -41,8 +41,6 @@ from thytrader.market_data.instruments import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from thytrader.exchanges.coinbase_market_data import CoinbaseResponse
-
 FUTURES_LISTING_PAGE_SIZE = 50
 _MAX_PAGES = 20
 _FCM_VENUE = "FCM"
@@ -51,6 +49,14 @@ _FUNDING_INTERVAL = re.compile(r"^([1-9][0-9]{0,6})s$")
 
 class CoinbaseFuturesCatalogError(ValueError):
     """Signal a malformed or possibly incomplete futures listing; never a partial result."""
+
+
+class CoinbaseListingResponse(Protocol):
+    """Minimal SDK response behavior: conversion to untrusted plain data."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert one SDK response to plain Python data."""
+        ...
 
 
 class CoinbaseFuturesListingClient(Protocol):
@@ -65,7 +71,7 @@ class CoinbaseFuturesListingClient(Protocol):
         contract_expiry_type: str | None = None,
         expiring_contract_status: str | None = None,
         get_all_products: bool = False,
-    ) -> CoinbaseResponse:
+    ) -> CoinbaseListingResponse:
         """Return one page of the public product listing."""
         ...
 

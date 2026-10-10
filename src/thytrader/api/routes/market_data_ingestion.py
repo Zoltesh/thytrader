@@ -22,6 +22,7 @@ from thytrader.market_data.feed_state import (
 from thytrader.market_data.freshness import (
     evaluate_freshness,
 )
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN
 from thytrader.market_data.models import CandleInterval, DatasetTimeframe
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.watch_coverage import island_covers_watch
@@ -141,7 +142,7 @@ class MarketFeedResponse(BaseModel):
 async def get_market_data_freshness(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=MARKET_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> FreshnessResponse:
     """Return explicit market data freshness evaluated against newest verified candle."""
@@ -218,7 +219,7 @@ async def get_ingestion_state(
     store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)] = "BTC-USD",
+    product_id: Annotated[str, Query(pattern=MARKET_PRODUCT_ID_PATTERN)] = "BTC-USD",
     timeframe: Annotated[DatasetTimeframe, Query()] = "1h",
 ) -> IngestionStateResponse:
     """Return durable ingestion evidence without initiating or mutating worker activity."""

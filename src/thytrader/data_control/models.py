@@ -8,13 +8,13 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN
 from thytrader.market_data.lookback import validate_watch_lookback_hours
 from thytrader.market_data.models import (
     DATASET_TIMEFRAME_PATTERN,
     CandleInterval,
     parse_candle_interval,
 )
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -57,7 +57,7 @@ class _FrozenModel(BaseModel):
 class WatchTargetRequest(_FrozenModel):
     """Add or replace one ingestion watch target."""
 
-    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
     lookback_hours: int = Field(default=168, ge=1)
     enabled: bool = True
@@ -73,7 +73,7 @@ class WatchTargetRequest(_FrozenModel):
 class IngestRequest(_FrozenModel):
     """Queue complete-only ingest for one watched target (unwatched targets are refused)."""
 
-    product_id: str = Field(pattern=SPOT_PRODUCT_ID_PATTERN)
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
     timeframe: str = Field(pattern=DATASET_TIMEFRAME_PATTERN)
 
 

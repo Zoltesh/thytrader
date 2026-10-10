@@ -165,7 +165,10 @@ class OpsContractPayload(_FrozenModel):
         description="Always empty: no surface can order a futures contract (ADR 0126).",
     )
     futures_observations: tuple[
-        Literal["instrument_catalog", "funding_history", "operator_products_kind"], ...
+        Literal[
+            "instrument_catalog", "funding_history", "operator_products_kind", "futures_candles"
+        ],
+        ...,
     ]
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 

@@ -22,6 +22,7 @@ from thytrader.data_control.models import (
     classify_gap,
     require_interval,
 )
+from thytrader.market_data.instrument_ids import futures_watch_retires_at, is_futures_product_id
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.watch_coverage import (
     bounded_lookback_start,
@@ -86,9 +87,9 @@ async def add_watch_target(
     enabled: bool,
     now: datetime,
 ) -> MarketDataWatchTarget:
-    """Validate a USD, USDC, or USDT spot product and upsert one watchlist row."""
+    """Validate a spot product or a 24/7 futures contract and upsert one watchlist row."""
     interval = require_interval(timeframe)
-    await _require_spot_product(market_data, product_id)
+    await _require_market_product(market_data, product_id, now=now)
     provider = ingestion_provider(settings)
     target = MarketDataWatchTarget(
         provider=provider,
@@ -286,13 +287,46 @@ async def inspect_gaps(
     )
 
 
-async def _require_spot_product(market_data: MarketDataService, product_id: str) -> None:
-    """Reject products that are not enabled spot markets in a complete current catalog.
+async def _require_market_product(
+    market_data: MarketDataService, product_id: str, *, now: datetime
+) -> None:
+    """Reject products that are not enabled in a complete current catalog.
 
+    Spot ids take the unchanged spot path. A futures id must be an enabled, unexpired
+    contract that trades 24/7: the dataset model has no session calendar, so a contract
+    with trading sessions is refused with ``INSTRUMENT_SESSIONS_UNSUPPORTED`` (ADR 0126).
     A catalog that fails to load, times out, or comes back empty or partial is a
     retryable 503 (:class:`ProductCatalogUnavailableError`), never a "not enabled"
     400: only a complete listing can prove a product is absent or disabled.
     """
+    if not is_futures_product_id(product_id):
+        await _require_spot_product(market_data, product_id)
+        return
+    try:
+        instrument = await market_data.enabled_instrument(product_id)
+    except Exception as error:
+        raise ProductCatalogUnavailableError(
+            "Could not verify the futures listing (it did not load or could not be proved "
+            "complete). Nothing was changed; retry the same command."
+        ) from error
+    future = None if instrument is None else instrument.future
+    if future is None:
+        raise DataControlError(
+            f"{product_id} is not an enabled Coinbase futures contract (or futures are not "
+            "configured in demo mode). List contracts with "
+            "`uv run thytrader-operator products --kind future`."
+        )
+    if not future.twenty_four_by_seven:
+        raise DataControlError(
+            f"INSTRUMENT_SESSIONS_UNSUPPORTED: {product_id} trades in sessions, and datasets "
+            "have no session calendar. Only 24/7 futures contracts can be watched."
+        )
+    if now >= futures_watch_retires_at(product_id):
+        raise DataControlError(f"{product_id} has expired; it has no further candles.")
+
+
+async def _require_spot_product(market_data: MarketDataService, product_id: str) -> None:
+    """Reject products that are not enabled spot markets in a complete current catalog."""
     try:
         product = await market_data.enabled_spot_product(product_id)
     except Exception as error:

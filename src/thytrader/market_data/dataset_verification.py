@@ -40,6 +40,7 @@ from thytrader.market_data.dataset_manifest import (
     DatasetStoreError,
     _manifest_no_trade_count,
     _require_supported_schema_version,
+    _require_volume_unit,
     _with_verified_no_trade_count,
 )
 from thytrader.market_data.dataset_validation import (
@@ -340,6 +341,7 @@ class _DatasetVerifier:
         content_fingerprint = cast("str", manifest_payload["content_fingerprint"])
         _validate_identifier(provider)
         _validate_identifier(product_id)
+        _require_volume_unit(manifest_payload, product_id)
         interval = _require_timeframe(timeframe)
         fingerprint_match = _FINGERPRINT.fullmatch(content_fingerprint)
         if fingerprint_match is None:

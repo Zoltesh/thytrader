@@ -98,6 +98,21 @@ Coinbase futures funding rates need no command in this lane: the market-data wor
 from the public futures listing every 5 minutes, and `uv run thytrader-operator funding` reads
 them (read-only; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)).
 
+`watch-add` also accepts a Coinbase futures contract such as `BIP-20DEC30-CDE` (find ids with
+`uv run thytrader-operator products --kind future`), for read-only data
+([ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)):
+
+- Only contracts with `twenty_four_by_seven: true` can be watched. Others (index perps, some
+  energy and metals) exit with HTTP 400 `INSTRUMENT_SESSIONS_UNSUPPORTED`: datasets have no
+  session calendar.
+- An expired contract is refused. A watch retires automatically (disabled, no more ingest)
+  after the day encoded in its id; its datasets stay in `data-catalog`.
+- Futures volume is in **contracts**, not base units; the dataset manifest says
+  `volume_unit: contracts`. Futures datasets are data only: strategies, backtests, paper and
+  live still accept spot products only.
+- Demo mode (no Coinbase credentials) has no futures listing, so `watch-add` refuses futures
+  ids as not enabled.
+
 `watch-add` accepts USD, USDC, and USDT spot products. The web Test/Run **Download data** action uses
 the same `PUT /api/v1/data/watchlist` plus no-wait `POST /api/v1/data/ingest` behind a confirmation,
 and watches at the timeframe's ceiling. Optional `--lookback-hours` on `watch-add` defaults to 168

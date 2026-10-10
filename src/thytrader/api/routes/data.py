@@ -36,8 +36,8 @@ from thytrader.data_control.service import (
     worker_state_payload,
 )
 from thytrader.market_data.datasets import DatasetStore
+from thytrader.market_data.instrument_ids import MARKET_PRODUCT_ID_PATTERN
 from thytrader.market_data.models import DatasetTimeframe
-from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import MarketDataWatchlistStore
 from thytrader.market_data.worker_state import MarketDataWorkerStateStore
@@ -127,7 +127,7 @@ async def get_ingest(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
+    product_id: Annotated[str, Query(pattern=MARKET_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Return pending ingest request state and latest worker coverage."""
@@ -203,7 +203,7 @@ async def get_gaps(
     state_store: Annotated[MarketDataWorkerStateStore, Depends(get_market_data_state_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
-    product_id: Annotated[str, Query(pattern=SPOT_PRODUCT_ID_PATTERN)],
+    product_id: Annotated[str, Query(pattern=MARKET_PRODUCT_ID_PATTERN)],
     timeframe: Annotated[DatasetTimeframe, Query()],
 ) -> dict[str, object]:
     """Classify missing bars. Does not interpolate or write Parquet."""

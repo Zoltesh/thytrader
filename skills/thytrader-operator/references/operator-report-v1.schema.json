@@ -6575,7 +6575,8 @@
             "enum": [
               "instrument_catalog",
               "funding_history",
-              "operator_products_kind"
+              "operator_products_kind",
+              "futures_candles"
             ],
             "type": "string"
           },

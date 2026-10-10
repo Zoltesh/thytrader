@@ -56,7 +56,10 @@ def test_data_help_names_every_supported_spot_quote(
         main(["--help"])
     assert raised.value.code == 0
     collapsed = " ".join(capsys.readouterr().out.split())
-    assert "Watch one USD, USDC, or USDT spot product and timeframe." in collapsed
+    assert (
+        "Watch one USD, USDC, or USDT spot product, or one 24/7 Coinbase futures contract "
+        "(read-only data), and timeframe." in collapsed
+    )
     assert "Watch one USD spot product" not in collapsed
 
 

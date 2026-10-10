@@ -104,7 +104,10 @@ def _parser() -> argparse.ArgumentParser:
     market.add_argument(
         "--product-id",
         default=None,
-        help="USD, USDC, or USDT spot product, default from settings.",
+        help=(
+            "USD, USDC, or USDT spot product, or a watched futures contract such as "
+            "BIP-20DEC30-CDE; default from settings."
+        ),
     )
     market.add_argument(
         "--timeframe",
