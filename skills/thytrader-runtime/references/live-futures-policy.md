@@ -51,7 +51,15 @@ Denial codes include `FUTURES_LIVE_DISABLED`, `FUTURES_LIVE_CAPITAL_UNSET`,
 They deny admission, not protective exits. Managed same-mode futures and USD/USDC spot daily-loss
 breakers are logically linked (`SHARED_COLLATERAL_BREAKER`), without adding their losses.
 Live beta netting remains disabled. Futures book equity for margin is allocation plus ledger
-equity; paper stays ledger equity.
+equity; paper stays ledger equity. Live allocation must be finite and positive even when a
+separate performance-capital basis is pinned. Unknown/nonfinite equity denies new entries with
+`BREAKER_MARK_MISSING`; a valid performance basis cannot substitute for margin capital.
+
+The futures daily-loss fraction applies to `live_capital_usd` (or `paper_capital_usd` for
+paper), with the optional `--futures-max-daily-loss-usd` absolute ceiling. An unset futures
+ceiling does **not** inherit the spot `--max-daily-loss-quote`, even for a USD spot policy.
+Spot USD and CFM USD are distinct settlement scopes. Linked latches still deny across the
+collateral group; they do not import another scope's limit.
 
 The worker does not yet supply this gate's live venue evidence. Live futures fleet-health,
 alerts, monitoring and start wiring remain later slices. Do not interpret a stored opt-in,

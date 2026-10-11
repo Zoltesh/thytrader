@@ -65,8 +65,9 @@ class FuturesRiskPolicy(BaseModel):
     A non-empty ``product_allowlist`` also restricts paper futures books. Live orders and the
     live position hold at most ``max_order_contracts`` contracts, **1** while it is unset.
     ``live_derisk_margin_ratio`` (> 1, on the venue's ``available_margin /
-    liquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are read by the live
-    margin monitor and funding drift alert. The opt-in never gates exits or protection.
+    liquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are stored for the
+    future live margin monitor and funding drift alert. The opt-in never gates exits or
+    protection.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
