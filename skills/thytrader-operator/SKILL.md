@@ -272,7 +272,12 @@ bypass.
 `peg_haircut`, `paper_capital_usd`, `daily_loss_limit_fraction`, `max_daily_loss_usd`,
 `max_leverage`, `min_liquidation_buffer_fraction`, `max_exposure_fraction`,
 `max_order_contracts`, `max_hourly_funding_rate_abs`, `max_btc_beta_exposure_fraction`,
-`beta_netting`; each null or absent when unset) and `futures_collateral` shows the shared-USDC-collateral gate
+`beta_netting`, plus P2-3 `live_enabled`, `live_capital_usd`, `product_allowlist`,
+`live_derisk_margin_ratio` and `live_funding_drift_tolerance_usd`; optional fields absent
+when unset). See [live futures policy evidence](references/report-schemas.md#live-futures-policy-evidence-p2-3).
+These settings are not live futures readiness: every start still refuses
+`FUTURES_LIVE_UNSUPPORTED`. Policy changes belong to the runtime lane, with confirmation;
+this lane only reads. `futures_collateral` shows the shared-USDC-collateral gate
 ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)):
 `state` (`absent`, `idle`, `in_use`, `unknown`), `cause`, the CFM `initial_margin_usd`,
 `open_orders_hold_usd` and `position_count`, the policy quote and reserve, and `effect` on new
@@ -333,7 +338,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v93`, schema revision `0075`) and exits on any
+   this checkout's (`thytrader-ops-contract-v94`, schema revision `0075`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;

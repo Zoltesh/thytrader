@@ -39,7 +39,11 @@ class AllocationBody(BaseModel):
 
 
 class RiskPolicyWriteBody(BaseModel):
-    """Operator-authored policy fields without identity or fingerprint."""
+    """Operator-authored policy fields without identity or fingerprint.
+
+    The shared futures model includes the P2-3 live fields without a second field mirror.
+    Publishing those settings does not enable the live futures start path.
+    """
 
     quote_currency: Literal["USD", "USDC", "USDT"] = "USDC"
     product_allowlist: tuple[str, ...] = ()

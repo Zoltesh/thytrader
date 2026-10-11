@@ -1,14 +1,17 @@
 """Property: USD, USDC, USDT and CFM futures USD are never summed (ADR 0129 §1, P1-5).
 
-Random fleets of paper books across every settlement scope are generated with a fixed seed.
+Random fleets of paper and live books across every settlement scope are generated with a fixed seed.
 For each proposed product, the capital, exposure and daily-loss paths must only ever see
 books of the proposed product's scope, and losses in other scopes must never trip it.
 """
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 import random
+
+import pytest
 
 from tests.risk.test_futures_gate_caps import _NOW, _book
 from thytrader.market_data.instrument_ids import is_futures_product_id
@@ -38,19 +41,32 @@ _POLICY = compiled_default_risk_policy().model_copy(
     update={
         "paper_capital_quote": "10000",
         "daily_loss_limit_fraction": "0.05",
-        "futures": FuturesRiskPolicy(paper_capital_usd="7000"),
+        "futures": FuturesRiskPolicy(paper_capital_usd="7000", live_capital_usd="8000"),
     }
 )
 _CASES = 400
 
 
-def _fleet(rng: random.Random) -> tuple[DeploymentSnapshot, ...]:
-    """One random fleet of flat paper books, each down up to 480 since today's open."""
+def _fleet(rng: random.Random, mode: DeploymentMode) -> tuple[DeploymentSnapshot, ...]:
+    """Flat books with separate paper cash / live zero-baseline ledgers and USD allocations."""
     books = []
     for _index in range(rng.randint(1, 8)):
         product = rng.choice(_PRODUCTS)
         loss = rng.randint(0, 480)
-        books.append(_book(product, cash=str(10000 - loss)))
+        snapshot = _book(product, cash=str(10000 - loss))
+        if mode is DeploymentMode.LIVE:
+            snapshot = replace(
+                snapshot,
+                deployment=replace(
+                    snapshot.deployment,
+                    mode=mode,
+                    cash=Decimal(-loss),
+                    initial_equity=Decimal(0),
+                    allocated_capital=Decimal(1000),
+                    paper_starting_cash=None,
+                ),
+            )
+        books.append(snapshot)
     return tuple(books)
 
 
@@ -68,7 +84,7 @@ def _scope_loss(books: tuple[DeploymentSnapshot, ...], scope: str | None) -> Dec
     """The day's loss of the books in one scope, computed independently of the gate."""
     return sum(
         (
-            Decimal(10000) - item.deployment.cash
+            (item.deployment.initial_equity or Decimal(0)) - item.deployment.cash
             for item in books
             if _product_quote(item.deployment.product_id) == scope
         ),
@@ -76,12 +92,13 @@ def _scope_loss(books: tuple[DeploymentSnapshot, ...], scope: str | None) -> Dec
     )
 
 
-def test_every_risk_path_stays_inside_one_settlement_scope() -> None:
+@pytest.mark.parametrize("mode", list(DeploymentMode))
+def test_every_risk_path_stays_inside_one_settlement_scope(mode: DeploymentMode) -> None:
     """Scoping, capital and the daily-loss breaker never cross USD, USDC, USDT or CFM-USD."""
     rng = random.Random(20261012)  # noqa: S311 - a reproducible test fleet, not a secret.
     crossed = 0
     for _case in range(_CASES):
-        books = _fleet(rng)
+        books = _fleet(rng, mode)
         proposed = rng.choice(_PRODUCTS)
         scope = _product_quote(proposed)
         scoped, incomplete = quote_scoped_snapshots(books, proposed)
@@ -93,16 +110,15 @@ def test_every_risk_path_stays_inside_one_settlement_scope() -> None:
         futures = is_futures_product_id(proposed)
         assert (scope == FUTURES_SCOPE) is futures
         capital = (
-            futures_capital(_POLICY, DeploymentMode.PAPER)
+            futures_capital(_POLICY, mode)
             if futures
-            else _capital_base(
-                _POLICY, mode=DeploymentMode.PAPER, live_quote_cash=None, occupied=scoped
-            )
+            else _capital_base(_POLICY, mode=mode, live_quote_cash=Decimal(10000), occupied=scoped)
         )
-        assert capital == (Decimal(7000) if futures else Decimal(10000))
+        futures_envelope = Decimal(8000) if mode is DeploymentMode.LIVE else Decimal(7000)
+        assert capital == (futures_envelope if futures else Decimal(10000))
         verdict = evaluate_circuit_breakers(
             _POLICY,
-            mode=DeploymentMode.PAPER,
+            mode=mode,
             proposed_product_id=proposed,
             proposed_strategy_id=None,
             snapshots=books,
@@ -112,7 +128,13 @@ def test_every_risk_path_stays_inside_one_settlement_scope() -> None:
         tripped = verdict is not None and verdict.reason_code is RiskReasonCode.DAILY_LOSS_LIMIT
         own_loss = _scope_loss(books, scope)
         assert tripped is (own_loss >= capital * Decimal("0.05"))
-        total = sum((Decimal(10000) - item.deployment.cash for item in books), start=Decimal(0))
+        total = sum(
+            (
+                (item.deployment.initial_equity or Decimal(0)) - item.deployment.cash
+                for item in books
+            ),
+            start=Decimal(0),
+        )
         if total >= capital * Decimal("0.05") > own_loss:
             crossed += 1
     # The generator must actually exercise fleets whose summed loss would have tripped.

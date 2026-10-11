@@ -31,7 +31,9 @@ USD and USDC are never added (I12).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from decimal import Decimal
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.instrument_ids import is_futures_product_id
@@ -86,9 +88,36 @@ class FuturesVenueEvidence:
     maintenance: Mapping[str, MaintenanceWindow]
     contract_sizes: Mapping[str, Decimal]
 
+    def __post_init__(self) -> None:
+        """Reject malformed venue facts and freeze defensive copies of read evidence."""
+        if self.observed_at.utcoffset() != timedelta(0):
+            raise ValueError("Futures venue evidence requires an aware UTC timestamp")
+        _validate_venue_state(self.killswitch_enabled, self.maintenance)
+        for amount in (self.buying_power_usd, self.initial_margin_usd):
+            if amount is not None and (not _finite_decimal(amount) or amount < 0):
+                raise ValueError("Futures venue amounts must be finite and nonnegative")
+        for size in self.contract_sizes.values():
+            if not _finite_decimal(size) or size <= 0:
+                raise ValueError("Catalog contract sizes must be finite and positive")
+        if self.positions is not None:
+            for count in self.positions.values():
+                if not _finite_decimal(count) or count != count.to_integral_value():
+                    raise ValueError("Venue positions must be whole finite contracts")
+            object.__setattr__(self, "positions", MappingProxyType(dict(self.positions)))
+        if self.external_order_products is not None:
+            object.__setattr__(
+                self, "external_order_products", frozenset(self.external_order_products)
+            )
+        object.__setattr__(self, "contract_sizes", MappingProxyType(dict(self.contract_sizes)))
+        object.__setattr__(self, "maintenance", MappingProxyType(dict(self.maintenance)))
+
     def is_fresh(self, as_of: datetime) -> bool:
         """Whether the read is at most :data:`LIVE_EVIDENCE_MAX_AGE` old at ``as_of``."""
-        return self.observed_at <= as_of and as_of - self.observed_at <= LIVE_EVIDENCE_MAX_AGE
+        return (
+            as_of.utcoffset() == timedelta(0)
+            and self.observed_at <= as_of
+            and as_of - self.observed_at <= LIVE_EVIDENCE_MAX_AGE
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +128,7 @@ class LiveFuturesStart:
     contract: InstrumentContract | None
     venue: FuturesVenueEvidence | None
     as_of: datetime
+    proposed_initial_margin_usd: Decimal | None = None
 
 
 def live_futures_opt_in_verdict(
@@ -147,7 +177,8 @@ def live_futures_deployment_verdict(
         lambda: _occupied_verdict(product_id, deployments, own=None),
         lambda: _envelope_verdict(policy, deployments, start),
         lambda: _contract_kind_verdict(None if start is None else start.contract),
-        lambda: _start_venue_verdict(product_id, start),
+        lambda: _binding_product_verdict(product_id, None if start is None else start.contract),
+        lambda: _start_venue_verdict(policy, product_id, start),
     )
     return _first(checks)
 
@@ -175,10 +206,16 @@ def live_futures_entry_verdict(
         )
     contract_size = Decimal(binding.contract.contract_size)
     side: FuturesSide = proposed.side or state.side
+    if not proposed.notional.is_finite() or proposed.notional <= 0:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "A finite positive notional is required to evaluate proposed initial margin.",
+        )
     initial = proposed.notional * margin.initial_rate(side)
     checks: tuple[Callable[[], RiskVerdict | None], ...] = (
         lambda: live_futures_opt_in_verdict(policy, proposed.product_id),
         lambda: _contract_kind_verdict(binding.contract),
+        lambda: _binding_product_verdict(proposed.product_id, binding.contract),
         lambda: _occupied_verdict(
             proposed.product_id,
             tuple(item.deployment for item in snapshots),
@@ -231,7 +268,7 @@ def _envelope_verdict(
     allocated = None if start is None else start.allocated_capital_usd
     if futures is None or futures.live_capital_usd is None:
         return None
-    if allocated is None or allocated <= 0:
+    if allocated is None or not allocated.is_finite() or allocated <= 0:
         return _deny(
             RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
             "A live futures start needs a positive USD allocation.",
@@ -243,7 +280,12 @@ def _envelope_verdict(
         and occupies_running_slot(item)
         and is_futures_product_id(item.product_id)
     )
-    if any(item.allocated_capital is None for item in books):
+    if any(
+        item.allocated_capital is None
+        or not item.allocated_capital.is_finite()
+        or item.allocated_capital <= 0
+        for item in books
+    ):
         return _deny(
             RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
             "A running live futures book has no recorded allocation; the envelope is unknown.",
@@ -255,6 +297,38 @@ def _envelope_verdict(
             RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
             f"Live futures allocations {committed} + {allocated} USD would exceed "
             f"futures.live_capital_usd {capital} USD.",
+        )
+    return None
+
+
+def _finite_decimal(value: object) -> bool:
+    """Only exact finite decimal evidence can enter financial arithmetic."""
+    return isinstance(value, Decimal) and value.is_finite()
+
+
+def _validate_venue_state(
+    killswitch: bool | None, maintenance: Mapping[str, MaintenanceWindow]
+) -> None:
+    """Require explicit boolean state and valid UTC maintenance intervals."""
+    if killswitch is not None and not isinstance(killswitch, bool):
+        raise ValueError("Venue killswitch must be boolean or unknown")
+    for window in maintenance.values():
+        if (
+            window.starts_at.utcoffset() != timedelta(0)
+            or window.ends_at.utcoffset() != timedelta(0)
+            or window.ends_at <= window.starts_at
+        ):
+            raise ValueError("Venue maintenance requires an increasing aware UTC interval")
+
+
+def _binding_product_verdict(
+    product_id: str, contract: InstrumentContract | None
+) -> RiskVerdict | None:
+    """A contract binding cannot authorize a different product with the same size."""
+    if contract is not None and contract.product_id != product_id:
+        return _deny(
+            RiskReasonCode.FUTURES_CONTRACT_DRIFT,
+            "The bound contract does not identify the proposed futures product.",
         )
     return None
 
@@ -288,13 +362,22 @@ def _evidence_verdict(
     return None
 
 
-def _start_venue_verdict(product_id: str, start: LiveFuturesStart | None) -> RiskVerdict | None:
+def _start_venue_verdict(
+    policy: RiskPolicyDefinition, product_id: str, start: LiveFuturesStart | None
+) -> RiskVerdict | None:
     """I3 at start: fresh evidence with no position or external order on the product."""
     venue = None if start is None else start.venue
     stale = _evidence_verdict(venue, None if start is None else start.as_of)
-    if stale is not None or venue is None:
+    if stale is not None or venue is None or start is None or start.contract is None:
         return stale
-    return _external_verdict(product_id, venue, expected_contracts=Decimal(0))
+    contract_size = Decimal(start.contract.contract_size)
+    checks: tuple[Callable[[], RiskVerdict | None], ...] = (
+        lambda: _external_verdict(product_id, venue, expected_contracts=Decimal(0)),
+        lambda: _venue_state_verdict(product_id, venue, start.as_of),
+        lambda: _drift_verdict(product_id, contract_size, venue),
+        lambda: _margin_capacity_verdict(policy, venue, start.proposed_initial_margin_usd),
+    )
+    return _first(checks)
 
 
 def _external_entry_verdict(
@@ -362,14 +445,14 @@ def _contracts_verdict(
     """I5: the order and the resulting position hold at most the live contract cap."""
     futures: FuturesRiskPolicy | None = policy.futures
     cap = 1 if futures is None else futures.effective_live_max_order_contracts
-    if proposed.quantity is None:
+    if proposed.quantity is None or not proposed.quantity.is_finite() or proposed.quantity <= 0:
         return _deny(
             RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
             "The live futures entry has no quantity; its contracts cannot be checked.",
         )
     ordered = proposed.quantity / contract_size
     held = abs(_signed_base(book, proposed.product_id)) / contract_size
-    if ordered > cap or held + ordered > cap:
+    if ordered != ordered.to_integral_value() or ordered > cap or held + ordered > cap:
         return _deny(
             RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
             f"{ordered} contracts on a position of {held} exceed the live cap of {cap} "
@@ -405,11 +488,16 @@ def _venue_state_verdict(
 
 
 def _margin_capacity_verdict(
-    policy: RiskPolicyDefinition, venue: FuturesVenueEvidence | None, initial: Decimal
+    policy: RiskPolicyDefinition, venue: FuturesVenueEvidence | None, initial: Decimal | None
 ) -> RiskVerdict | None:
     """I8: buying power covers the entry and the L3 reserve covers the projected margin."""
     if venue is None:
         return None
+    if initial is None or not initial.is_finite() or initial <= 0:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "A finite positive proposed initial margin is required for admission.",
+        )
     buying_power = venue.buying_power_usd
     current = venue.initial_margin_usd
     if buying_power is None or current is None:
@@ -422,6 +510,12 @@ def _margin_capacity_verdict(
             RiskReasonCode.FUTURES_BUYING_POWER_SHORT,
             f"Futures buying power {buying_power} USD is below the entry's initial margin "
             f"{initial} USD.",
+        )
+    if policy.quote_currency not in {"USD", "USDC"}:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "Live futures require a declared USD/USDC collateral reserve; "
+            "other policy quotes cannot cover CFM USD margin.",
         )
     futures = policy.futures
     reserve = None if futures is None else futures.live_spot_collateral_reserve_quote

@@ -181,9 +181,18 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
     }
 
 
-def _futures_block(arguments: argparse.Namespace) -> dict[str, str] | None:
+def _futures_block(arguments: argparse.Namespace) -> dict[str, object] | None:
     """Map the futures flags onto the optional policy block (ADR 0129); ``None`` when unset."""
-    fields = {
+    fields: dict[str, object] = {
+        "live_enabled": (
+            None
+            if arguments.futures_live_enabled is None
+            else arguments.futures_live_enabled == "true"
+        ),
+        "live_capital_usd": arguments.futures_live_capital_usd,
+        "product_allowlist": arguments.futures_product_allowlist,
+        "live_derisk_margin_ratio": arguments.futures_live_derisk_margin_ratio,
+        "live_funding_drift_tolerance_usd": arguments.futures_live_funding_drift_tolerance_usd,
         "live_spot_collateral_reserve_quote": arguments.futures_live_spot_collateral_reserve_quote,
         "peg_haircut": arguments.futures_peg_haircut,
         "paper_capital_usd": arguments.futures_paper_capital_usd,

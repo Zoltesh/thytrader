@@ -194,6 +194,15 @@ bar's entry is skipped and recorded in `decisions`. Resupply both flags on every
 keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`, USD figures,
 `reserve_quote`, `effect`).
 
+Live futures **policy preparation only** ([ADR 0134](../../docs/decisions/0134-live-futures-order-path.md), P2-3):
+`set-risk-policy` accepts `--futures-live-enabled true|false`, `--futures-live-capital-usd`,
+repeatable `--futures-product-allowlist`, `--futures-live-derisk-margin-ratio` and
+`--futures-live-funding-drift-tolerance-usd`. Read the
+[live futures policy reference](references/live-futures-policy.md) for field limits,
+replacement/readback rules, collateral headroom and denial codes. Unset fields keep old
+fingerprints. Publication does **not** enable live futures: all starts remain
+`FUTURES_LIVE_UNSUPPORTED`; monitoring, alerts and switch-on are later slices.
+
 Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
 A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**. There is no
 futures order path: `start --mode live` of a futures strategy (with `--i-understand-live`;

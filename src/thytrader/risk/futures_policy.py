@@ -103,7 +103,9 @@ class FuturesRiskPolicy(BaseModel):
     beta_netting: Literal["gross", "net_by_underlying"] | None = Field(
         default=None, exclude_if=lambda value: value is None
     )
-    live_enabled: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    live_enabled: bool | None = Field(
+        default=None, strict=True, exclude_if=lambda value: value is None
+    )
     live_capital_usd: DecimalText | None = Field(
         default=None, exclude_if=lambda value: value is None
     )

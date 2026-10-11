@@ -239,6 +239,26 @@ evidence.
 
 Each finding becomes a sanitized fixture and amends this ADR.
 
+## P2-3 implementation boundary
+
+P2-3 publishes the optional live policy fields through the shared HTTP and operator models
+and mirrored runtime CLI flags. Unset fields remain excluded from canonical policy JSON;
+explicit `live_enabled: false` is retained. Ops contract v94 advertises
+`live_futures_risk_policy`; the schema revision stays 0075 and `futures_order_paths` stays empty.
+The CLI, HTTP and execution-service start refusals remain `FUTURES_LIVE_UNSUPPORTED`.
+
+The pure admission gate requires fresh, finite venue facts, a known positive proposed initial
+margin at start as well as entry, and matching bound/catalog contract size. Unknown position or
+external-order reads deny; a pending/current recorded maintenance window denies. Only USD/USDC
+policy reserves may cover CFM USD margin through the declared-peg threshold; USDT is unlinked.
+Live book margin equity uses its allocation plus ledger equity. Shared loss breakers link only
+managed same-mode books; live beta netting remains deferred.
+
+Worker venue evidence, margin monitoring, alerts, fleet-health integration and switch-on remain
+P2-4/P2-6/P2-7 respectively. Stored monitor/alert thresholds do not imply those paths are wired.
+The [runtime skill](../../skills/thytrader-runtime/references/live-futures-policy.md) documents
+publication, readback, field validation and the remaining operational boundary.
+
 ## Consequences
 
 - Live futures reuse the existing intent, reconciliation, protection and exit machinery; the

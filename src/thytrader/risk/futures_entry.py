@@ -365,6 +365,15 @@ def linked_breaker_verdict(
     managed live futures book (ADR 0134 §3): manual CFM positions have no book and are
     gated by the collateral rules instead. The two losses are never summed.
     """
+    if (
+        mode is DeploymentMode.LIVE
+        and is_futures_product_id(product_id)
+        and not any(
+            item.deployment.mode is mode and item.deployment.product_id == product_id
+            for item in snapshots
+        )
+    ):
+        return None
     entry_scope = _scope(product_id)
     if entry_scope is None:
         return None

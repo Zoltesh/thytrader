@@ -264,8 +264,35 @@ def add_risk_policy_parsers(
         "--futures-max-order-contracts",
         type=int,
         default=None,
-        help="Futures gate (ADR 0129 §5): most contracts per futures order "
-        "(FUTURES_ORDER_CONTRACTS_EXCEEDED). Omitting it unsets it.",
+        help="Futures gate: most contracts per order (FUTURES_ORDER_CONTRACTS_EXCEEDED); "
+        "live also caps the position. Unset live defaults to 1; paper has no policy contract cap.",
+    )
+    set_policy.add_argument(
+        "--futures-live-enabled",
+        choices=("true", "false"),
+        default=None,
+        help="Persist live futures opt-in (ADR 0134). Starts remain FUTURES_LIVE_UNSUPPORTED.",
+    )
+    set_policy.add_argument(
+        "--futures-product-allowlist",
+        action="append",
+        default=None,
+        help="Repeat for each CODE-DDMONYY-CDE futures id. Live requires a nonempty list.",
+    )
+    set_policy.add_argument(
+        "--futures-live-capital-usd",
+        default=None,
+        help="Positive USD envelope for live futures allocations, loss and exposure caps.",
+    )
+    set_policy.add_argument(
+        "--futures-live-derisk-margin-ratio",
+        default=None,
+        help="Future margin monitor threshold in (1, 100]; not wired until P2-4.",
+    )
+    set_policy.add_argument(
+        "--futures-live-funding-drift-tolerance-usd",
+        default=None,
+        help="Positive USD funding-drift tolerance for the future P2-6 alert.",
     )
     set_policy.add_argument(
         "--futures-beta-netting",
