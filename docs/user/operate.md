@@ -103,6 +103,21 @@ is applied once. The disarm latch survives restarts, and a worker that cannot re
 entries without stopping reconciliation or protection. See the
 [runtime skill](../../skills/thytrader-runtime/SKILL.md) for the CLI flags.
 
+## Portfolio value and Coinbase account totals
+
+Home labels its KPI and chart **Spot portfolio value** and the table **Spot holdings**.
+They cover Coinbase spot balances, with USD/USDC/USDT shown separately and the headline
+explicitly a USD-pegged estimate. They exclude futures and pending transfers; the chart
+continues the same spot-only worker history. Dust is valued, not discarded to speed up
+loading. Supported marks are fetched in bounded batches rather than one request per coin.
+
+The separate read-only Futures card shows CFM-reported USD cash (total, CBI, CFM), pending
+transfers and daily realized PnL alongside margin and buying power. Check its observation
+time, stale warning and failed reads. Missing figures are unknown, never zero. These
+figures are not additive to spot: cash/collateral can overlap, pending transfers are not
+an inferred net credit, and period PnL is not extra equity. ThyTrader does not yet expose
+an authoritative consolidated Coinbase account total. Available-to-trade is unchanged.
+
 ## In the browser
 
 After [setup](setup.md), open http://127.0.0.1:5175.
@@ -162,12 +177,12 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
   the last balance snapshot is. **New order** opens Trade; **New strategy** opens Strategies.
   Without Coinbase credentials a **Demo data** banner says the balances are a deterministic demo; a
   fresh install with no balances shows the getting-started path instead.
-- **Portfolio value.** The newest of the current Coinbase reading and the newest snapshot, with its
+- **Spot portfolio value.** The newest of the current Coinbase reading and the newest snapshot, with its
   change since the oldest snapshot in the last 24 hours ("since HH:MM" when history is shorter). A
   reading more than 10 minutes old says so. Demo balances are labelled demo and show no change:
   history records live balances only. The value adds USD, USDC and USDT 1:1, so it is an
   approximation; the line under it (`≈ … USD + … USDC, counted 1:1`) gives the exact total in
-  each currency. In **Holdings**, USDC and USDT cash shows its value in its own currency, and coins
+  each currency. In **Spot holdings**, USDC and USDT cash shows its value in its own currency, and coins
   are valued in USD through their `<coin>-USD` market.
 - **Available to trade.** The Coinbase available balance in the installation quote currency (the
   risk policy's `quote_currency`, for example USDC), and **Reserved by live bots**: the
@@ -176,7 +191,7 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
   live bot count, and whether open books have exit cover (`flat`, `protected`, `unprotected`, or
   `protection unconfirmed`). Unknown when an open book has no complete mark.
 - **Bots.** Running count, paused count, and how many bots appear in Needs attention.
-- **Portfolio value chart.** `1D`, `1W`, `1M`, `3M` over portfolio history (`3M` reads the all-time
+- **Spot portfolio value chart.** `1D`, `1W`, `1M`, `3M` over portfolio history (`3M` reads the all-time
   range and keeps the last 90 days). Gaps stay visible; see
   [setup](setup.md#portfolio-snapshots-and-home).
 - **Needs attention.** One list, critical and live items first. Each item names the problem in

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.exchanges.protocols import BatchUsdPriceReader
 from thytrader.exchanges.read_errors import (
     ExchangeReadError,
     ExchangeReadFailure,
@@ -51,12 +52,23 @@ class PortfolioService:
         """
         balances = await self._exchange.list_balances()
         permissions = await self._exchange.get_permissions()
+        currencies = tuple(
+            dict.fromkeys(
+                balance.currency for balance in balances if balance.currency not in _CASH_CURRENCIES
+            )
+        )
+        if isinstance(self._exchange, BatchUsdPriceReader):
+            prices = await self._exchange.get_usd_prices(currencies)
+        else:
+            prices = {
+                currency: await self._exchange.get_usd_price(currency) for currency in currencies
+            }
         assets: list[PortfolioAsset] = []
         unvalued: list[str] = []
         totals: dict[str, Decimal] = {}
 
         for balance in balances:
-            value = await self._value_of(balance)
+            value = self._value_of(balance, prices)
             if value is None:
                 unvalued.append(balance.currency)
             else:
@@ -93,14 +105,16 @@ class PortfolioService:
             unvalued_assets=tuple(unvalued),
         )
 
-    async def _value_of(self, balance: ExchangeBalance) -> Money | None:
+    def _value_of(
+        self, balance: ExchangeBalance, prices: dict[str, Decimal | None]
+    ) -> Money | None:
         """Value cash in its own currency and other assets through ``<asset>-USD``.
 
         A USDC balance is USDC, not USD: it is never relabelled or converted.
         """
         if balance.currency in _CASH_CURRENCIES:
             return Money(amount=balance.total, currency=balance.currency)
-        price = await self._exchange.get_usd_price(balance.currency)
+        price = prices[balance.currency]
         if price is None:
             return None
         return Money(amount=balance.total * price, currency="USD")

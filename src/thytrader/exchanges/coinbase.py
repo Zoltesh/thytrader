@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from functools import partial
 import logging
 import threading
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from requests import HTTPError, RequestException, Timeout
 
@@ -59,6 +59,34 @@ class _ExpectedNotFoundFilter(logging.Filter):
 _SDK_NOT_FOUND_FILTER = _ExpectedNotFoundFilter()
 
 
+def _batch_prices(payload: dict[str, Any], requested: list[str]) -> dict[str, Decimal]:
+    """Validate dynamic SDK product rows before exposing exact positive marks."""
+    rows = payload.get("products")
+    if not isinstance(rows, list):
+        raise _invalid_listing(ExchangeReadOperation.PRICE)
+    marks: dict[str, Decimal] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise _invalid_listing(ExchangeReadOperation.PRICE)
+        product_id = row.get("product_id")
+        raw = row.get("price")
+        if (
+            not isinstance(product_id, str)
+            or product_id not in requested
+            or product_id in marks
+            or not isinstance(raw, str)
+        ):
+            raise _invalid_listing(ExchangeReadOperation.PRICE)
+        try:
+            price = Decimal(raw)
+        except InvalidOperation:
+            raise _invalid_listing(ExchangeReadOperation.PRICE) from None
+        if not price.is_finite() or price <= 0:
+            raise _invalid_listing(ExchangeReadOperation.PRICE)
+        marks[product_id] = price
+    return marks
+
+
 class CoinbasePaginationError(RuntimeError):
     """Signal malformed Coinbase account pagination without returning partial balances."""
 
@@ -92,6 +120,17 @@ class CoinbaseClient(Protocol):
 
     def list_orders(self, **kwargs: Any) -> CoinbaseResponse:
         """Return one page of historical orders for the given filters."""
+        ...
+
+
+@runtime_checkable
+class CoinbaseBatchClient(Protocol):
+    """Optional official SDK filtered List Products capability."""
+
+    def get_products(
+        self, *, product_ids: list[str], limit: int, product_type: str, get_all_products: bool
+    ) -> CoinbaseResponse:
+        """Fetch a bounded set of product marks in one read."""
         ...
 
 
@@ -191,6 +230,40 @@ class CoinbaseAccount:
             return Decimal(price)
         except InvalidOperation:
             return None
+
+    async def get_usd_prices(self, currencies: tuple[str, ...]) -> dict[str, Decimal | None]:
+        """Read fresh marks in sequential batches of at most 100 unique products.
+
+        The SDK owns a requests.Session: do not introduce concurrent calls on it.
+        Omitted products need individual reads; only their explicit 404 establishes
+        an unsupported market. No balance, permission or successful mark is cached.
+        """
+        currencies = tuple(dict.fromkeys(currencies))
+        if not isinstance(self._client, CoinbaseBatchClient):
+            return {currency: await self.get_usd_price(currency) for currency in currencies}
+        prices: dict[str, Decimal | None] = {}
+        pending = [
+            currency for currency in currencies if f"{currency}-USD" not in self._unsupported
+        ]
+        for start in range(0, len(pending), 100):
+            batch = pending[start : start + 100]
+            ids = [f"{currency}-USD" for currency in batch]
+            payload = await self._read(
+                ExchangeReadOperation.PRICE,
+                partial(
+                    self._client.get_products,
+                    product_ids=ids,
+                    limit=len(ids),
+                    product_type="SPOT",
+                    get_all_products=True,
+                ),
+            )
+            marks = _batch_prices(payload, ids)
+            for currency, product_id in zip(batch, ids, strict=True):
+                prices[currency] = (
+                    marks[product_id] if product_id in marks else await self.get_usd_price(currency)
+                )
+        return {currency: prices.get(currency) for currency in currencies}
 
     def _get_product_expecting_404(self, product_id: str) -> CoinbaseResponse:
         """Fetch one product while the SDK's ERROR line for a 404 is suppressed."""
