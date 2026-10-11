@@ -5,6 +5,33 @@ Contributors regenerate the complete report models with
 integration. This imports typed contracts only and never opens a database or exchange session.
 Operator agents read the committed schema, never regenerate it on a running installation.
 
+## Live futures policy evidence (P2-3)
+
+`risk.payload.futures` uses the complete shared policy model. In addition to the existing
+paper and collateral fields it can contain:
+
+- `live_enabled`: explicit boolean (unset is disabled, explicit false remains serialized);
+- `live_capital_usd`: positive USD decimal string, separate from spot and paper envelopes;
+- `product_allowlist`: up to 32 unique futures IDs (`CODE-DDMONYY-CDE`), required nonempty for
+  live admission; a nonempty list also restricts paper futures;
+- `live_derisk_margin_ratio`: decimal string in (1, 100], stored for the P2-4 monitor;
+- `live_funding_drift_tolerance_usd`: positive USD decimal string, stored for the P2-6 alert.
+
+These fields are omitted when unset and do not change old canonical policy fingerprints.
+`max_order_contracts` remains optional: live admission uses one when unset, and caps both order
+and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
+the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
+
+Ops contract `thytrader-ops-contract-v94` advertises `live_futures_risk_policy` under
+`futures_observations`; `futures_order_paths` stays empty, and Alembic stays `0075`.
+**This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
+`FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health and alerts arrive in P2-6. To change
+settings, use the confirmation-gated runtime lane's
+[policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
+then read back the fingerprint and complete block here. Operator never publishes policy.
+
+## Common envelope
+
 Every JSON report includes:
 
 - `schema_version`: `thytrader-operator-report-v1`

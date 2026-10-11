@@ -187,7 +187,11 @@ class RiskFinding(_FrozenModel):
 
 
 class RiskPayload(_FrozenModel):
-    """Observed runtime risk plus the effective registry identity."""
+    """Observed runtime risk plus the effective registry identity.
+
+    ``futures`` echoes the complete shared policy, including optional live settings;
+    it is policy evidence, not live futures runtime readiness.
+    """
 
     risk_policy_registry: Literal["available"]
     policy_source: Literal["compiled_default", "published"]

@@ -7728,7 +7728,7 @@
     },
     "FuturesRiskPolicy": {
       "additionalProperties": false,
-      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital, and\n``max_daily_loss_usd`` is an optional absolute ceiling on it.\n\nThe futures entry gate (ADR 0129 §5): ``max_leverage`` (gross notional over futures\nbook equity; the lower of it and the strategy's applies), ``min_liquidation_buffer_fraction``\n((equity - maintenance) / equity after the entry; 0.5 while unset),\n``max_exposure_fraction`` (gross futures notional over ``paper_capital_usd``),\n``max_order_contracts`` (per order), ``max_hourly_funding_rate_abs`` (deny while the\nlatest settled hourly rate exceeds it) and ``max_btc_beta_exposure_fraction`` (the futures\nscope's own BTC-beta cap over ``paper_capital_usd``). ``beta_netting`` ``net_by_underlying``\nlets managed same-mode futures positions net, in base units, against same-underlying spot\ninventory for the spot BTC-beta cap only (§6); unset is ``gross``.",
+      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital, and\n``max_daily_loss_usd`` is an optional absolute ceiling on it.\n\nThe futures entry gate (ADR 0129 §5): ``max_leverage`` (gross notional over futures\nbook equity; the lower of it and the strategy's applies), ``min_liquidation_buffer_fraction``\n((equity - maintenance) / equity after the entry; 0.5 while unset),\n``max_exposure_fraction`` (gross futures notional over ``paper_capital_usd``),\n``max_order_contracts`` (per order), ``max_hourly_funding_rate_abs`` (deny while the\nlatest settled hourly rate exceeds it) and ``max_btc_beta_exposure_fraction`` (the futures\nscope's own BTC-beta cap over ``paper_capital_usd``). ``beta_netting`` ``net_by_underlying``\nlets managed same-mode futures positions net, in base units, against same-underlying spot\ninventory for the spot BTC-beta cap only (§6); unset is ``gross``.\n\nLive futures (ADR 0134 §2, I2): starts and entries need ``live_enabled: true``,\n``live_capital_usd`` (the USD envelope live futures allocations draw from, and the capital\nof the live ``CFM-USD`` daily loss and exposure caps) and the product on\n``product_allowlist`` (futures ids only; the policy's top-level allowlist stays spot-only).\nA non-empty ``product_allowlist`` also restricts paper futures books. Live orders and the\nlive position hold at most ``max_order_contracts`` contracts, **1** while it is unset.\n``live_derisk_margin_ratio`` (> 1, on the venue's ``available_margin /\nliquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are stored for the\nfuture live margin monitor and funding drift alert. The opt-in never gates exits or\nprotection.",
       "properties": {
         "live_spot_collateral_reserve_quote": {
           "anyOf": [
@@ -7872,6 +7872,70 @@
           ],
           "default": null,
           "title": "Beta Netting"
+        },
+        "live_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Enabled"
+        },
+        "live_capital_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Capital Usd"
+        },
+        "product_allowlist": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Allowlist"
+        },
+        "live_derisk_margin_ratio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Derisk Margin Ratio"
+        },
+        "live_funding_drift_tolerance_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Funding Drift Tolerance Usd"
         }
       },
       "title": "FuturesRiskPolicy",
@@ -10132,7 +10196,8 @@
               "paper_futures_books",
               "futures_entry_gate",
               "paper_futures_runtime_lane",
-              "account_mirror_history"
+              "account_mirror_history",
+              "live_futures_risk_policy"
             ],
             "type": "string"
           },
@@ -14024,7 +14089,7 @@
     },
     "RiskPayload": {
       "additionalProperties": false,
-      "description": "Observed runtime risk plus the effective registry identity.",
+      "description": "Observed runtime risk plus the effective registry identity.\n\n``futures`` echoes the complete shared policy, including optional live settings;\nit is policy evidence, not live futures runtime readiness.",
       "properties": {
         "risk_policy_registry": {
           "const": "available",

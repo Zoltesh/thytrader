@@ -6,6 +6,10 @@ from the latest catalog observation, and whether a settled funding hour is overd
 binds it for the book's processing with :func:`futures_book_scope`; sizing, admission,
 paper fees and the liquidation check read it with :func:`current_futures_book`. Nothing
 unknown defaults to zero: a missing binding, margin or funding hour denies new entries.
+
+:func:`futures_book_equity` is the margin basis of one book: ledger equity for paper, and the
+book's ``allocated_capital`` plus ledger equity for live, whose ledger starts at cash 0
+(ADR 0106, ADR 0134 §3).
 """
 
 from __future__ import annotations
@@ -14,13 +18,19 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from typing import TYPE_CHECKING, Protocol
 
-from thytrader.trading.models import FundingCashFlow, OrderSide, resolved_product_id
+from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.models import (
+    DeploymentMode,
+    FundingCashFlow,
+    OrderSide,
+    resolved_product_id,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
     from uuid import UUID
 
     from thytrader.evaluation.futures_spec import InstrumentContract
@@ -138,6 +148,38 @@ def current_futures_book(deployment_id: UUID | None = None) -> FuturesBookState 
     if state is None or (deployment_id is not None and state.deployment_id != deployment_id):
         return None
     return state
+
+
+def futures_book_equity(
+    snapshot: DeploymentSnapshot, marks: Mapping[str, Decimal]
+) -> Decimal | None:
+    """The book's equity in USD at ``marks``, or None when it is unknown.
+
+    Paper books start with their simulated cash, so equity is ledger equity. A live book's
+    ledger starts at cash 0 (ADR 0106) and holds only fills, fees and funding, so its equity
+    is the USD ``allocated_capital`` plus ledger equity. Live allocation must be finite
+    and positive, including when loaded from storage with a separate performance basis.
+    An incomplete mark is unknown, never zero.
+    """
+    deployment = snapshot.deployment
+    allocation = Decimal(0)
+    if deployment.mode is DeploymentMode.LIVE:
+        allocation = deployment.allocated_capital
+        if allocation is None or not allocation.is_finite() or allocation <= 0:
+            return None
+    if not deployment.cash.is_finite():
+        return None
+    try:
+        ledger = ledger_from_snapshot(snapshot, marks=marks)
+        if ledger.equity is None or not ledger.mark_complete or not ledger.equity.is_finite():
+            return None
+        equity = ledger.equity
+        if deployment.mode is DeploymentMode.LIVE:
+            equity += allocation
+    except DecimalException:
+        # Malformed loaded ledger economics or overflow cannot authorize new margin.
+        return None
+    return equity if equity.is_finite() else None
 
 
 def held_quantity_before(

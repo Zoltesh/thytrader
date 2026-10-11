@@ -221,10 +221,15 @@ def _daily_loss_verdict(
     limit = capital * _daily_loss_fraction(policy, occupied)
     futures_ceiling = _futures_daily_loss_ceiling(policy, occupied)
     if futures_ceiling is not None:
-        # The futures scope's own USD ceiling binds paper too: futures books are paper-only.
+        # The futures scope's own USD ceiling binds both paper and live.
         limit = min(limit, futures_ceiling)
-    # The absolute quote ceiling protects real money; paper uses the capital fraction only.
-    elif policy.max_daily_loss_quote is not None and mode is DeploymentMode.LIVE:
+    # Spot's absolute ceiling never applies to CFM, even when both settle in USD.
+    # Paper spot continues to use only its capital fraction.
+    elif (
+        policy.max_daily_loss_quote is not None
+        and mode is DeploymentMode.LIVE
+        and not any(is_futures_product_id(item.deployment.product_id) for item in occupied)
+    ):
         limit = min(limit, Decimal(policy.max_daily_loss_quote))
     if loss < limit:
         return None

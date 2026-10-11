@@ -94,7 +94,7 @@ def test_paper_futures_starts_draw_from_their_own_usd_envelope() -> None:
         paper_starting_cash=None,
         deployments=(),
     )
-    assert live.reason_code is RiskReasonCode.FUTURES_LIVE_UNSUPPORTED
+    assert live.reason_code is RiskReasonCode.FUTURES_LIVE_DISABLED
 
 
 def test_a_futures_book_never_blocks_or_consumes_spot_paper_capital() -> None:

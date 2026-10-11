@@ -1,11 +1,13 @@
-"""Paper futures books in the risk gate: start, entry admission, linked breakers (ADR 0129).
+"""Futures books in the risk gate: start, entry admission, linked breakers (ADR 0129, 0134).
 
 Futures books are their own settlement scope (``CFM-USD``): their capital is the policy's
-``futures.paper_capital_usd``, never ``paper_capital_quote``, and their daily loss and
-drawdown are computed over futures books only. Within one mode the futures scope and the
-USD/USDC spot scopes are collateral-linked: a latched daily-loss breaker in one denies new
-entries in the other (``SHARED_COLLATERAL_BREAKER``), naming the latched scope; the loss
-figures are never added together. Live futures stay unsupported (P2).
+``futures.paper_capital_usd`` for paper and ``futures.live_capital_usd`` for live, never
+``paper_capital_quote``, and their daily loss and drawdown are computed over futures books
+only. Within one mode the futures scope and the USD/USDC spot scopes are collateral-linked:
+a latched daily-loss breaker in one denies new entries in the other
+(``SHARED_COLLATERAL_BREAKER``), naming the latched scope; the loss figures are never added
+together. Live futures starts and entries first pass the live gate (``futures_live``, ADR 0134
+P2-3); every start surface still refuses live futures until P2-7.
 
 P1-4 admits a paper futures entry when the policy block, the bound contract, the observed
 margin and every due funding hour are known, the entry fits the leverage (the lower of the
@@ -29,6 +31,11 @@ from thytrader.risk.breakers import (
 from thytrader.risk.entry_clustering import cluster_verdict
 from thytrader.risk.entry_limits import _entry_membership
 from thytrader.risk.futures_beta import futures_beta_verdict
+from thytrader.risk.futures_live import (
+    live_futures_deployment_verdict,
+    live_futures_entry_verdict,
+    live_futures_opt_in_verdict,
+)
 from thytrader.risk.gate_common import _allow, _deny
 from thytrader.risk.models import RiskDecision, RiskReasonCode
 from thytrader.trading.exposure import (
@@ -36,17 +43,18 @@ from thytrader.trading.exposure import (
     product_exposure,
     risk_bearing_snapshots,
 )
-from thytrader.trading.futures_book import current_futures_book
-from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.futures_book import current_futures_book, futures_book_equity
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from datetime import datetime
 
     from thytrader.risk.beta import BetaEvidence
     from thytrader.risk.breakers import EntryObservation
     from thytrader.risk.futures_beta import FuturesLegs
+    from thytrader.risk.futures_live import FuturesVenueEvidence, LiveFuturesStart
     from thytrader.risk.gate_common import ProposedEntry
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
     from thytrader.trading.futures_book import FuturesBookState
@@ -63,13 +71,18 @@ def futures_deployment_verdict(
     covered: Sequence[str],
     paper_starting_cash: Decimal | None,
     deployments: Sequence[Deployment],
+    live: LiveFuturesStart | None = None,
 ) -> RiskVerdict:
-    """Admit a paper futures start inside the separate USD futures envelope."""
+    """Admit a futures start inside its mode's separate USD futures envelope.
+
+    A live start passes the live gate with ``live`` (its allocation, contract and venue
+    evidence); without it the start is denied.
+    """
     if mode is DeploymentMode.LIVE:
-        return _deny(
-            RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
-            "Live futures deployments are not supported; there is no futures order path.",
+        verdict = live_futures_deployment_verdict(
+            policy, covered=covered, deployments=deployments, start=live
         )
+        return _allow() if verdict is None else verdict
     if len(covered) != 1:
         return _deny(
             RiskReasonCode.FUTURES_PAPER_UNSUPPORTED,
@@ -106,11 +119,14 @@ def futures_deployment_verdict(
 
 
 def futures_capital(policy: RiskPolicyDefinition, mode: DeploymentMode) -> Decimal:
-    """The futures scope's capital: the paper envelope; live has none in P1."""
+    """The futures scope's USD capital: the paper or live envelope; 0 while it is unset."""
     futures = policy.futures
-    if mode is not DeploymentMode.PAPER or futures is None or futures.paper_capital_usd is None:
+    if futures is None:
         return Decimal(0)
-    return Decimal(futures.paper_capital_usd)
+    envelope = (
+        futures.live_capital_usd if mode is DeploymentMode.LIVE else futures.paper_capital_usd
+    )
+    return Decimal(0) if envelope is None else Decimal(envelope)
 
 
 def evaluate_futures_entry(
@@ -122,19 +138,21 @@ def evaluate_futures_entry(
     observation: EntryObservation | None,
     beta: BetaEvidence | None = None,
     legs: FuturesLegs | None = None,
+    venue: FuturesVenueEvidence | None = None,
 ) -> RiskVerdict:
-    """Admit one paper futures entry, or name what is unknown or exceeded.
+    """Admit one futures entry, or name what is unknown or exceeded.
 
-    Checks run in order and the first objection wins: the envelope, known binding, margin
-    and funding, membership, the linked breaker, leverage and the liquidation buffer, the
-    policy caps (order contracts, gross exposure, funding rate), the futures BTC-beta cap,
-    then the scope's loss breakers, rate limits, collar and fleet clustering.
+    Checks run in order and the first objection wins: the live opt-in (live), the envelope,
+    known binding, margin and funding, the live gate (live: exclusivity, contract drift,
+    contract cap and fresh ``venue`` evidence), membership, the linked breaker, leverage and
+    the liquidation buffer, the policy caps (order contracts, gross exposure, funding rate),
+    the futures BTC-beta cap, then the scope's loss breakers, rate limits, collar and fleet
+    clustering.
     """
     if mode is DeploymentMode.LIVE:
-        return _deny(
-            RiskReasonCode.FUTURES_LIVE_UNSUPPORTED,
-            "Live futures entries are not supported; there is no futures order path.",
-        )
+        opted = live_futures_opt_in_verdict(policy, proposed.product_id)
+        if opted is not None:
+            return opted
     capital = futures_capital(policy, mode)
     if capital <= 0:
         return _deny(
@@ -144,6 +162,15 @@ def evaluate_futures_entry(
     book = _proposing_book(proposed, snapshots)
     checks: tuple[Callable[[], RiskVerdict | None], ...] = (
         lambda: _known_book_verdict(book),
+        lambda: _live_gate_verdict(
+            policy,
+            mode=mode,
+            proposed=proposed,
+            book=book,
+            snapshots=snapshots,
+            venue=venue,
+            as_of=None if observation is None else observation.as_of,
+        ),
         lambda: _membership_verdict(policy, mode=mode, proposed=proposed, snapshots=snapshots),
         lambda: linked_breaker_verdict(
             mode=mode, product_id=proposed.product_id, snapshots=snapshots
@@ -177,6 +204,31 @@ def evaluate_futures_entry(
         if verdict is not None:
             return verdict
     return _allow()
+
+
+def _live_gate_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    proposed: ProposedEntry,
+    book: DeploymentSnapshot | None,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    as_of: datetime | None,
+) -> RiskVerdict | None:
+    """The live futures gate for a loaded live book; paper books skip it."""
+    state = None if book is None else current_futures_book(book.deployment.id)
+    if mode is not DeploymentMode.LIVE or book is None or state is None:
+        return None
+    return live_futures_entry_verdict(
+        policy,
+        proposed=proposed,
+        book=book,
+        state=state,
+        snapshots=snapshots,
+        venue=venue,
+        as_of=as_of,
+    )
 
 
 def _membership_verdict(
@@ -308,11 +360,19 @@ def linked_breaker_verdict(
 ) -> RiskVerdict | None:
     """Deny when a latched daily-loss breaker sits in a collateral-linked scope (§7).
 
-    A paper futures entry is denied by a latched USD or USDC spot book, and a USD/USDC
-    spot entry by a latched futures book, in the same mode. Live futures are unmanaged in
-    P1, so live spot is never linked this way. The two losses are never summed.
+    A futures entry is denied by a latched USD or USDC spot book, and a USD/USDC spot entry
+    by a latched futures book, in the same mode. In live the futures side is always a
+    managed live futures book (ADR 0134 §3): manual CFM positions have no book and are
+    gated by the collateral rules instead. The two losses are never summed.
     """
-    if mode is not DeploymentMode.PAPER:
+    if (
+        mode is DeploymentMode.LIVE
+        and is_futures_product_id(product_id)
+        and not any(
+            item.deployment.mode is mode and item.deployment.product_id == product_id
+            for item in snapshots
+        )
+    ):
         return None
     entry_scope = _scope(product_id)
     if entry_scope is None:
@@ -361,7 +421,7 @@ def _known_book_verdict(book: DeploymentSnapshot | None) -> RiskVerdict | None:
     if book is None or state is None:
         return _deny(
             RiskReasonCode.FUTURES_CONTRACT_UNBOUND,
-            "The paper futures book's contract binding is not loaded.",
+            "The futures book's contract binding is not loaded.",
         )
     blocked = state.entry_block()
     if blocked is None:
@@ -383,9 +443,8 @@ def _margin_verdict(
             "Futures margin terms are unknown; the entry is denied.",
         )
     marks = {} if observation is None else dict(observation.marks)
-    ledger = ledger_from_snapshot(book, marks=marks)
-    equity = ledger.equity
-    if equity is None or not ledger.mark_complete or equity <= 0:
+    equity = futures_book_equity(book, marks)
+    if equity is None or equity <= 0:
         return _deny(
             RiskReasonCode.BREAKER_MARK_MISSING,
             "Futures book equity is unknown or not positive; the entry is denied.",

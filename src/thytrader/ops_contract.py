@@ -119,7 +119,10 @@ Alembic 0074 and ``spot_collateral`` on ``futures-account``; ADR 0127 §10),
 or execution cycle timing (the ``execution_cycle`` health component and ``CYCLE_SLOW``,
 ``payload.execution_cycle`` on ``health`` and ``runtime`` and the ``execution_cycles`` table of
 Alembic 0075; ADR 0131), or the execution cycle budget (``CYCLE_WITHIN_BUDGET``,
-``budget_seconds``, ``book_groups`` and ``shared_reads``; ADR 0132) change.
+``budget_seconds``, ``book_groups`` and ``shared_reads``; ADR 0132), or the live futures
+policy and admission gate (``futures.live_enabled``, ``live_capital_usd``,
+``product_allowlist``, ``live_derisk_margin_ratio`` and ``live_funding_drift_tolerance_usd``;
+ADR 0134, P2-3, with live futures starts still refused) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -148,7 +151,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v93"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v94"
 EXPECTED_SCHEMA_REVISION = "0075"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -315,6 +318,7 @@ FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "futures_entry_gate",
     "paper_futures_runtime_lane",
     "account_mirror_history",
+    "live_futures_risk_policy",
 )
 STALE_IMAGE_REBUILD = "Rebuild and restart with `make run`."
 

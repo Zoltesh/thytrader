@@ -10,6 +10,7 @@ import pytest
 
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
+from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.models import (
     RiskPolicyDefinition,
     RiskPolicySource,
@@ -18,6 +19,46 @@ from thytrader.risk.models import (
 from thytrader.risk.store import next_policy_version
 
 _TEST_DATABASE_URL = os.getenv("THYTRADER_TEST_DATABASE_URL")
+
+
+@pytest.mark.skipif(
+    _TEST_DATABASE_URL is None, reason="An isolated PostgreSQL test DB is required."
+)
+def test_live_futures_policy_round_trip_and_clear() -> None:
+    """P2-3 fields, including explicit false, survive canonical storage and can be unset."""
+
+    async def exercise() -> None:
+        if _TEST_DATABASE_URL is None:
+            raise AssertionError("PostgreSQL integration URL was not configured.")
+        engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+        store = PostgresRiskPolicyStore(engine)
+        try:
+            current = await store.load_active()
+            block = FuturesRiskPolicy(
+                live_enabled=False,
+                live_capital_usd="10000",
+                product_allowlist=("BIP-20DEC30-CDE",),
+                live_derisk_margin_ratio="2",
+                live_funding_drift_tolerance_usd="10",
+            )
+            definition = compiled_default_risk_policy().model_copy(
+                update={"version": next_policy_version(current), "futures": block}
+            )
+            published = await store.publish(definition)
+            active = await store.load_active()
+            assert active.definition.futures == block
+            assert active.policy_fingerprint == published.policy_fingerprint
+            cleared = definition.model_copy(
+                update={"version": next_policy_version(active), "futures": None}
+            )
+            await store.publish(cleared)
+            reloaded = await store.load_active()
+            assert reloaded.definition.futures is None
+            assert "futures" not in reloaded.definition.model_dump()
+        finally:
+            await dispose(engine)
+
+    asyncio.run(exercise())
 
 
 @pytest.mark.skipif(

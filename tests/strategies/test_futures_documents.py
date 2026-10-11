@@ -232,12 +232,12 @@ def test_spot_specs_refuse_futures_only_fields_and_futures_need_usd() -> None:
 @pytest.mark.parametrize(
     ("mode", "code"),
     [
-        (DeploymentMode.LIVE, RiskReasonCode.FUTURES_LIVE_UNSUPPORTED),
+        (DeploymentMode.LIVE, RiskReasonCode.FUTURES_LIVE_DISABLED),
         (DeploymentMode.PAPER, RiskReasonCode.FUTURES_POLICY_UNSET),
     ],
 )
 def test_futures_strategies_cannot_be_deployed(mode: DeploymentMode, code: RiskReasonCode) -> None:
-    """Live futures wait for P2; paper futures need the policy's futures envelope."""
+    """The pure risk gate needs mode-specific opt-in; start surfaces still refuse live."""
     verdict = evaluate_new_deployment(
         compiled_default_risk_policy(),
         mode=mode,
