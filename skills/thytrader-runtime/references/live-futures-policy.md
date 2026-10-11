@@ -1,8 +1,32 @@
-# Live futures policy preparation (P2-3)
+# Live futures policy preparation (P2-3) and dormant adapters (P2-2)
 
 This surface publishes **policy only**, not trading authority. All live futures start
 paths still refuse `FUTURES_LIVE_UNSUPPORTED` until P2-7 (ADR 0134). There is no supported
 live futures start command in this slice. Do not probe order endpoints or bypass the refusal.
+
+## Dormant adapter is not a supported order path
+
+P2-2 adds internal futures request and product-routing adapters, exercised only with fake
+transports. No worker/API wiring or operator command constructs them; `futures_order_paths`
+remains empty. Do not import an adapter as an operating workaround or treat a passing fake
+venue test as proof of Coinbase acceptance. No real probe or policy change is authorized by
+this implementation.
+
+The two constructor-only reduction candidates are sized `close_position` (planned default)
+and market IOC with `reduce_only: true`. There is no automatic fallback, plain market exit
+or market entry. Post-only entries, both reduction modes and standalone venue protection
+still need supervised acceptance/enforcement evidence before live wiring; attached entry
+brackets remain disabled. Future runtime integration must retain product exclusivity and
+position checks. Opaque order ids are resolved from bounded venue reads, not a memory cache;
+incomplete identity/fill evidence fails closed after restart as well.
+
+Internal pre-request refusals are definite REJECTED with no broker transport sends:
+`FUTURES_BROKER_UNAVAILABLE`, `FUTURES_PRODUCT_UNSUPPORTED`, `FUTURES_INTENT_INVALID`,
+`FUTURES_ORDER_KIND_UNSUPPORTED`, `FUTURES_PRICE_INVALID`, `FUTURES_ATTACHMENT_UNVERIFIED`,
+`FUTURES_CONTRACT_SIZE_UNKNOWN`, and `FUTURES_FRACTIONAL_CONTRACTS`. They are not new
+operator report fields or permission to retry through another path. Financial quantities
+must convert exactly between whole contracts and base units. Fill fees use the all-in
+`commission`, never the rounded `commission_detail_total.total_commission`.
 
 ## Read, confirm, replace, verify
 

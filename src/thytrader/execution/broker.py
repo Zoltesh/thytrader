@@ -40,6 +40,36 @@ class SubmitResult:
     attached_child_venue_order_id: str | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class VenueOrderIdentity:
+    """Authoritative product and venue identity, resolved without interpreting quantities."""
+
+    venue_order_id: str
+    product_id: str
+
+
+@runtime_checkable
+class OrderIdentityLookup(Protocol):
+    """Optional read-only route discovery; results must survive process restarts."""
+
+    async def resolve_order_identity(
+        self,
+        *,
+        venue_order_id: str,
+        client_order_id: str,
+    ) -> VenueOrderIdentity | None:
+        """Resolve opaque ids from venue/durable evidence, never from a submit-only cache."""
+        ...
+
+
+class ContractSizeSource(Protocol):
+    """Read the current catalog's base units per contract; unknown is never guessed."""
+
+    async def contract_size(self, product_id: str) -> Decimal | None:
+        """Return the observed contract size, or None when unavailable."""
+        ...
+
+
 class Broker(Protocol):
     """Submit and observe orders without leaking Coinbase SDK types."""
 
