@@ -131,6 +131,9 @@ export type Deployment = {
 	last_evaluated_bar: string | null;
 	last_signal: string | null;
 	mismatch_detail: string | null;
+	/** Additive v95 safety duties; absence is not proof of completed futures shutdown. */
+	futures_derisk_pending?: boolean;
+	futures_flat_confirmation_after?: string | null;
 	pending_entry_bars: number;
 	bars_held: number;
 	/** Lifecycle contract: controls stay hidden unless all five arrive valid. */

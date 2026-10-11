@@ -11,6 +11,7 @@ from thytrader.execution.futures_live import (
     prepare_live_futures_book,
 )
 from thytrader.execution.futures_live_liquidation import supervise_live_futures
+from thytrader.execution.futures_obligations import retain_flat_confirmation
 from thytrader.execution.futures_position_supervision import enforce_position_check
 from thytrader.execution.futures_recovery import recover_futures_intents
 from thytrader.execution.futures_reduction import reduce_live_futures_position
@@ -48,6 +49,7 @@ async def supervised_live_futures(
     ):
         yield snapshot
         return
+    snapshot = await retain_flat_confirmation(snapshot, store=store, now=utc_now())
     snapshot = await recover_futures_intents(snapshot, store=store)
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
     account = await prepare_live_futures_book(snapshot, portfolio=portfolio)

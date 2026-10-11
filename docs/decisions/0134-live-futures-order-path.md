@@ -1,6 +1,6 @@
 # 0134: Live Coinbase CFM futures order path
 
-- Status: Proposed
+- Status: Proposed; P2-4 persistence amended by [0135](0135-durable-futures-safety-obligations.md)
 - Date: 2026-10-10
 - Relates to: [0106](0106-account-risk-capital-and-live-startup-baselines.md),
   [0107](0107-capital-normalized-live-performance.md),
@@ -186,7 +186,7 @@ P2-7 in order.
 | P2-1 | adapters | Move-only split of the Coinbase broker: fills parsing and order-JSON helpers into their own modules, added to `venue_adapters`; AST-identical bodies, byte-identical OpenAPI, schema and CLI help. | Not applicable (no behavior change). |
 | P2-2 | adapters, execution | `CoinbaseFuturesBroker` (post-only `limit_limit_gtc` entries in contracts, `STOP_LIMIT`/`TRIGGER_BRACKET` protection, marketable orders as the §1 reduction, FUTURE fills and client-id lookup, contract conversion, pre-request REJECTED results); a futures fill parser enforcing I6; a `ContractSizeSource` protocol; `ProductRoutedBroker` routing by product id (`FUTURES_BROKER_UNAVAILABLE` without a futures broker). A pin that the module's POST paths are only create, the chosen reduction path and batch cancel. | Nothing is reachable yet. Later, a pre-request REJECTED takes the existing rejection-latch pause and raises `BOOK_PAUSED_MISMATCH`. |
 | P2-3 | risk | Live futures policy fields (excluded while unset, so fingerprints do not change), a live futures deployment and entry gate (I2–I5, I8, I11), live futures capital, futures allowlist at deployment, live linked breakers, live book equity. | Every denial in the decision and why-trade journals; `risk` shows the new fields; fleet health runs the gate for `CFM-USD` (P2-6). |
-| P2-4 | execution, processes | Venue wiring (futures broker, CFM reader, contract-size source); live futures book preparation with one shared venue read per cycle (two GETs, only while a live futures book runs); hourly funding accrual; the I9 check with the flip guard (§6a) and orphan-protection cancel; the live margin monitor (I10); futures-aware entry, sizing and fee paths; flatten without a candle (§6b). No persistence change. | A paused book raises `BOOK_PAUSED_MISMATCH` naming the contracts; de-risking shows as a LIQUIDATION trade reason plus the P2-6 alert; overdue funding blocks entries with `FUNDING_HISTORY_MISSING`, shown in `futures-books` and fleet health. |
+| P2-4 | execution, processes | Venue wiring (futures broker, CFM reader, contract-size source); live futures book preparation with one shared venue read per cycle (two GETs, only while a live futures book runs); hourly funding accrual; the I9 check with the flip guard (§6a) and orphan-protection cancel; the live margin monitor (I10); futures-aware entry, sizing and fee paths; flatten without a candle (§6b). Durable obligations use Alembic 0076 (ADR 0135). | A paused book raises `BOOK_PAUSED_MISMATCH` naming the contracts; de-risking shows as a LIQUIDATION trade reason plus the P2-6 alert; overdue funding blocks entries with `FUNDING_HISTORY_MISSING`, shown in `futures-books` and fleet health. |
 | P2-5 | execution | Venue protection for futures, decided by the supervised probe: if CDE accepts stop-limit and trigger-bracket orders, nothing beyond P2-2; otherwise a worker-side synthetic stop that sends a STOP-purpose reduction, needing healthy market data and a held lease. | The existing `STOP_UNCOVERED`, `STOP_COVERAGE_UNKNOWN` and `STOP_TRIGGERED_UNFILLED` alerts, tested for futures books. |
 | P2-6 | services, coordination, web | New alerts (`FUTURES_POSITION_MISMATCH`, `FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_MARGIN_LOW`, `FUTURES_FUNDING_DRIFT`, `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT`, `FUTURES_ORPHAN_ORDER`) from a per-cycle futures supervisor that never fails the cycle; live columns in `futures-books`; managed/mismatch/external rows in venue reconciliation; readiness findings; a `futures_live` health component; the live futures gate in fleet health (closes the ADR 0130 gap); web venue facts; skills, schema and ops contract. Mandatory before switch-on. | This slice is the answer for every check in P2-3 and P2-4: each is in a report, an alert delivered through the notify provider, or the Home banner. |
 | P2-7 | interfaces, API, execution | The live start path: `fee_per_contract` and `futures_capital_usd` required (pinned as performance capital, ADR 0107), perp-only, exclusivity and venue evidence at start; HTTP 428 `LIVE_FUTURES_ACK_REQUIRED` replaces the 409; CLI `--i-understand-live-futures` and `--futures-capital-usd`; `FUTURES_ORDER_PATHS` in the ops contract; runtime skill (flags, stop/flatten semantics, futures-only disarm, I9 repair runbook); AGENTS.md known gaps. | An audited `deployment_started` event with `futures: true`, and `futures-books` listing the live book. |
@@ -328,7 +328,9 @@ a synthetic transport through the real futures adapter, intent store, worker ste
 Those tests are not authentic Coinbase acceptance evidence. The §7 reduction/post-only probes,
 P2-5 protection decision, P2-6 visibility and P2-7 acknowledgement/start gate remain prerequisites
 for real wiring. All three `FUTURES_LIVE_UNSUPPORTED` refusals and empty `FUTURES_ORDER_PATHS`
-remain unchanged. No migration, order kind, operator payload, CLI flag or ops-contract bump.
+remain unchanged. [ADR 0135](0135-durable-futures-safety-obligations.md) amends the original
+no-migration assumption: Alembic 0076 persists independent safety duties, exposed as additive
+report fields under ops contract v95. No new order kind or CLI flag.
 
 ### Evidence, units and funding
 
@@ -385,7 +387,8 @@ Live futures exits use an explicit price-free reduction with a decision instant,
 OHLC candles. The existing intent `candle_starts_at` stores that instant for this narrow path;
 it is not evidence that a candle existed. A latest mark is optional audit context only. Missing
 bars, funding, fees and entry permission do not trap a known reducible position; unknown position,
-quantity or ownership does. A stopped flatten retains `FUTURES_FLAT_CONFIRMATION_PENDING` until a
+quantity or ownership does. A stopped flatten retains a typed durable confirmation duty (not
+merely the `FUTURES_FLAT_CONFIRMATION_PENDING` diagnostic) until a
 later fresh post-fill CFM read confirms flat, then audits `futures_flat_confirmed`. Ordinary spot
 and paper retain their candle-priced paths. Uncertain sends recover through FUTURE client scans
 and canonical fills using the existing persist-before-send contract. If a process dies after

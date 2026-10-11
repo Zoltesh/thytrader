@@ -120,6 +120,12 @@ def _deployment_response(
         ),
         last_signal=deployment.last_signal,
         mismatch_detail=deployment.mismatch_detail,
+        futures_derisk_pending=deployment.futures_derisk_pending,
+        futures_flat_confirmation_after=(
+            None
+            if deployment.futures_flat_confirmation_after is None
+            else deployment.futures_flat_confirmation_after.isoformat()
+        ),
         pending_entry_bars=deployment.pending_entry_bars,
         bars_held=deployment.bars_held,
         lifecycle_command=deployment.lifecycle_command.value,

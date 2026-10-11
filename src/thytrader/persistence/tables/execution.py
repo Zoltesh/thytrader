@@ -80,6 +80,8 @@ deployments = Table(
     Column("last_evaluated_bar", DateTime(timezone=True), nullable=True),
     Column("last_signal", String(32), nullable=True),
     Column("mismatch_detail", Text(), nullable=True),
+    Column("futures_derisk_pending", Boolean(), nullable=False, server_default="false"),
+    Column("futures_flat_confirmation_after", DateTime(timezone=True), nullable=True),
     Column("pending_entry_bars", Integer(), nullable=False, server_default="0"),
     Column("bars_held", Integer(), nullable=False, server_default="0"),
     Column("cooldown_bars_remaining", Integer(), nullable=False, server_default="0"),

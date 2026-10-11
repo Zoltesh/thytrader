@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal, DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
@@ -36,16 +37,17 @@ async def supervise_live_futures(
     """Continue durable de-risking even if the ratio recovers while cancellation is pending."""
     if snapshot.position is None:
         return snapshot
-    pending = (snapshot.deployment.mismatch_detail or "").startswith(_PENDING)
+    pending = snapshot.deployment.futures_derisk_pending
     if not pending and not live_liquidation_due(
         snapshot, state=state, account=account, policy=policy, now=now
     ):
         return snapshot
     if not pending:
         await store.save_deployment(
-            with_runtime(
+            replace(
                 snapshot.deployment,
                 updated_at=now,
+                futures_derisk_pending=True,
                 mismatch_detail=_PENDING + "margin breach; cancel protection before reduction.",
             )
         )

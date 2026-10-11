@@ -282,6 +282,8 @@ class DeploymentResponse(BaseModel):
     last_evaluated_bar: str | None
     last_signal: str | None
     mismatch_detail: str | None
+    futures_derisk_pending: bool = False
+    futures_flat_confirmation_after: str | None = None
     pending_entry_bars: int
     bars_held: int
     lifecycle_command: str

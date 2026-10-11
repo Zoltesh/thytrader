@@ -11,9 +11,11 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.exit_guards import active_orders, exit_fill_pending
+from thytrader.execution.futures_cancel import cancel_proven_futures_orders
+from thytrader.execution.futures_obligations import retain_flat_confirmation
 from thytrader.execution.futures_venue_check import compare_position
 from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.runtime_ops import _pause, cancel_resting_orders
+from thytrader.execution.runtime_ops import _pause
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
@@ -57,20 +59,15 @@ async def reduce_live_futures_position(
         IntentPurpose.TIME_EXIT,
     }:
         raise ValueError("A futures reduction requires an explicit exit purpose.")
+    snapshot = await retain_flat_confirmation(snapshot, store=store, now=now)
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
     if snapshot.position is None:
         return snapshot
     if _unresolved_reduction(snapshot):
         return await _pending(snapshot, store=store, now=now)
-    if not _reduction_proven(snapshot, account, now):
-        return await _pause(
-            snapshot,
-            store=store,
-            detail=(
-                "FUTURES_REDUCTION_UNPROVEN: position, quantity or exclusive ownership is unknown."
-            ),
-        )
-    snapshot = await cancel_resting_orders(snapshot, broker=broker, store=store)
+    snapshot = await cancel_proven_futures_orders(
+        snapshot, account=account, broker=broker, store=store, now=now
+    )
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
     if snapshot.position is None:
         return snapshot

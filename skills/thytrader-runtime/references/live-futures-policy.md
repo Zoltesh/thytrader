@@ -119,11 +119,19 @@ Future operational semantics are pinned, not enabled here:
   reduced only when the complete managed-client fill ledger proves ownership; unrelated inventory
   is untouched. The book stays paused after repair. No operator repair command is added.
 - Margin de-risk continues under entry disarm, managed stop and live-policy disablement. A breach
-  remains pending through cancel/submit uncertainty, even if margin recovers, and completed de-risk
+  is stored independently as `futures_derisk_pending` before any cancellation and remains pending
+  through unrelated reconciliation faults, restart and cancel/submit uncertainty, even if margin
+  recovers. A filled de-risk
   pauses entries for review. Stops must be confirmed canceled before any reduction is sent.
 - Futures flatten uses an explicit price-free reduction without inventing a candle. Unknown
   position/quantity/ownership still blocks it. A stopped flatten waits for a subsequent fresh
-  venue-flat observation before completing. This does not change spot/paper flatten semantics.
+  venue-flat observation before completing. `futures_flat_confirmation_after` is its durable
+  lower bound, not a successful observation timestamp. It is persisted before cancellation or
+  submission and advanced atomically with canonical fill accounting. A later distinct complete
+  observation must be strictly after the last fill plus five seconds. A margin-monitor message
+  cannot overwrite this duty. Read both fields with `thytrader-runtime show` or operator `runtime`;
+  never clear them by database edits. Alembic 0076 and ops contract v95 are required (ADR 0135).
+  This does not change spot/paper flatten semantics.
 - Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
   missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
 

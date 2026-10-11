@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
-from thytrader.execution.broker import BrokerError, ClientOrderLookup
+from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, ClientOrderLookup
 from thytrader.trading.adoption import ADOPTION_EVIDENCE_INCOMPLETE, adoption_evidence_complete
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
@@ -293,7 +293,12 @@ async def _reconcile_venue_order(
         venue_order_id=venue_order_id,
         status=result.status,
         filled_quantity=max(order.filled_quantity, result.filled_quantity),
-        reject_reason=result.reject_reason,
+        reject_reason=(
+            CANCEL_PENDING_REASON
+            if order.reject_reason == CANCEL_PENDING_REASON
+            and result.status in {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
+            else result.reject_reason
+        ),
         venue_observed_at=(
             utc_now()
             if snapshot.deployment.mode is DeploymentMode.LIVE

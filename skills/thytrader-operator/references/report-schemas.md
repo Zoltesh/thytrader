@@ -22,8 +22,12 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v94` advertises `live_futures_risk_policy` under
-`futures_observations`; `futures_order_paths` stays empty, and Alembic stays `0075`.
+Ops contract `thytrader-ops-contract-v95` advertises `live_futures_risk_policy` under
+`futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
+`futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
+futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
+is a pending flat-verification lower bound, never a successful venue observation. Diagnostics
+can change without clearing either duty. Restart/resume is not a manual-clear operation.
 **This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
 `FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health and alerts arrive in P2-6. To change
 settings, use the confirmation-gated runtime lane's

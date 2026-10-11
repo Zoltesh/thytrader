@@ -6,9 +6,9 @@ from decimal import DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
 from thytrader.execution.exit_guards import active_orders
+from thytrader.execution.futures_cancel import cancel_proven_futures_orders
 from thytrader.execution.futures_venue_check import compare_position
 from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.runtime_ops import cancel_resting_orders
 from thytrader.execution.submit import submit_intent
 from thytrader.trading.futures_repair import (
     EXCESS_REDUCTION_PREFIX,
@@ -41,7 +41,9 @@ async def reduce_proven_excess(
         return snapshot
     if any(order.kind is OrderKind.MARKETABLE for order in active_orders(snapshot)):
         return snapshot
-    snapshot = await cancel_resting_orders(snapshot, broker=broker, store=store)
+    snapshot = await cancel_proven_futures_orders(
+        snapshot, account=account, broker=broker, store=store, now=now
+    )
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
     if active_orders(snapshot):
         return snapshot

@@ -42,6 +42,7 @@ class FakeVenue:
         self.timeout_before_post = False
         self.partial_contracts: Decimal | None = None
         self.cancel_confirmed = True
+        self.pending_cancels: set[str] = set()
 
     async def contract_size(self, product_id: str) -> Decimal | None:
         """The same catalog size used in evidence and by the actual futures broker."""
@@ -62,6 +63,7 @@ class FakeVenue:
             ids = data["order_ids"]
             assert isinstance(ids, list)
             for identity in ids:
+                self.pending_cancels.add(str(identity))
                 if self.cancel_confirmed:
                     self.orders[str(identity)]["status"] = "CANCELLED"
             return {"results": [{"order_id": i, "success": True} for i in ids]}
@@ -103,6 +105,11 @@ class FakeVenue:
     def get(self, path: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
         """Return complete bounded history and canonical FUTURE fills."""
         self.calls.append(("GET", path, dict(params or {})))
+        if self.cancel_confirmed:
+            for identity in self.pending_cancels:
+                if self.orders[identity]["status"] == "OPEN":
+                    self.orders[identity]["status"] = "CANCELLED"
+            self.pending_cancels.clear()
         if path.endswith("/product_book"):
             return {
                 "pricebook": {

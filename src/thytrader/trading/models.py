@@ -287,6 +287,8 @@ class Deployment:
     last_evaluated_bar: datetime | None = None
     last_signal: str | None = None
     mismatch_detail: str | None = None
+    futures_derisk_pending: bool = False
+    futures_flat_confirmation_after: datetime | None = None
     pending_entry_bars: int = 0
     bars_held: int = 0
     cooldown_bars_remaining: int = 0

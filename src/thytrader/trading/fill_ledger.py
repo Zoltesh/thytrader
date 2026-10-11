@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 from thytrader.trading.futures_repair import project_excess_reduction
+from thytrader.trading.futures_safety import require_futures_flat_confirmation
 from thytrader.trading.geometry import entry_bar_bucket
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
@@ -190,6 +191,8 @@ def fill_projection_deployment(
         cash=projected.deployment.cash,
         status=projected.deployment.status,
         mismatch_detail=projected.deployment.mismatch_detail,
+        futures_derisk_pending=projected.deployment.futures_derisk_pending,
+        futures_flat_confirmation_after=projected.deployment.futures_flat_confirmation_after,
         phase=aggregate_phase(projected.instrument_runtimes),
         updated_at=projected.deployment.updated_at,
     )
@@ -213,6 +216,9 @@ def project_fill_economics(
     Atomic stores load the full deployment, so the product must be selected here,
     not merely in the caller's overlay. Sibling positions are never the exit target.
     """
+    snapshot = replace(
+        snapshot, deployment=require_futures_flat_confirmation(snapshot.deployment, after=utc_now())
+    )
     repaired = project_excess_reduction(snapshot, fill=fill, order=order, now=utc_now())
     if repaired is not None:
         return repaired

@@ -16,6 +16,7 @@ from thytrader.execution.exit_guards import active_orders
 from thytrader.execution.futures_venue_check import PositionConfirmations, compare_position
 from thytrader.market_data.cycle_reads import shared_read
 from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, IntentPurpose, OrderStatus
 
@@ -135,18 +136,26 @@ def managed_live_futures(snapshot: DeploymentSnapshot) -> bool:
             deployment.status is not DeploymentStatus.STOPPED
             or snapshot.position is not None
             or bool(active_orders(snapshot))
+            or unsettled_fill_evidence(snapshot)
+            or bool(unprojected_inventory_products(snapshot))
             or any(
                 intent.status in {OrderStatus.PENDING, OrderStatus.UNKNOWN}
                 and not any(order.intent_id == intent.id for order in snapshot.orders)
                 for intent in snapshot.intents
             )
-            or (deployment.mismatch_detail or "").startswith("FUTURES_FLAT_CONFIRMATION_PENDING")
+            or deployment.futures_derisk_pending
+            or deployment.futures_flat_confirmation_after is not None
         )
     )
 
 
 def futures_decisions_deferred(snapshot: DeploymentSnapshot) -> bool:
     """Do not re-rest protection or settle while a durable futures safety operation waits."""
+    if (
+        snapshot.deployment.futures_derisk_pending
+        or snapshot.deployment.futures_flat_confirmation_after is not None
+    ):
+        return True
     detail = snapshot.deployment.mismatch_detail or ""
     if detail.startswith("FUTURES_POSITION_MISMATCH"):
         account = current_live_futures_account()
@@ -154,7 +163,7 @@ def futures_decisions_deferred(snapshot: DeploymentSnapshot) -> bool:
             snapshot, None if account is None else account.venue, now=utc_now()
         )
         return sample is None or not sample.matches
-    return detail.startswith(("FUTURES_DERISK_PENDING", "FUTURES_FLAT_CONFIRMATION_PENDING"))
+    return False
 
 
 async def prepare_live_futures_book(

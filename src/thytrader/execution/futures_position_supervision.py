@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
@@ -11,7 +12,8 @@ from thytrader.execution.futures_flip_guard import reduce_proven_excess
 from thytrader.execution.futures_live import current_live_futures_runtime
 from thytrader.execution.futures_venue_check import compare_position
 from thytrader.execution.runtime_ops import _pause, cancel_resting_orders
-from thytrader.trading.models import is_venue_protection, with_runtime
+from thytrader.trading.fill_ledger import unprojected_inventory_products
+from thytrader.trading.models import is_venue_protection
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -53,19 +55,7 @@ async def enforce_position_check(
                         ),
                         product_id=snapshot.deployment.product_id,
                     )
-        if (snapshot.deployment.mismatch_detail or "").startswith(
-            "FUTURES_FLAT_CONFIRMATION_PENDING"
-        ) and not active_orders(snapshot):
-            await store.save_deployment(
-                with_runtime(snapshot.deployment, updated_at=now, clear_mismatch=True)
-            )
-            snapshot = await store.get_deployment(snapshot.deployment.id)
-            await record_execution_audit(
-                action="futures_flat_confirmed",
-                outcome=AuditEventOutcome.SUCCESS,
-                detail="A fresh post-fill CFM observation confirms the managed book is flat.",
-                product_id=snapshot.deployment.product_id,
-            )
+        snapshot = await _complete_flat_obligations(snapshot, account=account, store=store, now=now)
     if not runtime.confirmations.confirm(snapshot.deployment.id, sample) or sample is None:
         return snapshot
     if account is not None:
@@ -77,3 +67,48 @@ async def enforce_position_check(
             now=now,
         )
     return await _pause(snapshot, store=store, detail=sample.detail)
+
+
+async def _complete_flat_obligations(
+    snapshot: DeploymentSnapshot,
+    *,
+    account: FuturesLiveAccount | None,
+    store: ExecutionStore,
+    now: datetime,
+) -> DeploymentSnapshot:
+    """Clear duties together only after distinct complete post-fill venue-flat evidence."""
+    after = snapshot.deployment.futures_flat_confirmation_after
+    if after is None or account is None:
+        return snapshot
+    # Cancels above may have ingested a racing fill: re-evaluate, never reuse their old proof.
+    sample = compare_position(snapshot, account.venue, now=now)
+    if (
+        sample is None
+        or not sample.matches
+        or sample.book_contracts != 0
+        or sample.observed_at <= after
+        or active_orders(snapshot)
+        or unprojected_inventory_products(snapshot)
+        or account.venue.external_order_products is None
+        or snapshot.deployment.product_id in account.venue.external_order_products
+    ):
+        return snapshot
+    detail = snapshot.deployment.mismatch_detail
+    if (detail or "").startswith("FUTURES_FLAT_CONFIRMATION_PENDING"):
+        detail = None
+    await store.save_deployment(
+        replace(
+            snapshot.deployment,
+            updated_at=now,
+            futures_derisk_pending=False,
+            futures_flat_confirmation_after=None,
+            mismatch_detail=detail,
+        )
+    )
+    await record_execution_audit(
+        action="futures_flat_confirmed",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail="A fresh post-fill CFM observation confirms the managed book is flat.",
+        product_id=snapshot.deployment.product_id,
+    )
+    return await store.get_deployment(snapshot.deployment.id)

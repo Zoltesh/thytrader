@@ -63,6 +63,12 @@ fields under a new revision. Replacement protection reconciles cancel-time execu
 for complete applied economics before sizing; missing publication is not permission to infer a
 sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and other latches
 ([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
+Dormant injected futures safety duties are independent of mismatch diagnostics: `show` and
+operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmation_after`. A
+present timestamp means verification is pending, not a successful venue read. Neither restart,
+resume nor recovered margin clears these duties; there is no manual-clear command. Live starts
+remain refused. See [live futures policy](references/live-futures-policy.md) and ADR 0135.
+
 UTC day-open and high-water baselines persist
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
 on `thytrader-runtime show`.
