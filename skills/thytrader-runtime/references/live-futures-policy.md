@@ -40,7 +40,14 @@ The pure gate requires opt-in, capital, allowlist, an exclusive perp-style produ
 fresh UTC venue evidence (at most 180 seconds old; future reads rejected). Positions,
 external nonterminal orders, buying power, initial margin, killswitch and catalog contract
 size must be known. A recorded pending/current maintenance window blocks admission.
-Unset policy fields preserve older policy fingerprints.
+Unset policy fields preserve older policy fingerprints. The pure live gate denies if its
+contract counts, allocation totals or margin calculations overflow, underflow, become nonfinite,
+or discard nonzero digits at the active Decimal precision. Such values cannot certify capacity;
+only rounding trailing zeroes is harmless. Order count failures use
+`FUTURES_ORDER_CONTRACTS_EXCEEDED`, unrepresentable held positions or proposed margin use
+`FUTURES_COLLATERAL_UNKNOWN`, allocation totals use `FUTURES_LIVE_CAPITAL_EXCEEDED`, and
+projected reserve failures use `FUTURES_COLLATERAL_RESERVE_SHORT`. These are controlled admission
+denials even with caller arithmetic traps disabled, not permission to loosen policy or restart.
 
 Denial codes include `FUTURES_LIVE_DISABLED`, `FUTURES_LIVE_CAPITAL_UNSET`,
 `FUTURES_LIVE_CAPITAL_EXCEEDED`, `PRODUCT_NOT_ALLOWLISTED`, `FUTURES_PRODUCT_OCCUPIED`,

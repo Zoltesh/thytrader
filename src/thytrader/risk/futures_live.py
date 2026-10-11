@@ -25,14 +25,18 @@ exits, protection and the margin monitor never reach it.
 - **I11.** The bound contract size equals the catalog's (``FUTURES_CONTRACT_DRIFT``).
 
 Amounts are USD. The reserve check is a yes/no threshold under the declared peg (ADR 0129);
-USD and USDC are never added (I12).
+USD and USDC are never added (I12). Admission arithmetic must be finite and exact in the
+caller's Decimal precision/exponent range: overflow, underflow or discarded nonzero digits
+cannot certify capacity or whole contracts. Scoped Inexact traps cover those signals even
+when caller traps are disabled; narrow Decimal failures become existing denials. Rounding
+only trailing zeroes remains valid. The caller's context and shared paper/spot math are unchanged.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from decimal import Decimal
+from decimal import Decimal, DecimalException, Inexact, localcontext
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
@@ -211,7 +215,17 @@ def live_futures_entry_verdict(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
             "A finite positive notional is required to evaluate proposed initial margin.",
         )
-    initial = proposed.notional * margin.initial_rate(side)
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            initial = proposed.notional * margin.initial_rate(side)
+    except DecimalException:
+        initial = None
+    if initial is None or not initial.is_finite() or initial <= 0:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "Proposed initial margin cannot be represented as a finite positive USD amount.",
+        )
     checks: tuple[Callable[[], RiskVerdict | None], ...] = (
         lambda: live_futures_opt_in_verdict(policy, proposed.product_id),
         lambda: _contract_kind_verdict(binding.contract),
@@ -290,9 +304,21 @@ def _envelope_verdict(
             RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
             "A running live futures book has no recorded allocation; the envelope is unknown.",
         )
-    committed = sum((item.allocated_capital or Decimal(0) for item in books), start=Decimal(0))
+    try:
+        with localcontext() as context:
+            # An absorbed allocation would silently create capacity outside the envelope.
+            context.traps[Inexact] = True
+            committed = sum(
+                (item.allocated_capital or Decimal(0) for item in books), start=Decimal(0)
+            )
+            total = committed + allocated
+    except DecimalException:
+        return _deny(
+            RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
+            "Live futures allocations cannot be totaled exactly within the capital envelope.",
+        )
     capital = Decimal(futures.live_capital_usd)
-    if committed + allocated > capital:
+    if not total.is_finite() or total > capital:
         return _deny(
             RiskReasonCode.FUTURES_LIVE_CAPITAL_EXCEEDED,
             f"Live futures allocations {committed} + {allocated} USD would exceed "
@@ -389,7 +415,19 @@ def _external_entry_verdict(
     """I3 at entry: the venue position equals the book's, and no external order exists."""
     if venue is None:
         return None
-    held = _signed_base(book, product_id) / contract_size
+    try:
+        with localcontext() as context:
+            # A rounded position cannot certify equality with the venue's whole contracts.
+            context.traps[Inexact] = True
+            held = _signed_base(book, product_id) / contract_size
+    except DecimalException:
+        held = None
+    if held is None or not held.is_finite() or held != held.to_integral_value():
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "The managed position cannot be represented as exact whole contracts; "
+            "venue position equality is unknown.",
+        )
     return _external_verdict(product_id, venue, expected_contracts=held)
 
 
@@ -450,9 +488,26 @@ def _contracts_verdict(
             RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
             "The live futures entry has no quantity; its contracts cannot be checked.",
         )
-    ordered = proposed.quantity / contract_size
-    held = abs(_signed_base(book, proposed.product_id)) / contract_size
-    if ordered != ordered.to_integral_value() or ordered > cap or held + ordered > cap:
+    try:
+        with localcontext() as context:
+            # Rounding a fractional count to an integer (or zero) is not contract evidence.
+            context.traps[Inexact] = True
+            ordered = proposed.quantity / contract_size
+            held = abs(_signed_base(book, proposed.product_id)) / contract_size
+            total = held + ordered
+    except DecimalException:
+        return _deny(
+            RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
+            "Live order/position contracts cannot be represented exactly within the cap.",
+        )
+    if (
+        not all(value.is_finite() for value in (ordered, held, total))
+        or ordered <= 0
+        or ordered != ordered.to_integral_value()
+        or held != held.to_integral_value()
+        or ordered > cap
+        or total > cap
+    ):
         return _deny(
             RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
             f"{ordered} contracts on a position of {held} exceed the live cap of {cap} "
@@ -526,7 +581,18 @@ def _margin_capacity_verdict(
             "the USDC pool, and the reserve must cover it.",
         )
     haircut = Decimal(futures.peg_haircut)
-    required = (current + initial) * haircut
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            required = (current + initial) * haircut
+    except DecimalException:
+        required = None
+    if required is None or not required.is_finite() or required <= 0:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            "Projected initial margin and haircut cannot establish a finite positive reserve "
+            "requirement; collateral coverage is unproven.",
+        )
     if Decimal(reserve) < required:
         return _deny(
             RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,

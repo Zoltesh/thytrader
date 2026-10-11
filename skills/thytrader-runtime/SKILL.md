@@ -201,8 +201,9 @@ repeatable `--futures-product-allowlist`, `--futures-live-derisk-margin-ratio` a
 [live futures policy reference](references/live-futures-policy.md) for field limits,
 replacement/readback rules, collateral headroom and denial codes. Futures loss ceilings stay
 separate from spot, even in USD; live margin equity requires finite positive allocation, not
-merely a pinned performance basis. Unset fields keep old fingerprints. Publication does **not**
-enable live futures: all starts remain
+merely a pinned performance basis. Unrepresentable live admission arithmetic denies rather than
+rounding away contracts, allocations or margin requirements. Unset fields keep old fingerprints.
+Publication does **not** enable live futures: all starts remain
 `FUTURES_LIVE_UNSUPPORTED`; monitoring, alerts and switch-on are later slices.
 
 Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
