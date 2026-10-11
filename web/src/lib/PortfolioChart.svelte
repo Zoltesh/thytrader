@@ -75,7 +75,7 @@
 	data-testid="portfolio-chart"
 >
 	<div class="card-head">
-		<h2 id="portfolio-chart-title">Portfolio value</h2>
+		<h2 id="portfolio-chart-title">Spot portfolio value</h2>
 		<Segmented
 			label="Chart range"
 			options={rangeOptions}
@@ -85,6 +85,9 @@
 		/>
 	</div>
 	<div class="card-body">
+		<p class="meta">
+			Spot balances · USD-pegged estimate · Excludes futures and pending transfers.
+		</p>
 		{#if history.status === 'loading'}
 			<div class="skeleton chart-skeleton" aria-hidden="true"></div>
 			<p class="sr-only">Loading portfolio history…</p>
@@ -160,7 +163,7 @@
 					height={220}
 					pointMarkers={true}
 					hasGaps={model.hasGaps}
-					ariaLabel="Portfolio value over the {option?.description ?? 'selected range'}"
+					ariaLabel="Spot portfolio value over the {option?.description ?? 'selected range'}"
 					testId="portfolio-history-chart"
 				/>
 				{#if model.hasGaps}<p class="gap-note">

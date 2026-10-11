@@ -91,11 +91,11 @@
 <section class="card holdings" aria-labelledby="holdings-title" data-testid="holdings">
 	<div class="card-head">
 		<div class="titles">
-			<h2 id="holdings-title">Holdings</h2>
+			<h2 id="holdings-title">Spot holdings</h2>
 			<p class="sub">
 				{#if current !== null}{current.assets.length}
 					{current.assets.length === 1 ? 'balance' : 'balances'} ·
-				{/if}USD estimate · Coinbase spot balances
+				{/if}USD estimate · Coinbase spot balances · Excludes futures and pending transfers
 			</p>
 		</div>
 		{#if stale && ageMs !== null}

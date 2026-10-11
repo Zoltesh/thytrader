@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -33,6 +33,15 @@ class ExchangeAccount(Protocol):
 
     async def get_fee_profile(self) -> FeeProfile:
         """Return the current 30-day volume and fee tier details."""
+        ...
+
+
+@runtime_checkable
+class BatchUsdPriceReader(Protocol):
+    """Optional bounded multi-asset pricing capability; no account or price cache."""
+
+    async def get_usd_prices(self, currencies: tuple[str, ...]) -> dict[str, Decimal | None]:
+        """Return one observation per currency; failed reads raise, absence is explicit."""
         ...
 
 

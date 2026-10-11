@@ -35,10 +35,12 @@
 	} as const;
 </script>
 
-{#if accountShown || booksView !== null}
+{#if accountShown || booksView !== null || account.state.status === 'error'}
 	<section
 		class="card futures"
-		aria-labelledby={accountShown ? 'futures-title' : 'futures-books-title'}
+		aria-labelledby={accountShown || account.state.status === 'error'
+			? 'futures-title'
+			: 'futures-books-title'}
 		data-testid="futures-card"
 	>
 		{#if view !== null && view.kind === 'account'}
@@ -69,14 +71,19 @@
 					{/each}
 				</dl>
 			{/if}
+			<p class="muted" data-testid="futures-observed-at">
+				Observed: {view.observedAt ?? 'unknown'} · USD figures, not a consolidated account total.
+			</p>
 			<p class="note" data-testid="futures-shared-note">{view.sharedNote}</p>
 			<p class="positions" data-testid="futures-positions">{view.positions}</p>
 			{#if view.failures.length > 0}
 				<p class="warn">Failed reads: {view.failures.join(', ')}</p>
 			{/if}
-			{#if account.state.status === 'error'}
-				<p class="warn" role="status">Couldn't refresh: {account.state.error}</p>
-			{/if}
+		{/if}
+		{#if account.state.status === 'error'}
+			{#if !accountShown}<h2 id="futures-title">Futures (read-only)</h2>{/if}
+			<p class="warn" role="status">Couldn't refresh: {account.state.error}</p>
+			<button class="btn ghost" onclick={() => void account.reload()}>Retry</button>
 		{/if}
 		{#if booksView !== null}
 			<FuturesBooksSection section={booksView} />

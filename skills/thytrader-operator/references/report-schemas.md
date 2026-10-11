@@ -30,6 +30,30 @@ settings, use the confirmation-gated runtime lane's
 [policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
 then read back the fingerprint and complete block here. Operator never publishes policy.
 
+## Portfolio value scope
+
+`portfolio.payload.total_value` is the USD-pegged approximation of spot holdings;
+`totals` keeps USD, USDC and USDT separate. The Home KPI, chart and holdings use this
+same spot-only basis. Refreshing the UI does not write history; worker snapshots retain
+the existing basis and cadence. Available-to-trade and risk capital are unchanged.
+
+For an account comparison, read `futures-account` independently and inspect `observed_at`,
+`stale`, `read_failures` and components before its balance fields: `total_usd_balance`,
+`cbi_usd_balance`, `cfm_usd_balance`, `total_pending_transfers_amount` and
+`daily_realized_pnl`. All are existing nullable USD strings. The first is CFM-reported
+cash, not whole-account equity; CBI cash and collateral can overlap spot evidence.
+Pending transfers are reported as-is, not an inferred net addition, and daily PnL must
+not be added to a balance as though it were separate capital. No authoritative
+consolidated account total is currently exposed. Never add buying power or margin to
+spot holdings. Null/failed evidence is unknown, not zero.
+
+Portfolio pricing reads unique noncash currencies in sequential batches of at most 100
+requested USD products using Coinbase List Products. No parallel shared SDK session
+calls or fresh-mark cache are introduced. Each omitted product is resolved with the
+existing individual lookup: only its explicit 404 proves an unsupported market.
+Other failures fail the read. A cancellation starts no remaining batches; an already
+running synchronous SDK request may finish within its existing transport timeout.
+
 ## Common envelope
 
 Every JSON report includes:

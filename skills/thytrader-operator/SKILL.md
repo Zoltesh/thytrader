@@ -35,6 +35,16 @@ tests, and do not search the tree for a code patch. Report failures through this
 only with `make run` when the user asked or the [stale-image rule](../README.md#shared-rules-every-lane)
 applies. Run every `uv run thytrader-*` command from the repository root (the parent of `ops/`).
 
+## Spot value versus futures account evidence
+
+`portfolio` and its history cover **spot balances only**, not a consolidated Coinbase
+account total. Successful marks use bounded sequential product batches; dust is still
+valued and unknown markets remain explicit. Balance and permission reads stay fresh.
+Compare `futures-account` separately: its USD cash breakdown, pending transfers and daily
+realized PnL are timestamped mirror observations, not amounts to add to spot. Shared
+collateral can overlap and period PnL is not new capital. See the
+[scope reference](references/report-schemas.md#portfolio-value-scope).
+
 ## Commands
 
 Prefer the CLI. HTTP is the same contract on loopback.

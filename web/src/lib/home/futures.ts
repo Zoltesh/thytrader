@@ -25,6 +25,11 @@ export type FuturesAccountPayload = {
 	read_failures: string[];
 	balance: {
 		currency: 'USD';
+		total_usd_balance?: string | null;
+		cbi_usd_balance?: string | null;
+		cfm_usd_balance?: string | null;
+		total_pending_transfers_amount?: string | null;
+		daily_realized_pnl?: string | null;
 		futures_buying_power: string | null;
 		available_margin: string | null;
 		liquidation_threshold: string | null;
@@ -54,6 +59,7 @@ export type FuturesCardView =
 			facts: FuturesFact[];
 			positions: string;
 			stale: boolean;
+			observedAt: string | null;
 			failures: string[];
 			sharedNote: string;
 	  };
@@ -85,10 +91,7 @@ function signedUsd(value: string | null | undefined): string {
 /** The card's view: hidden when futures were never observed here. */
 export function futuresCardView(report: FuturesAccountReport): FuturesCardView {
 	const payload = report.payload;
-	if (
-		payload.enablement === null ||
-		report.components.some((component) => NOT_OBSERVED.has(component.reason_code))
-	) {
+	if (report.components.some((component) => NOT_OBSERVED.has(component.reason_code))) {
 		return { kind: 'hidden' };
 	}
 	const balance = payload.balance;
@@ -96,6 +99,31 @@ export function futuresCardView(report: FuturesAccountReport): FuturesCardView {
 	const flat = positions !== null && positions.length === 0;
 	const ratio = payload.margin_ratio ?? null;
 	const facts: FuturesFact[] = [
+		{
+			label: 'CFM-reported total cash (USD)',
+			value: usd(balance?.total_usd_balance),
+			hint: 'Includes CBI and CFM; not additive to spot'
+		},
+		{
+			label: 'CBI cash (USD)',
+			value: usd(balance?.cbi_usd_balance),
+			hint: 'Spot-account cash reported by CFM'
+		},
+		{
+			label: 'CFM cash (USD)',
+			value: usd(balance?.cfm_usd_balance),
+			hint: 'Futures-account cash'
+		},
+		{
+			label: 'Pending transfers (USD)',
+			value: usd(balance?.total_pending_transfers_amount),
+			hint: 'As reported; not added to spot or cash totals'
+		},
+		{
+			label: 'Daily realized PnL (USD)',
+			value: signedUsd(balance?.daily_realized_pnl),
+			hint: 'Period PnL, not additional account equity'
+		},
 		{
 			label: 'Buying power',
 			value: usd(balance?.futures_buying_power),
@@ -121,11 +149,19 @@ export function futuresCardView(report: FuturesAccountReport): FuturesCardView {
 	];
 	return {
 		kind: 'account',
-		enablement: payload.enablement,
+		enablement: payload.enablement ?? 'unknown',
 		facts,
 		positions: positionsLine(positions),
-		stale: payload.stale === true,
-		failures: payload.read_failures,
+		stale: payload.stale !== false,
+		observedAt: payload.observed_at,
+		failures: [
+			...new Set([
+				...payload.read_failures,
+				...report.components
+					.filter((component) => component.status !== 'healthy')
+					.map((component) => component.reason_code)
+			])
+		],
 		sharedNote: SHARED_BUYING_POWER_NOTE
 	};
 }

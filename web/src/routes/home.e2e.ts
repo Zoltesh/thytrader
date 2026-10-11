@@ -530,7 +530,7 @@ async function openWithHistory(
 		});
 	});
 	await openHome(page);
-	await expect(page.getByRole('heading', { name: 'Portfolio value', level: 2 })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Spot portfolio value', level: 2 })).toBeVisible();
 }
 
 test('requests each chart range from the existing history API', async ({ page }) => {
@@ -1134,7 +1134,7 @@ async function openWithAssets(
 ): Promise<void> {
 	await mockHome(page, { portfolio });
 	await openHome(page);
-	await expect(page.getByRole('heading', { name: 'Holdings' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Spot holdings' })).toBeVisible();
 }
 
 const holdingRows = (page: Page) => page.getByTestId('holdings').getByTestId('holding-row');
@@ -1263,7 +1263,7 @@ test('shows the fee tier as one compact line below the holdings', async ({ page 
 	await mockHome(page, { portfolio: demoPortfolio });
 	await openHome(page);
 
-	const holdingsHeading = page.getByRole('heading', { name: 'Holdings' });
+	const holdingsHeading = page.getByRole('heading', { name: 'Spot holdings' });
 	const feesHeading = page.getByRole('heading', { name: 'Fee tier' });
 	await expect(feesHeading).toBeVisible();
 	const holdingsBox = await holdingsHeading.boundingBox();

@@ -366,7 +366,7 @@
 	<section class="kpis" aria-labelledby="kpis-title">
 		<h2 id="kpis-title" class="sr-only">Key figures</h2>
 		<KpiTile
-			label="Portfolio value"
+			label="Spot portfolio value"
 			view={valueTile}
 			testId="kpi-portfolio-value"
 			onretry={refreshBalances}
@@ -390,6 +390,11 @@
 			onretry={() => void deployments.reload()}
 		/>
 	</section>
+
+	<p class="muted">
+		Spot value excludes futures and pending transfers. Futures cash and PnL are reported separately
+		below; no consolidated account total is available.
+	</p>
 
 	<div class="grid2">
 		<PortfolioChart
