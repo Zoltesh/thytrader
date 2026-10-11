@@ -94,12 +94,13 @@ def _require_aware_time(value: object) -> datetime:
     """Parse supported RFC3339 once, without losing precision or UTC provenance.
 
     Datetimes support microseconds: extra fractional digits must all be zero.
+    Bound the local clock before ISO parsing, which can normalize hour 24.
     Leap seconds and RFC3339's unknown local offset (-00:00) are unsupported.
     """
     if not isinstance(value, str):
         raise BrokerError("Invalid futures trade timestamp.")
     match = re.fullmatch(
-        r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}"
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt](?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]"
         r"(?:\.([0-9]+))?([Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
         value,
     )

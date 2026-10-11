@@ -269,9 +269,11 @@ Pre-request submission refusals return REJECTED with zero broker transport sends
 catalog size is not one. Fills require explicit FUTURE/FILL, the expected product/order,
 non-quote size and empty combo legs; commission is the authoritative all-in fill commission,
 never the rounded itemization total. Fill timestamps require supported RFC3339 syntax with
-an explicit known offset, valid offset hours/minutes and a representable UTC result. Parsing
-happens once; microsecond precision is exact (extra fractional digits must be zero), never
-silently truncated. Unknown offsets (`-00:00`), leap seconds and out-of-range UTC instants
+an explicit known offset, valid offset hours/minutes and a representable UTC result. Local
+hours/minutes/seconds are bounded to 00–23/00–59/00–59 before parsing; ISO hour 24 must not be
+normalized into next-day evidence. Parsing happens once; microsecond precision is exact
+(extra fractional digits must be zero), never silently truncated. Unknown offsets (`-00:00`),
+leap seconds and out-of-range UTC instants
 fail with `BrokerError`. Shared spot timestamp parsing is unchanged.
 Malformed or incomplete history raises rather than
 inventing zero or silently skipping rows. Ambiguous sends stay UNKNOWN through the existing

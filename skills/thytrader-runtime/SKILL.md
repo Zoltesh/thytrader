@@ -209,9 +209,9 @@ only dormant, fake-transport-tested futures adapters, not an operator order path
 constructor-selected reduction candidates and post-only/protection venue acceptance remain
 pending supervised verification; attachments are disabled and no automatic fallback exists.
 See the same reference for the adapter boundary and refusal meanings, including exact fill
-timestamps and complete identity scans. Known venue ids route independently of attached-child
-bookkeeping labels; malformed scan rows never authorize cancellation. Do not bypass starts
-by importing an adapter.
+timestamps (local hours 00–23 only, never normalized hour 24) and complete identity scans.
+Known venue ids route independently of attached-child bookkeeping labels; malformed scan rows
+never authorize cancellation. Do not bypass starts by importing an adapter.
 
 Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
 A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**. There is no

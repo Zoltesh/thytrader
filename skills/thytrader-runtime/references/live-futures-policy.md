@@ -23,8 +23,10 @@ id does not require an attached spot child's local bookkeeping label to be echoe
 scans require exact client matching and valid identities on every row/page; malformed nonmatches
 cannot prove absence or uniqueness and cannot authorize cancellation. No clientless scan-row
 representation is supported. Futures fill timestamps must have a known explicit RFC3339 offset
-and an exactly representable UTC instant; invalid offsets, UTC overflow and sub-microsecond
-precision loss are domain errors, not silently normalized evidence.
+and an exactly representable UTC instant. Local clock fields are restricted to hours 00–23,
+minutes 00–59 and seconds 00–59 before parsing; hour 24 is rejected, never normalized to the
+next day. Invalid offsets, UTC overflow and sub-microsecond precision loss are domain errors,
+not silently normalized evidence.
 
 Internal pre-request refusals are definite REJECTED with no broker transport sends:
 `FUTURES_BROKER_UNAVAILABLE`, `FUTURES_PRODUCT_UNSUPPORTED`, `FUTURES_INTENT_INVALID`,
