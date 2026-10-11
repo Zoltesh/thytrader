@@ -121,4 +121,14 @@ def test_exact_mutation_path_allowlist_and_dormant_wiring() -> None:
     for directory in (root / "src/thytrader/api", root / "src/thytrader/execution_worker"):
         for file in directory.rglob("*.py"):
             assert "CoinbaseFuturesBroker" not in file.read_text()
-            assert "ProductRoutedBroker" not in file.read_text()
+            if file.name != "futures_venue.py":
+                assert "ProductRoutedBroker" not in file.read_text()
+                assert "compose_futures_venue" not in file.read_text()
+    staged = root / "src/thytrader/execution_worker/futures_venue.py"
+    functions = [
+        node for node in ast.parse(staged.read_text()).body if isinstance(node, ast.FunctionDef)
+    ]
+    assert [node.name for node in functions] == ["compose_futures_venue"]
+    assert [arg.arg for arg in functions[0].args.kwonlyargs] == ["broker", "source"]
+    # No setting, flag, approval boolean or adapter construction enables this composition.
+    assert "CoinbaseFuturesBroker" not in staged.read_text()

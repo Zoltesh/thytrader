@@ -318,6 +318,82 @@ P2-4/P2-6/P2-7 respectively. Stored monitor/alert thresholds do not imply those 
 The [runtime skill](../../skills/thytrader-runtime/references/live-futures-policy.md) documents
 publication, readback, field validation and the remaining operational boundary.
 
+## P2-4 implementation boundary
+
+P2-4 implements the **injected runtime**, not production venue acceptance. The default API
+and worker venue builder still construct only the spot adapter. `compose_futures_venue` is an
+internal process composition function accepting an already supplied broker and neutral evidence
+source; no CLI, setting, boolean approval record or default builder calls it. Hermetic tests inject
+a synthetic transport through the real futures adapter, intent store, worker step and fill ledger.
+Those tests are not authentic Coinbase acceptance evidence. The §7 reduction/post-only probes,
+P2-5 protection decision, P2-6 visibility and P2-7 acknowledgement/start gate remain prerequisites
+for real wiring. All three `FUTURES_LIVE_UNSUPPORTED` refusals and empty `FUTURES_ORDER_PATHS`
+remain unchanged. No migration, order kind, operator payload, CLI flag or ops-contract bump.
+
+### Evidence, units and funding
+
+- Common book preparation loads live bindings, overnight margins and hourly funding. Live sizing
+  uses allocation plus ledger equity, the futures fee tier and the binding's fixed fee; it never
+  borrows spot base inventory or substitutes a spot fee/balance. A missing settled funding rate
+  blocks a new live entry. Entries never attach an unverified bracket.
+- A cycle shares one successful account observation across managed live futures books: two CFM
+  GETs (`balance_summary`, `positions`), plus a separate complete futures open-order listing needed
+  for I3. The fresh pair does **not** refresh killswitch evidence: that comes from the independently
+  fresh persisted margin-window mirror. Unknown components remain unknown. External-order ownership
+  requires exact product **and** durable client identity, not an id prefix. Spot-only fleets make
+  no additional CFM reads. Completed stopped/flat books retire these reads after confirmation.
+- Margin preparation and broker sizing share the same in-cycle catalog observation. Bound/catalog
+  drift denies entries. Reductions use catalog-sized whole contracts and require signed venue/book
+  agreement; a drift that makes quantities inconsistent or inexact cannot authorize a guessed exit.
+- Live funding uses the existing unique-hour `futures_funding_entries` transaction and day-opening
+  source `per_product_applied_fills_and_funding_v1`. It is **modeled accrued funding at a settled
+  rate**, never an assertion of venue settlement. Invalid or unrepresentable live accrual/cash is
+  missing evidence, not a stored NaN/zero. No USD amount is added to USDC.
+
+### I9 and protective reductions
+
+For I9, “no nonterminal order” means **no unsettled transaction**. Freshly observed OPEN,
+unfilled resting managed protection is allowed; otherwise permanent protection would suppress
+I9 for the entire holding period. Pending/UNKNOWN/cancel-pending/partially filled or unobserved
+protection, dangling pending intents, incomplete accounting or unapplied fills still invalidate
+a sample. The account observation must be strictly later than the last fill plus five seconds.
+Only distinct increasing observations count. An unknown or equal comparison breaks the mismatch
+run; rereading the same observation does not advance it. Two fresh valid mismatches persist the
+existing pause. Restart clears only the in-memory counter, never the durable pause.
+
+Flat book plus flat venue cancels confirmed orphan protection and records
+`futures_orphan_order_cancelled`. A larger or opposite venue position is reduced only when its
+**entire signed quantity** equals the exact applied managed-client fill ledger. Foreign, mixed,
+unknown or fractional ownership is never reduced. After a repair the book remains paused.
+
+A repair uses LIQUIDATION with a reserved `futures-flip:` idempotency identity. Its fill is checked
+again inside the existing atomic fill transaction against the still-proven excess. Cash and fees
+are applied while preserving the intended book projection: applying an ordinary exit delta would
+incorrectly consume that valid projection twice. No inventory is adopted or manufactured, and an
+opposite-side residual can only be reduced to venue-flat, not made to match by opening a new leg.
+Memory and PostgreSQL tests cover this exceptional accounting path. An invalid repair identity,
+quantity or proof fails the transaction closed.
+
+The margin monitor runs before bar/entry gates, including paused books, managed stop, fleet disarm,
+venue killswitch and `live_enabled: false`. The ratio comparison uses exact multiplication, not
+rounded display ratios. A triggered de-risk remains durable while cancellation or submission is
+uncertain, even if the margin recovers. Confirmed protection cancellation precedes the reduction;
+an active/ambiguous reduction is reconciled, never cancelled-and-replaced or resent. A completed
+de-risk pauses entries for review (a stopped book stays stopped).
+
+Live futures exits use an explicit price-free reduction with a decision instant, not fabricated
+OHLC candles. The existing intent `candle_starts_at` stores that instant for this narrow path;
+it is not evidence that a candle existed. A latest mark is optional audit context only. Missing
+bars, funding, fees and entry permission do not trap a known reducible position; unknown position,
+quantity or ownership does. A stopped flatten retains `FUTURES_FLAT_CONFIRMATION_PENDING` until a
+later fresh post-fill CFM read confirms flat, then audits `futures_flat_confirmed`. Ordinary spot
+and paper retain their candle-priced paths. Uncertain sends recover through FUTURE client scans
+and canonical fills using the existing persist-before-send contract. If a process dies after
+committing the intent but before its local order, the fenced worker restores an UNKNOWN local
+observation anchor with that same client identity and original submit window. It scans rather
+than submits; absence is not permission to resend. Stopped-flat books with such unresolved
+intents remain supervised.
+
 ## Consequences
 
 - Live futures reuse the existing intent, reconciliation, protection and exit machinery; the

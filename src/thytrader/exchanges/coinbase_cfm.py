@@ -97,7 +97,7 @@ class CoinbaseCfmAccount:
     async def positions(self) -> tuple[FuturesPosition, ...]:
         """Read every open position; a malformed row fails the whole read."""
         payload = await self._get("positions", POSITIONS_PATH)
-        raw = payload.get("positions", [])
+        raw = payload.get("positions")
         if not isinstance(raw, list):
             raise FuturesAccountReadError("positions", "malformed")
         return tuple(_position(_object(row, "positions")) for row in raw)
@@ -249,7 +249,10 @@ def _instant(payload: Mapping[str, object], field: str, operation: str) -> datet
         raise FuturesAccountReadError(operation, "malformed") from None
     if parsed.tzinfo is None:
         raise FuturesAccountReadError(operation, "malformed")
-    return parsed.astimezone(UTC)
+    try:
+        return parsed.astimezone(UTC)
+    except OverflowError:
+        raise FuturesAccountReadError(operation, "malformed") from None
 
 
 def _object(raw: object, operation: str) -> dict[str, object]:

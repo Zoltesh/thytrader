@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
+from thytrader.trading.futures_repair import project_excess_reduction
 from thytrader.trading.geometry import entry_bar_bucket
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
@@ -212,6 +213,9 @@ def project_fill_economics(
     Atomic stores load the full deployment, so the product must be selected here,
     not merely in the caller's overlay. Sibling positions are never the exit target.
     """
+    repaired = project_excess_reduction(snapshot, fill=fill, order=order, now=utc_now())
+    if repaired is not None:
+        return repaired
     product_id = resolved_product_id(order.product_id, snapshot.deployment)
     focused = overlay_snapshot(snapshot, product_id)
     projected, stamped = _project_inventory(

@@ -204,8 +204,10 @@ separate from spot, even in USD; live margin equity requires finite positive all
 merely a pinned performance basis. Unrepresentable live admission arithmetic denies rather than
 rounding away contracts, allocations or margin requirements. Unset fields keep old fingerprints.
 Publication does **not** enable live futures: all starts remain
-`FUTURES_LIVE_UNSUPPORTED`; monitoring, alerts and switch-on are later slices. P2-2 adds
-only dormant, fake-transport-tested futures adapters, not an operator order path. Both
+`FUTURES_LIVE_UNSUPPORTED`. P2-4 exercises injected futures runtime preparation, position checks,
+funding accrual and candle-free protective reductions with fake venues and memory/PostgreSQL
+stores. Default API/worker composition stays spot-only: there is no operator order path or
+activation flag. Operational protection, visibility/alerts and switch-on remain later slices. Both
 constructor-selected reduction candidates and post-only/protection venue acceptance remain
 pending supervised verification; attachments are disabled and no automatic fallback exists.
 See the same reference for the adapter boundary and refusal meanings, including exact fill

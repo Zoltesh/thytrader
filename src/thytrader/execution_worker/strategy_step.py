@@ -38,6 +38,7 @@ from thytrader.execution_worker.windows import (
     _closed_reference_windows,
     new_closed_bars,
 )
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.memory.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
@@ -372,7 +373,11 @@ async def _evaluate_strategy_due_bars(
             return
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
         live_base_available = None
-        if current.deployment.mode is DeploymentMode.LIVE and quote_reader is not None:
+        if (
+            current.deployment.mode is DeploymentMode.LIVE
+            and quote_reader is not None
+            and not is_futures_product_id(product.product_id)
+        ):
             live_base_available = await _short_sellable_base(
                 quote_reader,
                 base_currency(product.product_id),

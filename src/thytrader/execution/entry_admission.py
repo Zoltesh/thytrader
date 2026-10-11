@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Literal
 from thytrader.execution.breaker_pause import _portfolio_with_current
 from thytrader.execution.capital import live_capital_base
 from thytrader.execution.decision_scope import note_risk
+from thytrader.execution.futures_live import admission_venue, current_live_futures_account
 from thytrader.execution.futures_paper import load_futures_legs
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.memory.trade_reason_scope import current_trade_reason_scope
@@ -124,6 +125,7 @@ async def _entry_verdict(
     futures_collateral = await load_futures_collateral(
         bound_futures_account_store(), mode=snapshot.deployment.mode, as_of=observation.as_of
     )
+    account = current_live_futures_account()
     verdict = evaluate_new_entry(
         risk_policy,
         mode=snapshot.deployment.mode,
@@ -143,6 +145,7 @@ async def _entry_verdict(
         beta=beta,
         futures_collateral=futures_collateral,
         futures_legs=legs,
+        futures_venue=admission_venue(account, current_portfolio),
     )
     scope = current_trade_reason_scope()
     if scope is not None:

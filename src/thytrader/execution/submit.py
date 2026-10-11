@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.paper import PaperBroker
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.memory.recording import maybe_record_submitted_intent
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
+    DeploymentMode,
     ExecutionConflictError,
     ExecutionStoreError,
     Fill,
@@ -25,6 +28,7 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
+    from datetime import datetime
     from decimal import Decimal
     from uuid import UUID
 
@@ -44,7 +48,8 @@ async def submit_intent(
     kind: OrderKind,
     quantity: Decimal,
     price: Decimal | None,
-    candle: Candle,
+    candle: Candle | None,
+    decision_at: datetime | None = None,
     stop_trigger_price: Decimal | None = None,
     take_profit_price: Decimal | None = None,
     origin: IntentOrigin = IntentOrigin.RUNTIME,
@@ -59,7 +64,20 @@ async def submit_intent(
     if kind is OrderKind.ADOPTION or purpose is IntentPurpose.ADOPTION:
         raise ValueError("Inventory adoption is recorded in-kind and is never submitted.")
     now = utc_now()
-    stamp = candle.starts_at.strftime("%Y%m%dT%H%M")
+    instant = candle.starts_at if candle is not None else decision_at
+    if candle is None:
+        await _require_price_free_reduction(
+            store,
+            deployment_id,
+            product_id=product_id,
+            purpose=purpose,
+            kind=kind,
+            instant=instant,
+            broker=broker,
+        )
+    if instant is None:
+        raise ValueError("An explicit decision instant is required without a candle.")
+    stamp = instant.strftime("%Y%m%dT%H%M")
     client_order_id = f"{deployment_id}:{purpose.value}:{stamp}:{uuid7(now)}"[:128]
     intent = OrderIntent(
         id=uuid7(now),
@@ -73,7 +91,7 @@ async def submit_intent(
         stop_trigger_price=stop_trigger_price,
         take_profit_price=take_profit_price,
         created_at=now,
-        candle_starts_at=candle.starts_at,
+        candle_starts_at=instant,
         status=OrderStatus.PENDING,
         origin=origin,
         idempotency_key=idempotency_key,
@@ -179,6 +197,7 @@ async def submit_intent(
         await store.save_order(child)
     if (
         isinstance(broker, PaperBroker)
+        and candle is not None
         and result.status is OrderStatus.FILLED
         and result.fill_price is not None
     ):
@@ -194,6 +213,37 @@ async def submit_intent(
         )
         await store.save_fill(fill)
     return submitted
+
+
+async def _require_price_free_reduction(
+    store: ExecutionStore,
+    deployment_id: UUID,
+    *,
+    product_id: str,
+    purpose: IntentPurpose,
+    kind: OrderKind,
+    instant: datetime | None,
+    broker: Broker,
+) -> None:
+    """No-price decisions are only live futures reductions, never paper or new entries."""
+    allowed = {
+        IntentPurpose.STOP,
+        IntentPurpose.LIQUIDATION,
+        IntentPurpose.TIME_EXIT,
+        IntentPurpose.SIGNAL_EXIT,
+    }
+    if (
+        kind is not OrderKind.MARKETABLE
+        or purpose not in allowed
+        or not is_futures_product_id(product_id)
+        or isinstance(broker, PaperBroker)
+        or instant is None
+        or instant.utcoffset() != timedelta(0)
+    ):
+        raise ValueError("Only an explicit live futures reduction may omit its candle.")
+    snapshot = await store.get_deployment(deployment_id)
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        raise ValueError("Paper orders require an executable candle.")
 
 
 async def _existing_order_for_key(

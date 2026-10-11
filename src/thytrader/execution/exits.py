@@ -23,6 +23,8 @@ from thytrader.execution.exit_guards import (
     exit_rejection,
     rejection_latched,
 )
+from thytrader.execution.futures_live import current_live_futures_account
+from thytrader.execution.futures_reduction import reduce_live_futures_position
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL, ingest_order_fills
 from thytrader.execution.runtime_ops import (
     _adopt_venue_attached_child,
@@ -34,6 +36,7 @@ from thytrader.execution.runtime_ops import (
 )
 from thytrader.execution.signals import evaluate_latest_signal_exit
 from thytrader.execution.submit import submit_intent
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.strategies.models import signal_exit_condition
 from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
@@ -162,6 +165,17 @@ async def _marketable_exit(
     """
     if snapshot.position is None:
         return snapshot
+    if snapshot.deployment.mode is DeploymentMode.LIVE and is_futures_product_id(
+        product.product_id
+    ):
+        return await reduce_live_futures_position(
+            snapshot,
+            account=current_live_futures_account(),
+            broker=broker,
+            store=store,
+            purpose=purpose,
+            now=utc_now(),
+        )
     if snapshot.deployment.mode is DeploymentMode.LIVE:
         snapshot = await _reconcile_stopped_live(snapshot, broker=broker, store=store)
         snapshot = await _adopt_venue_attached_child(
@@ -191,9 +205,7 @@ async def _marketable_exit(
         return await _pause(snapshot, store=store, detail=detail)
     blocking = active_orders(snapshot)
     if blocking:
-        if all(cancel_pending(order) for order in blocking):
-            return await _mark_pending_exit(snapshot, store=store)
-        return await _pause(snapshot, store=store, detail=CANCEL_BEFORE_EXIT_DETAIL)
+        return await _wait_or_pause_exit(snapshot, store=store)
     return await _submit_marketable_exit(
         snapshot,
         position=position,
@@ -205,6 +217,17 @@ async def _marketable_exit(
         purpose=purpose,
         price=price,
     )
+
+
+async def _wait_or_pause_exit(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+) -> DeploymentSnapshot:
+    """Preserve the shared cancel-pending versus unidentified-order exit behavior."""
+    if all(cancel_pending(order) for order in active_orders(snapshot)):
+        return await _mark_pending_exit(snapshot, store=store)
+    return await _pause(snapshot, store=store, detail=CANCEL_BEFORE_EXIT_DETAIL)
 
 
 async def _submit_marketable_exit(

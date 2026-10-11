@@ -13,8 +13,9 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.capital import live_sizing_cash
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.strategies.models import atr_trailing_stop
-from thytrader.trading.futures_book import current_futures_book
+from thytrader.trading.futures_book import current_futures_book, futures_book_equity
 from thytrader.trading.geometry import EntrySkipReason
 from thytrader.trading.ids import utc_now
 from thytrader.trading.ledger import PAPER_MAKER_FEE_RATE, effective_paper_fee_rates
@@ -53,13 +54,18 @@ def _size_entry_or_add(
 ) -> SizedEntry | EntrySkipReason:
     """Size a new book or a same-side add against remaining quote cash, or name the skip."""
     if (
-        strategy.entry.economic_guard is not None
+        (strategy.entry.economic_guard is not None or is_futures_product_id(product.product_id))
         and snapshot.deployment.mode is DeploymentMode.LIVE
         and fee_profile is None
     ):
         return EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE
     fee_rate = _entry_fee_rate(snapshot.deployment, fee_profile=fee_profile)
-    sizing_cash = live_sizing_cash(snapshot.deployment)
+    sizing_cash = (
+        futures_book_equity(snapshot, {product.product_id: entry_price})
+        if snapshot.deployment.mode is DeploymentMode.LIVE
+        and is_futures_product_id(product.product_id)
+        else live_sizing_cash(snapshot.deployment)
+    )
     if sizing_cash is None:
         return EntrySkipReason.SIZING_CASH_UNAVAILABLE
     if not is_pyramid_add:
@@ -117,7 +123,13 @@ def _runtime_for_admitted_entry(
         phase=RuntimePhase.PENDING_ENTRY,
         pending_entry_bars=0,
     )
-    attach = sized.target_price is not None and atr_trailing_stop(strategy.exits) is None
+    attach = (
+        sized.target_price is not None
+        and atr_trailing_stop(strategy.exits) is None
+        and not (
+            deployment.mode is DeploymentMode.LIVE and is_futures_product_id(deployment.product_id)
+        )
+    )
     return pending, attach
 
 
