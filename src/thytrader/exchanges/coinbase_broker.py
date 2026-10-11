@@ -13,6 +13,7 @@ from thytrader.exchanges.coinbase_fills import (
     _next_fills_cursor,
     _reject_incomplete_fills_page,
 )
+from thytrader.exchanges.coinbase_order_identity import resolve_order_identity
 from thytrader.exchanges.coinbase_order_json import (
     _attached_order_configuration,
     _decimal,
@@ -31,6 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from decimal import Decimal
 
+    from thytrader.execution.broker import VenueOrderIdentity
     from thytrader.market_data.models import Candle
 
 _ORDERS_PATH = "/api/v3/brokerage/orders"
@@ -378,6 +380,23 @@ class CoinbaseRestBroker:
                 )
             cursor = next_cursor
         raise BrokerError("Coinbase order pagination exceeded the page limit.")
+
+    async def resolve_order_identity(
+        self,
+        *,
+        venue_order_id: str,
+        client_order_id: str,
+    ) -> VenueOrderIdentity | None:
+        """Read routing metadata across products without interpreting quantities.
+
+        Only the dormant product router uses this optional capability. Existing spot
+        get/cancel/submit/fill paths are unchanged; opaque ids are never parsed as products.
+        """
+        return await resolve_order_identity(
+            self._transport,
+            venue_order_id=venue_order_id,
+            client_order_id=client_order_id,
+        )
 
     async def _venue_id_for_client(self, client_order_id: str) -> str | None:
         """Find the venue order id for one client order id from historical spot orders."""
