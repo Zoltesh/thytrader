@@ -97,7 +97,7 @@ async def test_known_futures_identity_with_missing_adapter_cannot_touch_spot(met
 @pytest.mark.parametrize(
     "row",
     [
-        order_json(client_order_id="wrong"),
+        order_json(order_id="wrong"),
         order_json(product_type="SPOT"),
         order_json(product_id="garbage"),
         {},

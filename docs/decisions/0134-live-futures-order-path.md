@@ -268,7 +268,12 @@ inexact results deny even when caller traps are disabled; precision is not raise
 Pre-request submission refusals return REJECTED with zero broker transport sends. Unknown
 catalog size is not one. Fills require explicit FUTURE/FILL, the expected product/order,
 non-quote size and empty combo legs; commission is the authoritative all-in fill commission,
-never the rounded itemization total. Malformed or incomplete history raises rather than
+never the rounded itemization total. Fill timestamps require supported RFC3339 syntax with
+an explicit known offset, valid offset hours/minutes and a representable UTC result. Parsing
+happens once; microsecond precision is exact (extra fractional digits must be zero), never
+silently truncated. Unknown offsets (`-00:00`), leap seconds and out-of-range UTC instants
+fail with `BrokerError`. Shared spot timestamp parsing is unchanged.
+Malformed or incomplete history raises rather than
 inventing zero or silently skipping rows. Ambiguous sends stay UNKNOWN through the existing
 reconciliation contract; only definite HTTP or explicit venue refusals become REJECTED.
 
@@ -277,6 +282,15 @@ ids but no product, so the optional `OrderIdentityLookup` capability resolves a 
 identity **before** selecting the parser or cancel adapter. Coinbase reads the historical
 order, or scans at most 20 all-product pages for a client-only identity. A complete scan must
 establish one unambiguous match; incomplete pagination fails closed, never guesses spot.
+Every row must have a nonempty string client id, a nonempty venue id and consistent explicit
+product/type before it can count as a nonmatch. There is no supported clientless scan-row
+exception: missing, null, empty or nonstring client ids leave the scan unresolved, even after
+a match or on a later page, and cannot authorize cancellation.
+A known exact venue id is authoritative for **routing metadata**, not the caller's local
+client label. Existing attached spot children have locally manufactured labels, never sent
+as client ids; routing does not infer relationships from a `:child` suffix. The selected
+adapter retains its own observation checks, including futures client-id echo matching.
+Client-only resolution still requires the exact submitted client id.
 There is no submit-time routing cache, so a fresh router works after restart. Adapters lacking
 this capability fail closed on productless calls. Futures-specific client reconciliation is
 also bounded, filtered to FUTURE and the product/submit window. Existing spot methods and

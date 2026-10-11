@@ -109,9 +109,12 @@ def _identity_on_page(
     for row in rows:
         if not isinstance(row, dict):
             raise BrokerError("Coinbase order row is malformed.")
-        if row.get("client_order_id") != client_order_id:
-            continue
+        row_client_id = row.get("client_order_id")
+        if not isinstance(row_client_id, str) or not row_client_id:
+            raise BrokerError("Coinbase order client identity is incomplete.")
         candidate = order_identity(row)
+        if row_client_id != client_order_id:
+            continue
         if product_id is not None and candidate.product_id != product_id:
             raise BrokerError("Coinbase client order product mismatch.")
         if found is not None and found != candidate:
@@ -141,13 +144,15 @@ async def resolve_order_identity(
     venue_order_id: str,
     client_order_id: str,
 ) -> VenueOrderIdentity | None:
-    """Read the venue's product, or bounded-scan all products when only client id is known."""
+    """Resolve routing metadata by exact venue id, or scan for an exact client match.
+
+    A durable venue id is authoritative for routing, independently of local labels:
+    attached spot children have bookkeeping client ids that were never submitted.
+    No suffix implies a relationship. The selected adapter retains its observation
+    checks; client-only scans still require the actual submitted client id.
+    """
     if venue_order_id:
-        return order_identity(
-            await read_order(
-                transport, venue_order_id=venue_order_id, client_order_id=client_order_id
-            )
-        )
+        return order_identity(await read_order(transport, venue_order_id=venue_order_id))
     return await scan_client_order(
         transport, client_order_id=client_order_id, params={"limit": 100}
     )

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
+import re
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid5
 
@@ -13,7 +14,6 @@ from thytrader.exchanges.coinbase_fills import (
     _fill_identity,
     _require_fill_order_id,
     _require_fill_product,
-    _require_trade_time,
 )
 from thytrader.exchanges.coinbase_futures_units import to_base
 from thytrader.execution.broker import BrokerError
@@ -76,7 +76,7 @@ def _futures_fill_from_json(
     quantity = to_base(venue_decimal(payload.get("size"), field="size"), contract_size)
     price = venue_decimal(payload.get("price"), field="price")
     fee = venue_decimal(payload.get("commission"), field="commission", allow_zero=True)
-    _require_aware_time(payload.get("trade_time"))
+    filled_at = _require_aware_time(payload.get("trade_time"))
     return Fill(
         id=uuid5(_FILL_ID_NAMESPACE, venue_id),
         deployment_id=UUID(int=0),
@@ -85,18 +85,27 @@ def _futures_fill_from_json(
         price=price,
         quantity=quantity,
         fee=fee,
-        filled_at=_require_trade_time(payload),
+        filled_at=filled_at,
         venue_order_id=venue_order,
     )
 
 
-def _require_aware_time(value: object) -> None:
-    """Reject missing offsets instead of manufacturing venue timestamp provenance."""
+def _require_aware_time(value: object) -> datetime:
+    """Parse supported RFC3339 once, without losing precision or UTC provenance.
+
+    Datetimes support microseconds: extra fractional digits must all be zero.
+    Leap seconds and RFC3339's unknown local offset (-00:00) are unsupported.
+    """
     if not isinstance(value, str):
         raise BrokerError("Invalid futures trade timestamp.")
+    match = re.fullmatch(
+        r"[0-9]{4}-[0-9]{2}-[0-9]{2}[Tt][0-9]{2}:[0-9]{2}:[0-9]{2}"
+        r"(?:\.([0-9]+))?([Zz]|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])",
+        value,
+    )
+    if match is None or match[2] == "-00:00" or any(digit != "0" for digit in (match[1] or "")[6:]):
+        raise BrokerError("Invalid futures trade timestamp.")
     try:
-        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError as error:
+        return datetime.fromisoformat(value.upper().replace("Z", "+00:00")).astimezone(UTC)
+    except (ValueError, OverflowError) as error:
         raise BrokerError("Invalid futures trade timestamp.") from error
-    if parsed.tzinfo is None:
-        raise BrokerError("Futures trade timestamp has no timezone.")

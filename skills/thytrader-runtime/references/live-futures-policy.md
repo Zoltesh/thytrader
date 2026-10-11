@@ -18,7 +18,13 @@ or market entry. Post-only entries, both reduction modes and standalone venue pr
 still need supervised acceptance/enforcement evidence before live wiring; attached entry
 brackets remain disabled. Future runtime integration must retain product exclusivity and
 position checks. Opaque order ids are resolved from bounded venue reads, not a memory cache;
-incomplete identity/fill evidence fails closed after restart as well.
+incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
+id does not require an attached spot child's local bookkeeping label to be echoed. Client-only
+scans require exact client matching and valid identities on every row/page; malformed nonmatches
+cannot prove absence or uniqueness and cannot authorize cancellation. No clientless scan-row
+representation is supported. Futures fill timestamps must have a known explicit RFC3339 offset
+and an exactly representable UTC instant; invalid offsets, UTC overflow and sub-microsecond
+precision loss are domain errors, not silently normalized evidence.
 
 Internal pre-request refusals are definite REJECTED with no broker transport sends:
 `FUTURES_BROKER_UNAVAILABLE`, `FUTURES_PRODUCT_UNSUPPORTED`, `FUTURES_INTENT_INVALID`,
