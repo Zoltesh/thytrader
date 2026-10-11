@@ -37,7 +37,11 @@
     "venue_adapters": [
       "exchanges.coinbase_broker",
       "exchanges.coinbase_fills",
-      "exchanges.coinbase_order_json"
+      "exchanges.coinbase_order_json",
+      "exchanges.coinbase_order_identity",
+      "exchanges.coinbase_futures_broker",
+      "exchanges.coinbase_futures_fills",
+      "exchanges.coinbase_futures_units"
     ]
   },
   "layers": [

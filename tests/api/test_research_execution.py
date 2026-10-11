@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from threading import Event
 import time
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+import pytest
 
 from thytrader.api.app import create_app
 from thytrader.api.research_execution import sync_failure, wait_for_job
@@ -33,6 +35,8 @@ from thytrader.strategies.memory_store import InMemoryStrategyStore
 
 if TYPE_CHECKING:
     from uuid import UUID
+
+    from thytrader.research.jobs import ResearchJobStore
 
 _DATASET = "sha256:" + "d" * 64
 
@@ -123,8 +127,33 @@ def test_worker_mode_api_queues_and_waits_but_never_runs_research() -> None:
     assert submitter.calls == 0
 
 
-def test_long_polls_do_not_hold_the_event_loop() -> None:
-    """Four sync submits waiting on the worker leave cheap endpoints instant."""
+def _block_event_loop_until_probe(probe_started: Event) -> None:
+    """Inject a real synchronous stall only after the positive control starts its clock."""
+    assert probe_started.wait(timeout=5), "health probe never started"
+    time.sleep(0.35)
+
+
+def _assert_long_polls_responsive(
+    monkeypatch: pytest.MonkeyPatch, *, block_until_probe: Event | None = None
+) -> None:
+    """Measure health only while four real polls are pending; optionally inject a stall."""
+    all_entered = Event()
+    entered: set[UUID] = set()
+
+    async def observed_wait(
+        store: ResearchJobStore, job_id: UUID, *, timeout_seconds: float
+    ) -> ResearchJobRecord | None:
+        """Observe entry on the ASGI loop without replacing the real polling implementation."""
+        entered.add(job_id)
+        if len(entered) == 4:
+            all_entered.set()
+            if block_until_probe is not None:
+                # The positive control must stall AFTER the probe's clock starts,
+                # not race the test thread and spend its delay before measurement.
+                _block_event_loop_until_probe(block_until_probe)
+        return await wait_for_job(store, job_id, timeout_seconds=timeout_seconds)
+
+    monkeypatch.setattr("thytrader.api.routes.backtests.wait_for_job", observed_wait)
     client, strategy_id = _client(
         _Submitter(), mode=ResearchExecutionMode.RESEARCH_WORKER, sync_wait=1.5
     )
@@ -132,15 +161,38 @@ def test_long_polls_do_not_hold_the_event_loop() -> None:
         waits = [
             pool.submit(client.post, "/api/v1/backtests", json=_body(strategy_id)) for _ in range(4)
         ]
-        time.sleep(0.2)
         latencies = []
-        for _ in range(5):
-            started = time.perf_counter()
-            assert client.get("/health/live").status_code == 200
-            latencies.append(time.perf_counter() - started)
-        statuses = [future.result().status_code for future in waits]
+        try:
+            # Lifespan startup does not finish FastAPI's lazy route/dependency
+            # construction. A fixed sleep can probe that setup, before any poll.
+            assert all_entered.wait(timeout=5), "four long polls did not enter"
+            assert all(not future.done() for future in waits), "polls completed before probes"
+            for _ in range(5):
+                started = time.perf_counter()
+                if block_until_probe is not None:
+                    block_until_probe.set()
+                assert client.get("/health/live").status_code == 200
+                latencies.append(time.perf_counter() - started)
+            assert all(not future.done() for future in waits), "polls completed during probes"
+            statuses = [future.result(timeout=5).status_code for future in waits]
+        finally:
+            # Release the positive control even if readiness/pending assertions fail,
+            # before the executor joins its request threads and the client shuts down.
+            if block_until_probe is not None:
+                block_until_probe.set()
     assert statuses == [202] * 4
-    assert max(latencies) < 0.25, latencies
+    assert max(latencies) < 0.25, f"health probes blocked: {latencies}"
+
+
+def test_long_polls_do_not_hold_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Four sync submits waiting on the worker leave cheap endpoints instant."""
+    _assert_long_polls_responsive(monkeypatch)
+
+
+def test_long_poll_probe_rejects_a_blocked_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A real 350 ms ASGI-loop stall still violates the unchanged 250 ms assertion."""
+    with pytest.raises(AssertionError, match="health probes blocked"):
+        _assert_long_polls_responsive(monkeypatch, block_until_probe=Event())
 
 
 def test_sync_submit_maps_worker_failures_to_the_inline_statuses() -> None:
