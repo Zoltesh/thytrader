@@ -14,7 +14,7 @@ from thytrader.execution.futures_live_liquidation import supervise_live_futures
 from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.trading.memory import InMemoryExecutionStore
-from thytrader.trading.models import DeploymentStatus, IntentPurpose, LifecycleCommand
+from thytrader.trading.models import DeploymentStatus, IntentPurpose, LifecycleCommand, OrderSide
 
 
 @pytest.mark.anyio
@@ -54,3 +54,33 @@ async def test_margin_threshold_strict_boundary_ignores_entry_controls(
     assert any(intent.purpose is IntentPurpose.LIQUIDATION for intent in current.intents) is exits
     if stopped:
         assert current.deployment.status is DeploymentStatus.STOPPED
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("side", [OrderSide.BUY, OrderSide.SELL])
+@pytest.mark.parametrize(("allocation", "exits"), [("0.01", True), ("100", False)])
+async def test_equity_maintenance_breach_without_ratio_policy(
+    side: OrderSide,
+    allocation: str,
+    exits: bool,
+) -> None:
+    """Marked long/short equity independently triggers liquidation when no ratio is configured."""
+    store = InMemoryExecutionStore()
+    venue = FakeVenue()
+    snapshot = await open_live_book(store, venue, side)
+    await store.save_deployment(replace(snapshot.deployment, allocated_capital=Decimal(allocation)))
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    policy = compiled_default_risk_policy().model_copy(
+        update={"futures": FuturesRiskPolicy(live_enabled=False)}
+    )
+    current = await supervise_live_futures(
+        snapshot,
+        state=_state(snapshot),
+        account=await venue.read_account(frozenset()),
+        policy=policy,
+        broker=venue.broker(),
+        store=store,
+        now=venue.now,
+    )
+    assert (current.position is None) is exits
+    assert any(intent.purpose is IntentPurpose.LIQUIDATION for intent in current.intents) is exits
