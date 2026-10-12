@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from decimal import DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_cancel import _owned_order
 from thytrader.execution.futures_live import managed_live_futures
 from thytrader.execution.futures_visibility import visible_position_comparison
 from thytrader.operator.venue_reconciliation_models import FuturesExternalPositionRow
-from thytrader.trading.futures_repair import managed_signed_base
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -82,22 +80,7 @@ def _classify(
     if not owners:
         return row
     owner = owners[0]
-    sample = None if account is None else visible_position_comparison(owner, account, now=now)
-    external = None if account is None else account.venue.external_order_products
-    managed = managed_signed_base(owner)
-    size = None if account is None else account.venue.contract_sizes.get(row.product_id)
-    if sample is not None and managed is not None and size is not None:
-        try:
-            with localcontext() as context:
-                context.traps[Inexact] = True
-                if managed / size != sample.book_contracts:
-                    sample = None
-        except DecimalException:
-            sample = None
-    else:
-        sample = None
-    if external is None or row.product_id in external:
-        sample = None
+    sample = visible_position_comparison(owner, account, books=books, complete=complete, now=now)
     return row.model_copy(
         update={
             "classification": "unknown"

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
+from tests.alerts.test_futures_recovery_proof import proven_book
 from tests.api.test_paper_futures_runtime_lane import _Catalog
 from tests.operator_diagnostics.test_futures_books_report import _binding, _deployment
 from thytrader.api.app import create_app
@@ -19,6 +21,49 @@ from thytrader.operator.http import fetch_operator_report
 from thytrader.trading.futures_book import InMemoryFuturesContractStore
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, RuntimePhase
+
+
+def test_http_and_validated_cli_require_persisted_intents() -> None:
+    """Canonical ledger evidence round-trips through both consumers; absent intents deny labels."""
+    book, account, _ = asyncio.run(proven_book())
+    account = replace(account, venue=replace(account.venue, observed_at=datetime.now(UTC)))
+    execution = InMemoryExecutionStore()
+    asyncio.run(execution.create_deployment(book.deployment))
+    app = create_app(Settings(_env_file=None), execution_store=execution)
+    # Inject the evidence reader, not an HTTP response or report projection.
+    with (
+        TestClient(app) as client,
+        patch(
+            "thytrader.operator.futures_books_report.read_visibility_account",
+            new=AsyncMock(return_value=(account, None)),
+        ),
+        patch(
+            "thytrader.api.routes.deployment_futures.read_visibility_account",
+            new=AsyncMock(return_value=(account, None)),
+        ),
+    ):
+        for missing in (False, True):
+            snapshot = replace(book, intents=()) if missing else book
+            with patch.object(
+                execution, "get_accounting_snapshot", new=AsyncMock(return_value=snapshot)
+            ):
+                response = client.get("/api/v1/operator/futures-books")
+                assert response.status_code == 200
+                report = FuturesBooksReport.model_validate(response.json())
+                expected = "unknown" if missing else "managed_matched"
+                assert report.payload.books[0].live is not None
+                assert report.payload.books[0].live.match_state == expected
+                detail = client.get(f"/api/v1/deployments/{book.deployment.id}/futures")
+                assert detail.status_code == 200
+                assert detail.json()["live"]["match_state"] == expected
+                with patch("thytrader.operator.http.request_json", return_value=response.json()):
+                    cli = fetch_operator_report(
+                        base_url="http://127.0.0.1:18080", command="futures-books"
+                    )
+                assert isinstance(cli, FuturesBooksReport)
+                assert cli.payload.books[0].live is not None
+                assert cli.payload.books[0].live.match_state == expected
+                assert cli.payload.books[0].orderable is False
 
 
 def test_injected_live_book_is_visible_without_claiming_order_authority() -> None:

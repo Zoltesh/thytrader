@@ -47,7 +47,7 @@ def _finding() -> SupervisionFinding:
     )
 
 
-def _service(store: InMemoryAlertStore, sender: AlertDeliverySender | None = None) -> AlertService:
+def _service(store: AlertStore, sender: AlertDeliverySender | None = None) -> AlertService:
     """Rebuild a service without resetting persisted observation/delivery state."""
     return AlertService(store, sender or DisabledNotificationSender(), thresholds=AlertThresholds())
 

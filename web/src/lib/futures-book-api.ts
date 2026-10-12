@@ -28,8 +28,38 @@ export function fetchDeploymentFutures(id: string): Promise<FuturesBookPayload> 
 }
 
 /** Every paper futures book plus the policy envelope that funds them. */
-export function fetchFuturesBooks(): Promise<FuturesBooksReport> {
-	return request<FuturesBooksReport>('/api/v1/operator/futures-books');
+export async function fetchFuturesBooks(): Promise<FuturesBooksReport> {
+	const response = await fetch('/api/v1/operator/futures-books');
+	const body: unknown = await response.json();
+	if (isBooksReport(body)) {
+		if (response.ok) return body;
+		return {
+			...body,
+			overall_status: 'failed',
+			components: [
+				...body.components,
+				{
+					name: 'futures_books_transport',
+					status: 'failed',
+					reason_code: 'HTTP_READ_FAILED',
+					detail: `Request failed (${response.status}); supplied rows are incomplete.`
+				}
+			]
+		};
+	}
+	throw new Error(`Futures books unavailable (${response.status}); invalid or absent report.`);
+}
+
+/** Validate the envelope before consuming a possible non-2xx partial report. */
+function isBooksReport(body: unknown): body is FuturesBooksReport {
+	if (typeof body !== 'object' || body === null) return false;
+	const report = body as Partial<FuturesBooksReport>;
+	return (
+		report.report_kind === 'futures_books' &&
+		['healthy', 'degraded', 'failed'].includes(report.overall_status ?? '') &&
+		Array.isArray(report.components) &&
+		Array.isArray(report.payload?.books)
+	);
 }
 
 export type FuturesRestartFees = {

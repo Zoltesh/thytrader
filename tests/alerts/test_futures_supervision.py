@@ -7,6 +7,7 @@ from decimal import Decimal, Inexact, localcontext
 import pytest
 
 from tests.alerts.test_alert_service import _service
+from tests.alerts.test_futures_recovery_proof import proven_book
 from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
@@ -20,9 +21,8 @@ pytestmark = pytest.mark.anyio
 
 async def test_unknown_account_persists_across_restart_until_fresh() -> None:
     """A held live book with no margin evidence raises and only a fresh read clears."""
-    book = _snapshot(side=PositionSide.LONG, cash="0")
-    book = replace(book, deployment=replace(book.deployment, mode=DeploymentMode.LIVE))
-    now = _AT + timedelta(minutes=4)
+    book, account, stamp = await proven_book()
+    now = stamp + timedelta(minutes=4)
     store = InMemoryAlertStore()
     for stamp in (now, now + timedelta(seconds=1)):
         evidence = supervision_futures.futures_safety_evidence(
@@ -34,14 +34,12 @@ async def test_unknown_account_persists_across_restart_until_fresh() -> None:
     assert alerts[0].code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
     assert alerts[0].subject == "futures:live"
     assert alerts[0].severity is AlertSeverity.CRITICAL
-    venue = FakeVenue()
-    venue.now = now + timedelta(seconds=2)
-    venue.net = Decimal(100)
-    account = await venue.read_account(frozenset())
+    stamp = now + timedelta(seconds=2)
+    account = replace(account, venue=replace(account.venue, observed_at=stamp))
     recovered = supervision_futures.futures_safety_evidence(
-        (book,), account=account, policy=_policy(), now=venue.now
+        (book,), account=account, policy=_policy(), now=stamp
     )
-    await _service(store).apply(recovered.findings, evaluated=recovered.evaluated, now=venue.now)
+    await _service(store).apply(recovered.findings, evaluated=recovered.evaluated, now=stamp)
     assert not await store.list_open_alerts()
 
 
@@ -88,7 +86,7 @@ async def test_stale_or_future_account_cannot_clear_margin(age: int) -> None:
 
 async def test_mismatch_pause_only_clears_on_valid_match() -> None:
     """The I9 pause is durable evidence; an unreadable venue never resolves it."""
-    book = _snapshot(side=PositionSide.LONG, cash="0")
+    book, account, now = await proven_book()
     book = replace(
         book,
         deployment=replace(
@@ -101,11 +99,8 @@ async def test_mismatch_pause_only_clears_on_valid_match() -> None:
         (book,), account=None, policy=_policy(), now=_AT
     )
     assert any(row.code is AlertCode.FUTURES_POSITION_MISMATCH for row in bad.findings)
-    venue = FakeVenue()
-    venue.now = _AT
-    venue.net = Decimal(100)
     good = supervision_futures.futures_safety_evidence(
-        (book,), account=await venue.read_account(frozenset()), policy=_policy(), now=_AT
+        (book,), account=account, policy=_policy(), now=now
     )
     assert any(row.code is AlertCode.FUTURES_POSITION_MISMATCH for row in good.evaluated)
     assert not any(row.code is AlertCode.FUTURES_POSITION_MISMATCH for row in good.findings)

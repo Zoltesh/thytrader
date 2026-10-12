@@ -63,4 +63,5 @@ def test_http_reconciliation_reports_missing_managed_position_and_readiness_duty
         codes = {row["reason_code"] for row in readiness.json()["payload"]["findings"]}
         assert "FUTURES_LIVE_BOOKS" in codes
         assert "FUTURES_DERISK_PENDING" in codes
+        assert "POSITION_COMPARISON_UNPROVEN" in codes
         assert "FUTURES_POSITIONS_EXTERNAL" not in codes

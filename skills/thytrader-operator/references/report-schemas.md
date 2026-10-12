@@ -45,15 +45,27 @@ The `alerts` envelope is unchanged. Worker-produced identities and clearing evid
 
 | Code | Severity / subject | Clears only with |
 |---|---|---|
-| `FUTURES_ACCOUNT_UNKNOWN` | critical / `futures:live` | Fresh finite CFM margin and complete positions, or authoritative removal of the managed scope |
+| `FUTURES_ACCOUNT_UNKNOWN` | critical / `futures:live` | Fresh finite CFM margin plus the shared strict ownership/position proof, or authoritative removal of the managed scope |
 | `FUTURES_MARGIN_LOW` | warning below 2× configured ratio, critical at/below ratio or pending de-risk / `futures:live` | Known recovered margin or confirmed flat managed scope without a pending duty |
 | `FUTURES_POSITION_MISMATCH` | critical / `deployment:<id>` | Valid fresh exact contract/side match; accounting, fills, projection and resting-order evidence must permit comparison |
 | `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` | critical / `product:<id>` | Complete fresh external-order absence plus a valid matching position |
 
-Failed inventory observations apply no recovery checks. Failed account reads may raise
-blindness for known held inventory but return failed observation, not all-clear. Stale,
-future, unapplied or foreign-holding evidence cannot clear a mismatch. Durable alert IDs,
-watermarks and notification claims are unchanged.
+Failed inventory observations apply no recovery checks. Explicit failed account reads
+immediately raise durable blindness for managed books, including stopped-flat books with
+pending duties or unresolved inventory. Never-observed evidence has a 180-second grace
+from a durable obligation/creation lower bound; a known receipt uses its original timestamp.
+Unknown reads cannot resolve existing alerts. A historical stopped-flat book without duties
+needs no additional CFM read. Alert storage failure returns failed observation, not success.
+
+Alerts, live book labels and reconciliation share a strict proof: exactly one managed
+product owner, complete accounting and external orders, exact persisted intent/order/fill
+identities, full signed applied ledger equality, and fresh post-fill-plus-five-second evidence.
+A flat observation must also be strictly after its durable confirmation lower bound. Missing
+intents, duplicate owners and partial listings remain unknown; later valid proof can recover.
+Readiness explicitly reports `POSITION_COMPARISON_UNPROVEN` when its mirror cannot supply
+that proof. Margin severity uses exact products, not the rounded display ratio; invalid or
+inexact safety math reports `FUTURES_MARGIN_UNKNOWN`. Display math contains Decimal failures
+without modifying the caller context. Durable alert IDs and watermarks are unchanged.
 
 `FUTURES_ORPHAN_ORDER` is a warning one-off keyed by `orphan:<audit-event-id>` from an
 existing confirmed cancellation event. The newest 500 audit rows are observed; replay uses
@@ -69,6 +81,8 @@ fully managed interval evidence. `live.funding_drift_status` is explicitly `unkn
 `reserve_currency`, `reserve_quote`, `reserve_required_usd`, `reserve_headroom_quote`,
 `reserve_covers_current_margin`, `funding_accrued_usd`, `venue_funding_pnl_usd` and explicit
 funding scope/drift metadata. Unknown, stale, future-dated or inexact evidence yields null.
+`funding_accrued_usd` is also nullable when its modeled sum is inexact/nonfinite; it never
+substitutes a rounded total or zero and never becomes settlement proof.
 The reserve is one quote currency under a declared peg, never USD added to USDC. The reserve
 covers current margin; the P2-3 probe additionally checks proposed margin. Book equity uses
 live allocation plus ledger equity, not the account total. Comparison does not clear duties.

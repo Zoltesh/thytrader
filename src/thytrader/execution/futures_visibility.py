@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+from decimal import DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
-from thytrader.execution.futures_live import FuturesLiveAccount
+from thytrader.execution.futures_cancel import _owned_order
+from thytrader.execution.futures_live import FuturesLiveAccount, managed_live_futures
 from thytrader.execution.futures_sources import CatalogContractSizes, _nonnegative, _positions
 from thytrader.execution.futures_venue_check import PositionComparison, compare_position
 from thytrader.risk.futures_live import FuturesVenueEvidence
 from thytrader.trading.fill_ledger import unprojected_inventory_products
+from thytrader.trading.futures_repair import managed_signed_base
 from thytrader.trading.models import resolved_product_id, snapshot_positions
 
 if TYPE_CHECKING:
@@ -29,8 +32,42 @@ def visible_position_comparison(
     account: FuturesLiveAccount | None,
     *,
     now: datetime,
+    books: Sequence[DeploymentSnapshot] | None = None,
+    complete: bool = True,
 ) -> PositionComparison | None:
-    """Compare only a complete, single-product projection; foreign holdings are unknown."""
+    """Prove a unique owner, full signed ledger and fresh post-fill comparison.
+
+    Callers with portfolio inventory must supply it; the default is a single-book proof.
+    This read-only proof never changes I9 counters, duties, orders or lifecycle state.
+    """
+    portfolio = (book,) if books is None else books
+    owners = [
+        item
+        for item in portfolio
+        if managed_live_futures(item) and item.deployment.product_id == book.deployment.product_id
+    ]
+    if (
+        not complete
+        or any(not item.accounting_complete for item in portfolio)
+        or len(owners) != 1
+        or owners[0] != book
+        or account is None
+        or account.venue.external_order_products is None
+        or book.deployment.product_id in account.venue.external_order_products
+    ):
+        return None
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            return _proven_comparison(book, account, now=now)
+    except DecimalException:
+        return None
+
+
+def _proven_comparison(
+    book: DeploymentSnapshot, account: FuturesLiveAccount, *, now: datetime
+) -> PositionComparison | None:
+    """Keep all ledger arithmetic within the exact, fail-closed proof context."""
     positions = snapshot_positions(book)
     if (
         len(positions) > 1
@@ -42,7 +79,25 @@ def visible_position_comparison(
         or unprojected_inventory_products(book)
     ):
         return None
-    return compare_position(book, None if account is None else account.venue, now=now)
+    if (
+        len({order.id for order in book.orders}) != len(book.orders)
+        or len({order.client_order_id for order in book.orders}) != len(book.orders)
+        or len({intent.id for intent in book.intents}) != len(book.intents)
+        or not all(_owned_order(book, order) for order in book.orders)
+    ):
+        return None
+    intents = {intent.id: intent for intent in book.intents}
+    if any(order.side != intents[order.intent_id].side for order in book.orders):
+        return None
+    sample = compare_position(book, account.venue, now=now)
+    managed = managed_signed_base(book)
+    size = account.venue.contract_sizes.get(book.deployment.product_id)
+    if sample is None or managed is None or size is None or managed / size != sample.book_contracts:
+        return None
+    after = book.deployment.futures_flat_confirmation_after
+    if after is not None and account.venue.observed_at <= after:
+        return None
+    return sample
 
 
 async def mirror_live_account(

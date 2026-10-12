@@ -6,7 +6,7 @@ existing alert store owns dedupe, restart watermarks, resolution and notificatio
 
 from __future__ import annotations
 
-from decimal import Decimal, DecimalException, Inexact, localcontext
+from datetime import timedelta
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.alerts.models import (
@@ -21,7 +21,8 @@ from thytrader.audit_events import AuditEventCategory, AuditEventOutcome
 from thytrader.execution.futures_live import managed_live_futures
 from thytrader.execution.futures_visibility import visible_position_comparison
 from thytrader.market_data.instrument_ids import is_futures_product_id
-from thytrader.trading.models import snapshot_positions
+from thytrader.risk.futures_margin_evidence import margin_state
+from thytrader.trading.models import DeploymentMode, snapshot_positions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -65,6 +66,7 @@ def futures_safety_evidence(
     account: FuturesLiveAccount | None,
     policy: RiskPolicyDefinition | None,
     now: datetime,
+    observation_failed: bool = False,
 ) -> SafetyEvidence:
     """Observe a complete inventory; stale/future/missing financial evidence stays unknown.
 
@@ -72,14 +74,32 @@ def futures_safety_evidence(
     fails. Unknown margin cannot clear a prior low-margin condition. Paper never enters
     the live account scope. A threshold of zero on a held account is unknown, not safe.
     """
-    books = tuple(book for book in snapshots if managed_live_futures(book))
+    live = tuple(
+        book
+        for book in snapshots
+        if book.deployment.mode is DeploymentMode.LIVE
+        and is_futures_product_id(book.deployment.product_id)
+    )
+    if any(not book.accounting_complete for book in live):
+        return SafetyEvidence(
+            (
+                _account_finding(
+                    AlertCode.FUTURES_ACCOUNT_UNKNOWN,
+                    AlertSeverity.CRITICAL,
+                    "Required futures accounting inventory is incomplete; "
+                    "managed scope and recovery are unknown.",
+                ),
+            ),
+            (),
+        )
+    books = tuple(book for book in live if managed_live_futures(book))
     held = any(snapshot_positions(book) for book in books)
     findings: list[SupervisionFinding] = []
     evaluated: list[AlertCheck] = []
     known = (
         account is not None and account.venue.is_fresh(now) and _margin_known(account, held=held)
     )
-    if held and not known:
+    if books and (observation_failed or (not known and _observation_overdue(books, account, now))):
         findings.append(
             _account_finding(
                 AlertCode.FUTURES_ACCOUNT_UNKNOWN,
@@ -88,14 +108,21 @@ def futures_safety_evidence(
                 "evidence; the margin monitor is blind. Unknown is not zero.",
             )
         )
-    elif known or not books:
+    elif (
+        known
+        and all(
+            (sample := visible_position_comparison(book, account, books=books, now=now)) is not None
+            and sample.matches
+            for book in books
+        )
+    ) or not books:
         evaluated.append(AlertCheck(AlertCode.FUTURES_ACCOUNT_UNKNOWN, ACCOUNT_SUBJECT))
     pending = any(book.deployment.futures_derisk_pending for book in books)
     confirmed_flat = (
         bool(books)
         and not held
         and all(
-            (sample := visible_position_comparison(book, account, now=now)) is not None
+            (sample := visible_position_comparison(book, account, books=books, now=now)) is not None
             and sample.matches
             and sample.book_contracts == 0
             for book in books
@@ -120,7 +147,7 @@ def futures_safety_evidence(
             )
         )
     for book in books:
-        evidence = _book_evidence(book, account, now)
+        evidence = _book_evidence(book, account, now, books)
         findings.extend(evidence.findings)
         evaluated.extend(evidence.evaluated)
     return SafetyEvidence(tuple(findings), tuple(evaluated))
@@ -130,13 +157,14 @@ def _book_evidence(
     book: DeploymentSnapshot,
     account: FuturesLiveAccount | None,
     now: datetime,
+    books: Sequence[DeploymentSnapshot],
 ) -> SafetyEvidence:
     """Persisted I9 pauses and complete external-order facts; never infer excess ownership."""
     findings: list[SupervisionFinding] = []
     evaluated: list[AlertCheck] = []
     deployment = book.deployment
     venue = None if account is None else account.venue
-    sample = visible_position_comparison(book, account, now=now)
+    sample = visible_position_comparison(book, account, books=books, now=now)
     subject = f"deployment:{deployment.id}"
     mismatch = AlertCode.FUTURES_POSITION_MISMATCH
     if sample is not None and sample.matches:
@@ -173,6 +201,23 @@ def _book_evidence(
     return SafetyEvidence(tuple(findings), tuple(evaluated))
 
 
+def _observation_overdue(
+    books: Sequence[DeploymentSnapshot], account: FuturesLiveAccount | None, now: datetime
+) -> bool:
+    """A failed read is immediate; unobserved/pending evidence has a three-minute grace.
+
+    Use the last received observation when present, never a local refresh timestamp.
+    Without one, the earliest durable risk obligation is a conservative lower bound.
+    """
+    if account is not None:
+        return not account.venue.is_fresh(now) or not _margin_known(account, held=True)
+    anchors = [
+        book.deployment.futures_flat_confirmation_after or book.deployment.created_at
+        for book in books
+    ]
+    return any(stamp > now or now - stamp > timedelta(seconds=180) for stamp in anchors)
+
+
 def _margin_known(account: FuturesLiveAccount, *, held: bool) -> bool:
     """Both amounts and a complete position listing are needed to supervise margin."""
     available = account.available_margin_usd
@@ -196,22 +241,12 @@ def _margin_severity(
     ratio = None if futures is None else futures.live_derisk_margin_ratio
     available = account.available_margin_usd
     threshold = account.liquidation_threshold_usd
-    if ratio is None or available is None or threshold is None:
-        return None
-    try:
-        with localcontext() as context:
-            context.traps[Inexact] = True
-            critical = threshold * Decimal(ratio)
-            warning = critical * 2
-            if not critical.is_finite() or critical <= 0 or not warning.is_finite():
-                return None
-            if available <= critical:
-                return AlertSeverity.CRITICAL
-            if available < warning:
-                return AlertSeverity.WARNING
-            return "healthy"
-    except DecimalException:
-        return None
+    state = margin_state(available, threshold, ratio)
+    if state == "critical":
+        return AlertSeverity.CRITICAL
+    if state == "warning":
+        return AlertSeverity.WARNING
+    return state
 
 
 def _account_finding(

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.decimal_text import canonical_decimal
-from thytrader.execution.futures_live import managed_live_futures
+from thytrader.decimal_text import canonical_decimal, display_ratio
 from thytrader.execution.futures_visibility import visible_position_comparison
 from thytrader.execution.futures_visibility_probe import visibility_probe
 from thytrader.operator.models import _FrozenModel
@@ -43,7 +42,7 @@ class LiveFuturesBookPayload(_FrozenModel):
     reserve_required_usd: str | None
     reserve_headroom_quote: str | None
     reserve_covers_current_margin: bool | None
-    funding_accrued_usd: str
+    funding_accrued_usd: str | None
     venue_funding_pnl_usd: str | None
     venue_funding_scope: Literal["account_counter_not_settlement"] = (
         "account_counter_not_settlement"
@@ -69,31 +68,11 @@ def live_payload(
     """Project current evidence without promoting stale counters to settlement proof."""
     venue = None if account is None else account.venue
     fresh = venue is not None and venue.is_fresh(now)
-    sample = visible_position_comparison(snapshot, account, now=now)
-    owners = [
-        book
-        for book in books
-        if managed_live_futures(book)
-        and book.deployment.product_id == snapshot.deployment.product_id
-    ]
-    if (
-        len(owners) != 1
-        or venue is None
-        or venue.external_order_products is None
-        or snapshot.deployment.product_id in venue.external_order_products
-    ):
-        sample = None
+    sample = visible_position_comparison(snapshot, account, books=books, now=now)
     ratio = None
     if fresh and account is not None:
         available, threshold = account.available_margin_usd, account.liquidation_threshold_usd
-        if (
-            available is not None
-            and threshold is not None
-            and available.is_finite()
-            and threshold.is_finite()
-            and threshold > 0
-        ):
-            ratio = available / threshold
+        ratio = display_ratio(available, threshold)
     initial = None if not fresh or venue is None else venue.initial_margin_usd
     coverage = reserve_coverage(policy, initial)
     count = (
@@ -120,9 +99,7 @@ def live_payload(
         reserve_required_usd=_text(coverage.required_usd),
         reserve_headroom_quote=_text(coverage.headroom_quote),
         reserve_covers_current_margin=coverage.covers,
-        funding_accrued_usd=canonical_decimal(
-            sum((flow.amount for flow in snapshot.funding), Decimal(0))
-        ),
+        funding_accrued_usd=_accrued_funding(snapshot),
         venue_funding_pnl_usd=_text(
             None
             if not fresh or observation is None or observation.balance is None
@@ -157,6 +134,16 @@ def live_entry_blocks(
         now=now,
     )
     return tuple(dict.fromkeys(verdict.reason_code.value for verdict in verdicts))
+
+
+def _accrued_funding(snapshot: DeploymentSnapshot) -> str | None:
+    """Exact modeled total only; inexact or overflow is unknown, never rounded settlement."""
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            return _text(sum((flow.amount for flow in snapshot.funding), Decimal(0)))
+    except DecimalException:
+        return None
 
 
 def _text(value: Decimal | None) -> str | None:

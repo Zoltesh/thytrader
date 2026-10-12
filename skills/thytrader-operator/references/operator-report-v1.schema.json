@@ -8988,8 +8988,15 @@
           "title": "Reserve Covers Current Margin"
         },
         "funding_accrued_usd": {
-          "title": "Funding Accrued Usd",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Accrued Usd"
         },
         "venue_funding_pnl_usd": {
           "anyOf": [

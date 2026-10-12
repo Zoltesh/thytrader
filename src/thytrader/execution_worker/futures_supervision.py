@@ -56,14 +56,16 @@ async def supervise_futures(
         deployments = await store.list_deployments()
         snapshots = tuple(
             [
-                await store.get_deployment(row.id)
+                await store.get_accounting_snapshot(row.id)
                 for row in deployments
                 if row.mode is DeploymentMode.LIVE and is_futures_product_id(row.product_id)
             ]
         )
         books = tuple(book for book in snapshots if managed_live_futures(book))
         account, failed = await _account(books, snapshots)
-        evidence = futures_safety_evidence(books, account=account, policy=policy, now=observed_at)
+        evidence = futures_safety_evidence(
+            snapshots, account=account, policy=policy, now=observed_at, observation_failed=failed
+        )
         await alert_service.apply(
             evidence.findings,
             now=observed_at,
@@ -101,6 +103,8 @@ async def _account(
     snapshots: tuple[DeploymentSnapshot, ...],
 ) -> tuple[FuturesLiveAccount | None, bool]:
     """Failed account reads still produce unknown evidence for a known held inventory."""
+    if any(not book.accounting_complete for book in snapshots):
+        return None, True
     if not books:
         return None, False
     try:

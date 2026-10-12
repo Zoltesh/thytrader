@@ -16,7 +16,7 @@ export type LiveFuturesBook = {
 	reserve_required_usd: string | null;
 	reserve_headroom_quote: string | null;
 	reserve_covers_current_margin: boolean | null;
-	funding_accrued_usd: string;
+	funding_accrued_usd: string | null;
 	venue_funding_pnl_usd: string | null;
 	funding_drift_reason: string;
 };

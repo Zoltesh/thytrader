@@ -16,7 +16,6 @@ USD amounts are never added to USDC amounts here.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.exchanges.futures_models import (
@@ -26,6 +25,10 @@ from thytrader.exchanges.futures_models import (
     margin_ratio,
 )
 from thytrader.execution.futures_live import managed_live_futures
+from thytrader.execution.futures_visibility import (
+    observation_live_account,
+    visible_position_comparison,
+)
 from thytrader.operator.readiness_models import (
     FuturesCollateralGroup,
     ReadinessFinding,
@@ -34,10 +37,12 @@ from thytrader.operator.readiness_models import (
     ReadinessFuturesSection,
     ReadinessSeverity,
 )
+from thytrader.risk.futures_margin_evidence import margin_state
 from thytrader.risk.futures_reserve import reserve_coverage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from decimal import Decimal
 
     from thytrader.exchanges.futures_models import (
         FuturesAccountObservation,
@@ -86,6 +91,7 @@ async def futures_section(
         return None
     moment = now or datetime.now(UTC)
     stale = latest.observed_at > moment or moment - latest.observed_at > _STALE_AFTER
+    _ownership_findings(books, latest, findings, complete=managed_complete, now=moment)
     section = _section(latest, stale=stale)
     _findings(
         latest,
@@ -95,19 +101,30 @@ async def futures_section(
         managed_complete=managed_complete,
     )
     collateral = _collateral(latest, policy, stale=stale)
-    ratio = None if latest.balance is None or stale else margin_ratio(latest.balance)
+    balance = None if stale else latest.balance
     threshold = (
         None
         if policy is None or policy.futures is None
         else policy.futures.live_derisk_margin_ratio
     )
-    if books and ratio is not None and threshold is not None and ratio < Decimal(threshold) * 2:
+    state = margin_state(
+        None if balance is None else balance.available_margin,
+        None if balance is None else balance.liquidation_threshold,
+        threshold,
+    )
+    if books and state is None:
+        findings.append(
+            _finding(
+                "FUTURES_MARGIN_UNKNOWN",
+                ReadinessSeverity.UNKNOWN,
+                "Exact margin safety evidence is unavailable; display rounding is not proof.",
+            )
+        )
+    if books and state in {"critical", "warning"}:
         findings.append(
             _finding(
                 "FUTURES_MARGIN_LOW",
-                ReadinessSeverity.VIOLATION
-                if ratio <= Decimal(threshold)
-                else ReadinessSeverity.ADVISORY,
+                ReadinessSeverity.VIOLATION if state == "critical" else ReadinessSeverity.ADVISORY,
                 "Venue margin is below the configured live warning boundary.",
             )
         )
@@ -132,6 +149,34 @@ async def futures_section(
             ),
             "collateral_group": collateral,
         }
+    )
+
+
+def _ownership_findings(
+    books: Sequence[DeploymentSnapshot],
+    latest: FuturesAccountObservation,
+    findings: list[ReadinessFinding],
+    *,
+    complete: bool,
+    now: datetime,
+) -> None:
+    """Readiness has mirror facts, not a complete order/catalog ownership proof.
+
+    Apply the shared proof instead of treating a matching product id as recovered.
+    Missing order coverage/catalog size remains unknown; no extra venue call is made.
+    """
+    account = observation_live_account(latest, {})
+    findings.extend(
+        ReadinessFinding(
+            reason_code="POSITION_COMPARISON_UNPROVEN",
+            severity=ReadinessSeverity.UNKNOWN,
+            deployment_id=book.deployment.id,
+            detail="Managed ownership/comparison requires a complete ledger and fresh exclusive "
+            "venue order and position evidence; the mirror alone cannot prove recovery.",
+        )
+        for book in books
+        if visible_position_comparison(book, account, books=books, complete=complete, now=now)
+        is None
     )
 
 

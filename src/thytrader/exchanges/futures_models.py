@@ -13,6 +13,8 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.decimal_text import display_ratio
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
     from datetime import datetime
@@ -28,7 +30,6 @@ SHARED_COLLATERAL_NOTE = (
     "futures buying power is shared with USDC spot capital, not additional money. Amounts "
     "here are USD and are never added to USDC amounts."
 )
-_RATIO_PLACES = Decimal("0.0001")
 _USDC = "USDC"
 
 
@@ -189,11 +190,7 @@ def margin_ratio(balance: FuturesBalanceSummary) -> Decimal | None:
     ``None`` when either amount is unknown or the threshold is not positive (a flat
     account has no liquidation threshold); never a guessed ratio.
     """
-    available = balance.available_margin
-    threshold = balance.liquidation_threshold
-    if available is None or threshold is None or threshold <= 0:
-        return None
-    return (available / threshold).quantize(_RATIO_PLACES)
+    return display_ratio(balance.available_margin, balance.liquidation_threshold)
 
 
 class FuturesAccountStoreUnavailableError(RuntimeError):

@@ -249,7 +249,10 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
   USDC reserve/headroom, de-risk and flat-confirmation duties. Funding is labeled modeled accrual
   versus an account counter, with settlement drift explicitly unknown. Neither a healthy card
   nor an empty entry-block list enables live orders; the start form remains paper-only. Failed
-  book reads are shown rather than hiding managed inventory.
+  book reads are shown rather than hiding managed inventory, including failed/partial report
+  envelopes returned with HTTP 200 and failures before any account mirror exists. **Refresh
+  futures books** retries independently. A failed refresh retains last-good rows labeled stale;
+  first-load partial rows are explicitly incomplete, never a verified empty inventory.
 - **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
 - **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
   datasets with coverage, newest candle, watch and worker state, and the same problem words as

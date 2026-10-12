@@ -10,14 +10,14 @@
 	 */
 	import { onMount } from 'svelte';
 	import { futuresBooksSection } from '$lib/futures-book';
-	import { fetchFuturesBooks } from '$lib/futures-book-api';
+	import { FuturesBooksResource } from './futures-books-resource.svelte';
 	import FuturesBooksSection from './FuturesBooksSection.svelte';
 	import FuturesOwnership from './FuturesOwnership.svelte';
 	import { fetchFuturesAccount, futuresCardView } from './futures';
 	import { Resource } from './resource.svelte';
 
 	const account = new Resource(fetchFuturesAccount);
-	const books = new Resource(fetchFuturesBooks);
+	const books = new FuturesBooksResource();
 	const view = $derived(account.state.data === null ? null : futuresCardView(account.state.data));
 	const booksView = $derived(
 		books.state.data === null ? null : futuresBooksSection(books.state.data)
@@ -86,9 +86,15 @@
 			<p class="warn" role="status">Couldn't refresh: {account.state.error}</p>
 			<button class="btn ghost" onclick={() => void account.reload()}>Retry</button>
 		{/if}
+		{#if booksView === null && !accountShown && account.state.status !== 'error'}
+			<h2 id="futures-books-title">Futures books (read-only)</h2>
+		{/if}
+		<button class="btn ghost" onclick={() => void books.reload()}>Refresh futures books</button>
 		{#if books.state.status === 'error'}
 			<p class="warn" role="status">
 				Futures books could not be read: {books.state.error}. Managed inventory is unknown.
+				{#if booksView !== null}Displayed rows are stale or incomplete, not verified current
+					inventory.{/if}
 			</p>
 		{/if}
 		<FuturesOwnership />

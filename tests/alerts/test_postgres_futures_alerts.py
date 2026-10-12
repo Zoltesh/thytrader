@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from pydantic import SecretStr
 import pytest
 
+from tests.alerts.test_futures_recovery_proof import recovery_scenario
 from tests.alerts.test_postgres_alerts import (
     _NOW,
     _URL,
@@ -13,6 +14,7 @@ from tests.alerts.test_postgres_alerts import (
     scratch_database,
     store,
 )
+from tests.execution_worker.test_futures_observer_failure import stopped_failure_scenario
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -22,6 +24,7 @@ from thytrader.alerts.models import (
 )
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
+from thytrader.persistence.postgres_execution import PostgresExecutionStore
 
 if TYPE_CHECKING:
     from thytrader.alerts.store import AlertStore
@@ -31,6 +34,38 @@ pytestmark = [
     pytest.mark.anyio,
     pytest.mark.skipif(_URL is None, reason="Private test DB required."),
 ]
+
+
+@pytest.mark.parametrize(
+    "boundary", ["orders_unknown", "foreign", "duplicate", "intents", "partial"]
+)
+async def test_postgres_strict_recovery(
+    store: AlertStore, scratch_database: str, boundary: str
+) -> None:
+    """A rebuilt database reader enforces the same unknown and eventual recovery proof."""
+    del store
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        await recovery_scenario(
+            boundary, PostgresAlertStore(engine), PostgresExecutionStore(engine)
+        )
+    finally:
+        await dispose(engine)
+
+
+@pytest.mark.parametrize("duty", ["flat", "derisk", "none"])
+async def test_postgres_stopped_observer_failure(
+    store: AlertStore, scratch_database: str, duty: str
+) -> None:
+    """Both durable execution duties and observer alerts round-trip through a fresh reader."""
+    del store
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        await stopped_failure_scenario(
+            PostgresExecutionStore(engine), PostgresAlertStore(engine), duty
+        )
+    finally:
+        await dispose(engine)
 
 
 @pytest.mark.parametrize("code", [code for code in AlertCode if code.value.startswith("FUTURES_")])

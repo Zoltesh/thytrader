@@ -608,9 +608,14 @@ one page). A critical alert fails that component; warnings degrade it. Unconfigu
 unreadable alert storage returns `FUTURES_ALERTS_UNAVAILABLE`. No open alert is not proof
 of a successful observation or permission to trade.
 
-- `FUTURES_ACCOUNT_UNKNOWN` (critical, `futures:live`): managed live inventory has missing,
-  future-dated or older-than-180-second CFM margin evidence. A fresh complete margin read,
-  or authoritative removal of the managed scope, clears it. Unknown is never zero.
+- `FUTURES_ACCOUNT_UNKNOWN` (critical, `futures:live`): a required observation failed, or
+  managed live inventory (including stopped books with durable duties) has unknown/stale
+  CFM margin evidence. An explicit read failure is immediate; never-observed evidence has
+  a 180-second grace from the durable obligation/creation lower bound. Existing receipt
+  age never resets on a local write. Recovery needs fresh finite margin and the shared
+  strict ownership/position proof, or authoritative removal of the managed scope.
+  Unknown evidence never resolves an existing alert; historical flat stopped books without
+  duties do not cause extra CFM reads.
 - `FUTURES_MARGIN_LOW` (`futures:live`): warning below twice `live_derisk_margin_ratio`,
   critical at/below that ratio or while a durable de-risk duty is pending. The opt-in is
   not required for protection alerts. Recovery requires known recovered margin or verified
@@ -640,6 +645,12 @@ minimum whole-contract long/short probe; this is advisory, not a strategy order 
 and `unknown`. Missing managed reads, duplicate ownership, stale receipts, unprojected economics,
 unapplied fills or incomplete/foreign order evidence never certify a match. Managed order
 identity requires exact persisted product/client/intent identity, not a client-id prefix.
+The same proof gates book labels and alert recovery: one managed product owner, complete
+accounting and external-order coverage, full signed applied fill ledger, quiescent orders,
+and a fresh observation strictly after the last fill plus five seconds and any flat duty bound.
+Readiness's mirror alone cannot prove ownership; `POSITION_COMPARISON_UNPROVEN` is explicit.
+Margin severity compares exact products; the four-place ratio is display-only and an
+unrepresentable ratio remains unknown (`FUTURES_MARGIN_UNKNOWN` for missing safety evidence).
 `readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
 and `collateral_group` headroom. `fleet-health` runs P2-3 probes in `live:CFM-USD`; fleet-wide
 failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged.
