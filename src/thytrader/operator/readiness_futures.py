@@ -16,6 +16,7 @@ USD amounts are never added to USDC amounts here.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.exchanges.futures_models import (
@@ -24,20 +25,26 @@ from thytrader.exchanges.futures_models import (
     FuturesEnablement,
     margin_ratio,
 )
+from thytrader.execution.futures_live import managed_live_futures
 from thytrader.operator.readiness_models import (
+    FuturesCollateralGroup,
     ReadinessFinding,
+    ReadinessFuturesDuty,
     ReadinessFuturesPosition,
     ReadinessFuturesSection,
     ReadinessSeverity,
 )
+from thytrader.risk.futures_reserve import reserve_coverage
 
 if TYPE_CHECKING:
-    from decimal import Decimal
+    from collections.abc import Sequence
 
     from thytrader.exchanges.futures_models import (
         FuturesAccountObservation,
         FuturesAccountSnapshotStore,
     )
+    from thytrader.risk.models import RiskPolicyDefinition
+    from thytrader.trading.models import DeploymentSnapshot
 
 _STALE_AFTER = timedelta(seconds=180)
 
@@ -47,9 +54,22 @@ async def futures_section(
     findings: list[ReadinessFinding],
     *,
     now: datetime | None = None,
+    snapshots: Sequence[DeploymentSnapshot] = (),
+    policy: RiskPolicyDefinition | None = None,
+    managed_complete: bool = True,
 ) -> ReadinessFuturesSection | None:
     """Return the futures section, or ``None`` when no mirror snapshot exists (not set up)."""
+    books = tuple(book for book in snapshots if managed_live_futures(book))
+    _live_findings(books, findings)
     if store is None:
+        if books:
+            findings.append(
+                _finding(
+                    "FUTURES_ACCOUNT_UNKNOWN",
+                    ReadinessSeverity.UNKNOWN,
+                    "Managed live futures have no account mirror; comparison is unknown.",
+                )
+            )
         return None
     try:
         latest = await store.latest()
@@ -64,10 +84,55 @@ async def futures_section(
         return None
     if latest is None:
         return None
-    stale = (now or datetime.now(UTC)) - latest.observed_at > _STALE_AFTER
+    moment = now or datetime.now(UTC)
+    stale = latest.observed_at > moment or moment - latest.observed_at > _STALE_AFTER
     section = _section(latest, stale=stale)
-    _findings(latest, section, findings)
-    return section
+    _findings(
+        latest,
+        section,
+        findings,
+        managed_products=frozenset(book.deployment.product_id for book in books),
+        managed_complete=managed_complete,
+    )
+    collateral = _collateral(latest, policy, stale=stale)
+    ratio = None if latest.balance is None or stale else margin_ratio(latest.balance)
+    threshold = (
+        None
+        if policy is None or policy.futures is None
+        else policy.futures.live_derisk_margin_ratio
+    )
+    if books and ratio is not None and threshold is not None and ratio < Decimal(threshold) * 2:
+        findings.append(
+            _finding(
+                "FUTURES_MARGIN_LOW",
+                ReadinessSeverity.VIOLATION
+                if ratio <= Decimal(threshold)
+                else ReadinessSeverity.ADVISORY,
+                "Venue margin is below the configured live warning boundary.",
+            )
+        )
+    if books and collateral.covers_current_margin is False:
+        findings.append(
+            _finding(
+                "FUTURES_COLLATERAL_RESERVE_SHORT",
+                ReadinessSeverity.VIOLATION,
+                "The declared reserve does not cover current margin under the peg haircut.",
+            )
+        )
+    return section.model_copy(
+        update={
+            "live_books": tuple(
+                ReadinessFuturesDuty(
+                    deployment_id=book.deployment.id,
+                    product_id=book.deployment.product_id,
+                    derisk_pending=book.deployment.futures_derisk_pending,
+                    flat_confirmation_after=book.deployment.futures_flat_confirmation_after,
+                )
+                for book in books
+            ),
+            "collateral_group": collateral,
+        }
+    )
 
 
 def _section(latest: FuturesAccountObservation, *, stale: bool) -> ReadinessFuturesSection:
@@ -111,6 +176,9 @@ def _findings(
     latest: FuturesAccountObservation,
     section: ReadinessFuturesSection,
     findings: list[ReadinessFinding],
+    *,
+    managed_products: frozenset[str] = frozenset(),
+    managed_complete: bool = True,
 ) -> None:
     """Add the futures findings for one snapshot."""
     if section.stale or latest.enablement is FuturesEnablement.UNKNOWN or section.positions is None:
@@ -131,15 +199,71 @@ def _findings(
                 "collateral; futures margin and USDC/USD books draw on one pool.",
             )
         )
-    if section.positions:
+    external = tuple(
+        row for row in section.positions or () if row.product_id not in managed_products
+    )
+    if external and managed_complete and not section.stale:
         findings.append(
             _finding(
                 "FUTURES_POSITIONS_EXTERNAL",
                 ReadinessSeverity.ADVISORY,
-                f"{len(section.positions)} open CFM futures position(s) are unmanaged exposure "
+                f"{len(external)} open CFM futures position(s) are unmanaged exposure "
                 "consuming the shared collateral; no bot or policy cap accounts for them.",
             )
         )
+
+
+def _live_findings(books: Sequence[DeploymentSnapshot], findings: list[ReadinessFinding]) -> None:
+    """Name managed books and persisted duties even without a mirror observation."""
+    if books:
+        findings.append(
+            _finding(
+                "FUTURES_LIVE_BOOKS",
+                ReadinessSeverity.INFO,
+                f"{len(books)} managed live futures book(s); read-only visibility, "
+                "live starts remain unsupported.",
+            )
+        )
+    for book in books:
+        duties = (
+            (book.deployment.futures_derisk_pending, "FUTURES_DERISK_PENDING"),
+            (
+                book.deployment.futures_flat_confirmation_after is not None,
+                "FUTURES_FLAT_CONFIRMATION_PENDING",
+            ),
+            (
+                (book.deployment.mismatch_detail or "").startswith("FUTURES_POSITION_MISMATCH"),
+                "FUTURES_MANAGED_POSITION_MISMATCH",
+            ),
+        )
+        for active, code in duties:
+            if active:
+                findings.append(
+                    ReadinessFinding(
+                        reason_code=code,
+                        severity=ReadinessSeverity.VIOLATION,
+                        deployment_id=book.deployment.id,
+                        detail=(
+                            "A persisted futures safety obligation remains outstanding; unknown "
+                            "evidence cannot clear it."
+                        ),
+                    )
+                )
+
+
+def _collateral(
+    latest: FuturesAccountObservation, policy: RiskPolicyDefinition | None, *, stale: bool
+) -> FuturesCollateralGroup:
+    """Compare current USD margin to one explicitly denominated reserve under a peg."""
+    initial = None if latest.balance is None or stale else latest.balance.initial_margin
+    coverage = reserve_coverage(policy, initial)
+    return FuturesCollateralGroup(
+        currency=coverage.currency,
+        reserve_quote=coverage.reserve_quote,
+        required_margin_usd=_text(coverage.required_usd),
+        headroom_quote=_text(coverage.headroom_quote),
+        covers_current_margin=coverage.covers,
+    )
 
 
 def _finding(code: str, severity: ReadinessSeverity, detail: str) -> ReadinessFinding:

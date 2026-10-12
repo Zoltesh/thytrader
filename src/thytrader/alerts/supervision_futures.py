@@ -17,19 +17,46 @@ from thytrader.alerts.models import (
     SafetyEvidence,
     SupervisionFinding,
 )
+from thytrader.audit_events import AuditEventCategory, AuditEventOutcome
 from thytrader.execution.futures_live import managed_live_futures
 from thytrader.execution.futures_visibility import visible_position_comparison
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.models import snapshot_positions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
+    from thytrader.audit_events import AuditEvent
     from thytrader.execution.futures_live import FuturesLiveAccount
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.trading.models import DeploymentSnapshot
 
 ACCOUNT_SUBJECT = "futures:live"
+
+
+def orphan_finding(event: AuditEvent, *, now: datetime) -> SupervisionFinding | None:
+    """One-off cancellation notification keyed to its durable audit event, not a new cancel."""
+    if (
+        event.action != "futures_orphan_order_cancelled"
+        or event.category is not AuditEventCategory.RUNTIME
+        or event.outcome is not AuditEventOutcome.INFO
+        or event.occurred_at > now
+        or event.product_id is None
+        or not is_futures_product_id(event.product_id)
+    ):
+        return None
+    return SupervisionFinding(
+        code=AlertCode.FUTURES_ORPHAN_ORDER,
+        scope=AlertScope.FLEET,
+        subject=f"orphan:{event.id}",
+        severity=AlertSeverity.WARNING,
+        product_id=event.product_id,
+        detail=(
+            "A managed protective order on a flat futures book was confirmed "
+            "cancelled; one-off audit observation, no additional control action."
+        ),
+    )
 
 
 def futures_safety_evidence(

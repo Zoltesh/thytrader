@@ -11,6 +11,7 @@ from thytrader import __version__
 from thytrader.config import Settings
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.execution.futures_paper import FuturesRuntime
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
@@ -363,11 +364,15 @@ class OperatorDiagnostics:
 
     async def fleet_entries(self) -> FleetEntriesPayload:
         """Evaluate fleet entry readiness now with the gate's own checks (ADR 0130)."""
+        stores = self.futures_book_stores
         return await fleet_entries_payload(
             self.execution,
             self.risk_policies,
             market_data=self.market_data,
             futures_account=self.futures_account_store,
+            futures_runtime=None
+            if stores is None
+            else FuturesRuntime(stores.contracts, stores.observations),
         )
 
     async def fleet_health(self) -> FleetHealthReport:
@@ -411,7 +416,7 @@ class OperatorDiagnostics:
         )
 
     async def futures_books(self) -> FuturesBooksReport:
-        """Return every paper futures book with margin, buffer, leverage and funding (P1-6)."""
+        """Return paper/live book facts without enabling any live order capability."""
         stores = self.futures_book_stores
         return await build_futures_books_report(
             execution=self.execution,
@@ -419,6 +424,7 @@ class OperatorDiagnostics:
             contracts=None if stores is None else stores.contracts,
             observations=None if stores is None else stores.observations,
             policy=await effective_policy_or_none(self.risk_policies),
+            futures_account=self.futures_account_store,
         )
 
     async def products(self, kind: ProductsKind = "spot") -> ProductsReport:

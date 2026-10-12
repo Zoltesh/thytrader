@@ -75,6 +75,12 @@ function factHint(view: ReturnType<typeof futuresBookView>, id: string): string 
 }
 
 describe('futuresBookView', () => {
+	it('shows unavailable live venue evidence rather than simulated settlement', () => {
+		const view = futuresBookView(book({ mode: 'live' }));
+		expect(factValue(view, 'venue-match')).toBe('Unknown');
+		expect(factValue(view, 'funding-drift')).toContain('SETTLEMENT_PROVENANCE_UNAVAILABLE');
+		expect(factValue(view, 'live-orderable')).toBe('No — live starts remain disabled');
+	});
 	it('shows a known book in USD with policy context', () => {
 		const view = futuresBookView(book());
 		expect(view.groups.map((group) => group.id)).toEqual([

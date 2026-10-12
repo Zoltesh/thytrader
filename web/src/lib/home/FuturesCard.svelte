@@ -12,6 +12,7 @@
 	import { futuresBooksSection } from '$lib/futures-book';
 	import { fetchFuturesBooks } from '$lib/futures-book-api';
 	import FuturesBooksSection from './FuturesBooksSection.svelte';
+	import FuturesOwnership from './FuturesOwnership.svelte';
 	import { fetchFuturesAccount, futuresCardView } from './futures';
 	import { Resource } from './resource.svelte';
 
@@ -35,7 +36,7 @@
 	} as const;
 </script>
 
-{#if accountShown || booksView !== null || account.state.status === 'error'}
+{#if accountShown || booksView !== null || account.state.status === 'error' || books.state.status === 'error'}
 	<section
 		class="card futures"
 		aria-labelledby={accountShown || account.state.status === 'error'
@@ -85,6 +86,12 @@
 			<p class="warn" role="status">Couldn't refresh: {account.state.error}</p>
 			<button class="btn ghost" onclick={() => void account.reload()}>Retry</button>
 		{/if}
+		{#if books.state.status === 'error'}
+			<p class="warn" role="status">
+				Futures books could not be read: {books.state.error}. Managed inventory is unknown.
+			</p>
+		{/if}
+		<FuturesOwnership />
 		{#if booksView !== null}
 			<FuturesBooksSection section={booksView} />
 		{/if}

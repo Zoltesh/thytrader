@@ -156,7 +156,14 @@ async def build_readiness_report(
     ]
     fee_evidence = await _fee_evidence(portfolio, snapshots, findings)
     paper = _paper_section(policy, scoped, warnings)
-    futures = await futures_section(futures_account, findings)
+    futures = await futures_section(
+        futures_account,
+        findings,
+        snapshots=tuple(all_snapshots.values()),
+        policy=None if policy is None else policy.definition,
+        managed_complete=len(all_snapshots) == len(deployments),
+        now=now,
+    )
     if warnings:
         findings.append(
             ReadinessFinding(

@@ -187,6 +187,56 @@ async function mockDetail(
 	return { futuresRequests: () => futuresRequests };
 }
 
+test('live futures detail keeps unknown settlement and disabled starts visible', async ({
+	page
+}) => {
+	await mockDetail(page, futuresDeployment({ mode: 'live' }), book({ mode: 'live' }));
+	await page.goto(`/deployments/${futuresId}`);
+	const card = page.getByTestId('futures-book');
+	await expect(card.getByRole('heading', { name: 'Live futures book (USD)' })).toBeVisible();
+	await expect(card.getByTestId('futures-fact-venue-match')).toContainText('Unknown');
+	await expect(card.getByTestId('futures-fact-funding-drift')).toContainText(
+		'SETTLEMENT_PROVENANCE_UNAVAILABLE'
+	);
+	await expect(card.getByTestId('futures-fact-live-orderable')).toContainText(
+		'starts remain disabled'
+	);
+});
+
+test('Home separates managed and external CFM positions', async ({ page }) => {
+	await page.route('**/api/v1/operator/futures-books', (route) =>
+		route.fulfill({ json: futuresBooksReport([book({ mode: 'live' })]) })
+	);
+	await page.route('**/api/v1/operator/venue-reconciliation', (route) =>
+		route.fulfill({
+			json: {
+				payload: {
+					futures: {
+						positions_source: 'mirror_snapshot',
+						positions: [
+							{
+								product_id: product,
+								classification: 'managed_matched',
+								number_of_contracts: '1',
+								side: 'long'
+							},
+							{
+								product_id: 'ETP-20DEC30-CDE',
+								classification: 'external_unmanaged',
+								number_of_contracts: '1',
+								side: 'short'
+							}
+						]
+					}
+				}
+			}
+		})
+	);
+	await page.goto('/');
+	await expect(page.getByTestId('futures-ownership')).toContainText('Managed matched');
+	await expect(page.getByTestId('futures-ownership')).toContainText('External unmanaged');
+});
+
 test('bot detail shows a known paper futures book in USD', async ({ page }) => {
 	await mockDetail(page, futuresDeployment(), book());
 	await page.goto(`/deployments/${futuresId}`);

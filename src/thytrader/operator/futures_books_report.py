@@ -1,18 +1,18 @@
 """Operator ``futures-books`` report and the bot-detail futures view (ADR 0129 §4, P1-6).
 
-Read-only. For every paper futures book it shows the contract bound at start, the position
+Read-only. For every persisted futures book it shows the contract bound at start, the position
 in contracts and base units, the last-bar mark, equity, gross notional and leverage, the
 overnight margin (initial and maintenance at the latest observed rates; maintenance equals
 initial), the liquidation buffer ``(equity - maintenance) / equity`` against the policy
 minimum, the price at which equity would fall to maintenance, the funding ledger and the
-reasons new entries are denied. Every amount is USD (the CFM settlement currency) and is
+reasons new entries are denied. Common book amounts are USD (the CFM settlement currency) and are
 never added to a USDC or USDT amount; ``null`` is unknown, never zero.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, DecimalException, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
@@ -20,7 +20,14 @@ from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.futures_models import SHARED_COLLATERAL_NOTE
 from thytrader.execution.book_marks import last_bar_marks
+from thytrader.execution.futures_live import managed_live_futures
+from thytrader.execution.futures_visibility import read_visibility_account
 from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.operator.futures_books_live import (
+    LiveFuturesBookPayload,
+    live_entry_blocks,
+    live_payload,
+)
 from thytrader.operator.models import (
     PORTFOLIO_REDACTION,
     ComponentReport,
@@ -35,6 +42,7 @@ from thytrader.trading.futures_book import (
     FuturesBookUnavailableError,
     funding_hours_held,
     funding_overdue,
+    futures_book_equity,
 )
 from thytrader.trading.models import (
     DeploymentMode,
@@ -46,7 +54,14 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from thytrader.exchanges.futures_models import (
+        FuturesAccountObservation,
+        FuturesAccountSnapshotStore,
+    )
     from thytrader.execution.decision_store import DecisionJournalStore
+    from thytrader.execution.futures_live import FuturesLiveAccount
     from thytrader.execution.futures_paper import FuturesObservationReader
     from thytrader.market_data.futures_observations import FuturesInstrumentObservation
     from thytrader.risk.models import RiskPolicyDefinition
@@ -58,7 +73,7 @@ if TYPE_CHECKING:
 RECENT_FUNDING_HOURS = 24
 """How many of the newest funding hours the view lists (the totals cover every hour)."""
 
-UnknownEvidence = Literal["binding", "mark", "margin_rates", "funding", "policy"]
+UnknownEvidence = Literal["binding", "mark", "margin_rates", "funding", "policy", "venue_account"]
 EntryBlock = Literal[
     "FUTURES_CONTRACT_UNBOUND",
     "FUTURES_MARGIN_UNKNOWN",
@@ -81,7 +96,10 @@ class FuturesFundingEntryPayload(_FrozenModel):
 
 
 class FuturesBookPayload(_FrozenModel):
-    """One paper futures book. Amounts are USD strings; ``null`` is unknown.
+    """One persisted futures book; common book amounts are USD, null is unknown.
+
+    ``live`` adds explicitly scoped account facts and separately denominated reserves.
+    This projection never grants order authority.
 
     ``unknown`` lists what could not be read (``binding``, ``mark``, ``margin_rates``,
     an overdue ``funding`` hour, an unreadable ``policy``); figures that depend on it are
@@ -132,12 +150,14 @@ class FuturesBookPayload(_FrozenModel):
     futures_derisk_pending: bool = False
     futures_flat_confirmation_after: datetime | None = None
     daily_loss_latched: bool
-    entry_blocks: tuple[EntryBlock, ...]
+    orderable: Literal[False] = False
+    live: LiveFuturesBookPayload | None = None
+    entry_blocks: tuple[str, ...]
     unknown: tuple[UnknownEvidence, ...]
 
 
 class FuturesBooksPayload(_FrozenModel):
-    """Every paper futures book plus the policy envelope that funds them (USD)."""
+    """Persisted paper/live futures books plus the separate paper USD envelope."""
 
     paper_capital_usd: str | None
     committed_paper_cash_usd: str
@@ -148,18 +168,18 @@ class FuturesBooksPayload(_FrozenModel):
 
 
 class FuturesBooksReport(OperatorEnvelope):
-    """Read-only paper futures books."""
+    """Read-only futures books; live starts and order paths remain disabled."""
 
     report_kind: Literal["futures_books"] = "futures_books"
     payload: FuturesBooksPayload
 
 
 _DETAILS: dict[str, str] = {
-    "OK": "Every active paper futures book's binding, mark, margin rates and funding are known.",
-    "NO_FUTURES_BOOKS": "No paper futures book exists.",
+    "OK": "Every active futures book's required reporting evidence is known; not order authority.",
+    "NO_FUTURES_BOOKS": "No persisted futures book exists.",
     "STORE_UNAVAILABLE": "Execution storage could not be read.",
     "FUTURES_EVIDENCE_UNKNOWN": (
-        "Some active paper futures books have an unreadable binding, policy, no mark yet, no "
+        "Some managed futures books have unknown account, binding, policy, mark, "
         "observed margin rates or an overdue funding hour; their dependent figures are null "
         "and new entries are denied."
     ),
@@ -182,6 +202,9 @@ async def futures_book_payload(
     observations: FuturesObservationReader | None,
     policy: RiskPolicyDefinition | None,
     now: datetime | None = None,
+    account: FuturesLiveAccount | None = None,
+    account_observation: FuturesAccountObservation | None = None,
+    books: Sequence[DeploymentSnapshot] = (),
 ) -> FuturesBookPayload:
     """Read the binding, mark and margin rates of one futures book and project it.
 
@@ -201,14 +224,59 @@ async def futures_book_payload(
             observation = None
     marks = {} if journal is None else await last_bar_marks(journal, snapshot, now=now)
     mark = marks.get(snapshot.deployment.product_id)
-    return book_payload(
+    moment = now or datetime.now(UTC)
+    priced = None if mark is None else (mark.price, mark.bar_closes_at)
+    if (
+        snapshot.deployment.mode is DeploymentMode.LIVE
+        and account is not None
+        and account.venue.is_fresh(moment)
+    ):
+        venue_price = account.marks.get(snapshot.deployment.product_id)
+        if venue_price is not None:
+            priced = (venue_price, account.venue.observed_at)
+    projected = book_payload(
         snapshot,
         binding=binding,
         observation=None if observation is None else observation[0],
         observed_at=None if observation is None else observation[1],
-        mark=None if mark is None else (mark.price, mark.bar_closes_at),
+        mark=priced,
         policy=policy,
         now=now or datetime.now(UTC),
+    )
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return projected
+    moment = now or datetime.now(UTC)
+    live = live_payload(
+        snapshot,
+        account=account,
+        observation=account_observation,
+        policy=policy,
+        books=books or (snapshot,),
+        now=moment,
+    )
+    price = None if priced is None else priced[0]
+    blocks = live_entry_blocks(
+        snapshot,
+        binding=binding,
+        observation=None if observation is None else observation[0],
+        account=account,
+        policy=policy,
+        books=books or (snapshot,),
+        price=price,
+        now=moment,
+    )
+    return projected.model_copy(
+        update={
+            "live": live,
+            "liquidation_price": None,
+            "entry_blocks": tuple(dict.fromkeys((*projected.entry_blocks, *blocks))),
+            "unknown": projected.unknown
+            + (
+                ("venue_account",)
+                if live.evidence_status != "fresh" or live.match_state == "unknown"
+                else ()
+            ),
+        }
     )
 
 
@@ -233,6 +301,10 @@ def book_payload(
     short_rate = _rate(None if observation is None else observation.overnight_short_margin_rate)
     price = None if mark is None else mark[0]
     equity = _equity(deployment.cash, signed, price)
+    if deployment.mode is DeploymentMode.LIVE:
+        equity = futures_book_equity(
+            snapshot, {} if price is None else {deployment.product_id: price}
+        )
     notional = Decimal(0) if quantity == 0 else (None if price is None else quantity * price)
     rate = short_rate if side == "short" else long_rate
     initial = None if notional is None or rate is None else notional * rate
@@ -283,7 +355,9 @@ def book_payload(
             None if initial is None or equity is None else _ratio(equity - initial, equity)
         ),
         min_liquidation_buffer_fraction=_min_buffer(policy),
-        liquidation_price=_liquidation_price(deployment.cash, signed, rate),
+        liquidation_price=None
+        if deployment.mode is DeploymentMode.LIVE
+        else _liquidation_price(deployment.cash, signed, rate),
         funding_total=_text(sum((flow.amount for flow in funding), start=Decimal(0))),
         funding_hours=len(funding),
         funding_overdue_since=overdue,
@@ -313,8 +387,9 @@ async def build_futures_books_report(
     observations: FuturesObservationReader | None,
     policy: RiskPolicyDefinition | None,
     now: datetime | None = None,
+    futures_account: FuturesAccountSnapshotStore | None = None,
 ) -> FuturesBooksReport:
-    """List every paper futures book with its margin, buffer, leverage and funding.
+    """List persisted futures books with book economics and separately scoped venue facts.
 
     ``policy`` None means the effective policy could not be read.
     """
@@ -322,13 +397,23 @@ async def build_futures_books_report(
     try:
         deployments = await execution.list_deployments()
         snapshots = [
-            await execution.get_deployment(item.id)
+            await execution.get_accounting_snapshot(item.id)
             for item in deployments
             if is_futures_product_id(item.product_id)
         ]
     except ExecutionStoreError:
         component = _component(ReportStatus.FAILED, "STORE_UNAVAILABLE")
         return _report(generated_at, _payload(policy, ()), (component,))
+    live_books = tuple(item for item in snapshots if item.deployment.mode is DeploymentMode.LIVE)
+    account = None
+    account_observation = None
+    if live_books:
+        try:
+            account, account_observation = await read_visibility_account(
+                futures_account, observations, live_books
+            )
+        except Exception:  # noqa: BLE001 - unavailable mirror evidence stays unknown.
+            account = None
     books = tuple(
         [
             await futures_book_payload(
@@ -338,11 +423,19 @@ async def build_futures_books_report(
                 observations=observations,
                 policy=policy,
                 now=generated_at,
+                account=account,
+                account_observation=account_observation,
+                books=live_books,
             )
             for snapshot in snapshots
         ]
     )
-    active = [book for book in books if book.status != DeploymentStatus.STOPPED.value]
+    managed = {snapshot.deployment.id for snapshot in snapshots if managed_live_futures(snapshot)}
+    active = [
+        book
+        for book in books
+        if book.status != DeploymentStatus.STOPPED.value or book.deployment_id in managed
+    ]
     if not books:
         component = _component(ReportStatus.HEALTHY, "NO_FUTURES_BOOKS")
     elif any(book.unknown for book in active):
@@ -493,7 +586,10 @@ def _ratio(numerator: Decimal | None, denominator: Decimal | None) -> str | None
     """``numerator / denominator`` to six places, or None when unknown or not positive."""
     if numerator is None or denominator is None or denominator <= 0:
         return None
-    return _text((numerator / denominator).quantize(_RATIO))
+    try:
+        return _text((numerator / denominator).quantize(_RATIO))
+    except DecimalException:
+        return None
 
 
 def _optional(value: Decimal | None) -> str | None:

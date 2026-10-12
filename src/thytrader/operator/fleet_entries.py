@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.execution.futures_paper import FuturesRuntime
     from thytrader.market_data.service import MarketDataService
     from thytrader.operator.fleet_health_models import Admissibility
     from thytrader.risk.fleet_entry_models import FleetEntryCheck, FleetScopeHealth
@@ -51,6 +52,7 @@ async def fleet_entries_payload(
     *,
     market_data: MarketDataService | None,
     futures_account: FuturesAccountSnapshotStore | None,
+    futures_runtime: FuturesRuntime | None = None,
 ) -> FleetEntriesPayload:
     """Evaluate fleet entry readiness now; an unreadable policy is unknown, not the default."""
     try:
@@ -65,7 +67,11 @@ async def fleet_entries_payload(
             )
         )
     health = await load_fleet_entry_health(
-        execution, policy, market_data=market_data, futures_account=futures_account
+        execution,
+        policy,
+        market_data=market_data,
+        futures_account=futures_account,
+        futures_runtime=futures_runtime,
     )
     return entries_payload(health)
 

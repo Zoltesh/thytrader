@@ -12,10 +12,14 @@ from thytrader.trading.fill_ledger import unprojected_inventory_products
 from thytrader.trading.models import resolved_product_id, snapshot_positions
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
+    from decimal import Decimal
 
-    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.exchanges.futures_models import (
+        FuturesAccountObservation,
+        FuturesAccountSnapshotStore,
+    )
     from thytrader.execution.futures_paper import FuturesObservationReader
     from thytrader.trading.models import DeploymentSnapshot
 
@@ -51,11 +55,21 @@ async def mirror_live_account(
     This function has no exchange client or mutation capability. Receipt timestamps are
     copied unchanged from the mirror. Catalog failure only invalidates contract comparison.
     """
+    account, _ = await read_visibility_account(store, observations, books)
+    return account
+
+
+async def read_visibility_account(
+    store: FuturesAccountSnapshotStore | None,
+    observations: FuturesObservationReader | None,
+    books: Sequence[DeploymentSnapshot],
+) -> tuple[FuturesLiveAccount | None, FuturesAccountObservation | None]:
+    """Load exactly one receipt so funding counters and account metrics share provenance."""
     if store is None:
-        return None
+        return None, None
     latest = await store.latest()
     if latest is None:
-        return None
+        return None, None
     sizes = {}
     if observations is not None:
         source = CatalogContractSizes(observations)
@@ -63,6 +77,15 @@ async def mirror_live_account(
             size = await source.contract_size(product)
             if size is not None:
                 sizes[product] = size
+    return observation_live_account(latest, sizes), latest
+
+
+def observation_live_account(
+    latest: FuturesAccountObservation,
+    sizes: Mapping[str, Decimal],
+    external_order_products: frozenset[str] | None = None,
+) -> FuturesLiveAccount:
+    """Project exactly one mirror receipt; callers supply separately proved order coverage."""
     positions, marks = _positions(latest.positions)
     balance = latest.balance
     window = latest.margin_window
@@ -87,7 +110,7 @@ async def mirror_live_account(
             ),
             initial_margin_usd=_nonnegative(None if balance is None else balance.initial_margin),
             positions=positions,
-            external_order_products=None,
+            external_order_products=external_order_products,
             killswitch_enabled=killswitch,
             maintenance={},
             contract_sizes=sizes,

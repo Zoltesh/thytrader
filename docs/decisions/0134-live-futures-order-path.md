@@ -204,11 +204,20 @@ persisted I9 mismatch pauses, and external-order facts from an explicitly inject
 It reuses durable alert dedupe/recovery/delivery and existing account evidence. It does not
 construct a production futures broker or authorize any mutation.
 
-This is a partial increment, **not completion of P2-6**. Funding-drift and orphan-event
-producers, full live reports, reconciliation/readiness/fleet-gate extensions and browser
-visibility remain pending. Mirror `funding_pnl` changes alone do not prove settlement
-boundaries or fully managed interval coverage, so no settlement is manufactured. All live
-start surfaces retain `FUTURES_LIVE_UNSUPPORTED`; `FUTURES_ORDER_PATHS` remains empty.
+P2-6 adds persisted live-book visibility, strict managed/mismatch/external reconciliation,
+readiness duties and collateral headroom, the actual P2-3 admission probes for live CFM fleet
+health, and Home/bot venue facts. Confirmed orphan-cancellation audit events produce one-off
+warnings through the existing durable feed, not another cancellation. The bounded newest-500
+audit window is explicit, not an assertion of complete historical event coverage.
+
+The remaining external evidence boundary is **funding settlement provenance**. No available
+mirror field proves settlement boundaries or fully managed interval coverage. Therefore
+`FUTURES_FUNDING_DRIFT` is reserved but unobserved, and every live book explicitly exposes
+unknown with `SETTLEMENT_PROVENANCE_UNAVAILABLE`. Neither a `funding_pnl` delta nor an hourly
+modeled accrual is manufactured into a settlement. This boundary must be resolved with
+validated venue evidence before a funding-drift producer can be claimed. All live start
+surfaces retain `FUTURES_LIVE_UNSUPPORTED`; `FUTURES_ORDER_PATHS` stays empty and every
+capability remains `orderable: false` pending authentic acceptance and P2-7.
 
 ### 6. Decisions taken
 

@@ -1753,7 +1753,7 @@ test('futures card lists an external position with its margin ratio', async ({ p
 	const card = page.getByTestId('futures-card');
 	await expect(card).toContainText('11.23');
 	await expect(card.getByTestId('futures-positions')).toContainText(
-		'External, not managed by any bot: ETP-20DEC30-CDE short 1 contract(s)'
+		'Venue positions (ownership shown separately): ETP-20DEC30-CDE short 1 contract(s)'
 	);
 });
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from thytrader.alerts.supervision_futures import futures_safety_evidence
+from thytrader.alerts.models import AlertCode, AlertScope, AlertSeverity, SupervisionFinding
+from thytrader.alerts.supervision_futures import futures_safety_evidence, orphan_finding
+from thytrader.execution.audit_scope import bound_execution_audit_store
 from thytrader.execution.futures_live import (
     current_live_futures_runtime,
     managed_live_futures,
@@ -43,6 +45,14 @@ async def supervise_futures(
     if alert_service is None:
         return "disabled"
     try:
+        audit = bound_execution_audit_store()
+        if audit is not None:
+            for event in await audit.list_recent(limit=500):
+                finding = orphan_finding(event, now=observed_at)
+                if finding is not None:
+                    await alert_service.apply(
+                        (finding,), now=event.occurred_at, evaluated=(), dispatch=False
+                    )
         deployments = await store.list_deployments()
         snapshots = tuple(
             [
@@ -62,6 +72,26 @@ async def supervise_futures(
         )
     except Exception as error:  # noqa: BLE001 - observer failures never fail execution.
         _logger.warning("futures_supervision_failed type=%s", type(error).__name__)
+        try:
+            await alert_service.apply(
+                (
+                    SupervisionFinding(
+                        code=AlertCode.FUTURES_ACCOUNT_UNKNOWN,
+                        scope=AlertScope.FLEET,
+                        subject="futures:live",
+                        severity=AlertSeverity.CRITICAL,
+                        detail=(
+                            "The futures safety observer failed; account supervision is unknown, "
+                            "not all-clear."
+                        ),
+                    ),
+                ),
+                now=observed_at,
+                evaluated=(),
+                dispatch=False,
+            )
+        except Exception as storage_error:  # noqa: BLE001 - isolate the unavailable alert store.
+            _logger.warning("futures_observer_alert_failed type=%s", type(storage_error).__name__)
         return "failed"
     return "failed" if failed else "observed"
 

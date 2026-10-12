@@ -12,6 +12,13 @@ from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_account_report import _Store
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
 from thytrader.alerts.store import InMemoryAlertStore
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    InMemoryAuditEventStore,
+)
+from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.futures_live import FuturesLiveRuntime, live_futures_runtime_scope
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import futures_supervision, service
@@ -23,6 +30,34 @@ from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, PositionSide
 
 pytestmark = pytest.mark.anyio
+
+
+async def test_orphan_audit_is_a_single_restart_safe_observation() -> None:
+    """Replaying an existing cancellation event does not cancel or notify twice."""
+    audit = InMemoryAuditEventStore()
+    event = AuditEvent(
+        occurred_at=_AT,
+        category=AuditEventCategory.RUNTIME,
+        action="futures_orphan_order_cancelled",
+        outcome=AuditEventOutcome.INFO,
+        product_id="BIP-20DEC30-CDE",
+        detail="Confirmed managed orphan cancellation.",
+    )
+    await audit.append(event)
+    alerts = InMemoryAlertStore()
+    for tick in range(2):
+        with execution_audit_scope(audit):
+            await futures_supervision.supervise_futures(
+                alert_service=_service(alerts),
+                store=InMemoryExecutionStore(),
+                policy=_policy(),
+                observed_at=_AT + timedelta(seconds=tick),
+            )
+    rows = await alerts.list_open_alerts()
+    assert len(rows) == 1
+    assert rows[0].code.value == "FUTURES_ORPHAN_ORDER"
+    assert rows[0].subject == f"orphan:{event.id}"
+    assert rows[0].occurrences == 1
 
 
 async def test_worker_observer_raises_from_real_inventory_without_order_calls() -> None:
@@ -123,10 +158,14 @@ async def test_observer_failure_is_not_all_clear() -> None:
             del limit, offset
             raise RuntimeError("synthetic unavailable")
 
+    alerts = InMemoryAlertStore()
     result = await futures_supervision.supervise_futures(
-        alert_service=_service(InMemoryAlertStore()),
+        alert_service=_service(alerts),
         store=BrokenStore(),
         policy=_policy(),
         observed_at=_AT,
     )
     assert result == "failed"
+    assert any(
+        row.code.value == "FUTURES_ACCOUNT_UNKNOWN" for row in await alerts.list_open_alerts()
+    )

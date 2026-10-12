@@ -45,6 +45,11 @@ def execution_audit_scope(store: AuditEventStore | None) -> Iterator[None]:
         _SCOPE.reset(token)
 
 
+def bound_execution_audit_store() -> AuditEventStore | None:
+    """The existing cycle audit reader; observation adds no mutation authority."""
+    return _SCOPE.get()
+
+
 async def record_execution_audit(
     *,
     action: str,

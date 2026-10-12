@@ -9,6 +9,7 @@
 	 * only for futures bots; it reads its own endpoint and re-reads after each revision.
 	 */
 	import { untrack } from 'svelte';
+	import { LIVE_VISIBILITY_NOTE } from '$lib/futures-book-live';
 	import { PAPER_ONLY_NOTE, SHARED_COLLATERAL_NOTE, futuresBookView } from '$lib/futures-book';
 	import { fetchDeploymentFutures } from '$lib/futures-book-api';
 	import { Resource } from '$lib/home/resource.svelte';
@@ -28,12 +29,18 @@
 
 <section class="card futures-book" aria-labelledby="futures-book-title" data-testid="futures-book">
 	<div class="card-head">
-		<h2 id="futures-book-title">Paper futures book (USD)</h2>
-		<span class="chip paper">Paper only</span>
+		<h2 id="futures-book-title">
+			{book.state.data?.mode === 'live' ? 'Live' : 'Paper'} futures book (USD)
+		</h2>
+		<span class="chip paper"
+			>{book.state.data?.mode === 'live' ? 'Read-only · starts disabled' : 'Paper only'}</span
+		>
 		{#if view?.latched}<span class="chip warn-chip">Daily-loss breaker latched</span>{/if}
 	</div>
 	<div class="body">
-		<p class="note" data-testid="futures-paper-only">{PAPER_ONLY_NOTE}</p>
+		<p class="note" data-testid="futures-paper-only">
+			{book.state.data?.mode === 'live' ? LIVE_VISIBILITY_NOTE : PAPER_ONLY_NOTE}
+		</p>
 		{#if view === null}
 			{#if book.state.status === 'error'}
 				<div class="warn" role="status">
@@ -91,7 +98,11 @@
 					</table>
 				</div>
 			{:else}
-				<p class="muted">No funding charged yet.</p>
+				<p class="muted">
+					{book.state.data?.mode === 'live'
+						? 'No modeled funding accrual recorded; venue settlement is unknown.'
+						: 'No funding charged yet.'}
+				</p>
 			{/if}
 			{#if book.state.status === 'error'}
 				<p class="warn" role="status">Couldn't refresh: {book.state.error}</p>

@@ -99,9 +99,10 @@ unnoticed.
   its caches; the API does the same per `fleet-health`, `risk` or `readiness` call.
 - A fully invested fleet shows a warning banner and degrades the `readiness` and `risk`
   `fleet_entries` component (`FLEET_ENTRY_CAPACITY_FULL`), but never pages or fails health.
-- Known gaps: the futures scope runs the shared checks but not the futures gate's own envelope
-  (margin, funding, contract binding; `futures-books` reports those); decision-log flags are
-  not alerted; a single bot's persistent reference-data or freshness block is visible only in
+- P2-6 closes the live CFM gate gap with actual P2-3 minimum one-contract long/short probes,
+  including binding, funding, opt-in, venue state and reserve checks. A probe is advisory,
+  not permission for a particular strategy order. Paper retains its existing shared checks.
+- Known gaps: decision-log flags are not alerted; a single bot's persistent reference-data or freshness block is visible only in
   its decisions; a failed supervision pass is logged, not recorded as a heartbeat.
 
 ## Alternatives considered

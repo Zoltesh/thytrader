@@ -61,7 +61,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting, the same cycle's spot USDC/USD `spot_collateral`; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Futures account history (read-only) | `uv run thytrader-operator futures-account --history --since 2026-10-12T19:00:00Z [--until 2026-10-12T22:00:00Z]` | `GET /api/v1/operator/futures-account/history?since=…[&until=…]` (`futures_account_history`: every mirror snapshot in `[since, until)`, oldest first, at most 2880 rows; `gaps`, `margin_window_changes`; for supervising a manual futures trade; [ADR 0127 §10](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
-| Paper futures books (read-only) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
+| Futures books (read-only; live starts disabled) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
@@ -621,12 +621,30 @@ of a successful observation or permission to trade.
   proves an external nonterminal order on a managed product. A complete fresh order read
   and valid matching position clear it. Client-id prefixes never establish ownership.
 
-This increment is **not the completed P2-6 visibility contract**. `FUTURES_FUNDING_DRIFT`
-and `FUTURES_ORPHAN_ORDER` are reserved codes, without producers yet. In particular an
-hourly modeled funding accrual or a change in account `funding_pnl` is not a validated
-settlement interval; funding drift is not being certified. The live books/reconciliation/
-readiness/fleet-gate/UI extensions remain pending. Production uses the existing mirror,
-not new CFM venue reads; external-order evidence requires the explicitly injected source.
+- `FUTURES_ORPHAN_ORDER` (warning, `orphan:<audit-event-id>`): an existing confirmed
+  `futures_orphan_order_cancelled` audit event, replayed with its original timestamp for
+  durable one-off dedupe. It never cancels again. The observer reads the newest 500 audit
+  events; absence from that bounded window is not a recovery or full-history claim.
+- `FUTURES_FUNDING_DRIFT` remains **unobserved**: authoritative settlement boundaries and
+  fully managed interval provenance are unavailable. Books explicitly return
+  `funding_drift_status: unknown` / `SETTLEMENT_PROVENANCE_UNAVAILABLE`; hourly modeled
+  accrual and account `funding_pnl` counters are not settlement proof.
+
+`futures-books` and the per-bot futures GET now list persisted paper and injected live states.
+Live rows have `orderable: false`, `live` account facts with original receipt time, signed venue
+contracts and comparison state, USD buying power/margin, and separately denominated reserve
+and headroom under the declared peg. Funding is book-modeled accrual versus an account counter,
+never a per-book venue settlement. `entry_blocks` includes actual P2-3 gate denials for a
+minimum whole-contract long/short probe; this is advisory, not a strategy order preflight.
+`venue-reconciliation` distinguishes `managed_matched`, `managed_mismatch`, `external_unmanaged`
+and `unknown`. Missing managed reads, duplicate ownership, stale receipts, unprojected economics,
+unapplied fills or incomplete/foreign order evidence never certify a match. Managed order
+identity requires exact persisted product/client/intent identity, not a client-id prefix.
+`readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
+and `collateral_group` headroom. `fleet-health` runs P2-3 probes in `live:CFM-USD`; fleet-wide
+failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged.
+Production uses the existing mirror, not new CFM venue reads; worker external-order evidence
+requires the explicitly injected source. A failed observer records unknown, not all-clear.
 Live starts still refuse `FUTURES_LIVE_UNSUPPORTED`, `futures_order_paths` remains empty,
 and visibility never grants lifecycle, order, cancellation or policy authority.
 

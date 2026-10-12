@@ -29,7 +29,7 @@ futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-nu
 is a pending flat-verification lower bound, never a successful venue observation. Diagnostics
 can change without clearing either duty. Restart/resume is not a manual-clear operation.
 **This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
-`FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health remains pending; the initial P2-6 safety observer and health consumer are described below. To change
+`FUTURES_LIVE_UNSUPPORTED`. Live CFM fleet-health runs the P2-3 minimum-contract probes; visibility is described below. To change
 settings, use the confirmation-gated runtime lane's
 [policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
 then read back the fingerprint and complete block here. Operator never publishes policy.
@@ -55,10 +55,36 @@ blindness for known held inventory but return failed observation, not all-clear.
 future, unapplied or foreign-holding evidence cannot clear a mismatch. Durable alert IDs,
 watermarks and notification claims are unchanged.
 
-`FUTURES_FUNDING_DRIFT` and `FUTURES_ORPHAN_ORDER` are reserved enum values only in this
-increment. No funding settlement or orphan-cancellation event is inferred. Full P2-6
-reporting and browser extensions are not delivered by this increment. No schema revision
-or live-start capability changes; Alembic stays `0076` and order paths remain empty.
+`FUTURES_ORPHAN_ORDER` is a warning one-off keyed by `orphan:<audit-event-id>` from an
+existing confirmed cancellation event. The newest 500 audit rows are observed; replay uses
+the event's timestamp and cannot increment occurrences or cancel again. It has no inferred
+all-clear. `FUTURES_FUNDING_DRIFT` has no producer without authoritative settlement and
+fully managed interval evidence. `live.funding_drift_status` is explicitly `unknown`, reason
+`SETTLEMENT_PROVENANCE_UNAVAILABLE`; mirror deltas are not a settlement formula.
+
+`futures-books.payload.books[]` now includes persisted live states without enabling starts.
+`orderable` remains false. `live` is null for paper and an account-scoped object for live:
+`observed_at`, `evidence_status`, `venue_contracts` (signed), `match_state` / `match_reason`,
+`margin_ratio`, `available_margin_usd`, `buying_power_usd`, `initial_margin_usd`,
+`reserve_currency`, `reserve_quote`, `reserve_required_usd`, `reserve_headroom_quote`,
+`reserve_covers_current_margin`, `funding_accrued_usd`, `venue_funding_pnl_usd` and explicit
+funding scope/drift metadata. Unknown, stale, future-dated or inexact evidence yields null.
+The reserve is one quote currency under a declared peg, never USD added to USDC. The reserve
+covers current margin; the P2-3 probe additionally checks proposed margin. Book equity uses
+live allocation plus ledger equity, not the account total. Comparison does not clear duties.
+`entry_blocks` carries actual gate reasons for minimum one-contract probes in both directions;
+an empty list is not a live-start capability or approval of a particular strategy order.
+
+Reconciliation futures rows carry `classification`, `deployment_id`, `book_contracts` and
+`comparison_reason`. `managed_mismatch` adds critical `FUTURES_MANAGED_POSITION_MISMATCH`.
+`managed_orders` requires exact persisted product/client/intent identity; `orders` contains
+remaining venue rows, whose foreign classification is valid only when
+`orders_classification_complete` is true. Partial reads and accounting gaps remain unknown.
+Readiness adds `live_books` duties and `collateral_group` reserve/headroom; findings include
+`FUTURES_LIVE_BOOKS`, `FUTURES_DERISK_PENDING`, `FUTURES_FLAT_CONFIRMATION_PENDING`,
+`FUTURES_MANAGED_POSITION_MISMATCH`, `FUTURES_MARGIN_LOW` and reserve shortage. Fleet checks
+add `live_futures` only to live CFM; every shared spot check remains unchanged.
+No schema revision or live-start capability changes; Alembic stays `0076`, order paths empty.
 
 ## Portfolio value scope
 
