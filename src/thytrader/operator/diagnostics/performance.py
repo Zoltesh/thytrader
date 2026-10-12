@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal  # noqa: TC003 - runtime marks map uses Decimal at runtime
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
@@ -36,9 +36,15 @@ from thytrader.operator.runtime_models import (
     PerformanceBookPayload,
     PerformancePayload,
     PerformanceReport,
+    PerformanceValuationReceipt,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
-from thytrader.trading.ledger import effective_paper_fee_rates, ledger_from_snapshot
+from thytrader.trading.ledger import (
+    effective_paper_fee_rates,
+    ledger_fills_for_product,
+    ledger_from_snapshot,
+    mark_deployment_ledger,
+)
 from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
@@ -47,6 +53,7 @@ from thytrader.trading.models import (
     resolved_product_id,
     snapshot_positions,
 )
+from thytrader.trading.protection import book_inventory_reasons
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -182,9 +189,19 @@ async def _deployment_performance(
     deployment = snapshot.deployment
     timeframe = await _runtime_timeframe(diagnostics, deployment)
     currency, currency_warning = await _deployment_quote_currency(diagnostics, deployment)
-    marks = await _deployment_marks(diagnostics, snapshot, timeframe)
+    marks, receipts = await _deployment_marks(diagnostics, snapshot, timeframe)
     ledger = ledger_from_snapshot(snapshot, marks=marks)
+    books = _performance_books(ledger, snapshot, receipts)
     component, warnings = _deployment_ledger_component(deployment, ledger)
+    warnings = (
+        *warnings,
+        *(
+            f"{book.product_id}: {book.valuation.reason_code}; "
+            "preview price not used for valuation."
+            for book in books
+            if not book.valuation.used and book.valuation.status != "not_required"
+        ),
+    )
     if currency_warning is not None:
         warnings = (*warnings, currency_warning)
     payload = PerformancePayload(
@@ -206,7 +223,9 @@ async def _deployment_performance(
         marked_exposure=(
             None if ledger.marked_exposure is None else format(ledger.marked_exposure, "f")
         ),
-        books=_performance_books(ledger),
+        realized_net_pnl=format(ledger.realized_net_pnl, "f"),
+        total_fees=format(ledger.total_fees, "f"),
+        books=books,
     )
     return PerformanceReport(
         application_version=__version__,
@@ -251,53 +270,123 @@ async def _deployment_quote_currency(
 
 async def _last_close_mark(
     diagnostics: OperatorDiagnostics, product_id: str, timeframe: SupportedTimeframe
-) -> Decimal | None:
-    """Return the last closed candle close for the strategy interval, if one exists."""
+) -> PerformanceValuationReceipt:
+    """Reobserve preview evidence without promoting a stale candidate to a mark."""
+    unavailable = PerformanceValuationReceipt(
+        status="unavailable", reason_code="PREVIEW_UNAVAILABLE"
+    )
     if diagnostics.market_data is None:
-        return None
+        return unavailable
     try:
         preview = await diagnostics.market_data.get_preview(
             product_id, parse_candle_interval(timeframe)
         )
     except Exception:  # noqa: BLE001 - missing marks stay omitted, not invented.
-        return None
+        return unavailable
     candles = preview.quality.candles
     if not candles:
-        return None
-    return candles[-1].close
+        return PerformanceValuationReceipt(
+            status="empty", observed_at=preview.as_of, reason_code="EMPTY_PREVIEW"
+        )
+    stale = preview.quality.is_stale
+    return PerformanceValuationReceipt(
+        status="stale" if stale else "fresh",
+        price=format(candles[-1].close, "f"),
+        candle_closed_at=candles[-1].starts_at + preview.interval.duration,
+        observed_at=preview.as_of,
+        reason_code="STALE_MARK" if stale else "FRESH_MARK",
+    )
 
 
 async def _deployment_marks(
     diagnostics: OperatorDiagnostics,
     snapshot: DeploymentSnapshot,
     timeframe: SupportedTimeframe,
-) -> dict[str, Decimal]:
-    """Return last-close marks for every open product book on one deployment."""
+) -> tuple[dict[str, Decimal], dict[str, PerformanceValuationReceipt]]:
+    """Observe open books only; return accepted marks separately from candidate receipts."""
     marks: dict[str, Decimal] = {}
+    receipts: dict[str, PerformanceValuationReceipt] = {}
     products = {
         resolved_product_id(position.product_id, snapshot.deployment)
         for position in snapshot_positions(snapshot)
+        if position.quantity != 0
     }
-    products.add(snapshot.deployment.product_id)
     for product_id in sorted(products):
-        mark = await _last_close_mark(diagnostics, product_id, timeframe)
-        if mark is not None:
-            marks[product_id] = mark
-    return marks
+        receipt = await _last_close_mark(diagnostics, product_id, timeframe)
+        receipts[product_id] = receipt
+        if receipt.status == "fresh" and receipt.price is not None:
+            marks[product_id] = Decimal(receipt.price)
+    return marks, receipts
 
 
-def _performance_books(ledger: DeploymentLedger) -> tuple[PerformanceBookPayload, ...]:
-    """Render per-product ledger slices for operator performance evidence."""
-    if not ledger.books:
-        return ()
-    return tuple(
-        PerformanceBookPayload(
-            product_id=book.product_id,
-            trade_count=book.trade_count,
-            total_net_pnl=(None if book.total_net_pnl is None else format(book.total_net_pnl, "f")),
-            mark_complete=book.mark_complete,
+def _performance_books(
+    ledger: DeploymentLedger,
+    snapshot: DeploymentSnapshot,
+    receipts: dict[str, PerformanceValuationReceipt],
+) -> tuple[PerformanceBookPayload, ...]:
+    """Retain open and trade-only books, without calling unused prices fresh marks."""
+    books = {book.product_id: book for book in ledger.books}
+    products = {
+        snapshot.deployment.product_id,
+        *books,
+        *(resolved_product_id(order.product_id, snapshot.deployment) for order in snapshot.orders),
+        *(runtime.product_id for runtime in snapshot.instrument_runtimes),
+    }
+    result: list[PerformanceBookPayload] = []
+    for product_id in sorted(products):
+        book = books.get(product_id)
+        receipt = receipts.get(
+            product_id,
+            PerformanceValuationReceipt(status="not_required", reason_code="NO_OPEN_INVENTORY"),
         )
-        for book in ledger.books
+        if book is None:
+            result.append(_historical_performance_book(snapshot, product_id, receipt))
+            continue
+        used = receipt.status == "fresh" and book.mark_complete and book.base_quantity != 0
+        receipt = receipt.model_copy(update={"used": used})
+        if receipt.status == "fresh" and not used:
+            receipt = receipt.model_copy(update={"reason_code": "ACCOUNTING_UNRESOLVED"})
+        result.append(
+            PerformanceBookPayload(
+                product_id=book.product_id,
+                trade_count=book.trade_count,
+                total_net_pnl=(
+                    None if book.total_net_pnl is None else format(book.total_net_pnl, "f")
+                ),
+                mark_complete=book.mark_complete,
+                valuation=receipt,
+            )
+        )
+    return tuple(result)
+
+
+def _historical_performance_book(
+    snapshot: DeploymentSnapshot, product_id: str, receipt: PerformanceValuationReceipt
+) -> PerformanceBookPayload:
+    """Expose recorded closed trades for books absent from the open-position ledger."""
+    history = mark_deployment_ledger(
+        starting_cash=Decimal(0),
+        cash=Decimal(0),
+        fills=ledger_fills_for_product(snapshot, product_id),
+        position_quantity=Decimal(0),
+        position_entry_price=None,
+        mark_price=None,
+    )
+    complete = (
+        snapshot.accounting_complete
+        and history.mark_complete
+        and not book_inventory_reasons(snapshot, product_id=product_id)
+    )
+    if not complete:
+        receipt = PerformanceValuationReceipt(
+            status="unavailable", reason_code="ACCOUNTING_UNRESOLVED"
+        )
+    return PerformanceBookPayload(
+        product_id=product_id,
+        trade_count=history.trade_count,
+        total_net_pnl=format(history.realized_net_pnl, "f") if complete else None,
+        mark_complete=complete,
+        valuation=receipt,
     )
 
 
@@ -342,7 +431,8 @@ def _deployment_ledger_component(
                 status=ReportStatus.DEGRADED,
                 reason_code="MISSING_MARK",
                 detail=(
-                    "Open inventory has no last-close mark; total PnL is omitted "
+                    "Open inventory has no accepted fresh last-close mark (stale or missing); "
+                    "total PnL is omitted "
                     "rather than invented."
                 ),
             ),

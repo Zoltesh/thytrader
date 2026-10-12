@@ -348,7 +348,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v96`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v97`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -407,7 +407,18 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    the product quote for discretionary books; `null` means provenance could not be established
    and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the strategy snapshot's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
-   at last close; `MISSING_MARK` means open inventory was not marked. Live REST fill ingest uses
+   at a freshly reobserved preview close, separate from the journal-local position mark
+   on detail/portfolio (ADR 0098). `runtime_observability: performance_valuation_receipts`
+   exposes each `books[].valuation`: price, candle-close time, preview observation time,
+   source, status, reason and `used`. Only `used: true` is an accepted valuation mark.
+   `stale` receipts retain their candidate price for explanation, never current economics;
+   `MISSING_MARK` covers stale or unavailable marks and nulls dependent PnL/return/exposure.
+   The existing age rule is unchanged: strictly more than two intervals is stale. Known
+   `realized_net_pnl`, `trade_count` and `total_fees` remain recorded-fill evidence, not a
+   certificate of complete current accounting. Flat/trade-only books need no preview:
+   `not_required`, `used: false`, null price/timestamps. See the
+   [receipt fields](references/report-schemas.md#performance-valuation-receipts).
+   Text CLI output and the browser label preview valuation explicitly. Live REST fill ingest uses
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
    unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
    do not treat a truncated or failed fill page as a complete ledger.
@@ -595,6 +606,10 @@ the default 30 s interval): the slack health already grants every worker loop.
 - The worker's heartbeat is refreshed between books, so `HEARTBEAT_STALE` on
   `execution_worker` means one step has been stuck past the stale window or the worker is
   down; a slow but progressing cycle shows only `CYCLE_SLOW`.
+
+Feed and credential-reload nudges received during a cycle schedule one immediate sequential
+follow-up. Bursts coalesce; they never create concurrent cycles. With no new nudge, the worker
+still waits its configured interval after work. Stop/cancellation cleans up idle waiters.
 
 Report the slowest phase and books, the venue and database time, and whether books
 were `warming` (a cold candle cache after a restart is slow for a few cycles and clears by

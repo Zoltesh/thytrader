@@ -141,6 +141,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0134](0134-live-futures-order-path.md) | Live Coinbase CFM futures order path for perp-style contracts (builds on 0126–0129 and 0133): post-only limit entries in whole contracts, every marketable futures order a venue position reduction (`close_position` by default; reduce-only market IOC probed first), product exclusivity, invariants I1–I12 with refusal codes, live book equity from the allocation, kill-switch semantics, slices P2-0–P2-7 unreachable until switch-on with operator visibility per slice, flip guard, flatten without a candle, hourly funding accrual with a drift alert, hedge mode deferred to its own ADR, CLI/HTTP-only live start; synthetic venue fixtures in `tests/exchanges/fixtures/coinbase_futures/` | Proposed |
 
 | [0135](0135-durable-futures-safety-obligations.md) | Independent revision-fenced futures de-risk and flat-confirmation duties, atomic fill rearming, proof-aware cancellation; Alembic 0076 and additive reports, ops contract v95; dormant runtime only | Accepted |
+| [0136](0136-performance-valuation-receipts.md) | Performance rejects stale previews, discloses per-book candidate/accepted valuation receipts and retains flat/trade-only books and known fill statistics; ADR 0098 journal-local marks remain separate; sequential worker wake consumption at cycle start with cancellation cleanup; ops contract v97 | Accepted |
 
 ## Status values
 

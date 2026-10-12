@@ -27,6 +27,20 @@ See [ADR 0107](../decisions/0107-capital-normalized-live-performance.md). The st
 breaker measures the current loss from its durable peak; account daily-loss and exposure limits
 continue to use their separate account capital.
 
+### Preview valuation versus journal-local marks
+
+The bot detail **Performance PnL · preview valuation** card freshly reobserves market-data
+previews. Each book shows its source, candidate/accepted price, candle close, observation
+time, freshness/availability, and whether the price was used. **Stale · Not used** retains
+an explanatory candidate, not a current mark: dependent current PnL, return and exposure
+stay unknown. Empty and unavailable reads are distinct; known closed trades and paid fees
+remain available. A flat book says `not_required` and does not claim a fresh price.
+
+Position uPnL and Portfolio sleeve marks remain **journal-local**: the close the worker last
+evaluated (ADR 0098). They do not reobserve previews. A later preview of the same candle may
+have a revised close, so these two views need not agree. Neither is silently substituted
+for the other. Performance capital/equity stamps are worker accounting, not receipt times.
+
 ## Durable safety alerts
 
 Read `uv run thytrader-operator alerts` (HTTP by default),

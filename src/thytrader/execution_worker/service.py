@@ -170,6 +170,10 @@ async def run_execution_worker(
     next_prune_at = datetime.now(UTC)
     try:
         while not stop_requested.is_set():
+            # Consume only the nudge that scheduled this cycle, before any await.
+            # Feed/reload events arriving during the cycle schedule its successor.
+            if wake_requested is not None:
+                wake_requested.clear()
             cycle_started_at = datetime.now(UTC)
             if heartbeat_store is not None:
                 await heartbeat_store.touch("execution_worker", cycle_started_at)
@@ -220,8 +224,6 @@ async def run_execution_worker(
                 )
                 await record_cycle_report(cycle_store, report)
                 next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
-            if wake_requested is not None:
-                wake_requested.clear()
             await _await_next_cycle(
                 stop_requested, wake_requested=wake_requested, interval_seconds=wait_seconds
             )
@@ -254,11 +256,15 @@ async def _await_next_cycle(
         return
     wake = asyncio.create_task(wake_requested.wait())
     stop = asyncio.create_task(stop_requested.wait())
-    _done, pending = await asyncio.wait(
-        {wake, stop}, timeout=interval_seconds, return_when=asyncio.FIRST_COMPLETED
-    )
-    for task in pending:
-        task.cancel()
+    try:
+        await asyncio.wait(
+            {wake, stop}, timeout=interval_seconds, return_when=asyncio.FIRST_COMPLETED
+        )
+    finally:
+        # Cancellation of the worker must not orphan either event waiter.
+        for task in (wake, stop):
+            task.cancel()
+        await asyncio.gather(wake, stop, return_exceptions=True)
 
 
 async def _run_cycle(

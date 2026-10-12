@@ -142,6 +142,7 @@ class OpsContractPayload(_FrozenModel):
             "explicit_deployment_twins",
             "rule_matched_deployment_twins",
             "capital_normalized_performance",
+            "performance_valuation_receipts",
             "exchange_read_failures",
             "audit_failure_evidence",
             "watched_market_tail_health",

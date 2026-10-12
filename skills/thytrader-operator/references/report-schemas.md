@@ -22,7 +22,7 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v96` advertises `live_futures_risk_policy` under
+Ops contract `thytrader-ops-contract-v97` advertises `live_futures_risk_policy` under
 `futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
@@ -171,6 +171,36 @@ divided by that budget. `payload.maximum_drawdown_fraction` combines fill-event 
 drawdown from the durable peak, and stored worker observations. Unknown positive capital or
 missing marks leave percentages null. This is observed evidence, not a complete historical
 candle equity curve ([ADR 0107](../../../docs/decisions/0107-capital-normalized-live-performance.md)).
+
+### Performance valuation receipts
+
+Ops contract v97 adds `runtime_observability: performance_valuation_receipts`.
+Paper/live `books[]` retain open and flat/trade-only products. Each has `valuation`:
+
+- `source: market_data_preview`: performance reobserves previews; this is **not** the
+  journal-local position/portfolio mark (ADR 0098) or a last-worker equity refresh.
+- `price`: exact candidate close, with UTC `candle_closed_at` (end, not start, of the
+  candle) and `observed_at` (the preview's as-of time, not report generation time).
+- `status`: `fresh`, `stale`, `empty`, `unavailable`, or `not_required`.
+- `used`: true only when this fresh price actually marks this book's inventory. A
+  stale receipt can contain a price but is never an accepted mark. Freshness does not
+  certify accounting; unresolved local economics can also leave a fresh receipt unused.
+- `reason_code`: `FRESH_MARK`, `STALE_MARK`, `EMPTY_PREVIEW`, `PREVIEW_UNAVAILABLE`,
+  `NO_OPEN_INVENTORY`, or `ACCOUNTING_UNRESOLVED`.
+
+The provider's `quality.is_stale` is authoritative; the existing quality age threshold
+remains strictly greater than two candle intervals. Stale/missing required marks yield
+`MISSING_MARK` and null current PnL, return, drawdown and exposure, with product-specific
+warnings. `ACCOUNTING_UNRESOLVED` retains precedence when economics are incomplete.
+Known `payload.realized_net_pnl`, `trade_count` and `total_fees` remain recorded-fill facts;
+fees are already included in PnL, so do not subtract them again. These fields are not a
+complete-account certificate. No backtest calculations change.
+
+Flat/trade-only books report `not_required`, `used: false`, null price and timestamps;
+no preview is read for them. Empty successful reads have an observation time but no
+price/close. Failed or unconfigured reads have no observation time. A later fresh read
+recovers valuation without reusing a rejected price. Read the receipt status and `used`,
+not just report `generated_at`, before describing a mark as current.
 
 Performance `payload.currency` is the exact snapshot instrument quote (`USD`, `USDC`, or `USDT`) for strategy-backed reports, or the parsed product quote for discretionary deployments. It is `null` with a `partial_result_warnings[]` explanation when provenance cannot be established; never read a null as USDC or convert a USD amount by relabeling it. Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Backtest `payload.metrics` is the derived `thytrader-performance-metrics-v1` block (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) and does not change result fingerprints. Backtest `payload.window` (ADR 0094) states the evaluated bars: `timeframe`, `evaluation_start`, `evaluation_end` (exclusive; its bar's open liquidates what is held), `first_evaluated_bar`, `last_evaluated_bar`, `evaluation_bars`, `warmup_bars`, and `warmup_start`, derived from the result's run outside the fingerprinted result bytes (`null` for paper/live and when the run cannot be read). Two backtests are comparable only when their `evaluation_start` / `evaluation_end` match: omitted bounds start after each strategy's own warmup. Backtest performance carries no engine field: every result uses the single `thytrader-backtest` model; `total_spread_cost` is present only when the run used `spread_bps` stress. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown includes fill-event marks and durable worker observations, not a complete historical bar equity curve.
 

@@ -103,6 +103,32 @@ class DeploymentSummary(_FrozenModel):
     open_book_count: int | None = None
 
 
+class PerformanceValuationReceipt(_FrozenModel):
+    """Preview evidence, distinct from an accepted price used to value inventory.
+
+    Observation time is the preview's as-of time, never report generation time.
+    Failed reads and flat books do not manufacture a successful observation.
+    """
+
+    source: Literal["market_data_preview"] = "market_data_preview"
+    status: Literal["fresh", "stale", "empty", "unavailable", "not_required"]
+    used: bool = False
+    price: str | None = None
+    candle_closed_at: datetime | None = None
+    observed_at: datetime | None = None
+    reason_code: str
+
+    @field_validator("candle_closed_at", "observed_at")
+    @classmethod
+    def require_utc(cls, value: datetime | None) -> datetime | None:
+        """Preserve UTC provenance through the validated operator HTTP client."""
+        if value is None:
+            return None
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("datetime must be timezone-aware UTC")
+        return value.astimezone(UTC)
+
+
 class PerformanceBookPayload(_FrozenModel):
     """One product book within a deployment performance slice."""
 
@@ -110,6 +136,7 @@ class PerformanceBookPayload(_FrozenModel):
     trade_count: int
     total_net_pnl: str | None = None
     mark_complete: bool
+    valuation: PerformanceValuationReceipt
 
 
 class UserOrderFeedPayload(_FrozenModel):
@@ -167,6 +194,8 @@ class PerformancePayload(_FrozenModel):
     evaluation_bars: int | None
     mark_complete: bool | None = None
     marked_exposure: str | None = None
+    realized_net_pnl: str | None = None
+    total_fees: str | None = None
     books: tuple[PerformanceBookPayload, ...] = ()
     metrics: BacktestPerformanceMetrics | None = None
     cost_attribution: BacktestCostAttribution | None = None

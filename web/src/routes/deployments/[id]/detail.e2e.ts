@@ -81,6 +81,57 @@ const earlierDraft = {
 	]
 };
 
+for (const state of ['fresh', 'stale', 'unavailable', 'not_required'] as const) {
+	test(`performance valuation receipt labels ${state} evidence`, async ({ page }) => {
+		const accepted = state === 'fresh';
+		const hasPrice = accepted || state === 'stale';
+		await mockDetailRoutes(page, {
+			performance: {
+				payload: {
+					...performanceReport.payload,
+					total_net_pnl: accepted || state === 'not_required' ? '18.4' : null,
+					mark_complete: accepted || state === 'not_required',
+					books: [
+						{
+							product_id: 'UNI-USDC',
+							trade_count: 2,
+							total_net_pnl: null,
+							mark_complete: accepted || state === 'not_required',
+							valuation: {
+								status: state,
+								source: 'market_data_preview',
+								used: accepted,
+								price: hasPrice ? '105' : null,
+								candle_closed_at: hasPrice ? '2026-09-21T20:00:00Z' : null,
+								observed_at: hasPrice ? '2026-09-21T21:00:00Z' : null,
+								reason_code: state === 'stale' ? 'STALE_MARK' : state.toUpperCase()
+							}
+						}
+					]
+				}
+			}
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const pnl = page.getByTestId('kpi-pnl');
+		await expect(pnl).toContainText('Performance PnL · preview valuation');
+		await expect(pnl).toContainText('Separate from journal-local position marks');
+		const receipt = page.getByTestId('valuation-receipt');
+		await expect(receipt).toContainText('UNI-USDC');
+		await expect(receipt).toContainText(state);
+		await expect(receipt).toContainText(accepted ? 'Accepted mark' : 'Not used');
+		await expect(receipt).toContainText('market_data_preview');
+		if (hasPrice) {
+			await expect(receipt).toContainText(accepted ? 'Mark price 105' : 'Candidate price 105');
+			await expect(receipt).toContainText('Candle close 2026-09-21T20:00:00Z');
+			await expect(receipt).toContainText('Observed 2026-09-21T21:00:00Z');
+		}
+		if (state === 'stale') {
+			await expect(receipt).toContainText('STALE_MARK');
+			await expect(pnl.locator('.value')).toHaveText('—');
+		}
+	});
+}
+
 const performanceReport = {
 	schema_version: 'thytrader-operator-report-v1',
 	report_kind: 'performance',
