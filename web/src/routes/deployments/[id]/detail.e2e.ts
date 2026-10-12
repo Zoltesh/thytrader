@@ -147,7 +147,9 @@ for (const state of ['fresh', 'stale', 'empty', 'unavailable', 'not_required'] a
 	});
 }
 
-test('flat performance distinguishes non-fill cash from recorded realized PnL', async ({ page }) => {
+test('flat performance distinguishes non-fill cash from recorded realized PnL', async ({
+	page
+}) => {
 	const warning =
 		'Historical book totals are omitted: recorded fill realized PnL does not prove ' +
 		'a partition of deployment total PnL; non-fill cash such as applied funding ' +
