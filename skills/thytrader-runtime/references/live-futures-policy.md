@@ -109,6 +109,12 @@ real worker, broker adapter and atomic memory/PostgreSQL stores. Production venu
 still supplies **no futures runtime**. There is no command to activate or bypass that boundary.
 
 Future operational semantics are pinned, not enabled here:
+- An exact accepted futures cancel remains pending if its confirmation GET fails. Restarts use
+  the persisted marker and GET-only reconciliation; acceptance is not terminal cancellation.
+  Malformed acknowledgements are uncertain, never manufactured acceptance or definite rejection.
+- A validated strategy without a take-profit submits standalone STOP-purpose stop-limit protection,
+  including paused partial-fill replacements. Target-enabled protection retains BRACKET purpose.
+  Definite protection rejections retain the existing backoff latch; spot identities are unchanged.
 - Two distinct fresh valid position mismatches pause the book. Unknown or reused evidence cannot
   manufacture confirmation. Confirmed unfilled resting protection does not suppress comparison;
   uncertain/in-flight transactions and fills do. Restart rechecks; it never clears a pause.

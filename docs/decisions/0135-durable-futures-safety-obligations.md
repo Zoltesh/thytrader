@@ -53,7 +53,9 @@ and equality to the full signed applied managed fill ledger. It may cancel parti
 protection or protection accompanying proved unprojected excess. The generic cancellation guard
 is unchanged. Every reduction still needs the stricter post-cancel I9/proof check and canonical
 cancel-race fill ingestion. Accepted-but-unconfirmed cancellations retain their pending marker
-through subsequent active order reads, avoiding duplicate cancels. Ambiguous reductions retain
+even if the immediate confirmation read fails and through subsequent active order reads and
+restarts, avoiding duplicate cancels. A malformed acknowledgement is uncertain, not accepted or
+definitely rejected; terminal evidence still requires a validated observation. Ambiguous reductions retain
 the original intent/client identity and are never resent.
 
 Supervision routes proved flat/excess protection to cancellation **before** strict I9 quiescence;

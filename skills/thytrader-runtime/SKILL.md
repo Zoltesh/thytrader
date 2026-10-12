@@ -63,6 +63,10 @@ fields under a new revision. Replacement protection reconciles cancel-time execu
 for complete applied economics before sizing; missing publication is not permission to infer a
 sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and other latches
 ([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
+Dormant injected futures retain an accepted cancel even when its confirmation read fails;
+subsequent polls and restarts read the order rather than sending the cancel again. No-target
+strategies use STOP-purpose standalone protection; target-enabled protection remains BRACKET.
+These are fake-venue runtime guarantees, not permission to start live futures.
 Dormant injected futures safety duties are independent of mismatch diagnostics: `show` and
 operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmation_after`. A
 present timestamp means verification is pending, not a successful venue read. Natural protective
