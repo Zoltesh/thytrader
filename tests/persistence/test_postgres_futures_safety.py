@@ -93,14 +93,23 @@ def test_derisk_survives_store_recreation_faults_and_scoped_writes(
     _run(body)
 
 
-def test_postgres_close_fill_crash_retains_flat_read_duty(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("natural_stop", [False, True])
+def test_postgres_close_fill_crash_retains_flat_read_duty(
+    monkeypatch: pytest.MonkeyPatch, natural_stop: bool
+) -> None:
     """Interrupt after the actual SQL fill commit and recover with a fresh store and adapter."""
 
     async def body(engine: AsyncEngine) -> None:
         venue = TransientReadVenue()
         clock(monkeypatch, venue)
         store, snapshot = await _open(engine, venue)
-        await stop_book(store, snapshot, LifecycleCommand.FLATTEN)
+        if natural_stop:
+            snapshot, protection = await protect(store, venue, snapshot)
+            await stop_book(store, snapshot)
+            assert protection.venue_order_id is not None
+            venue.fill(protection.venue_order_id)
+        else:
+            await stop_book(store, snapshot, LifecycleCommand.FLATTEN)
         original = PostgresExecutionStore.apply_fill_transaction
         crashed = False
 
@@ -123,7 +132,8 @@ def test_postgres_close_fill_crash_retains_flat_read_duty(monkeypatch: pytest.Mo
                 cooldown_bars=cooldown_bars,
                 timeframe=timeframe,
             )
-            if order.kind is OrderKind.MARKETABLE and not crashed:
+            expected_kind = OrderKind.STOP_LIMIT if natural_stop else OrderKind.MARKETABLE
+            if order.kind is expected_kind and not crashed:
                 crashed = True
                 raise ProcessLoss("after SQL fill commit")
             return result
@@ -143,6 +153,6 @@ def test_postgres_close_fill_crash_retains_flat_read_duty(monkeypatch: pytest.Mo
         with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
             confirmed = await step(PostgresExecutionStore(engine), venue, snapshot.deployment.id)
         assert not managed_live_futures(confirmed)
-        assert closes(venue) == 1
+        assert closes(venue) == (0 if natural_stop else 1)
 
     _run(body)

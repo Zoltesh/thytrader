@@ -363,6 +363,8 @@ Only distinct increasing observations count. An unknown or equal comparison brea
 run; rereading the same observation does not advance it. Two fresh valid mismatches persist the
 existing pause. Restart clears only the in-memory counter, never the durable pause.
 
+Independently proved flat/excess protection is cancelled before strict I9 sampling, including
+partially filled OPEN protection; matching open-book protection is retained.
 Flat book plus flat venue cancels confirmed orphan protection and records
 `futures_orphan_order_cancelled`. A larger or opposite venue position is reduced only when its
 **entire signed quantity** equals the exact applied managed-client fill ledger. Foreign, mixed,
@@ -387,7 +389,8 @@ Live futures exits use an explicit price-free reduction with a decision instant,
 OHLC candles. The existing intent `candle_starts_at` stores that instant for this narrow path;
 it is not evidence that a candle existed. A latest mark is optional audit context only. Missing
 bars, funding, fees and entry permission do not trap a known reducible position; unknown position,
-quantity or ownership does. A stopped flatten retains a typed durable confirmation duty (not
+quantity or ownership does. Every live futures close, including a natural protective fill during
+managed shutdown or a close before the stop command, retains a typed durable confirmation duty (not
 merely the `FUTURES_FLAT_CONFIRMATION_PENDING` diagnostic) until a
 later fresh post-fill CFM read confirms flat, then audits `futures_flat_confirmed`. Ordinary spot
 and paper retain their candle-priced paths. Uncertain sends recover through FUTURE client scans

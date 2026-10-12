@@ -14,11 +14,15 @@ if TYPE_CHECKING:
     from thytrader.trading.models import Deployment
 
 
-def require_futures_flat_confirmation(deployment: Deployment, *, after: datetime) -> Deployment:
+def require_futures_flat_confirmation(
+    deployment: Deployment, *, after: datetime, fill_projected_flat: bool = False
+) -> Deployment:
     """Retain a monotone lower bound, not a manufactured successful venue observation.
 
     Call before cancellation/submission and inside canonical fill projection. A late fill
     atomically rearms verification even if an earlier flat observation was already accepted.
+    A locally flat fill projection creates the duty regardless of status or exit purpose:
+    natural closes (including closes before shutdown) are not venue-flat observations.
     """
     if (
         deployment.mode is not DeploymentMode.LIVE
@@ -26,6 +30,8 @@ def require_futures_flat_confirmation(deployment: Deployment, *, after: datetime
         or (
             deployment.lifecycle_command is not LifecycleCommand.FLATTEN
             and not deployment.futures_derisk_pending
+            and deployment.futures_flat_confirmation_after is None
+            and not fill_projected_flat
         )
     ):
         return deployment

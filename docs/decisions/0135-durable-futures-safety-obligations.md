@@ -31,6 +31,14 @@ including repair fills and product-overlay merging. Thus a late fill rearms veri
 an earlier flat sample completed. Both fields survive ordinary runtime/scoped writes, faults,
 lease changes and revision-fenced restarts. A stale writer cannot clear them.
 
+The fill transaction arms verification for **every locally flat live futures projection**, not
+only FLATTEN or margin-triggered reductions. This includes natural STOP/bracket/target fills,
+signal/time exits and reductions while running, paused or stopped, and shutdown requested after
+the close was already applied. Existing duties advance with subsequent fills. A partial fill
+that leaves a normal matching position does not create a new flat duty or suspend its protection.
+Local flatness creates an obligation, never successful venue provenance. Historical empty books
+without a new fill or existing duty are not polled forever. Spot and paper remain unchanged.
+
 Only the position supervisor clears these fields: a complete fresh signed I9 comparison must
 show local and venue flat, after the durable bound and strictly after the last fill plus five
 seconds, without active orders, unapplied or unprojected economics or unknown/foreign order
@@ -47,6 +55,15 @@ is unchanged. Every reduction still needs the stricter post-cancel I9/proof chec
 cancel-race fill ingestion. Accepted-but-unconfirmed cancellations retain their pending marker
 through subsequent active order reads, avoiding duplicate cancels. Ambiguous reductions retain
 the original intent/client identity and are never resent.
+
+Supervision routes proved flat/excess protection to cancellation **before** strict I9 quiescence;
+otherwise a partially filled OPEN orphan would permanently block the comparison needed to remove
+it. A matching open book keeps its valid resting protection. Explicit price-free reductions also
+attempt independently proved cancellation before a local-flat/unprojected early return. After
+cancellation, the supervisor samples I9 from the reconciled state; canonical race fills invalidate
+the old sample, and repair still requires two distinct fresh valid mismatches and a strict
+post-cancel ownership proof. Margin and exit callers retain their existing post-cancel reduction
+guards. Neither cancellation nor a lifecycle command alone grants repair authority.
 
 ## Compatibility and rollout
 

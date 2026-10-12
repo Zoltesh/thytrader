@@ -61,17 +61,15 @@ async def reduce_live_futures_position(
         raise ValueError("A futures reduction requires an explicit exit purpose.")
     snapshot = await retain_flat_confirmation(snapshot, store=store, now=now)
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
-    if snapshot.position is None:
-        return snapshot
-    if _unresolved_reduction(snapshot):
-        return await _pending(snapshot, store=store, now=now)
+    # Even a locally flat/unprojected book can retain dangerous owned protection.
+    # This helper independently refuses ambiguous marketable exits and unknown ownership.
     snapshot = await cancel_proven_futures_orders(
         snapshot, account=account, broker=broker, store=store, now=now
     )
     snapshot = await reconcile_open_orders(snapshot, broker=broker, store=store)
     if snapshot.position is None:
         return snapshot
-    if active_orders(snapshot):
+    if _unresolved_reduction(snapshot) or active_orders(snapshot):
         return await _pending(snapshot, store=store, now=now)
     if not _reduction_proven(snapshot, account, now):
         return await _pause(

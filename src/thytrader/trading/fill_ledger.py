@@ -216,16 +216,24 @@ def project_fill_economics(
     Atomic stores load the full deployment, so the product must be selected here,
     not merely in the caller's overlay. Sibling positions are never the exit target.
     """
-    snapshot = replace(
-        snapshot, deployment=require_futures_flat_confirmation(snapshot.deployment, after=utc_now())
-    )
+    product_id = resolved_product_id(order.product_id, snapshot.deployment)
     repaired = project_excess_reduction(snapshot, fill=fill, order=order, now=utc_now())
     if repaired is not None:
-        return repaired
-    product_id = resolved_product_id(order.product_id, snapshot.deployment)
-    focused = overlay_snapshot(snapshot, product_id)
-    projected, stamped = _project_inventory(
-        focused, fill=fill, order=order, cooldown_bars=cooldown_bars, timeframe=timeframe
+        projected, stamped = repaired
+    else:
+        focused = overlay_snapshot(snapshot, product_id)
+        projected, stamped = _project_inventory(
+            focused, fill=fill, order=order, cooldown_bars=cooldown_bars, timeframe=timeframe
+        )
+    # This belongs in the atomic economics transaction, not a later worker/status write.
+    # Natural protection/target fills can retire discovery just as explicit reductions can.
+    projected = replace(
+        projected,
+        deployment=require_futures_flat_confirmation(
+            projected.deployment,
+            after=utc_now(),
+            fill_projected_flat=projected.position is None,
+        ),
     )
     if not snapshot.instrument_runtimes:
         return replace(projected, instrument_runtimes=()), stamped

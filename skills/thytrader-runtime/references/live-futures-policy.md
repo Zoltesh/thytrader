@@ -115,17 +115,20 @@ Future operational semantics are pinned, not enabled here:
 - An intent-only crash restores an UNKNOWN local observation anchor with the original client id
   for reconciliation. It never resubmits, even if the venue scan finds no order. Stopped-flat books
   with unresolved intents remain supervised; absence is not evidence that a retry is safe.
-- Orphan managed protection is canceled only with a proven flat book and venue. A flip/excess is
-  reduced only when the complete managed-client fill ledger proves ownership; unrelated inventory
-  is untouched. The book stays paused after repair. No operator repair command is added.
+- Orphan or displaced managed protection is canceled only with independent complete exclusive
+  signed fill-ledger ownership proof. Cancellation precedes strict position comparison when a
+  partial OPEN stop would block it; matching open-book protection stays resting. A flip/excess is
+  reduced only after cancellation/race-fill reconciliation and two fresh valid mismatches;
+  unrelated inventory is untouched. The book stays paused after repair. No operator repair command is added.
 - Margin de-risk continues under entry disarm, managed stop and live-policy disablement. A breach
   is stored independently as `futures_derisk_pending` before any cancellation and remains pending
   through unrelated reconciliation faults, restart and cancel/submit uncertainty, even if margin
   recovers. A filled de-risk
   pauses entries for review. Stops must be confirmed canceled before any reduction is sent.
 - Futures flatten uses an explicit price-free reduction without inventing a candle. Unknown
-  position/quantity/ownership still blocks it. A stopped flatten waits for a subsequent fresh
-  venue-flat observation before completing. `futures_flat_confirmation_after` is its durable
+  position/quantity/ownership still blocks it. All live futures closes, including natural protective
+  fills during managed shutdown and closes applied before a stop command, wait for a subsequent
+  fresh venue-flat observation before retirement. `futures_flat_confirmation_after` is the durable
   lower bound, not a successful observation timestamp. It is persisted before cancellation or
   submission and advanced atomically with canonical fill accounting. A later distinct complete
   observation must be strictly after the last fill plus five seconds. A margin-monitor message

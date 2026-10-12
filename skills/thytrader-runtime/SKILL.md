@@ -65,7 +65,9 @@ sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and o
 ([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
 Dormant injected futures safety duties are independent of mismatch diagnostics: `show` and
 operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmation_after`. A
-present timestamp means verification is pending, not a successful venue read. Neither restart,
+present timestamp means verification is pending, not a successful venue read. Natural protective
+fills during managed shutdown (and closes applied before a stop command) create the same duty as
+explicit flatten; local flatness alone cannot retire supervision. Neither restart,
 resume nor recovered margin clears these duties; there is no manual-clear command. Live starts
 remain refused. See [live futures policy](references/live-futures-policy.md) and ADR 0135.
 
