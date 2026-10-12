@@ -441,8 +441,13 @@ This report does not change canonical result bytes and is null for paper/live.
 
 ## Readiness preflight and venue reconciliation (ADR 0114)
 
-Futures (ADR 0127): `readiness.payload.futures` is `null` when no CFM mirror snapshot exists;
-otherwise `observed_at`, `stale`, `enablement`, `currency: USD`, `futures_buying_power`,
+Futures (ADR 0127): `readiness.payload.futures` is `null` when no CFM mirror snapshot exists.
+An absent or empty mirror adds `FUTURES_ACCOUNT_UNKNOWN` (severity `unknown`) when managed
+live books or unknown stopped scope require observation; persisted duty findings remain.
+No books or completely retired historical books do not require a missing-observation finding.
+Storage failures, failed observations and stale receipts retain their existing unknown findings.
+A null section never supplies synthetic balances, margin, positions or an observation time.
+With a receipt: `observed_at`, `stale`, `enablement`, `currency: USD`, `futures_buying_power`,
 `cbi_usd_balance`, `cfm_usd_balance`, `available_margin`, `liquidation_threshold`,
 `liquidation_buffer_amount`, `liquidation_buffer_percentage`, `margin_ratio`, `unrealized_pnl`,
 `funding_pnl`, `positions` (`product_id`, `side`, `number_of_contracts`; `null` when unknown) and

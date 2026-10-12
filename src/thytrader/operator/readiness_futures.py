@@ -63,24 +63,14 @@ async def futures_section(
     policy: RiskPolicyDefinition | None = None,
     managed_complete: bool = True,
 ) -> ReadinessFuturesSection | None:
-    """Return the futures section, or ``None`` when no mirror snapshot exists (not set up)."""
+    """Project mirror facts; missing observations retain required live-scope uncertainty."""
     books = tuple(book for book in snapshots if visibility_scope(book) is not False)
     managed_complete = managed_complete and all(
         visibility_scope(book) is not None for book in snapshots
     )
     _live_findings(books, findings)
-    if store is None:
-        if books:
-            findings.append(
-                _finding(
-                    "FUTURES_ACCOUNT_UNKNOWN",
-                    ReadinessSeverity.UNKNOWN,
-                    "Managed live futures have no account mirror; comparison is unknown.",
-                )
-            )
-        return None
     try:
-        latest = await store.latest()
+        latest = None if store is None else await store.latest()
     except FuturesAccountStoreUnavailableError:
         findings.append(
             _finding(
@@ -91,6 +81,14 @@ async def futures_section(
         )
         return None
     if latest is None:
+        if books:
+            findings.append(
+                _finding(
+                    "FUTURES_ACCOUNT_UNKNOWN",
+                    ReadinessSeverity.UNKNOWN,
+                    "Managed live futures have no account observation; comparison is unknown.",
+                )
+            )
         return None
     moment = now or datetime.now(UTC)
     stale = latest.observed_at > moment or moment - latest.observed_at > _STALE_AFTER

@@ -649,6 +649,11 @@ The same proof gates book labels and alert recovery: one managed product owner, 
 accounting and external-order coverage, full signed applied fill ledger, quiescent orders,
 and a fresh observation strictly after the last fill plus five seconds and any flat duty bound.
 Readiness's mirror alone cannot prove ownership; `POSITION_COMPARISON_UNPROVEN` is explicit.
+An absent or empty mirror still emits readiness `FUTURES_ACCOUNT_UNKNOWN` for required or
+unknown live scope, including stopped books with incomplete accounting or durable duties.
+Without a receipt, `payload.futures` stays null; no balance, margin or observation time is
+invented. No-book fleets and completely retired historical books remain exempt from this
+missing-observation finding; explicit read failures and stale receipts remain unknown.
 Held-book account recovery requires exact evaluable margin and applicable policy, not only
 a position match. Stopped scope arithmetic failures remain unknown obligations.
 `funding_total` and `live.funding_accrued_usd` are the same nullable exact modeled sum;
