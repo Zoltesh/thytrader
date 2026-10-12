@@ -20,11 +20,11 @@ from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.futures_models import SHARED_COLLATERAL_NOTE
 from thytrader.execution.book_marks import last_bar_marks
-from thytrader.execution.futures_live import managed_live_futures
-from thytrader.execution.futures_visibility import read_visibility_account
+from thytrader.execution.futures_visibility import read_visibility_account, visibility_scope
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.operator.futures_books_live import (
     LiveFuturesBookPayload,
+    _accrued_funding,
     live_entry_blocks,
     live_payload,
 )
@@ -143,7 +143,7 @@ class FuturesBookPayload(_FrozenModel):
     liquidation_buffer_fraction: str | None
     min_liquidation_buffer_fraction: str | None
     liquidation_price: str | None
-    funding_total: str
+    funding_total: str | None
     funding_hours: int
     funding_overdue_since: datetime | None
     recent_funding: tuple[FuturesFundingEntryPayload, ...]
@@ -318,6 +318,9 @@ def book_payload(
     )
     futures = None if policy is None else policy.futures
     funding = sorted(snapshot.funding, key=lambda flow: flow.funding_time)
+    funding_total = _accrued_funding(snapshot)
+    if funding_total is None and "funding" not in unknown:
+        unknown += ("funding",)
     return FuturesBookPayload(
         deployment_id=deployment.id,
         strategy_name=deployment.strategy_name,
@@ -358,7 +361,7 @@ def book_payload(
         liquidation_price=None
         if deployment.mode is DeploymentMode.LIVE
         else _liquidation_price(deployment.cash, signed, rate),
-        funding_total=_text(sum((flow.amount for flow in funding), start=Decimal(0))),
+        funding_total=funding_total,
         funding_hours=len(funding),
         funding_overdue_since=overdue,
         recent_funding=tuple(
@@ -430,7 +433,9 @@ async def build_futures_books_report(
             for snapshot in snapshots
         ]
     )
-    managed = {snapshot.deployment.id for snapshot in snapshots if managed_live_futures(snapshot)}
+    managed = {
+        snapshot.deployment.id for snapshot in snapshots if visibility_scope(snapshot) is not False
+    }
     active = [
         book
         for book in books

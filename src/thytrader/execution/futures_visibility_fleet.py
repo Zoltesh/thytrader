@@ -6,11 +6,10 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_live import (
     current_live_futures_runtime,
-    managed_live_futures,
     prepare_live_futures_book,
 )
 from thytrader.execution.futures_paper import current_futures_runtime
-from thytrader.execution.futures_visibility import mirror_live_account
+from thytrader.execution.futures_visibility import mirror_live_account, visibility_scope
 from thytrader.execution.futures_visibility_probe import visibility_probe
 
 if TYPE_CHECKING:
@@ -33,8 +32,8 @@ async def load_live_futures_probes(
     now: datetime,
 ) -> tuple[FuturesVenueEvidence | None, dict[UUID, LiveFuturesProbe]]:
     """Reuse cycle account evidence in the worker, durable mirror evidence in reports."""
-    books = tuple(book for book in snapshots if managed_live_futures(book))
-    if not books:
+    books = tuple(book for book in snapshots if visibility_scope(book) is not False)
+    if not books or any(visibility_scope(book) is None for book in snapshots):
         return None, {}
     runtime = runtime or current_futures_runtime()
     try:

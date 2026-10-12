@@ -18,8 +18,7 @@ from thytrader.alerts.models import (
     SupervisionFinding,
 )
 from thytrader.audit_events import AuditEventCategory, AuditEventOutcome
-from thytrader.execution.futures_live import managed_live_futures
-from thytrader.execution.futures_visibility import visible_position_comparison
+from thytrader.execution.futures_visibility import visibility_scope, visible_position_comparison
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_margin_evidence import margin_state
 from thytrader.trading.models import DeploymentMode, snapshot_positions
@@ -80,7 +79,7 @@ def futures_safety_evidence(
         if book.deployment.mode is DeploymentMode.LIVE
         and is_futures_product_id(book.deployment.product_id)
     )
-    if any(not book.accounting_complete for book in live):
+    if any(visibility_scope(book) is None for book in live):
         return SafetyEvidence(
             (
                 _account_finding(
@@ -92,14 +91,31 @@ def futures_safety_evidence(
             ),
             (),
         )
-    books = tuple(book for book in live if managed_live_futures(book))
-    held = any(snapshot_positions(book) for book in books)
+    books = tuple(book for book in live if visibility_scope(book) is not False)
+    held = any(snapshot_positions(book) for book in books) or (
+        account is not None
+        and account.venue.positions is not None
+        and any(not quantity.is_zero() for quantity in account.venue.positions.values())
+    )
     findings: list[SupervisionFinding] = []
     evaluated: list[AlertCheck] = []
+    margin = None if account is None or not held else _margin_severity(account, policy)
     known = (
-        account is not None and account.venue.is_fresh(now) and _margin_known(account, held=held)
+        account is not None
+        and account.venue.is_fresh(now)
+        and _margin_known(account, held=held)
+        and (not held or margin is not None)
     )
-    if books and (observation_failed or (not known and _observation_overdue(books, account, now))):
+    proved = all(
+        (sample := visible_position_comparison(book, account, books=live, now=now)) is not None
+        and sample.matches
+        for book in books
+    )
+    if books and (
+        observation_failed
+        or (held and account is not None and margin is None)
+        or (not known and _observation_overdue(books, account, now))
+    ):
         findings.append(
             _account_finding(
                 AlertCode.FUTURES_ACCOUNT_UNKNOWN,
@@ -108,14 +124,7 @@ def futures_safety_evidence(
                 "evidence; the margin monitor is blind. Unknown is not zero.",
             )
         )
-    elif (
-        known
-        and all(
-            (sample := visible_position_comparison(book, account, books=books, now=now)) is not None
-            and sample.matches
-            for book in books
-        )
-    ) or not books:
+    elif (known and proved) or not books:
         evaluated.append(AlertCheck(AlertCode.FUTURES_ACCOUNT_UNKNOWN, ACCOUNT_SUBJECT))
     pending = any(book.deployment.futures_derisk_pending for book in books)
     confirmed_flat = (
@@ -134,8 +143,8 @@ def futures_safety_evidence(
     if pending:
         severity = AlertSeverity.CRITICAL
     elif held and known and account is not None:
-        severity = _margin_severity(account, policy)
-        if severity == "healthy":
+        severity = margin
+        if severity == "healthy" and proved:
             evaluated.append(AlertCheck(AlertCode.FUTURES_MARGIN_LOW, ACCOUNT_SUBJECT))
     if isinstance(severity, AlertSeverity):
         findings.append(

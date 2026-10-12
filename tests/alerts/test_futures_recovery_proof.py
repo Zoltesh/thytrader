@@ -21,9 +21,19 @@ from thytrader.trading.models import DeploymentKind, DeploymentMode, DeploymentS
 
 if TYPE_CHECKING:
     from thytrader.alerts.store import AlertStore
+    from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.trading.store import ExecutionStore
 
 pytestmark = pytest.mark.anyio
+
+
+def live_policy() -> RiskPolicyDefinition:
+    """An explicit synthetic margin policy for positive held-book recovery controls."""
+    policy = _policy()
+    assert policy.futures is not None
+    return policy.model_copy(
+        update={"futures": policy.futures.model_copy(update={"live_derisk_margin_ratio": "2"})}
+    )
 
 
 async def proven_book() -> tuple[DeploymentSnapshot, FuturesLiveAccount, datetime]:
@@ -100,7 +110,7 @@ async def recovery_scenario(
         book = replace(book, accounting_complete=False)
         books = (book,)
     missing = futures_safety_evidence(
-        (good,), account=None, policy=_policy(), now=now, observation_failed=True
+        (good,), account=None, policy=live_policy(), now=now, observation_failed=True
     )
     await _service(store).apply(missing.findings, evaluated=missing.evaluated, now=now)
     foreign = futures_safety_evidence(
@@ -108,12 +118,12 @@ async def recovery_scenario(
         account=replace(
             account, venue=replace(account.venue, external_order_products=frozenset({_PERP}))
         ),
-        policy=_policy(),
+        policy=live_policy(),
         now=now,
     )
     await _service(store).apply(foreign.findings, evaluated=foreign.evaluated, now=now)
     evidence = futures_safety_evidence(
-        books, account=changed, policy=_policy(), now=now + timedelta(seconds=1)
+        books, account=changed, policy=live_policy(), now=now + timedelta(seconds=1)
     )
     await _service(store).apply(
         evidence.findings, evaluated=evidence.evaluated, now=now + timedelta(seconds=1)
@@ -125,7 +135,7 @@ async def recovery_scenario(
     } <= {a.code for a in await store.list_open_alerts()}
     assert (
         live_payload(
-            book, account=changed, observation=None, policy=_policy(), books=books, now=now
+            book, account=changed, observation=None, policy=live_policy(), books=books, now=now
         ).match_state
         == "unknown"
     )
@@ -136,7 +146,7 @@ async def recovery_scenario(
         == "unknown"
     )
     recovery = futures_safety_evidence(
-        (good,), account=account, policy=_policy(), now=now + timedelta(seconds=2)
+        (good,), account=account, policy=live_policy(), now=now + timedelta(seconds=2)
     )
     await _service(store).apply(
         recovery.findings, evaluated=recovery.evaluated, now=now + timedelta(seconds=2)

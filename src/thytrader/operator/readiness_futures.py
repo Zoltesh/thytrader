@@ -24,9 +24,9 @@ from thytrader.exchanges.futures_models import (
     FuturesEnablement,
     margin_ratio,
 )
-from thytrader.execution.futures_live import managed_live_futures
 from thytrader.execution.futures_visibility import (
     observation_live_account,
+    visibility_scope,
     visible_position_comparison,
 )
 from thytrader.operator.readiness_models import (
@@ -64,7 +64,10 @@ async def futures_section(
     managed_complete: bool = True,
 ) -> ReadinessFuturesSection | None:
     """Return the futures section, or ``None`` when no mirror snapshot exists (not set up)."""
-    books = tuple(book for book in snapshots if managed_live_futures(book))
+    books = tuple(book for book in snapshots if visibility_scope(book) is not False)
+    managed_complete = managed_complete and all(
+        visibility_scope(book) is not None for book in snapshots
+    )
     _live_findings(books, findings)
     if store is None:
         if books:

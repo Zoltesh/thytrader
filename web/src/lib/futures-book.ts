@@ -63,7 +63,7 @@ export type FuturesBookPayload = {
 	liquidation_buffer_fraction: string | null;
 	min_liquidation_buffer_fraction: string | null;
 	liquidation_price: string | null;
-	funding_total: string;
+	funding_total: string | null;
 	funding_hours: number;
 	funding_overdue_since: string | null;
 	recent_funding: FuturesFundingEntry[];

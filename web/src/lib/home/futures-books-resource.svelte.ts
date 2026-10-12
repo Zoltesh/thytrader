@@ -17,6 +17,7 @@ export class FuturesBooksResource {
 	state: Load<FuturesBooksReport> = $state.raw({ status: 'loading', data: null });
 	#loader: () => Promise<FuturesBooksReport>;
 	#generation = 0;
+	refreshing = $state(false);
 	#lastGood: FuturesBooksReport | null = null;
 
 	constructor(loader = fetchFuturesBooks) {
@@ -26,7 +27,11 @@ export class FuturesBooksResource {
 	/** Preserve complete rows on failure; first-load partial rows remain explicitly unverified. */
 	async reload(): Promise<void> {
 		const generation = ++this.#generation;
-		this.state = { status: 'loading', data: this.state.data };
+		this.refreshing = true;
+		// A request is not recovery: retain failed/partial/stale evidence until success.
+		if (this.state.status !== 'error') {
+			this.state = { status: 'loading', data: this.state.data };
+		}
 		try {
 			const data = await this.#loader();
 			if (generation !== this.#generation) return;
@@ -41,6 +46,8 @@ export class FuturesBooksResource {
 			if (generation === this.#generation) {
 				this.state = { status: 'error', data: this.state.data, error: errorMessage(caught) };
 			}
+		} finally {
+			if (generation === this.#generation) this.refreshing = false;
 		}
 	}
 }

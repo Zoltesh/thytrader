@@ -6426,8 +6426,15 @@
           "title": "Liquidation Price"
         },
         "funding_total": {
-          "title": "Funding Total",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Funding Total"
         },
         "funding_hours": {
           "title": "Funding Hours",

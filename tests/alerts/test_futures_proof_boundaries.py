@@ -6,7 +6,7 @@ from decimal import Decimal
 
 import pytest
 
-from tests.alerts.test_futures_recovery_proof import proven_book
+from tests.alerts.test_futures_recovery_proof import live_policy, proven_book
 from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
 from thytrader.alerts.models import AlertCode
@@ -95,7 +95,7 @@ async def test_last_receipt_age_not_local_duty_age_controls_blindness(age: int) 
     book, account, now = await proven_book()
     now += timedelta(seconds=age)
     book = replace(book, deployment=replace(book.deployment, futures_flat_confirmation_after=now))
-    evidence = futures_safety_evidence((book,), account=account, policy=_policy(), now=now)
+    evidence = futures_safety_evidence((book,), account=account, policy=live_policy(), now=now)
     assert any(f.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for f in evidence.findings) == (
         age > 180
     )

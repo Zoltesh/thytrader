@@ -9,10 +9,11 @@ from thytrader.execution.futures_cancel import _owned_order
 from thytrader.execution.futures_live import FuturesLiveAccount, managed_live_futures
 from thytrader.execution.futures_sources import CatalogContractSizes, _nonnegative, _positions
 from thytrader.execution.futures_venue_check import PositionComparison, compare_position
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_live import FuturesVenueEvidence
 from thytrader.trading.fill_ledger import unprojected_inventory_products
 from thytrader.trading.futures_repair import managed_signed_base
-from thytrader.trading.models import resolved_product_id, snapshot_positions
+from thytrader.trading.models import DeploymentMode, resolved_product_id, snapshot_positions
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -40,26 +41,47 @@ def visible_position_comparison(
     Callers with portfolio inventory must supply it; the default is a single-book proof.
     This read-only proof never changes I9 counters, duties, orders or lifecycle state.
     """
-    portfolio = (book,) if books is None else books
-    owners = [
-        item
-        for item in portfolio
-        if managed_live_futures(item) and item.deployment.product_id == book.deployment.product_id
-    ]
-    if (
-        not complete
-        or any(not item.accounting_complete for item in portfolio)
-        or len(owners) != 1
-        or owners[0] != book
-        or account is None
-        or account.venue.external_order_products is None
-        or book.deployment.product_id in account.venue.external_order_products
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            portfolio = (book,) if books is None else books
+            owners = [
+                item
+                for item in portfolio
+                if managed_live_futures(item)
+                and item.deployment.product_id == book.deployment.product_id
+            ]
+            if (
+                not complete
+                or any(not item.accounting_complete for item in portfolio)
+                or len(owners) != 1
+                or owners[0] != book
+                or account is None
+                or account.venue.external_order_products is None
+                or book.deployment.product_id in account.venue.external_order_products
+            ):
+                return None
+            return _proven_comparison(book, account, now=now)
+    except DecimalException:
+        return None
+
+
+def visibility_scope(snapshot: DeploymentSnapshot) -> bool | None:
+    """Read-only managed scope: unknown accounting can never retire an obligation.
+
+    Do not change the execution predicate or grant mutation authority. Callers retain
+    None in their inventory and deny complete evidence until exact scope is established.
+    """
+    if snapshot.deployment.mode is not DeploymentMode.LIVE or not is_futures_product_id(
+        snapshot.deployment.product_id
     ):
+        return False
+    if not snapshot.accounting_complete:
         return None
     try:
         with localcontext() as context:
             context.traps[Inexact] = True
-            return _proven_comparison(book, account, now=now)
+            return managed_live_futures(snapshot)
     except DecimalException:
         return None
 

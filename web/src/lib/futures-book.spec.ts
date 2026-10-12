@@ -75,6 +75,12 @@ function factHint(view: ReturnType<typeof futuresBookView>, id: string): string 
 }
 
 describe('futuresBookView', () => {
+	it('keeps unknown accrued funding distinct from exact zero', () => {
+		expect(factValue(futuresBookView(book({ funding_total: null })), 'funding-total')).toBe(
+			'Unknown'
+		);
+		expect(factValue(futuresBookView(book({ funding_total: '0' })), 'funding-total')).toBe('$0.00');
+	});
 	it('shows unavailable live venue evidence rather than simulated settlement', () => {
 		const view = futuresBookView(book({ mode: 'live' }));
 		expect(factValue(view, 'venue-match')).toBe('Unknown');

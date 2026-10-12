@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_cancel import _owned_order
-from thytrader.execution.futures_live import managed_live_futures
-from thytrader.execution.futures_visibility import visible_position_comparison
+from thytrader.execution.futures_visibility import visibility_scope, visible_position_comparison
 from thytrader.operator.venue_reconciliation_models import FuturesExternalPositionRow
 
 if TYPE_CHECKING:
@@ -45,14 +44,15 @@ def classify_positions(
     now: datetime,
 ) -> tuple[FuturesExternalPositionRow, ...]:
     """Include local products absent at venue; complete fresh emptiness is a zero observation."""
-    books = tuple(book for book in snapshots if managed_live_futures(book))
+    books = tuple(book for book in snapshots if visibility_scope(book) is not False)
+    complete = complete and all(visibility_scope(book) is not None for book in snapshots)
     products = {row.product_id for row in rows}
     missing = tuple(
         FuturesExternalPositionRow(product_id=product, side="unknown", number_of_contracts="0")
         for product in sorted({book.deployment.product_id for book in books} - products)
     )
     return tuple(
-        _classify(row, books=books, account=account, complete=complete, now=now)
+        _classify(row, books=snapshots, account=account, complete=complete, now=now)
         for row in (*rows, *missing)
     )
 
@@ -66,7 +66,11 @@ def _classify(
     now: datetime,
 ) -> FuturesExternalPositionRow:
     """A foreign or incomplete order listing never proves a managed position match."""
-    owners = [book for book in books if book.deployment.product_id == row.product_id]
+    owners = [
+        book
+        for book in books
+        if visibility_scope(book) is not False and book.deployment.product_id == row.product_id
+    ]
     fresh = (
         account is not None and account.venue.is_fresh(now) and account.venue.positions is not None
     )

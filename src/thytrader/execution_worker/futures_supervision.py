@@ -9,11 +9,10 @@ from thytrader.alerts.supervision_futures import futures_safety_evidence, orphan
 from thytrader.execution.audit_scope import bound_execution_audit_store
 from thytrader.execution.futures_live import (
     current_live_futures_runtime,
-    managed_live_futures,
     prepare_live_futures_book,
 )
 from thytrader.execution.futures_paper import current_futures_runtime
-from thytrader.execution.futures_visibility import mirror_live_account
+from thytrader.execution.futures_visibility import mirror_live_account, visibility_scope
 from thytrader.execution_worker.ports import _logger
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_collateral import bound_futures_account_store
@@ -61,7 +60,7 @@ async def supervise_futures(
                 if row.mode is DeploymentMode.LIVE and is_futures_product_id(row.product_id)
             ]
         )
-        books = tuple(book for book in snapshots if managed_live_futures(book))
+        books = tuple(book for book in snapshots if visibility_scope(book) is not False)
         account, failed = await _account(books, snapshots)
         evidence = futures_safety_evidence(
             snapshots, account=account, policy=policy, now=observed_at, observation_failed=failed
@@ -103,7 +102,7 @@ async def _account(
     snapshots: tuple[DeploymentSnapshot, ...],
 ) -> tuple[FuturesLiveAccount | None, bool]:
     """Failed account reads still produce unknown evidence for a known held inventory."""
-    if any(not book.accounting_complete for book in snapshots):
+    if any(visibility_scope(book) is None for book in snapshots):
         return None, True
     if not books:
         return None, False

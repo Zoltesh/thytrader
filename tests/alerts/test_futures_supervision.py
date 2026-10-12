@@ -7,7 +7,7 @@ from decimal import Decimal, Inexact, localcontext
 import pytest
 
 from tests.alerts.test_alert_service import _service
-from tests.alerts.test_futures_recovery_proof import proven_book
+from tests.alerts.test_futures_recovery_proof import live_policy, proven_book
 from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
@@ -37,7 +37,7 @@ async def test_unknown_account_persists_across_restart_until_fresh() -> None:
     stamp = now + timedelta(seconds=2)
     account = replace(account, venue=replace(account.venue, observed_at=stamp))
     recovered = supervision_futures.futures_safety_evidence(
-        (book,), account=account, policy=_policy(), now=stamp
+        (book,), account=account, policy=live_policy(), now=stamp
     )
     await _service(store).apply(recovered.findings, evaluated=recovered.evaluated, now=stamp)
     assert not await store.list_open_alerts()

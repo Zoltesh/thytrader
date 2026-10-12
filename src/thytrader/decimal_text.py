@@ -5,7 +5,17 @@ portfolio, and backtest code can render Decimals without depending on research.
 ``thytrader.evaluation.indicators`` re-exports ``canonical_decimal``.
 """
 
-from decimal import Decimal, DecimalException, Inexact, Rounded, localcontext
+from decimal import (
+    Clamped,
+    Decimal,
+    DecimalException,
+    Inexact,
+    InvalidOperation,
+    Overflow,
+    Rounded,
+    Underflow,
+    localcontext,
+)
 
 
 def display_ratio(numerator: Decimal | None, denominator: Decimal | None) -> Decimal | None:
@@ -24,6 +34,8 @@ def display_ratio(numerator: Decimal | None, denominator: Decimal | None) -> Dec
         return None
     try:
         with localcontext() as context:
+            for signal in (Clamped, InvalidOperation, Overflow, Underflow):
+                context.traps[signal] = True
             context.traps[Inexact] = False
             context.traps[Rounded] = False
             ratio = (numerator / denominator).quantize(Decimal("0.0001"))

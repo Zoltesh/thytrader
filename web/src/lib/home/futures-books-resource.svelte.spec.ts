@@ -65,3 +65,28 @@ it('rejects transport errors without a usable report', async () => {
 	);
 	await expect(fetchFuturesBooks()).rejects.toThrow('unavailable');
 });
+
+it.each(['domain', 'transport'] as const)(
+	'retains unresolved %s evidence while a retry is pending',
+	async (kind) => {
+		let finish!: (report: FuturesBooksReport) => void;
+		let retry = false;
+		const resource = new FuturesBooksResource(async () => {
+			if (retry)
+				return new Promise<FuturesBooksReport>((resolve) => {
+					finish = resolve;
+				});
+			if (kind === 'transport') throw new Error('Synthetic failure');
+			return failed;
+		});
+		await resource.reload();
+		const evidence = resource.state;
+		expect(evidence.status).toBe('error');
+		retry = true;
+		const pending = resource.reload();
+		expect(resource.state).toEqual(evidence);
+		finish(empty);
+		await pending;
+		expect(resource.state.status).toBe('ready');
+	}
+);

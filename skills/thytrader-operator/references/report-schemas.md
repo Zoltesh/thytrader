@@ -81,8 +81,16 @@ fully managed interval evidence. `live.funding_drift_status` is explicitly `unkn
 `reserve_currency`, `reserve_quote`, `reserve_required_usd`, `reserve_headroom_quote`,
 `reserve_covers_current_margin`, `funding_accrued_usd`, `venue_funding_pnl_usd` and explicit
 funding scope/drift metadata. Unknown, stale, future-dated or inexact evidence yields null.
-`funding_accrued_usd` is also nullable when its modeled sum is inexact/nonfinite; it never
-substitutes a rounded total or zero and never becomes settlement proof.
+Both `funding_total` and `live.funding_accrued_usd` use the same exact modeled sum.
+An inexact/nonfinite/overflow total is `null`, with `funding` in `unknown`; neither field
+substitutes a rounded total or zero or becomes settlement proof. A known empty ledger
+remains `"0"`, and ordinary paper totals keep their exact values. HTTP list/detail and
+validated CLI consumers share this nullable contract.
+Held-book account recovery also requires an evaluable exact margin classification and
+applicable live de-risk policy. I9 recovery is independent: matched positions do not certify
+margin safety. Complete flat proof does not need a held-position margin threshold, but a
+persisted de-risk duty still prevents low-margin recovery. Arithmetic failure in stopped
+accounting leaves scope unknown rather than retiring the book.
 The reserve is one quote currency under a declared peg, never USD added to USDC. The reserve
 covers current margin; the P2-3 probe additionally checks proposed margin. Book equity uses
 live allocation plus ledger equity, not the account total. Comparison does not clear duties.

@@ -649,6 +649,10 @@ The same proof gates book labels and alert recovery: one managed product owner, 
 accounting and external-order coverage, full signed applied fill ledger, quiescent orders,
 and a fresh observation strictly after the last fill plus five seconds and any flat duty bound.
 Readiness's mirror alone cannot prove ownership; `POSITION_COMPARISON_UNPROVEN` is explicit.
+Held-book account recovery requires exact evaluable margin and applicable policy, not only
+a position match. Stopped scope arithmetic failures remain unknown obligations.
+`funding_total` and `live.funding_accrued_usd` are the same nullable exact modeled sum;
+inexact or overflowing totals are unknown, never a rounded amount or zero.
 Margin severity compares exact products; the four-place ratio is display-only and an
 unrepresentable ratio remains unknown (`FUTURES_MARGIN_UNKNOWN` for missing safety evidence).
 `readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
