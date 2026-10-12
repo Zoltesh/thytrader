@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, tzinfo
 from decimal import Decimal
 import sys
 
@@ -18,6 +19,7 @@ from tests.execution.test_paper_futures_books import (
     _strategy,
 )
 from thytrader.exchanges.fees import FeeProfile
+from thytrader.execution import futures_paper
 from thytrader.execution.decision_scope import decision_observation_scope
 from thytrader.execution.entry import _futures_entry_block
 from thytrader.execution.entry_sizing import _size_entry_or_add
@@ -53,6 +55,16 @@ class FuturesFees:
 
 def clock(monkeypatch: pytest.MonkeyPatch, venue: FakeVenue) -> None:
     """Pin imported execution clocks, not transport results or trading decisions."""
+
+    class VenueClock(datetime):
+        """Read the advancing venue instant at the funding preparation clock boundary."""
+
+        @classmethod
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            """Keep default-now funding reads on the same clock as imported utc_now."""
+            return venue.now.astimezone(tz) if tz is not None else venue.now.replace(tzinfo=None)
+
+    monkeypatch.setattr(futures_paper, "datetime", VenueClock)
     for name, module in tuple(sys.modules.items()):
         if name.startswith("thytrader.") and hasattr(module, "utc_now"):
             monkeypatch.setattr(module, "utc_now", lambda: venue.now)
