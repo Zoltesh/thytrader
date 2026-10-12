@@ -22,17 +22,43 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v95` advertises `live_futures_risk_policy` under
+Ops contract `thytrader-ops-contract-v96` advertises `live_futures_risk_policy` under
 `futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
 is a pending flat-verification lower bound, never a successful venue observation. Diagnostics
 can change without clearing either duty. Restart/resume is not a manual-clear operation.
 **This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
-`FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health and alerts arrive in P2-6. To change
+`FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health remains pending; the initial P2-6 safety observer and health consumer are described below. To change
 settings, use the confirmation-gated runtime lane's
 [policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
 then read back the fingerprint and complete block here. Operator never publishes policy.
+
+## Staged futures safety alerts
+
+Contract v96 adds health component `futures_live`: `OK` means no open futures alert,
+not verified venue readiness; `FUTURES_ALERTS_UNAVAILABLE` means storage is missing or
+unreadable. It fails on any critical futures alert and degrades on warning-only alerts.
+The reason is the selected open alert code; detail gives the complete open-alert count.
+
+The `alerts` envelope is unchanged. Worker-produced identities and clearing evidence:
+
+| Code | Severity / subject | Clears only with |
+|---|---|---|
+| `FUTURES_ACCOUNT_UNKNOWN` | critical / `futures:live` | Fresh finite CFM margin and complete positions, or authoritative removal of the managed scope |
+| `FUTURES_MARGIN_LOW` | warning below 2× configured ratio, critical at/below ratio or pending de-risk / `futures:live` | Known recovered margin or confirmed flat managed scope without a pending duty |
+| `FUTURES_POSITION_MISMATCH` | critical / `deployment:<id>` | Valid fresh exact contract/side match; accounting, fills, projection and resting-order evidence must permit comparison |
+| `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` | critical / `product:<id>` | Complete fresh external-order absence plus a valid matching position |
+
+Failed inventory observations apply no recovery checks. Failed account reads may raise
+blindness for known held inventory but return failed observation, not all-clear. Stale,
+future, unapplied or foreign-holding evidence cannot clear a mismatch. Durable alert IDs,
+watermarks and notification claims are unchanged.
+
+`FUTURES_FUNDING_DRIFT` and `FUTURES_ORPHAN_ORDER` are reserved enum values only in this
+increment. No funding settlement or orphan-cancellation event is inferred. Full P2-6
+reporting and browser extensions are not delivered by this increment. No schema revision
+or live-start capability changes; Alembic stays `0076` and order paths remain empty.
 
 ## Portfolio value scope
 

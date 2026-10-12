@@ -18,6 +18,7 @@ from thytrader.execution_worker import (
     cycle_timing,
     discretionary_step,
     fleet_supervision,
+    futures_supervision,
     live_sizing,
     lockstep_step,
     ports,
@@ -50,6 +51,7 @@ WORKER_CYCLE_MODULES: tuple[ModuleType, ...] = (
     stopped_step,
     discretionary_step,
     fleet_supervision,
+    futures_supervision,
     cycle_timing,
     closed_windows,
 )

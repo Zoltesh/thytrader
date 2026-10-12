@@ -348,7 +348,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v95`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v96`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -599,6 +599,36 @@ the default 30 s interval): the slack health already grants every worker loop.
 Report the slowest phase and books, the venue and database time, and whether books
 were `warming` (a cold candle cache after a restart is slow for a few cycles and clears by
 itself). Escalate a persistent `CYCLE_SLOW` to a contributor; operators cannot tune it.
+
+## Live futures safety visibility (staged P2-6)
+
+`uv run thytrader-operator alerts` includes the worker's read-only futures safety
+observations. `health` adds `futures_live`, reading **all** open futures alerts (not just
+one page). A critical alert fails that component; warnings degrade it. Unconfigured or
+unreadable alert storage returns `FUTURES_ALERTS_UNAVAILABLE`. No open alert is not proof
+of a successful observation or permission to trade.
+
+- `FUTURES_ACCOUNT_UNKNOWN` (critical, `futures:live`): managed live inventory has missing,
+  future-dated or older-than-180-second CFM margin evidence. A fresh complete margin read,
+  or authoritative removal of the managed scope, clears it. Unknown is never zero.
+- `FUTURES_MARGIN_LOW` (`futures:live`): warning below twice `live_derisk_margin_ratio`,
+  critical at/below that ratio or while a durable de-risk duty is pending. The opt-in is
+  not required for protection alerts. Recovery requires known recovered margin or verified
+  flat managed books with no pending duty. Unset ratio does not invent a warning threshold.
+- `FUTURES_POSITION_MISMATCH` (critical, `deployment:<id>`): a persisted I9 mismatch pause.
+  Only a valid fresh venue/book match clears the alert; it never resumes the book.
+- `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` (critical, `product:<id>`): the injected source
+  proves an external nonterminal order on a managed product. A complete fresh order read
+  and valid matching position clear it. Client-id prefixes never establish ownership.
+
+This increment is **not the completed P2-6 visibility contract**. `FUTURES_FUNDING_DRIFT`
+and `FUTURES_ORPHAN_ORDER` are reserved codes, without producers yet. In particular an
+hourly modeled funding accrual or a change in account `funding_pnl` is not a validated
+settlement interval; funding drift is not being certified. The live books/reconciliation/
+readiness/fleet-gate/UI extensions remain pending. Production uses the existing mirror,
+not new CFM venue reads; external-order evidence requires the explicitly injected source.
+Live starts still refuse `FUTURES_LIVE_UNSUPPORTED`, `futures_order_paths` remains empty,
+and visibility never grants lifecycle, order, cancellation or policy authority.
 
 ## Safety alert recovery and delivery (ADR 0115)
 

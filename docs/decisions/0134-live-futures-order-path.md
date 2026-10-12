@@ -196,6 +196,20 @@ or ADL, detectable through `is_liquidation`) as the I9 repair, P2-10 funding tru
 P2-11 dated contracts with an expiry flatten, P2-12 websocket futures balance and position
 evidence.
 
+### P2-6 implementation status
+
+The initial read-only safety observer and `health.futures_live` consumer are implemented.
+The observer covers account blindness, configured margin boundaries and pending de-risk,
+persisted I9 mismatch pauses, and external-order facts from an explicitly injected source.
+It reuses durable alert dedupe/recovery/delivery and existing account evidence. It does not
+construct a production futures broker or authorize any mutation.
+
+This is a partial increment, **not completion of P2-6**. Funding-drift and orphan-event
+producers, full live reports, reconciliation/readiness/fleet-gate extensions and browser
+visibility remain pending. Mirror `funding_pnl` changes alone do not prove settlement
+boundaries or fully managed interval coverage, so no settlement is manufactured. All live
+start surfaces retain `FUTURES_LIVE_UNSUPPORTED`; `FUTURES_ORDER_PATHS` remains empty.
+
 ### 6. Decisions taken
 
 - **a. Flip guard.** When I9 finds the venue position larger than the book or on the opposite

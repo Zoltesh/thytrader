@@ -29,6 +29,7 @@ from thytrader.execution_worker.cycle_timing import (
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
 from thytrader.execution_worker.futures_step import supervised_live_futures
+from thytrader.execution_worker.futures_supervision import supervise_futures
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.execution_worker.stopped_step import _process_stopped, _stopped_strategy_definition
@@ -354,6 +355,12 @@ async def _run_cycle(
                 cycle_failures=cycle_failures,
                 worker_interval_seconds=worker_interval_seconds,
                 observed_at=cycle_started_at,
+            )
+            await supervise_futures(
+                alert_service=alert_service,
+                store=store,
+                policy=policy,
+                observed_at=utc_now(),
             )
         with timer.phase("fleet_supervision"):
             await _supervise_fleet_entries(
