@@ -44,7 +44,10 @@ journal-local fallback** and labels its deployment full-detail ledger summary ac
 It does not claim preview provenance for that fallback. In reports, existing open-book
 `total_net_pnl` projections share deployment cash and **MUST NOT be summed**. Closed rows
 alongside open inventory expose recorded realized PnL and fees separately, not another
-additive current total.
+additive current total. Even when all books are flat, historical totals are published only
+when their exact sum matches deployment total PnL. Otherwise the card warns that non-fill
+cash, such as applied funding, prevents a proven partition; fill-only realized PnL and
+paid fees remain visible alongside the unchanged deployment cash total.
 
 Position uPnL and Portfolio sleeve marks remain **journal-local**: the close the worker last
 evaluated (ADR 0098). They do not reobserve previews. A later preview of the same candle may

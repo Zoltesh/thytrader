@@ -204,8 +204,12 @@ Existing open-book `total_net_pnl` projections share deployment cash and **MUST 
 summed**. Current deployment PnL/return/drawdown/exposure and open-book totals retain their
 existing ledger semantics. Historical `total_net_pnl` is null in a mixed open/historical
 set, avoiding a second representation of realized profit already in shared cash; use that
-row's distinct recorded fields instead. Complete all-flat historical rows may retain
-realized `total_net_pnl` because those rows partition.
+row's distinct recorded fields instead. Complete all-flat historical rows retain realized
+`total_net_pnl` only when the exact sum equals deployment total PnL. Otherwise historical
+totals are null with a `partial_result_warnings` explanation: non-fill cash, such as
+applied funding, prevents a proven partition. Recorded realized PnL and fees are fill-only;
+the unchanged deployment cash total can also include non-fill cash flows. CLI text and
+the browser card display the warning without hiding the known cash total or fill facts.
 
 Text CLI uses the neutral `Performance valuation channel: market_data_preview` header
 and prints both aggregate and per-book closed trades, recorded realized PnL and paid fees.

@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import (
+    Clamped,
+    Decimal,
+    DecimalException,
+    Inexact,
+    InvalidOperation,
+    Overflow,
+    Underflow,
+    localcontext,
+)
 from typing import TYPE_CHECKING
 
 from thytrader import __version__
@@ -205,6 +214,15 @@ async def _deployment_performance(
     )
     if currency_warning is not None:
         warnings = (*warnings, currency_warning)
+    if all(book.valuation.status == "not_required" for book in books) and any(
+        book.total_net_pnl is None for book in books
+    ):
+        warnings = (
+            *warnings,
+            "Historical book totals are omitted: recorded fill realized PnL does not prove "
+            "a partition of deployment total PnL; non-fill cash such as applied funding "
+            "can differ. Recorded fill statistics exclude these cash flows.",
+        )
     payload = PerformancePayload(
         mode="live" if deployment.mode is DeploymentMode.LIVE else "paper",
         timeframe=timeframe,
@@ -362,6 +380,7 @@ def _performance_books(
     has_open_inventory = any(
         position.quantity != 0 for position in snapshot_positions(snapshot)
     ) or any(history.base_quantity != 0 for history in recorded.values())
+    partition_complete = _recorded_totals_partition(ledger, recorded)
     result: list[PerformanceBookPayload] = []
     for product_id, history in recorded.items():
         book = books.get(product_id)
@@ -372,7 +391,12 @@ def _performance_books(
         if book is None:
             result.append(
                 _historical_performance_book(
-                    snapshot, product_id, receipt, history, has_open_inventory=has_open_inventory
+                    snapshot,
+                    product_id,
+                    receipt,
+                    history,
+                    has_open_inventory=has_open_inventory,
+                    partition_complete=partition_complete,
                 )
             )
             continue
@@ -396,6 +420,22 @@ def _performance_books(
     return tuple(result)
 
 
+def _recorded_totals_partition(
+    ledger: DeploymentLedger, recorded: dict[str, DeploymentLedger]
+) -> bool:
+    """Prove fill-only historical totals match cash economics without rounded equality."""
+    if ledger.total_net_pnl is None or not ledger.total_net_pnl.is_finite():
+        return False
+    try:
+        with localcontext() as context:
+            for signal in (Clamped, Inexact, InvalidOperation, Overflow, Underflow):
+                context.traps[signal] = True
+            total = sum((book.realized_net_pnl for book in recorded.values()), Decimal(0))
+            return total.is_finite() and total == ledger.total_net_pnl
+    except DecimalException:
+        return False
+
+
 def _historical_performance_book(
     snapshot: DeploymentSnapshot,
     product_id: str,
@@ -403,6 +443,7 @@ def _historical_performance_book(
     history: DeploymentLedger,
     *,
     has_open_inventory: bool,
+    partition_complete: bool,
 ) -> PerformanceBookPayload:
     """Expose closed trades without duplicating profit embedded in open-book shared cash."""
     complete = (
@@ -420,7 +461,9 @@ def _historical_performance_book(
         realized_net_pnl=format(history.realized_net_pnl, "f"),
         total_fees=format(history.total_fees, "f"),
         total_net_pnl=(
-            format(history.realized_net_pnl, "f") if complete and not has_open_inventory else None
+            format(history.realized_net_pnl, "f")
+            if complete and not has_open_inventory and partition_complete
+            else None
         ),
         mark_complete=complete,
         valuation=receipt,

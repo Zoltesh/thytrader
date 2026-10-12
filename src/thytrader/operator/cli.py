@@ -562,6 +562,7 @@ def _performance_valuation_text(report: PerformanceReport) -> list[str]:
         f"recorded_realized_net_pnl={payload.realized_net_pnl}; paid_fees={payload.total_fees}",
         "Open-book total_net_pnl projections share deployment cash and MUST NOT be summed. "
         "Recorded net PnL already includes paid fees; do not subtract them again.",
+        *report.partial_result_warnings,
     ]
     for book in payload.books:
         receipt = book.valuation

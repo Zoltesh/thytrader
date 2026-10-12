@@ -133,7 +133,9 @@ class PerformanceBookPayload(_FrozenModel):
     """Product-local recorded facts alongside a non-additive current projection.
 
     Open-book totals share deployment cash and MUST NOT be summed. Historical
-    totals are null in mixed open/closed sets; only complete all-flat rows partition.
+    totals are null in mixed open/closed sets. Complete all-flat totals require an
+    exact partition of deployment total PnL; non-fill cash can prevent that proof.
+    Recorded realized PnL and fees are fill-only, excluding non-fill cash flows.
     Fees are already included in net PnL, not a further deduction.
     """
 

@@ -10923,7 +10923,7 @@
     },
     "PerformanceBookPayload": {
       "additionalProperties": false,
-      "description": "Product-local recorded facts alongside a non-additive current projection.\n\nOpen-book totals share deployment cash and MUST NOT be summed. Historical\ntotals are null in mixed open/closed sets; only complete all-flat rows partition.\nFees are already included in net PnL, not a further deduction.",
+      "description": "Product-local recorded facts alongside a non-additive current projection.\n\nOpen-book totals share deployment cash and MUST NOT be summed. Historical\ntotals are null in mixed open/closed sets. Complete all-flat totals require an\nexact partition of deployment total PnL; non-fill cash can prevent that proof.\nRecorded realized PnL and fees are fill-only, excluding non-fill cash flows.\nFees are already included in net PnL, not a further deduction.",
       "properties": {
         "product_id": {
           "title": "Product Id",

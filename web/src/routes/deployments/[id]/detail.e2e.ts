@@ -147,6 +147,52 @@ for (const state of ['fresh', 'stale', 'empty', 'unavailable', 'not_required'] a
 	});
 }
 
+test('flat performance distinguishes non-fill cash from recorded realized PnL', async ({ page }) => {
+	const warning =
+		'Historical book totals are omitted: recorded fill realized PnL does not prove ' +
+		'a partition of deployment total PnL; non-fill cash such as applied funding ' +
+		'can differ. Recorded fill statistics exclude these cash flows.';
+	await mockDetailRoutes(page, {
+		performance: {
+			partial_result_warnings: [warning],
+			payload: {
+				...performanceReport.payload,
+				total_net_pnl: '7.3',
+				realized_net_pnl: '9.8',
+				total_fees: '0.2',
+				trade_count: 1,
+				mark_complete: true,
+				books: [
+					{
+						product_id: 'UNI-USDC',
+						trade_count: 1,
+						realized_net_pnl: '9.8',
+						total_fees: '0.2',
+						total_net_pnl: null,
+						mark_complete: true,
+						valuation: {
+							source: 'market_data_preview',
+							status: 'not_required',
+							used: false,
+							price: null,
+							candle_closed_at: null,
+							observed_at: null,
+							reason_code: 'NO_OPEN_INVENTORY'
+						}
+					}
+				]
+			}
+		}
+	});
+	await page.goto(`/deployments/${deploymentId}`);
+	const pnl = page.getByTestId('kpi-pnl');
+	await expect(pnl).toContainText('net P&L 7.3 USDC');
+	await expect(pnl).toContainText('Recorded realized PnL 9.8 USDC');
+	await expect(pnl).toContainText('Paid fees 0.2 USDC');
+	await expect(pnl).toContainText(warning);
+	await expect(page.getByTestId('valuation-receipt')).toContainText('not_required');
+});
+
 for (const recorded of [null, '0'] as const) {
 	test(`performance recorded facts preserve ${recorded === null ? 'unknowns' : 'known zeros'}`, async ({
 		page

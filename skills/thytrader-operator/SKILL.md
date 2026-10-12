@@ -420,7 +420,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    Fees are already included in net PnL; never subtract them again. Existing open-book
    `total_net_pnl` projections share deployment cash and **MUST NOT be summed**. Historical
    rows have null `total_net_pnl` when inventory is open; complete all-flat historical rows
-   may retain realized totals because those partition. Flat/trade-only books need no preview:
+   retain realized totals only when their exact sum equals deployment total PnL. Otherwise
+   historical totals are null with a non-fill cash warning (for example, applied funding).
+   Recorded realized PnL/fees are fill-only; deployment cash PnL can include other flows.
+   Flat/trade-only books need no preview:
    `not_required`, `used: false`, null price/timestamps. See the
    [receipt fields](references/report-schemas.md#performance-valuation-receipts).
    Text CLI names the preview channel without asserting freshness and prints per-book recorded

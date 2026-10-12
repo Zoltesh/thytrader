@@ -31,8 +31,11 @@ return, drawdown, exposure and open-book ledger projections remain unchanged.
 Each book exposes distinct recorded `realized_net_pnl` and `total_fees`. Existing open-book
 `total_net_pnl` projections share deployment cash and **MUST NOT be summed**. A historical
 row's `total_net_pnl` is null when inventory is open, so it does not duplicate historical
-profit already embedded in that shared cash. Complete all-flat historical rows may retain
-realized totals because those partition. Paid fees are already included in net PnL.
+profit already embedded in that shared cash. Complete all-flat historical rows retain
+realized totals only when their exact sum equals deployment total PnL. Otherwise all
+historical totals are null and a warning explains that non-fill cash, such as applied
+funding, prevents a proven partition. Recorded realized PnL is fill-only; it excludes
+non-fill cash flows. Paid fees are already included in net PnL.
 
 Each performance book has a `valuation` receipt: exact candidate price, UTC candle-close
 and preview observation times, source `market_data_preview`, freshness/availability state,
