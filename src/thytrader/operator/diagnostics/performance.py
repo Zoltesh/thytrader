@@ -191,7 +191,8 @@ async def _deployment_performance(
     currency, currency_warning = await _deployment_quote_currency(diagnostics, deployment)
     marks, receipts = await _deployment_marks(diagnostics, snapshot, timeframe)
     ledger = ledger_from_snapshot(snapshot, marks=marks)
-    books = _performance_books(ledger, snapshot, receipts)
+    recorded = _recorded_book_ledgers(snapshot)
+    books = _performance_books(ledger, snapshot, receipts, recorded)
     component, warnings = _deployment_ledger_component(deployment, ledger)
     warnings = (
         *warnings,
@@ -213,7 +214,7 @@ async def _deployment_performance(
         fee_treatment=_runtime_fee_treatment(deployment),
         result_fingerprint=None,
         deployment_id=deployment.id,
-        trade_count=ledger.trade_count,
+        trade_count=sum(book.trade_count for book in recorded.values()),
         total_net_pnl=ledger.total_net_pnl_text(),
         total_return_fraction=ledger.total_return_fraction_text(),
         maximum_drawdown_fraction=ledger.maximum_drawdown_fraction_text(),
@@ -223,8 +224,10 @@ async def _deployment_performance(
         marked_exposure=(
             None if ledger.marked_exposure is None else format(ledger.marked_exposure, "f")
         ),
-        realized_net_pnl=format(ledger.realized_net_pnl, "f"),
-        total_fees=format(ledger.total_fees, "f"),
+        realized_net_pnl=format(
+            sum((book.realized_net_pnl for book in recorded.values()), Decimal(0)), "f"
+        ),
+        total_fees=format(sum((book.total_fees for book in recorded.values()), Decimal(0)), "f"),
         books=books,
     )
     return PerformanceReport(
@@ -319,28 +322,59 @@ async def _deployment_marks(
     return marks, receipts
 
 
+def _recorded_book_ledgers(snapshot: DeploymentSnapshot) -> dict[str, DeploymentLedger]:
+    """Fold each product independently for recorded statistics, never shared inventory.
+
+    LedgerFill has no product identity. Combining products before folding would net
+    unrelated lots. These zero-cash folds supply only recorded facts and flatness;
+    current economics continue to come from ledger_from_snapshot unchanged.
+    """
+    products = {
+        snapshot.deployment.product_id,
+        *(
+            resolved_product_id(position.product_id, snapshot.deployment)
+            for position in snapshot_positions(snapshot)
+        ),
+        *(resolved_product_id(order.product_id, snapshot.deployment) for order in snapshot.orders),
+        *(runtime.product_id for runtime in snapshot.instrument_runtimes),
+    }
+    return {
+        product_id: mark_deployment_ledger(
+            starting_cash=Decimal(0),
+            cash=Decimal(0),
+            fills=ledger_fills_for_product(snapshot, product_id),
+            position_quantity=Decimal(0),
+            position_entry_price=None,
+            mark_price=None,
+        )
+        for product_id in sorted(products)
+    }
+
+
 def _performance_books(
     ledger: DeploymentLedger,
     snapshot: DeploymentSnapshot,
     receipts: dict[str, PerformanceValuationReceipt],
+    recorded: dict[str, DeploymentLedger],
 ) -> tuple[PerformanceBookPayload, ...]:
-    """Retain open and trade-only books, without calling unused prices fresh marks."""
+    """Keep shared-cash open projections separate from product-local recorded facts."""
     books = {book.product_id: book for book in ledger.books}
-    products = {
-        snapshot.deployment.product_id,
-        *books,
-        *(resolved_product_id(order.product_id, snapshot.deployment) for order in snapshot.orders),
-        *(runtime.product_id for runtime in snapshot.instrument_runtimes),
-    }
+    has_open_inventory = any(
+        position.quantity != 0 for position in snapshot_positions(snapshot)
+    ) or any(history.base_quantity != 0 for history in recorded.values())
     result: list[PerformanceBookPayload] = []
-    for product_id in sorted(products):
+    for product_id, history in recorded.items():
         book = books.get(product_id)
         receipt = receipts.get(
             product_id,
             PerformanceValuationReceipt(status="not_required", reason_code="NO_OPEN_INVENTORY"),
         )
         if book is None:
-            result.append(_historical_performance_book(snapshot, product_id, receipt))
+            result.append(
+                _historical_performance_book(
+                    snapshot, product_id, receipt, history, has_open_inventory=has_open_inventory
+                )
+            )
             continue
         used = receipt.status == "fresh" and book.mark_complete and book.base_quantity != 0
         receipt = receipt.model_copy(update={"used": used})
@@ -349,7 +383,9 @@ def _performance_books(
         result.append(
             PerformanceBookPayload(
                 product_id=book.product_id,
-                trade_count=book.trade_count,
+                trade_count=history.trade_count,
+                realized_net_pnl=format(history.realized_net_pnl, "f"),
+                total_fees=format(history.total_fees, "f"),
                 total_net_pnl=(
                     None if book.total_net_pnl is None else format(book.total_net_pnl, "f")
                 ),
@@ -361,17 +397,14 @@ def _performance_books(
 
 
 def _historical_performance_book(
-    snapshot: DeploymentSnapshot, product_id: str, receipt: PerformanceValuationReceipt
+    snapshot: DeploymentSnapshot,
+    product_id: str,
+    receipt: PerformanceValuationReceipt,
+    history: DeploymentLedger,
+    *,
+    has_open_inventory: bool,
 ) -> PerformanceBookPayload:
-    """Expose recorded closed trades for books absent from the open-position ledger."""
-    history = mark_deployment_ledger(
-        starting_cash=Decimal(0),
-        cash=Decimal(0),
-        fills=ledger_fills_for_product(snapshot, product_id),
-        position_quantity=Decimal(0),
-        position_entry_price=None,
-        mark_price=None,
-    )
+    """Expose closed trades without duplicating profit embedded in open-book shared cash."""
     complete = (
         snapshot.accounting_complete
         and history.mark_complete
@@ -384,7 +417,11 @@ def _historical_performance_book(
     return PerformanceBookPayload(
         product_id=product_id,
         trade_count=history.trade_count,
-        total_net_pnl=format(history.realized_net_pnl, "f") if complete else None,
+        realized_net_pnl=format(history.realized_net_pnl, "f"),
+        total_fees=format(history.total_fees, "f"),
+        total_net_pnl=(
+            format(history.realized_net_pnl, "f") if complete and not has_open_inventory else None
+        ),
         mark_complete=complete,
         valuation=receipt,
     )
@@ -399,11 +436,11 @@ def _runtime_fee_treatment(deployment: Deployment) -> str:
         return (
             f"documented paper assumptions: {format(maker, 'f')} maker / "
             f"{format(taker, 'f')} taker on recorded fills; not observed Coinbase "
-            "fees; last-close mark for open inventory"
+            "fees; accepted fresh preview close required to mark open inventory"
         )
     return (
-        "venue fees recorded on fills; last-close mark for open inventory; "
-        "live fee API is not queried here"
+        "venue fees recorded on fills; accepted fresh preview close required to mark open "
+        "inventory; live fee API is not queried here"
     )
 
 

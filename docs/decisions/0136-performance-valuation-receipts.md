@@ -22,7 +22,17 @@ Performance excludes `quality.is_stale` previews from its accepted marks. The qu
 remains strictly greater than two intervals since candle close. Missing or stale required
 marks null current PnL, return, drawdown and exposure, with degraded `MISSING_MARK`; unresolved
 accounting retains its existing precedence. Recorded realized PnL, closed-trade counts and
-paid fees remain available as population evidence, never a complete-account claim.
+paid fees remain available as population evidence, never a complete-account claim. At the
+reporting boundary, fold recorded fills independently for **every product**, then sum
+trade counts, realized PnL and fees. A ledger fill lacks product identity; cross-product
+fills must never be folded as one fungible inventory lot. The existing current PnL,
+return, drawdown, exposure and open-book ledger projections remain unchanged.
+
+Each book exposes distinct recorded `realized_net_pnl` and `total_fees`. Existing open-book
+`total_net_pnl` projections share deployment cash and **MUST NOT be summed**. A historical
+row's `total_net_pnl` is null when inventory is open, so it does not duplicate historical
+profit already embedded in that shared cash. Complete all-flat historical rows may retain
+realized totals because those partition. Paid fees are already included in net PnL.
 
 Each performance book has a `valuation` receipt: exact candidate price, UTC candle-close
 and preview observation times, source `market_data_preview`, freshness/availability state,
@@ -31,8 +41,14 @@ has `used: true`. Stale prices remain explanatory candidates, never accepted mar
 reads manufacture neither a price nor an observation time. Flat/trade-only books remain
 visible with `not_required`, no preview read and no price/timestamps.
 
-CLI text and browser performance cards name preview valuation and distinguish accepted
-marks from rejected candidates. Ops contract v97 advertises `performance_valuation_receipts`;
+CLI text names the preview channel without claiming a fresh observation and prints
+aggregate and per-book recorded facts. Browser performance cards distinguish accepted
+marks from rejected candidates, showing unknown current PnL/return/exposure separately
+from known closed trades, realized PnL and paid fees. Unknown recorded fields stay unknown,
+not zero. When the performance request fails, the card labels its full-detail ledger
+fallback journal-local rather than preview valuation.
+
+Ops contract v97 advertises `performance_valuation_receipts`;
 the v1 operator report schema gains additive receipt/recorded-statistics fields. No migration.
 
 Separately, execution-worker feed/reload wake requests are consumed at cycle start before

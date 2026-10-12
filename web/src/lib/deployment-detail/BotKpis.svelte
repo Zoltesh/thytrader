@@ -14,6 +14,7 @@
 		performanceCurrencySuffix,
 		performanceHeadline,
 		performanceReportText,
+		recordedPerformanceText,
 		displayQuoteOf,
 		quoteAmountLabel
 	} from '$lib/deployment-detail';
@@ -63,7 +64,12 @@
 		{/if}
 	</article>
 	<article class="card kpi" data-testid="kpi-pnl">
-		<h2 class="label">Performance PnL · preview valuation</h2>
+		<h2 class="label">
+			Performance PnL · {performanceError !== null ||
+			(!performanceLoading && performancePayload === null)
+				? 'journal-local fallback'
+				: 'preview valuation'}
+		</h2>
 		{#if performanceLoading && performanceReport === null}
 			<p class="value">—</p>
 			<p class="delta" data-testid="performance-loading">Loading operator performance…</p>
@@ -73,7 +79,7 @@
 				{fallback.text}
 			</p>
 			<p class="delta problem" data-testid="performance-error" role="status">
-				Operator performance report unavailable ({performanceError}). Ledger summary:
+				Operator performance report unavailable ({performanceError}). Journal-local ledger summary:
 				{ledgerPerformanceText(current)}
 			</p>
 		{:else if performancePayload}
@@ -83,6 +89,9 @@
 			</p>
 			<p class="delta" data-testid="deployment-performance">
 				{performanceReportText(performancePayload)}
+			</p>
+			<p class="delta" data-testid="recorded-performance">
+				{recordedPerformanceText(performancePayload)}
 			</p>
 			<p class="delta">
 				Fill ledger{performanceCurrencySuffix(performancePayload.currency).trim() === ''

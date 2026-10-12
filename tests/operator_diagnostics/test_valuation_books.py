@@ -155,7 +155,7 @@ def test_multibook_receipts_preserve_trade_only_books_and_recover(
     expected_btc = (
         format(existing.books[0].total_net_pnl, "f")
         if primary_open and existing.books[0].total_net_pnl is not None
-        else "9.8"
+        else None
     )
     provider = ProductPreviews()
     diagnostics = _diagnostics(execution=store, market_data=MarketDataService(provider))
@@ -165,7 +165,12 @@ def test_multibook_receipts_preserve_trade_only_books_and_recover(
         books = {book.product_id: book for book in report.payload.books}
         assert set(books) == {"BTC-USD", "ETH-USD"}
         btc, eth = books["BTC-USD"], books["ETH-USD"]
+        assert report.payload.trade_count == 1
+        assert report.payload.realized_net_pnl == "9.8"
+        assert report.payload.total_fees == ("0.5" if primary_open else "0.4")
         assert btc.trade_count == 1
+        assert btc.realized_net_pnl == "9.8"
+        assert btc.total_fees == ("0.3" if primary_open else "0.2")
         assert btc.valuation.status == ("fresh" if primary_open else "not_required")
         assert btc.valuation.used is primary_open
         assert btc.valuation.price == ("105" if primary_open else None)

@@ -205,7 +205,8 @@ def test_performance_cli_text_labels_valuation(capsys: pytest.CaptureFixture[str
         main(["performance", "--deployment-id", str(deployment_id), "--format", "text"])
     assert exited.value.code == 1
     text = capsys.readouterr().out
-    assert "Performance valuation: freshly observed preview" in text
+    assert "Performance valuation channel: market_data_preview" in text
+    assert "freshly observed preview" not in text
     assert "BTC-USD: stale; not used; STALE_MARK" in text
     assert "candidate_price=105" in text
     assert "candle_closed_at=" in text

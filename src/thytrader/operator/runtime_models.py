@@ -130,10 +130,17 @@ class PerformanceValuationReceipt(_FrozenModel):
 
 
 class PerformanceBookPayload(_FrozenModel):
-    """One product book within a deployment performance slice."""
+    """Product-local recorded facts alongside a non-additive current projection.
+
+    Open-book totals share deployment cash and MUST NOT be summed. Historical
+    totals are null in mixed open/closed sets; only complete all-flat rows partition.
+    Fees are already included in net PnL, not a further deduction.
+    """
 
     product_id: str
     trade_count: int
+    realized_net_pnl: str | None = None
+    total_fees: str | None = None
     total_net_pnl: str | None = None
     mark_complete: bool
     valuation: PerformanceValuationReceipt

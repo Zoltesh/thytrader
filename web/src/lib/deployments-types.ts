@@ -208,6 +208,9 @@ export type OperatorPerformance = {
 	books?: {
 		product_id: string;
 		trade_count: number;
+		realized_net_pnl: string | null;
+		total_fees: string | null;
+		/** Shared-cash open projections MUST NOT be summed; mixed historical rows are null. */
 		total_net_pnl: string | null;
 		mark_complete: boolean;
 		valuation: PerformanceValuationReceipt;

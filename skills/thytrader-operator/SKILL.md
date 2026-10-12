@@ -407,18 +407,25 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    the product quote for discretionary books; `null` means provenance could not be established
    and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the strategy snapshot's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
-   at a freshly reobserved preview close, separate from the journal-local position mark
+   at an accepted fresh preview close when available, separate from the journal-local position mark
    on detail/portfolio (ADR 0098). `runtime_observability: performance_valuation_receipts`
    exposes each `books[].valuation`: price, candle-close time, preview observation time,
    source, status, reason and `used`. Only `used: true` is an accepted valuation mark.
    `stale` receipts retain their candidate price for explanation, never current economics;
    `MISSING_MARK` covers stale or unavailable marks and nulls dependent PnL/return/exposure.
    The existing age rule is unchanged: strictly more than two intervals is stale. Known
-   `realized_net_pnl`, `trade_count` and `total_fees` remain recorded-fill evidence, not a
-   certificate of complete current accounting. Flat/trade-only books need no preview:
+   `realized_net_pnl`, `trade_count` and `total_fees` include every product's recorded fills,
+   folded independently per product before summing; they are not a certificate of complete
+   current accounting. Each book exposes its own recorded `realized_net_pnl` and `total_fees`.
+   Fees are already included in net PnL; never subtract them again. Existing open-book
+   `total_net_pnl` projections share deployment cash and **MUST NOT be summed**. Historical
+   rows have null `total_net_pnl` when inventory is open; complete all-flat historical rows
+   may retain realized totals because those partition. Flat/trade-only books need no preview:
    `not_required`, `used: false`, null price/timestamps. See the
    [receipt fields](references/report-schemas.md#performance-valuation-receipts).
-   Text CLI output and the browser label preview valuation explicitly. Live REST fill ingest uses
+   Text CLI names the preview channel without asserting freshness and prints per-book recorded
+   statistics. The browser keeps recorded facts visible beside unknown current economics;
+   if the performance request fails, its full-detail ledger fallback is labeled journal-local. Live REST fill ingest uses
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
    unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
    do not treat a truncated or failed fill page as a complete ledger.

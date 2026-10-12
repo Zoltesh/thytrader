@@ -335,10 +335,8 @@ export function performanceReportText(performance: {
 	total_net_pnl: string | null;
 	total_return_fraction: string | null;
 	mark_complete: boolean | null;
+	marked_exposure?: string | null;
 }): string {
-	if (performance.total_net_pnl === null || performance.total_return_fraction === null) {
-		return 'Net performance not yet computed from the fill ledger.';
-	}
 	const currency = performanceCurrencySuffix(performance.currency) || ' unknown quote';
 	const trades =
 		performance.trade_count === null
@@ -346,7 +344,29 @@ export function performanceReportText(performance: {
 			: `${performance.trade_count} closed trade${performance.trade_count === 1 ? '' : 's'}`;
 	const markNote =
 		performance.mark_complete === false ? ' · open inventory without a mark — not final' : '';
-	return `${trades} · net P&L ${performance.total_net_pnl}${currency} · return ${(Number(performance.total_return_fraction) * 100).toFixed(2)}%${markNote}`;
+	const pnl =
+		performance.total_net_pnl === null
+			? 'Current marked PnL unknown'
+			: `net P&L ${performance.total_net_pnl}${currency}`;
+	const returns =
+		performance.total_return_fraction === null
+			? 'return unknown'
+			: `return ${(Number(performance.total_return_fraction) * 100).toFixed(2)}%`;
+	const exposure =
+		performance.marked_exposure == null ? 'unknown' : `${performance.marked_exposure}${currency}`;
+	return `${trades} · ${pnl} · ${returns} · Marked exposure ${exposure}${markNote}`;
+}
+
+/** Known recorded facts remain visible independently of current marked economics. */
+export function recordedPerformanceText(performance: {
+	currency: 'USD' | 'USDC' | 'USDT' | null;
+	realized_net_pnl?: string | null;
+	total_fees?: string | null;
+}): string {
+	const currency = performanceCurrencySuffix(performance.currency) || ' unknown quote';
+	const amount = (value: string | null | undefined): string =>
+		value == null ? 'unknown' : `${value}${currency}`;
+	return `Recorded realized PnL ${amount(performance.realized_net_pnl)} · Paid fees ${amount(performance.total_fees)} (already included in net PnL)`;
 }
 
 /** Exact-version evidence links: every link carries the fingerprint. */

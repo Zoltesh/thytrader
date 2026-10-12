@@ -29,12 +29,22 @@ continue to use their separate account capital.
 
 ### Preview valuation versus journal-local marks
 
-The bot detail **Performance PnL · preview valuation** card freshly reobserves market-data
-previews. Each book shows its source, candidate/accepted price, candle close, observation
+The bot detail **Performance PnL · preview valuation** card requests market-data
+previews; this label names the channel, not a guarantee of a fresh successful observation. Each book shows its source, candidate/accepted price, candle close, observation
 time, freshness/availability, and whether the price was used. **Stale · Not used** retains
 an explanatory candidate, not a current mark: dependent current PnL, return and exposure
-stay unknown. Empty and unavailable reads are distinct; known closed trades and paid fees
-remain available. A flat book says `not_required` and does not claim a fresh price.
+stay unknown. Empty and unavailable reads are distinct. Known closed-trade counts, recorded
+realized PnL and paid fees remain visible separately from unknown current marked economics.
+Recorded facts cover all products, including closed siblings; unknown fields remain unknown,
+not zero. Paid fees are already included in net PnL and must not be subtracted again.
+A flat book says `not_required` and does not claim a fresh price.
+
+If the performance request itself fails, the card explicitly says **Performance PnL ·
+journal-local fallback** and labels its deployment full-detail ledger summary accordingly.
+It does not claim preview provenance for that fallback. In reports, existing open-book
+`total_net_pnl` projections share deployment cash and **MUST NOT be summed**. Closed rows
+alongside open inventory expose recorded realized PnL and fees separately, not another
+additive current total.
 
 Position uPnL and Portfolio sleeve marks remain **journal-local**: the close the worker last
 evaluated (ADR 0098). They do not reobserve previews. A later preview of the same candle may

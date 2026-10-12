@@ -192,9 +192,26 @@ The provider's `quality.is_stale` is authoritative; the existing quality age thr
 remains strictly greater than two candle intervals. Stale/missing required marks yield
 `MISSING_MARK` and null current PnL, return, drawdown and exposure, with product-specific
 warnings. `ACCOUNTING_UNRESOLVED` retains precedence when economics are incomplete.
-Known `payload.realized_net_pnl`, `trade_count` and `total_fees` remain recorded-fill facts;
-fees are already included in PnL, so do not subtract them again. These fields are not a
-complete-account certificate. No backtest calculations change.
+Known `payload.realized_net_pnl`, `trade_count` and `total_fees` include recorded fills from
+**all** products, including closed siblings of open inventory. Each product's fills are
+folded independently before summing these statistics: different products are never one
+fungible lot. Each book also has its own `realized_net_pnl` and `total_fees` (nullable when
+unknown), plus its closed `trade_count`. Fees are already included in net PnL, so do not
+subtract them again. These fields are not a complete-account certificate. No backtest
+calculations change.
+
+Existing open-book `total_net_pnl` projections share deployment cash and **MUST NOT be
+summed**. Current deployment PnL/return/drawdown/exposure and open-book totals retain their
+existing ledger semantics. Historical `total_net_pnl` is null in a mixed open/historical
+set, avoiding a second representation of realized profit already in shared cash; use that
+row's distinct recorded fields instead. Complete all-flat historical rows may retain
+realized `total_net_pnl` because those rows partition.
+
+Text CLI uses the neutral `Performance valuation channel: market_data_preview` header
+and prints both aggregate and per-book closed trades, recorded realized PnL and paid fees.
+The browser separates unknown current marked economics from recorded facts, preserving
+null as unknown rather than zero. Failed performance requests label the full-detail
+ledger fallback **journal-local**, never preview valuation.
 
 Flat/trade-only books report `not_required`, `used: false`, null price and timestamps;
 no preview is read for them. Empty successful reads have an observation time but no
@@ -202,7 +219,7 @@ price/close. Failed or unconfigured reads have no observation time. A later fres
 recovers valuation without reusing a rejected price. Read the receipt status and `used`,
 not just report `generated_at`, before describing a mark as current.
 
-Performance `payload.currency` is the exact snapshot instrument quote (`USD`, `USDC`, or `USDT`) for strategy-backed reports, or the parsed product quote for discretionary deployments. It is `null` with a `partial_result_warnings[]` explanation when provenance cannot be established; never read a null as USDC or convert a USD amount by relabeling it. Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Backtest `payload.metrics` is the derived `thytrader-performance-metrics-v1` block (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) and does not change result fingerprints. Backtest `payload.window` (ADR 0094) states the evaluated bars: `timeframe`, `evaluation_start`, `evaluation_end` (exclusive; its bar's open liquidates what is held), `first_evaluated_bar`, `last_evaluated_bar`, `evaluation_bars`, `warmup_bars`, and `warmup_start`, derived from the result's run outside the fingerprinted result bytes (`null` for paper/live and when the run cannot be read). Two backtests are comparable only when their `evaluation_start` / `evaluation_end` match: omitted bounds start after each strategy's own warmup. Backtest performance carries no engine field: every result uses the single `thytrader-backtest` model; `total_spread_cost` is present only when the run used `spread_bps` stress. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product `trade_count`, `total_net_pnl`, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown includes fill-event marks and durable worker observations, not a complete historical bar equity curve.
+Performance `payload.currency` is the exact snapshot instrument quote (`USD`, `USDC`, or `USDT`) for strategy-backed reports, or the parsed product quote for discretionary deployments. It is `null` with a `partial_result_warnings[]` explanation when provenance cannot be established; never read a null as USDC or convert a USD amount by relabeling it. Performance `payload.mode` is `backtest`, `paper`, or `live`. Backtest metrics come from an immutable result. Backtest `payload.metrics` is the derived `thytrader-performance-metrics-v1` block (Sharpe, Sortino, Calmar, SQN, CAGR, annualized volatility, max consecutive losses, exposure fraction, mark-to-mark buy-and-hold) and does not change result fingerprints. Backtest `payload.window` (ADR 0094) states the evaluated bars: `timeframe`, `evaluation_start`, `evaluation_end` (exclusive; its bar's open liquidates what is held), `first_evaluated_bar`, `last_evaluated_bar`, `evaluation_bars`, `warmup_bars`, and `warmup_start`, derived from the result's run outside the fingerprinted result bytes (`null` for paper/live and when the run cannot be read). Two backtests are comparable only when their `evaluation_start` / `evaluation_end` match: omitted bounds start after each strategy's own warmup. Backtest performance carries no engine field: every result uses the single `thytrader-backtest` model; `total_spread_cost` is present only when the run used `spread_bps` stress. Paper/live metrics come from a fill ledger: `trade_count` is round trips, `total_net_pnl` / return / drawdown use recorded fills plus last-close marks for every open product book. `books[]` reports per-product recorded `trade_count`, `realized_net_pnl`, `total_fees`, non-additive `total_net_pnl` projections, and `mark_complete`; deployment-level `marked_exposure` and `mark_complete` aggregate across books. Open inventory without a mark leaves `total_net_pnl` null (`MISSING_MARK`) instead of inventing equity. Drawdown includes fill-event marks and durable worker observations, not a complete historical bar equity curve.
 
 The `runtime` payload lists deployment identities plus risk and reconciliation findings, and
 `execution_cycle` timing (ADR 0131; see below). It also

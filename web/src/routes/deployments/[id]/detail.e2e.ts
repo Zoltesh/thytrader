@@ -81,7 +81,7 @@ const earlierDraft = {
 	]
 };
 
-for (const state of ['fresh', 'stale', 'unavailable', 'not_required'] as const) {
+for (const state of ['fresh', 'stale', 'empty', 'unavailable', 'not_required'] as const) {
 	test(`performance valuation receipt labels ${state} evidence`, async ({ page }) => {
 		const accepted = state === 'fresh';
 		const hasPrice = accepted || state === 'stale';
@@ -90,6 +90,10 @@ for (const state of ['fresh', 'stale', 'unavailable', 'not_required'] as const) 
 				payload: {
 					...performanceReport.payload,
 					total_net_pnl: accepted || state === 'not_required' ? '18.4' : null,
+					total_return_fraction: accepted || state === 'not_required' ? '0.0018' : null,
+					marked_exposure: accepted ? '105' : state === 'not_required' ? '0' : null,
+					realized_net_pnl: '9.8',
+					total_fees: '0.3',
 					mark_complete: accepted || state === 'not_required',
 					books: [
 						{
@@ -103,7 +107,7 @@ for (const state of ['fresh', 'stale', 'unavailable', 'not_required'] as const) 
 								used: accepted,
 								price: hasPrice ? '105' : null,
 								candle_closed_at: hasPrice ? '2026-09-21T20:00:00Z' : null,
-								observed_at: hasPrice ? '2026-09-21T21:00:00Z' : null,
+								observed_at: hasPrice || state === 'empty' ? '2026-09-21T21:00:00Z' : null,
 								reason_code: state === 'stale' ? 'STALE_MARK' : state.toUpperCase()
 							}
 						}
@@ -125,10 +129,53 @@ for (const state of ['fresh', 'stale', 'unavailable', 'not_required'] as const) 
 			await expect(receipt).toContainText('Candle close 2026-09-21T20:00:00Z');
 			await expect(receipt).toContainText('Observed 2026-09-21T21:00:00Z');
 		}
-		if (state === 'stale') {
-			await expect(receipt).toContainText('STALE_MARK');
+		await expect(pnl).toContainText('2 closed trades');
+		await expect(pnl).toContainText('Recorded realized PnL 9.8 USDC');
+		await expect(pnl).toContainText('Paid fees 0.3 USDC');
+		if (!accepted && state !== 'not_required') {
 			await expect(pnl.locator('.value')).toHaveText('—');
+			await expect(pnl).toContainText('Current marked PnL unknown');
+			await expect(pnl).toContainText('return unknown');
+			await expect(pnl).toContainText('Marked exposure unknown');
+			await expect(pnl).not.toContainText('not yet computed from the fill ledger');
 		}
+		if (state === 'stale') await expect(receipt).toContainText('STALE_MARK');
+		if (state === 'empty') {
+			await expect(receipt).toContainText('Observed 2026-09-21T21:00:00Z');
+			await expect(receipt).not.toContainText('Candidate price');
+		}
+	});
+}
+
+for (const recorded of [null, '0'] as const) {
+	test(`performance recorded facts preserve ${recorded === null ? 'unknowns' : 'known zeros'}`, async ({
+		page
+	}) => {
+		await mockDetailRoutes(page, {
+			performance: {
+				payload: {
+					...performanceReport.payload,
+					currency: null,
+					total_net_pnl: null,
+					total_return_fraction: null,
+					mark_complete: false,
+					trade_count: recorded === null ? null : 0,
+					realized_net_pnl: recorded,
+					total_fees: recorded
+				}
+			}
+		});
+		await page.goto(`/deployments/${deploymentId}`);
+		const pnl = page.getByTestId('kpi-pnl');
+		await expect(pnl).toContainText(recorded === null ? 'trade count unknown' : '0 closed trades');
+		await expect(pnl).toContainText(
+			`Recorded realized PnL ${recorded === null ? 'unknown' : '0 unknown quote'}`
+		);
+		await expect(pnl).toContainText(
+			`Paid fees ${recorded === null ? 'unknown' : '0 unknown quote'}`
+		);
+		await expect(pnl).not.toContainText('USDC');
+		await expect(pnl.locator('.value')).toHaveText('—');
 	});
 }
 
@@ -446,7 +493,12 @@ test.describe('deployment detail', () => {
 		await page.goto(`/deployments/${deploymentId}`);
 		const error = page.getByTestId('performance-error');
 		await expect(error).toBeVisible();
-		await expect(error).toContainText('Ledger summary:');
+		const pnl = page.getByTestId('kpi-pnl');
+		await expect(pnl.getByRole('heading')).toHaveText('Performance PnL · journal-local fallback');
+		await expect(error).toContainText('Journal-local ledger summary:');
+		await expect(pnl).not.toContainText('preview valuation');
+		await expect(pnl.locator('.value')).toContainText('+2.5');
+		await expect(pnl.getByTestId('valuation-receipt')).toHaveCount(0);
 	});
 
 	test('orders and fills are cursor-paginated with distinct empty and error states', async ({

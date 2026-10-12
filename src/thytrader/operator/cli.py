@@ -557,13 +557,20 @@ def _performance_valuation_text(report: PerformanceReport) -> list[str]:
     """Label candidate prices separately from accepted preview valuation marks."""
     payload = report.payload
     lines = [
-        "Performance valuation: freshly observed preview; not journal-local position marks.",
+        "Performance valuation channel: market_data_preview; not journal-local position marks.",
+        f"closed_trades={payload.trade_count}; "
         f"recorded_realized_net_pnl={payload.realized_net_pnl}; paid_fees={payload.total_fees}",
+        "Open-book total_net_pnl projections share deployment cash and MUST NOT be summed. "
+        "Recorded net PnL already includes paid fees; do not subtract them again.",
     ]
     for book in payload.books:
         receipt = book.valuation
         use = "accepted mark" if receipt.used else "not used"
         price_label = "mark_price" if receipt.used else "candidate_price"
+        lines.append(
+            f"{book.product_id} recorded: closed_trades={book.trade_count}; "
+            f"recorded_realized_net_pnl={book.realized_net_pnl}; paid_fees={book.total_fees}"
+        )
         lines.append(
             f"{book.product_id}: {receipt.status}; {use}; {receipt.reason_code}; "
             f"{price_label}={receipt.price}; candle_closed_at={receipt.candle_closed_at}; "

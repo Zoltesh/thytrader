@@ -10923,7 +10923,7 @@
     },
     "PerformanceBookPayload": {
       "additionalProperties": false,
-      "description": "One product book within a deployment performance slice.",
+      "description": "Product-local recorded facts alongside a non-additive current projection.\n\nOpen-book totals share deployment cash and MUST NOT be summed. Historical\ntotals are null in mixed open/closed sets; only complete all-flat rows partition.\nFees are already included in net PnL, not a further deduction.",
       "properties": {
         "product_id": {
           "title": "Product Id",
@@ -10932,6 +10932,30 @@
         "trade_count": {
           "title": "Trade Count",
           "type": "integer"
+        },
+        "realized_net_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Realized Net Pnl"
+        },
+        "total_fees": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Fees"
         },
         "total_net_pnl": {
           "anyOf": [
