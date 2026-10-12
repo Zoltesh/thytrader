@@ -137,7 +137,11 @@ Future operational semantics are pinned, not enabled here:
   fresh venue-flat observation before retirement. `futures_flat_confirmation_after` is the durable
   lower bound, not a successful observation timestamp. It is persisted before cancellation or
   submission and advanced atomically with canonical fill accounting. A later distinct complete
-  observation must be strictly after the last fill plus five seconds. A margin-monitor message
+  observation must be strictly after the last fill plus five seconds. Exactly five seconds is
+  insufficient. Future fills, including supported timestamps near the upper UTC date limit, keep
+  cancellation and position proofs unknown without aborting supervision or discarding canonical
+  fill economics; the pending duty remains. This is an elapsed-interval check, not a clamped date.
+  A margin-monitor message
   cannot overwrite this duty. Read both fields with `thytrader-runtime show` or operator `runtime`;
   never clear them by database edits. Alembic 0076 and ops contract v95 are required (ADR 0135).
   This does not change spot/paper flatten semantics.

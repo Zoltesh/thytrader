@@ -81,7 +81,8 @@ def compare_position(
         return None
     if unsettled_fill_evidence(snapshot) or not _orders_quiescent(snapshot, now):
         return None
-    if snapshot.fills and venue.observed_at <= max(f.filled_at for f in snapshot.fills) + timedelta(
+    # A future fill stays unknown even at datetime.max; never construct fill + grace.
+    if snapshot.fills and venue.observed_at - max(f.filled_at for f in snapshot.fills) <= timedelta(
         seconds=5
     ):
         return None

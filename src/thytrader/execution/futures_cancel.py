@@ -60,9 +60,10 @@ def cancellation_proven(
         or any(order.kind is OrderKind.MARKETABLE for order in active_orders(snapshot))
     ):
         return False
-    if snapshot.fills and account.venue.observed_at <= max(
+    # Compare UTC intervals: adding the grace period to a valid fill can overflow.
+    if snapshot.fills and account.venue.observed_at - max(
         f.filled_at for f in snapshot.fills
-    ) + timedelta(seconds=5):
+    ) <= timedelta(seconds=5):
         return False
     managed = managed_signed_base(snapshot)
     size = account.venue.contract_sizes.get(snapshot.deployment.product_id)

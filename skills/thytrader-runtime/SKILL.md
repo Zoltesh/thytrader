@@ -67,6 +67,9 @@ Dormant injected futures retain an accepted cancel even when its confirmation re
 subsequent polls and restarts read the order rather than sending the cancel again. No-target
 strategies use STOP-purpose standalone protection; target-enabled protection remains BRACKET.
 These are fake-venue runtime guarantees, not permission to start live futures.
+Dormant cancellation and position proofs require an account observation more than five seconds
+after the latest fill; even a supported far-future fill timestamp keeps proof unknown and
+flat verification pending rather than aborting supervision.
 Dormant injected futures safety duties are independent of mismatch diagnostics: `show` and
 operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmation_after`. A
 present timestamp means verification is pending, not a successful venue read. Natural protective
