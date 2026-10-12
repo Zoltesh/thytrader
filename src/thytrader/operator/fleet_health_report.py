@@ -22,7 +22,6 @@ from thytrader.operator.fleet_decisions import fleet_decision_log
 from thytrader.operator.fleet_entries import (
     FLEET_COMPONENT,
     fleet_entries_component,
-    fleet_entries_payload,
 )
 from thytrader.operator.fleet_health_models import (
     FleetAlertPayload,
@@ -42,12 +41,7 @@ if TYPE_CHECKING:
 async def build_fleet_health_report(diagnostics: OperatorDiagnostics) -> FleetHealthReport:
     """Evaluate fleet entry readiness, aggregate recent decisions and list fleet alerts."""
     now = datetime.now(UTC)
-    entries = await fleet_entries_payload(
-        diagnostics.execution,
-        diagnostics.risk_policies,
-        market_data=diagnostics.market_data,
-        futures_account=diagnostics.futures_account_store,
-    )
+    entries = await diagnostics.fleet_entries()
     try:
         deployments = await diagnostics.execution.list_deployments()
     except Exception:  # noqa: BLE001 - an unreadable fleet leaves the decision log unread.

@@ -22,17 +22,91 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v95` advertises `live_futures_risk_policy` under
+Ops contract `thytrader-ops-contract-v96` advertises `live_futures_risk_policy` under
 `futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
 is a pending flat-verification lower bound, never a successful venue observation. Diagnostics
 can change without clearing either duty. Restart/resume is not a manual-clear operation.
 **This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
-`FUTURES_LIVE_UNSUPPORTED`. Live futures fleet-health and alerts arrive in P2-6. To change
+`FUTURES_LIVE_UNSUPPORTED`. Live CFM fleet-health runs the P2-3 minimum-contract probes; visibility is described below. To change
 settings, use the confirmation-gated runtime lane's
 [policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
 then read back the fingerprint and complete block here. Operator never publishes policy.
+
+## Staged futures safety alerts
+
+Contract v96 adds health component `futures_live`: `OK` means no open futures alert,
+not verified venue readiness; `FUTURES_ALERTS_UNAVAILABLE` means storage is missing or
+unreadable. It fails on any critical futures alert and degrades on warning-only alerts.
+The reason is the selected open alert code; detail gives the complete open-alert count.
+
+The `alerts` envelope is unchanged. Worker-produced identities and clearing evidence:
+
+| Code | Severity / subject | Clears only with |
+|---|---|---|
+| `FUTURES_ACCOUNT_UNKNOWN` | critical / `futures:live` | Fresh finite CFM margin plus the shared strict ownership/position proof, or authoritative removal of the managed scope |
+| `FUTURES_MARGIN_LOW` | warning below 2× configured ratio, critical at/below ratio or pending de-risk / `futures:live` | Known recovered margin or confirmed flat managed scope without a pending duty |
+| `FUTURES_POSITION_MISMATCH` | critical / `deployment:<id>` | Valid fresh exact contract/side match; accounting, fills, projection and resting-order evidence must permit comparison |
+| `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` | critical / `product:<id>` | Complete fresh external-order absence plus a valid matching position |
+
+Failed inventory observations apply no recovery checks. Explicit failed account reads
+immediately raise durable blindness for managed books, including stopped-flat books with
+pending duties or unresolved inventory. Never-observed evidence has a 180-second grace
+from a durable obligation/creation lower bound; a known receipt uses its original timestamp.
+Unknown reads cannot resolve existing alerts. A historical stopped-flat book without duties
+needs no additional CFM read. Alert storage failure returns failed observation, not success.
+
+Alerts, live book labels and reconciliation share a strict proof: exactly one managed
+product owner, complete accounting and external orders, exact persisted intent/order/fill
+identities, full signed applied ledger equality, and fresh post-fill-plus-five-second evidence.
+A flat observation must also be strictly after its durable confirmation lower bound. Missing
+intents, duplicate owners and partial listings remain unknown; later valid proof can recover.
+Readiness explicitly reports `POSITION_COMPARISON_UNPROVEN` when its mirror cannot supply
+that proof. Margin severity uses exact products, not the rounded display ratio; invalid or
+inexact safety math reports `FUTURES_MARGIN_UNKNOWN`. Display math contains Decimal failures
+without modifying the caller context. Durable alert IDs and watermarks are unchanged.
+
+`FUTURES_ORPHAN_ORDER` is a warning one-off keyed by `orphan:<audit-event-id>` from an
+existing confirmed cancellation event. The newest 500 audit rows are observed; replay uses
+the event's timestamp and cannot increment occurrences or cancel again. It has no inferred
+all-clear. `FUTURES_FUNDING_DRIFT` has no producer without authoritative settlement and
+fully managed interval evidence. `live.funding_drift_status` is explicitly `unknown`, reason
+`SETTLEMENT_PROVENANCE_UNAVAILABLE`; mirror deltas are not a settlement formula.
+
+`futures-books.payload.books[]` now includes persisted live states without enabling starts.
+`orderable` remains false. `live` is null for paper and an account-scoped object for live:
+`observed_at`, `evidence_status`, `venue_contracts` (signed), `match_state` / `match_reason`,
+`margin_ratio`, `available_margin_usd`, `buying_power_usd`, `initial_margin_usd`,
+`reserve_currency`, `reserve_quote`, `reserve_required_usd`, `reserve_headroom_quote`,
+`reserve_covers_current_margin`, `funding_accrued_usd`, `venue_funding_pnl_usd` and explicit
+funding scope/drift metadata. Unknown, stale, future-dated or inexact evidence yields null.
+Both `funding_total` and `live.funding_accrued_usd` use the same exact modeled sum.
+An inexact/nonfinite/overflow total is `null`, with `funding` in `unknown`; neither field
+substitutes a rounded total or zero or becomes settlement proof. A known empty ledger
+remains `"0"`, and ordinary paper totals keep their exact values. HTTP list/detail and
+validated CLI consumers share this nullable contract.
+Held-book account recovery also requires an evaluable exact margin classification and
+applicable live de-risk policy. I9 recovery is independent: matched positions do not certify
+margin safety. Complete flat proof does not need a held-position margin threshold, but a
+persisted de-risk duty still prevents low-margin recovery. Arithmetic failure in stopped
+accounting leaves scope unknown rather than retiring the book.
+The reserve is one quote currency under a declared peg, never USD added to USDC. The reserve
+covers current margin; the P2-3 probe additionally checks proposed margin. Book equity uses
+live allocation plus ledger equity, not the account total. Comparison does not clear duties.
+`entry_blocks` carries actual gate reasons for minimum one-contract probes in both directions;
+an empty list is not a live-start capability or approval of a particular strategy order.
+
+Reconciliation futures rows carry `classification`, `deployment_id`, `book_contracts` and
+`comparison_reason`. `managed_mismatch` adds critical `FUTURES_MANAGED_POSITION_MISMATCH`.
+`managed_orders` requires exact persisted product/client/intent identity; `orders` contains
+remaining venue rows, whose foreign classification is valid only when
+`orders_classification_complete` is true. Partial reads and accounting gaps remain unknown.
+Readiness adds `live_books` duties and `collateral_group` reserve/headroom; findings include
+`FUTURES_LIVE_BOOKS`, `FUTURES_DERISK_PENDING`, `FUTURES_FLAT_CONFIRMATION_PENDING`,
+`FUTURES_MANAGED_POSITION_MISMATCH`, `FUTURES_MARGIN_LOW` and reserve shortage. Fleet checks
+add `live_futures` only to live CFM; every shared spot check remains unchanged.
+No schema revision or live-start capability changes; Alembic stays `0076`, order paths empty.
 
 ## Portfolio value scope
 
@@ -367,8 +441,13 @@ This report does not change canonical result bytes and is null for paper/live.
 
 ## Readiness preflight and venue reconciliation (ADR 0114)
 
-Futures (ADR 0127): `readiness.payload.futures` is `null` when no CFM mirror snapshot exists;
-otherwise `observed_at`, `stale`, `enablement`, `currency: USD`, `futures_buying_power`,
+Futures (ADR 0127): `readiness.payload.futures` is `null` when no CFM mirror snapshot exists.
+An absent or empty mirror adds `FUTURES_ACCOUNT_UNKNOWN` (severity `unknown`) when managed
+live books or unknown stopped scope require observation; persisted duty findings remain.
+No books or completely retired historical books do not require a missing-observation finding.
+Storage failures, failed observations and stale receipts retain their existing unknown findings.
+A null section never supplies synthetic balances, margin, positions or an observation time.
+With a receipt: `observed_at`, `stale`, `enablement`, `currency: USD`, `futures_buying_power`,
 `cbi_usd_balance`, `cfm_usd_balance`, `available_margin`, `liquidation_threshold`,
 `liquidation_buffer_amount`, `liquidation_buffer_percentage`, `margin_ratio`, `unrealized_pnl`,
 `funding_pnl`, `positions` (`product_id`, `side`, `number_of_contracts`; `null` when unknown) and

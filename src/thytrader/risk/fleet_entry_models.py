@@ -22,18 +22,21 @@ Blocker classes say what clears a block:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.risk.models import RiskReasonCode
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime
     from uuid import UUID
 
     from thytrader.risk.beta import BetaEvidence
     from thytrader.risk.futures_beta import FuturesLegs
     from thytrader.risk.futures_collateral import FuturesCollateralEvidence
+    from thytrader.risk.futures_entry_probe import LiveFuturesProbe
+    from thytrader.risk.futures_live import FuturesVenueEvidence
     from thytrader.risk.models import RiskVerdict
     from thytrader.trading.models import DeploymentMode, DeploymentSnapshot
 
@@ -56,6 +59,7 @@ type FleetCheckName = Literal[
     "drawdown_latch",
     "linked_futures_breaker",
     "entry_cluster",
+    "live_futures",
 ]
 
 FLEET_CHECKS: tuple[FleetCheckName, ...] = (
@@ -72,6 +76,7 @@ FLEET_CHECKS: tuple[FleetCheckName, ...] = (
     "drawdown_latch",
     "linked_futures_breaker",
     "entry_cluster",
+    "live_futures",
 )
 
 EVIDENCE_REASON_CODES: frozenset[str] = frozenset(
@@ -142,6 +147,8 @@ class FleetScopeEvidence:
     futures_collateral: FuturesCollateralEvidence | None = None
     collateral_loaded: bool = True
     futures_legs: FuturesLegs | None = None
+    live_futures_venue: FuturesVenueEvidence | None = None
+    live_futures_probes: Mapping[UUID, LiveFuturesProbe] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

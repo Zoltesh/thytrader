@@ -15,12 +15,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from thytrader.api.dependencies import (
     get_execution_store,
+    get_futures_account_store,
     get_futures_start,
     get_optional_decision_journal_store,
     get_risk_policy_store,
 )
+from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
 from thytrader.execution.decision_store import DecisionJournalStore
 from thytrader.execution.futures_start import FuturesStart
+from thytrader.execution.futures_visibility import read_visibility_account
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.operator.futures_books_report import (
     FuturesBookPayload,
@@ -28,7 +31,7 @@ from thytrader.operator.futures_books_report import (
     futures_book_payload,
 )
 from thytrader.risk.store import RiskPolicyStore
-from thytrader.trading.models import ExecutionStoreError
+from thytrader.trading.models import DeploymentMode, ExecutionStoreError
 from thytrader.trading.store import ExecutionStore
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
@@ -41,10 +44,13 @@ async def get_deployment_futures(
     journal: Annotated[DecisionJournalStore | None, Depends(get_optional_decision_journal_store)],
     futures_start: Annotated[FuturesStart | None, Depends(get_futures_start)],
     risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
+    futures_account: Annotated[
+        FuturesAccountSnapshotStore | None, Depends(get_futures_account_store)
+    ],
 ) -> FuturesBookPayload:
     """Return the futures view of one futures bot; 404 for a spot or unknown bot."""
     try:
-        snapshot = await store.get_deployment(deployment_id)
+        snapshot = await store.get_accounting_snapshot(deployment_id)
     except ExecutionStoreError as error:
         code = (
             status.HTTP_404_NOT_FOUND
@@ -56,10 +62,32 @@ async def get_deployment_futures(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="This deployment is not a futures book."
         )
+    books = (snapshot,)
+    account = None
+    account_observation = None
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        try:
+            books = tuple(
+                [
+                    await store.get_accounting_snapshot(row.id)
+                    for row in await store.list_deployments()
+                    if row.mode is DeploymentMode.LIVE and is_futures_product_id(row.product_id)
+                ]
+            )
+            account, account_observation = await read_visibility_account(
+                futures_account,
+                None if futures_start is None else futures_start.observations,
+                books,
+            )
+        except Exception:  # noqa: BLE001 - read-only evidence failures stay unknown.
+            account = None
     return await futures_book_payload(
         snapshot,
         journal=journal,
         contracts=None if futures_start is None else futures_start.contracts,
         observations=None if futures_start is None else futures_start.observations,
         policy=await effective_policy_or_none(risk_store),
+        account=account,
+        account_observation=account_observation,
+        books=books,
     )

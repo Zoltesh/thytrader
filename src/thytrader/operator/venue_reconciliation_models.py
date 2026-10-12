@@ -43,6 +43,7 @@ class VenueSeverity(StrEnum):
 
     INFO = "info"
     WARNING = "warning"
+    CRITICAL = "critical"
     UNKNOWN = "unknown"
 
 
@@ -184,8 +185,8 @@ class OrderReconciliationSection(_FrozenModel):
 
 
 FUTURES_RECONCILIATION_NOTE = (
-    "ThyTrader manages no futures, so every CFM position and futures order is external, "
-    "unmanaged exposure (ADR 0127). Positions come from the newest read-only mirror "
+    "CFM rows distinguish proved managed matches/mismatches, external exposure and unknown "
+    "ownership (ADR 0134). Positions come from the newest read-only mirror "
     "snapshot; notional is USD (contracts x contract size x current price) and is never "
     "added to USDC. Futures margin draws on the USDC spot balance, which Coinbase counts as "
     "collateral."
@@ -202,7 +203,12 @@ class FuturesExternalPositionRow(_FrozenModel):
     underlying: str | None = None
     current_price: str | None = None
     notional_usd: str | None = None
-    classification: Literal["external_unmanaged"] = "external_unmanaged"
+    classification: Literal[
+        "managed_matched", "managed_mismatch", "external_unmanaged", "unknown"
+    ] = "external_unmanaged"
+    deployment_id: UUID | None = None
+    book_contracts: str | None = None
+    comparison_reason: str | None = None
 
 
 class FuturesReconciliationSection(_FrozenModel):
@@ -221,6 +227,8 @@ class FuturesReconciliationSection(_FrozenModel):
     unmanaged_notional_usd: str | None = None
     orders: tuple[ForeignOpenOrderRow, ...] | None = None
     orders_listing: VenueListingEvidence = Field(default_factory=VenueListingEvidence)
+    managed_orders: tuple[ForeignOpenOrderRow, ...] = ()
+    orders_classification_complete: bool = False
     note: str = FUTURES_RECONCILIATION_NOTE
 
 

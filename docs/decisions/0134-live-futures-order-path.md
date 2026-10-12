@@ -196,6 +196,29 @@ or ADL, detectable through `is_liquidation`) as the I9 repair, P2-10 funding tru
 P2-11 dated contracts with an expiry flatten, P2-12 websocket futures balance and position
 evidence.
 
+### P2-6 implementation status
+
+The initial read-only safety observer and `health.futures_live` consumer are implemented.
+The observer covers account blindness, configured margin boundaries and pending de-risk,
+persisted I9 mismatch pauses, and external-order facts from an explicitly injected source.
+It reuses durable alert dedupe/recovery/delivery and existing account evidence. It does not
+construct a production futures broker or authorize any mutation.
+
+P2-6 adds persisted live-book visibility, strict managed/mismatch/external reconciliation,
+readiness duties and collateral headroom, the actual P2-3 admission probes for live CFM fleet
+health, and Home/bot venue facts. Confirmed orphan-cancellation audit events produce one-off
+warnings through the existing durable feed, not another cancellation. The bounded newest-500
+audit window is explicit, not an assertion of complete historical event coverage.
+
+The remaining external evidence boundary is **funding settlement provenance**. No available
+mirror field proves settlement boundaries or fully managed interval coverage. Therefore
+`FUTURES_FUNDING_DRIFT` is reserved but unobserved, and every live book explicitly exposes
+unknown with `SETTLEMENT_PROVENANCE_UNAVAILABLE`. Neither a `funding_pnl` delta nor an hourly
+modeled accrual is manufactured into a settlement. This boundary must be resolved with
+validated venue evidence before a funding-drift producer can be claimed. All live start
+surfaces retain `FUTURES_LIVE_UNSUPPORTED`; `FUTURES_ORDER_PATHS` stays empty and every
+capability remains `orderable: false` pending authentic acceptance and P2-7.
+
 ### 6. Decisions taken
 
 - **a. Flip guard.** When I9 finds the venue position larger than the book or on the opposite

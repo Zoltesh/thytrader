@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Literal
 
 from thytrader.exchanges.futures_models import FuturesAccountStoreUnavailableError
 from thytrader.exchanges.read_errors import ExchangeReadError, ExchangeReadFailureKind
+from thytrader.execution.futures_visibility import observation_live_account
+from thytrader.operator.futures_classification import classify_positions, managed_order_row
 from thytrader.operator.venue_reconciliation_models import (
     ForeignOpenOrderRow,
     FuturesExternalPositionRow,
@@ -29,6 +31,8 @@ from thytrader.operator.venue_reconciliation_models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from thytrader.exchanges.futures_models import (
         FuturesAccountObservation,
         FuturesAccountSnapshotStore,
@@ -37,6 +41,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.instruments import FuturesProduct
     from thytrader.market_data.service import MarketDataService
     from thytrader.portfolio.service import PortfolioService
+    from thytrader.trading.models import DeploymentSnapshot
 
 _STALE_AFTER = timedelta(seconds=180)
 PositionsSource = Literal["mirror_snapshot", "stale", "unavailable", "not_observed"]
@@ -49,21 +54,65 @@ async def futures_reconciliation(
     market_data: MarketDataService | None,
     findings: list[VenueFinding],
     now: datetime | None = None,
+    snapshots: Sequence[DeploymentSnapshot] = (),
+    managed_complete: bool = True,
 ) -> FuturesReconciliationSection:
     """Build the futures section; every unknown input is disclosed as unknown."""
     observed = now or datetime.now(UTC)
     orders, orders_listing = await _futures_orders(portfolio, findings)
     latest, source = await _latest(store, observed, findings)
     contracts = await _contracts(market_data)
+    managed_orders = ()
+    classification_complete = managed_complete and orders_listing.status == "complete"
+    if orders is not None and classification_complete:
+        managed_orders = tuple(row for row in orders if managed_order_row(row, snapshots))
+        orders = tuple(row for row in orders if row not in managed_orders)
+    external = (
+        None
+        if not classification_complete or orders is None
+        else frozenset(row.product_id for row in orders if row.product_id is not None)
+    )
+    account = (
+        None
+        if latest is None
+        else observation_live_account(
+            latest, {key: value.contract_size for key, value in contracts.items()}, external
+        )
+    )
     positions = None
     total: str | None = None
     if latest is not None and latest.positions is not None:
         rows = tuple(
             _row(position, contracts.get(position.product_id)) for position in latest.positions
         )
-        positions = rows
-        total = _total(rows)
-        if rows:
+        positions = classify_positions(
+            rows,
+            snapshots=snapshots,
+            account=account,
+            complete=managed_complete and source == "mirror_snapshot",
+            now=observed,
+        )
+        unknown = any(row.classification == "unknown" for row in positions)
+        external_rows = tuple(
+            row for row in positions if row.classification == "external_unmanaged"
+        )
+        total = None if unknown else _total(external_rows)
+        findings.extend(
+            VenueFinding(
+                reason_code="FUTURES_MANAGED_POSITION_MISMATCH"
+                if row.classification == "managed_mismatch"
+                else "FUTURES_COMPARISON_UNKNOWN",
+                severity=VenueSeverity.CRITICAL
+                if row.classification == "managed_mismatch"
+                else VenueSeverity.UNKNOWN,
+                deployment_id=row.deployment_id,
+                detail=f"{row.product_id}: {row.classification}; "
+                "compare signed contracts and observation coverage before new risk.",
+            )
+            for row in positions
+            if row.classification in {"managed_mismatch", "unknown"}
+        )
+        if external_rows:
             amount = (
                 f"{total} USD" if total is not None else "unknown USD (a contract size is unknown)"
             )
@@ -72,12 +121,13 @@ async def futures_reconciliation(
                     reason_code="FUTURES_EXTERNAL_POSITIONS",
                     severity=VenueSeverity.INFO,
                     detail=(
-                        f"{len(rows)} external CFM position(s), notional {amount}: unmanaged "
+                        f"{len(external_rows)} external CFM position(s), "
+                        f"notional {amount}: unmanaged "
                         "exposure on collateral shared with the USDC spot balance."
                     ),
                 )
             )
-    if orders:
+    if orders and classification_complete:
         findings.append(
             VenueFinding(
                 reason_code="FUTURES_EXTERNAL_ORDERS",
@@ -92,6 +142,8 @@ async def futures_reconciliation(
         unmanaged_notional_usd=total,
         orders=orders,
         orders_listing=orders_listing,
+        managed_orders=managed_orders,
+        orders_classification_complete=classification_complete,
     )
 
 
@@ -111,7 +163,7 @@ async def _latest(
     if latest.positions is None:
         findings.append(_positions_unknown("The newest CFM position read failed."))
         return latest, "unavailable"
-    if now - latest.observed_at > _STALE_AFTER:
+    if latest.observed_at > now or now - latest.observed_at > _STALE_AFTER:
         findings.append(_positions_unknown("The newest CFM snapshot is older than 3 minutes."))
         return latest, "stale"
     return latest, "mirror_snapshot"

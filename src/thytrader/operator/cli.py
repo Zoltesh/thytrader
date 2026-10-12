@@ -168,7 +168,7 @@ def _parser() -> argparse.ArgumentParser:
         "futures-books",
         parents=[trailing],
         help=(
-            "Paper futures books (ADR 0129): bound contract, position in contracts, mark, "
+            "Paper/live futures visibility (live starts disabled): contract, venue comparison, "
             "equity, notional, leverage, overnight initial/maintenance margin, liquidation "
             "buffer vs the policy minimum, and the funding ledger. USD; read-only."
         ),

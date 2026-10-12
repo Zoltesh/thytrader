@@ -15,6 +15,7 @@ from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
 from thytrader.operator.execution_cycle_report import execution_cycle_health
 from thytrader.operator.fleet_health_report import fleet_alert_health_component
+from thytrader.operator.futures_live_health import futures_live_health_component
 from thytrader.operator.health_models import (
     ConfigurationPayload,
     ConfigurationReport,
@@ -66,6 +67,7 @@ async def build_health_report(
         research_component,
         await _exchange_component(diagnostics),
         await fleet_alert_health_component(diagnostics.alert_store),
+        await futures_live_health_component(diagnostics.alert_store),
     ]
     warnings: list[str] = []
     if diagnostics.settings.database_url is None:

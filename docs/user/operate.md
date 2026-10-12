@@ -234,14 +234,28 @@ context: it shows no amber strip; live rows and items carry a **LIVE** tag.
   account: whether futures are enabled, buying power, margin ratio (available margin over the
   liquidation threshold; blank with no open positions), liquidation buffer and funding PnL, all
   in USD. Buying power is shared with your USDC spot balance: Coinbase counts USDC as futures
-  collateral, so it is not extra money. Open positions are listed as external; no bot manages
-  them and ThyTrader cannot place futures orders. A failed read says unknown, never zero.
+  collateral, so it is not extra money. The ownership section distinguishes managed matched,
+  managed mismatch, external unmanaged and unknown from the read-only reconciliation report.
+  Incomplete or stale evidence says unknown, never flat or foreign by assumption. Live starts
+  remain disabled. Cash, pending transfers and funding counters remain separate fields.
   Below the account, **Paper futures books (USD)** lists each paper futures book that is not
   stopped: name and contract, side and contracts, equity and liquidation buffer, and a warning
   chip (**Entries denied** or **Unknown evidence**) when something blocks its next entry. Each
   row opens the bot. A line shows the paper cash committed against the policy's paper futures
   capital. The card appears whenever either part has something to show, so paper books are
-  listed even when the futures account was never mirrored.
+  listed even when the futures account was never mirrored. Persisted injected live states show
+  **Managed futures books**, including stopped books with outstanding safety duties. Their bot
+  view adds timestamped account margin/buying power, venue contracts and match state, USD vs
+  USDC reserve/headroom, de-risk and flat-confirmation duties. Funding is labeled modeled accrual
+  versus an account counter, with settlement drift explicitly unknown. Neither a healthy card
+  nor an empty entry-block list enables live orders; the start form remains paper-only. Failed
+  book reads are shown rather than hiding managed inventory, including failed/partial report
+  envelopes returned with HTTP 200 and failures before any account mirror exists. **Refresh
+  futures books** retries independently. A failed refresh retains last-good rows labeled stale;
+  first-load partial rows are explicitly incomplete, never a verified empty inventory.
+  Those warnings stay visible while a retry is pending, even if it never returns; only a
+  successful authoritative response clears them. Slow futures reads do not block spot views.
+  Unrepresentable modeled funding totals display Unknown, not a rounded amount or zero.
 - **Fee tier.** One line: tier, maker and taker rates, 30-day volume, and when Coinbase reported it.
 - **Data health.** A disclosure at the bottom (open it directly with `/#data-health`): watched
   datasets with coverage, newest candle, watch and worker state, and the same problem words as

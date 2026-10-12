@@ -7,6 +7,7 @@
  * only: there is no live futures order path.
  */
 import { formatUsd } from '$lib/portfolio';
+import { liveFuturesGroup, type LiveFuturesBook } from './futures-book-live';
 import { formatUtcMinute } from '$lib/time';
 
 export type FuturesEntryBlock =
@@ -15,7 +16,8 @@ export type FuturesEntryBlock =
 	| 'FUNDING_HISTORY_MISSING'
 	| 'FUTURES_POLICY_UNSET';
 
-export type FuturesUnknownEvidence = 'binding' | 'mark' | 'margin_rates' | 'funding' | 'policy';
+export type FuturesUnknownEvidence =
+	'binding' | 'mark' | 'margin_rates' | 'funding' | 'policy' | 'venue_account';
 
 /** One funding hour applied to the book (USD; a negative `amount` was paid). */
 export type FuturesFundingEntry = {
@@ -61,14 +63,16 @@ export type FuturesBookPayload = {
 	liquidation_buffer_fraction: string | null;
 	min_liquidation_buffer_fraction: string | null;
 	liquidation_price: string | null;
-	funding_total: string;
+	funding_total: string | null;
 	funding_hours: number;
 	funding_overdue_since: string | null;
 	recent_funding: FuturesFundingEntry[];
 	futures_derisk_pending?: boolean;
 	futures_flat_confirmation_after?: string | null;
 	daily_loss_latched: boolean;
-	entry_blocks: FuturesEntryBlock[];
+	orderable?: false;
+	live?: LiveFuturesBook | null;
+	entry_blocks: string[];
 	unknown: FuturesUnknownEvidence[];
 };
 
@@ -108,7 +112,8 @@ const UNKNOWN_TEXT: Record<FuturesUnknownEvidence, string> = {
 	mark: 'mark price',
 	margin_rates: 'margin rates',
 	funding: 'funding history',
-	policy: 'risk policy'
+	policy: 'risk policy',
+	venue_account: 'venue account'
 };
 
 /** `$1,234.50`, `Unknown` for null, or the exact text with `USD` when it is not canonical. */
@@ -294,7 +299,12 @@ function fundingGroup(book: FuturesBookPayload): FuturesFactGroup {
 		id: 'funding',
 		title: 'Funding',
 		facts: [
-			fact('funding-total', 'Funding total', usdText(book.funding_total), 'Negative was paid'),
+			fact(
+				'funding-total',
+				book.mode === 'live' ? 'Modeled accrued funding' : 'Funding total',
+				usdText(book.funding_total),
+				book.mode === 'live' ? 'Not venue settlement' : 'Negative was paid'
+			),
 			fact('funding-hours', 'Funding hours', String(book.funding_hours))
 		]
 	};
@@ -320,7 +330,13 @@ function fundingRow(entry: FuturesFundingEntry): FuturesFundingRow {
 /** The bot-detail card's view of one paper futures book. */
 export function futuresBookView(book: FuturesBookPayload): FuturesBookView {
 	return {
-		groups: [contractGroup(book), positionGroup(book), riskGroup(book), fundingGroup(book)],
+		groups: [
+			contractGroup(book),
+			positionGroup(book),
+			riskGroup(book),
+			fundingGroup(book),
+			...(book.mode === 'live' ? [liveFuturesGroup(book)] : [])
+		],
 		fundingRows: book.recent_funding.map(fundingRow),
 		fundingOverdue:
 			book.funding_overdue_since === null
@@ -360,12 +376,17 @@ function rowWarning(book: FuturesBookPayload): string | null {
 /** Home's "Paper futures books" rows: every book that is not stopped; null when none. */
 export function futuresBooksSection(report: FuturesBooksReport): FuturesBooksSection | null {
 	const rows = report.payload.books
-		.filter((book) => book.status !== 'stopped')
+		.filter(
+			(book) =>
+				book.status !== 'stopped' ||
+				book.futures_derisk_pending ||
+				book.futures_flat_confirmation_after != null
+		)
 		.map((book): FuturesBookRow => ({
 			id: book.deployment_id,
 			name: book.strategy_name ?? book.product_id,
 			product: book.product_id,
-			status: book.status,
+			status: `${book.mode} · ${book.status}`,
 			position: sideLine(book),
 			equity: usdText(book.equity),
 			buffer: percentText(book.liquidation_buffer_fraction),

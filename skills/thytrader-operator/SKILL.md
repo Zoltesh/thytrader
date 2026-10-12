@@ -61,7 +61,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting, the same cycle's spot USDC/USD `spot_collateral`; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Futures account history (read-only) | `uv run thytrader-operator futures-account --history --since 2026-10-12T19:00:00Z [--until 2026-10-12T22:00:00Z]` | `GET /api/v1/operator/futures-account/history?since=…[&until=…]` (`futures_account_history`: every mirror snapshot in `[since, until)`, oldest first, at most 2880 rows; `gaps`, `margin_window_changes`; for supervising a manual futures trade; [ADR 0127 §10](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
-| Paper futures books (read-only) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
+| Futures books (read-only; live starts disabled) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
 | Indicators | `uv run thytrader-operator indicators` | `GET /api/v1/operator/indicators` |
 | Strategies / runtimes | `uv run thytrader-operator strategies` | `GET /api/v1/operator/strategies` |
@@ -348,7 +348,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v95`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v96`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -599,6 +599,74 @@ the default 30 s interval): the slack health already grants every worker loop.
 Report the slowest phase and books, the venue and database time, and whether books
 were `warming` (a cold candle cache after a restart is slow for a few cycles and clears by
 itself). Escalate a persistent `CYCLE_SLOW` to a contributor; operators cannot tune it.
+
+## Live futures safety visibility (staged P2-6)
+
+`uv run thytrader-operator alerts` includes the worker's read-only futures safety
+observations. `health` adds `futures_live`, reading **all** open futures alerts (not just
+one page). A critical alert fails that component; warnings degrade it. Unconfigured or
+unreadable alert storage returns `FUTURES_ALERTS_UNAVAILABLE`. No open alert is not proof
+of a successful observation or permission to trade.
+
+- `FUTURES_ACCOUNT_UNKNOWN` (critical, `futures:live`): a required observation failed, or
+  managed live inventory (including stopped books with durable duties) has unknown/stale
+  CFM margin evidence. An explicit read failure is immediate; never-observed evidence has
+  a 180-second grace from the durable obligation/creation lower bound. Existing receipt
+  age never resets on a local write. Recovery needs fresh finite margin and the shared
+  strict ownership/position proof, or authoritative removal of the managed scope.
+  Unknown evidence never resolves an existing alert; historical flat stopped books without
+  duties do not cause extra CFM reads.
+- `FUTURES_MARGIN_LOW` (`futures:live`): warning below twice `live_derisk_margin_ratio`,
+  critical at/below that ratio or while a durable de-risk duty is pending. The opt-in is
+  not required for protection alerts. Recovery requires known recovered margin or verified
+  flat managed books with no pending duty. Unset ratio does not invent a warning threshold.
+- `FUTURES_POSITION_MISMATCH` (critical, `deployment:<id>`): a persisted I9 mismatch pause.
+  Only a valid fresh venue/book match clears the alert; it never resumes the book.
+- `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` (critical, `product:<id>`): the injected source
+  proves an external nonterminal order on a managed product. A complete fresh order read
+  and valid matching position clear it. Client-id prefixes never establish ownership.
+
+- `FUTURES_ORPHAN_ORDER` (warning, `orphan:<audit-event-id>`): an existing confirmed
+  `futures_orphan_order_cancelled` audit event, replayed with its original timestamp for
+  durable one-off dedupe. It never cancels again. The observer reads the newest 500 audit
+  events; absence from that bounded window is not a recovery or full-history claim.
+- `FUTURES_FUNDING_DRIFT` remains **unobserved**: authoritative settlement boundaries and
+  fully managed interval provenance are unavailable. Books explicitly return
+  `funding_drift_status: unknown` / `SETTLEMENT_PROVENANCE_UNAVAILABLE`; hourly modeled
+  accrual and account `funding_pnl` counters are not settlement proof.
+
+`futures-books` and the per-bot futures GET now list persisted paper and injected live states.
+Live rows have `orderable: false`, `live` account facts with original receipt time, signed venue
+contracts and comparison state, USD buying power/margin, and separately denominated reserve
+and headroom under the declared peg. Funding is book-modeled accrual versus an account counter,
+never a per-book venue settlement. `entry_blocks` includes actual P2-3 gate denials for a
+minimum whole-contract long/short probe; this is advisory, not a strategy order preflight.
+`venue-reconciliation` distinguishes `managed_matched`, `managed_mismatch`, `external_unmanaged`
+and `unknown`. Missing managed reads, duplicate ownership, stale receipts, unprojected economics,
+unapplied fills or incomplete/foreign order evidence never certify a match. Managed order
+identity requires exact persisted product/client/intent identity, not a client-id prefix.
+The same proof gates book labels and alert recovery: one managed product owner, complete
+accounting and external-order coverage, full signed applied fill ledger, quiescent orders,
+and a fresh observation strictly after the last fill plus five seconds and any flat duty bound.
+Readiness's mirror alone cannot prove ownership; `POSITION_COMPARISON_UNPROVEN` is explicit.
+An absent or empty mirror still emits readiness `FUTURES_ACCOUNT_UNKNOWN` for required or
+unknown live scope, including stopped books with incomplete accounting or durable duties.
+Without a receipt, `payload.futures` stays null; no balance, margin or observation time is
+invented. No-book fleets and completely retired historical books remain exempt from this
+missing-observation finding; explicit read failures and stale receipts remain unknown.
+Held-book account recovery requires exact evaluable margin and applicable policy, not only
+a position match. Stopped scope arithmetic failures remain unknown obligations.
+`funding_total` and `live.funding_accrued_usd` are the same nullable exact modeled sum;
+inexact or overflowing totals are unknown, never a rounded amount or zero.
+Margin severity compares exact products; the four-place ratio is display-only and an
+unrepresentable ratio remains unknown (`FUTURES_MARGIN_UNKNOWN` for missing safety evidence).
+`readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
+and `collateral_group` headroom. `fleet-health` runs P2-3 probes in `live:CFM-USD`; fleet-wide
+failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged.
+Production uses the existing mirror, not new CFM venue reads; worker external-order evidence
+requires the explicitly injected source. A failed observer records unknown, not all-clear.
+Live starts still refuse `FUTURES_LIVE_UNSUPPORTED`, `futures_order_paths` remains empty,
+and visibility never grants lifecycle, order, cancellation or policy authority.
 
 ## Safety alert recovery and delivery (ADR 0115)
 

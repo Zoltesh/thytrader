@@ -284,6 +284,26 @@ class ReadinessFuturesPosition(_FrozenModel):
     number_of_contracts: str
 
 
+class ReadinessFuturesDuty(_FrozenModel):
+    """Independent durable obligations, not cancellation or reduction authority."""
+
+    deployment_id: UUID
+    product_id: str
+    derisk_pending: bool
+    flat_confirmation_after: datetime | None
+    position_comparison: Literal["unknown"] = "unknown"
+
+
+class FuturesCollateralGroup(_FrozenModel):
+    """Declared-peg threshold only; USD and USDC amounts are never summed."""
+
+    currency: str | None
+    reserve_quote: str | None
+    required_margin_usd: str | None
+    headroom_quote: str | None
+    covers_current_margin: bool | None
+
+
 class ReadinessFuturesSection(_FrozenModel):
     """The CFM futures account from the newest mirror snapshot (ADR 0127).
 
@@ -308,6 +328,8 @@ class ReadinessFuturesSection(_FrozenModel):
     funding_pnl: str | None = None
     positions: tuple[ReadinessFuturesPosition, ...] | None = None
     collateral_note: str
+    live_books: tuple[ReadinessFuturesDuty, ...] = ()
+    collateral_group: FuturesCollateralGroup | None = None
 
     @field_validator("observed_at")
     @classmethod

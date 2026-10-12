@@ -13,7 +13,9 @@
 </script>
 
 <div class="books" data-testid="futures-books">
-	<h3 id="futures-books-title">Paper futures books (USD)</h3>
+	<h3 id="futures-books-title">
+		{section.rows.some((row) => row.status.startsWith('live')) ? 'Managed' : 'Paper'} futures books (USD)
+	</h3>
 	<p class="envelope" data-testid="futures-books-envelope">
 		{section.committed} committed of {section.capital} paper futures capital
 	</p>

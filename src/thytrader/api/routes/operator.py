@@ -18,6 +18,7 @@ from thytrader.api.dependencies import (
     get_dataset_store,
     get_decision_journal_store,
     get_execution_store,
+    get_futures_account_store,
     get_futures_start,
     get_history_store,
     get_market_data_service,
@@ -37,6 +38,7 @@ from thytrader.api.dependencies import (
 )
 from thytrader.audit_events import AuditEventStore  # noqa: TC001
 from thytrader.backtest.results import BacktestResultReader  # noqa: TC001
+from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
 from thytrader.execution.decision_store import DecisionJournalStore  # noqa: TC001
 from thytrader.execution.decisions import DECISION_PAGE_MAX_LIMIT, DecisionOutcome
 from thytrader.execution.futures_start import FuturesStart  # noqa: TC001 - FastAPI Depends.
@@ -103,6 +105,9 @@ from thytrader.strategies.snapshots import StrategySnapshotStore  # noqa: TC001
 from thytrader.trading.store import ExecutionStore  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/operator", tags=["operator"])
+FuturesAccountDependency = Annotated[
+    FuturesAccountSnapshotStore | None, Depends(get_futures_account_store)
+]
 
 
 def get_operator_diagnostics(
@@ -129,6 +134,7 @@ def get_operator_diagnostics(
     research_queue: Annotated[PostgresResearchQueue | None, Depends(get_research_queue)],
     alert_store: Annotated[AlertStore, Depends(get_alert_store)],
     futures_book_stores: Annotated[FuturesStart | None, Depends(get_futures_start)],
+    futures_account_store: FuturesAccountDependency,
 ) -> OperatorDiagnostics:
     """Assemble diagnostics from the same application services as browser routes."""
     return OperatorDiagnostics(
@@ -156,7 +162,7 @@ def get_operator_diagnostics(
         research_queue=research_queue,
         alert_store=alert_store,
         futures_store=None if engine is None else PostgresFuturesObservationStore(engine),
-        futures_account_store=None if engine is None else PostgresFuturesAccountStore(engine),
+        futures_account_store=futures_account_store,
         futures_book_stores=futures_book_stores,
         futures_account_history_store=(
             None if engine is None else PostgresFuturesAccountStore(engine)

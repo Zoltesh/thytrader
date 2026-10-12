@@ -49,6 +49,7 @@ from thytrader.risk.fleet_entry_models import (
     blocking_book,
 )
 from thytrader.risk.futures_entry import futures_capital, linked_breaker_verdict
+from thytrader.risk.futures_entry_probe import live_probe_verdicts
 from thytrader.risk.gate_common import ProposedEntry, _book_products
 from thytrader.risk.models import RiskReasonCode
 from thytrader.risk.opening_diagnosis import accounting_gaps, daily_evidence_gaps
@@ -188,6 +189,7 @@ def evaluate_scope(
         _drawdown_latch_check(scope),
         _linked_breaker_check(scope),
         _cluster_check(scope),
+        *_live_futures_checks(scope),
     )
     return FleetScopeHealth(
         mode=evidence.mode,
@@ -199,6 +201,55 @@ def evaluate_scope(
         occupied_deployments=len(occupied),
         checks=checks,
     )
+
+
+def _live_futures_checks(scope: _Scope) -> tuple[FleetEntryCheck, ...]:
+    """Evaluate actual P2-3 probes only in live CFM; preserve all spot checks unchanged."""
+    if not scope.futures or scope.mode is not DeploymentMode.LIVE:
+        return ()
+    results = [
+        (
+            book,
+            live_probe_verdicts(
+                scope.policy,
+                book=book,
+                probe=scope.evidence.live_futures_probes.get(book.deployment.id),
+                snapshots=scope.snapshots,
+                venue=scope.evidence.live_futures_venue,
+                now=scope.observation.as_of,
+            ),
+        )
+        for book in scope.occupied()
+    ]
+    all_blocked = bool(results) and all(verdicts for _, verdicts in results)
+    checks = tuple(
+        FleetEntryCheck(
+            name="live_futures",
+            status="blocked",
+            detail=verdict.detail,
+            reason_code=verdict.reason_code.value,
+            blocker_class="capacity"
+            if verdict.reason_code
+            in {
+                RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
+                RiskReasonCode.FUTURES_BUYING_POWER_SHORT,
+            }
+            else "policy"
+            if verdict.reason_code
+            in {
+                RiskReasonCode.FUTURES_LIVE_DISABLED,
+                RiskReasonCode.FUTURES_LIVE_CAPITAL_UNSET,
+                RiskReasonCode.PRODUCT_NOT_ALLOWLISTED,
+                RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            }
+            else "evidence",
+            fleet_wide=all_blocked,
+            books=(blocking_book(book, verdict.detail),),
+        )
+        for book, verdicts in results
+        for verdict in verdicts
+    )
+    return checks or (FleetEntryCheck(name="live_futures", status="pass"),)
 
 
 def _admissibility(checks: Sequence[FleetEntryCheck]) -> FleetAdmissibility:

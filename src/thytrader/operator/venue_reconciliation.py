@@ -91,7 +91,13 @@ async def build_venue_reconciliation_report(
         inventory, venue_orders, orders_evidence, findings, managed_complete
     )
     futures = await futures_reconciliation(
-        portfolio=portfolio, store=futures_account, market_data=market_data, findings=findings
+        portfolio=portfolio,
+        store=futures_account,
+        market_data=market_data,
+        findings=findings,
+        snapshots=managed.snapshots,
+        managed_complete=managed_complete,
+        now=now,
     )
     demo = balances.demo or orders_evidence.demo
     if demo:
@@ -150,6 +156,17 @@ def _components(
 ) -> list[ComponentReport]:
     """Grade the report: warnings and unknown listings degrade; foreign holdings do not."""
     severities = {finding.severity for finding in findings}
+    if VenueSeverity.CRITICAL in severities:
+        return [
+            ComponentReport(
+                name="venue_reconciliation",
+                status=ReportStatus.FAILED,
+                reason_code="FUTURES_MANAGED_POSITION_MISMATCH",
+                detail=(
+                    "A proved managed futures position differs from the fresh venue observation."
+                ),
+            )
+        ]
     if VenueSeverity.WARNING in severities or VenueSeverity.UNKNOWN in severities:
         main = ComponentReport(
             name="venue_reconciliation",

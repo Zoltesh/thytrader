@@ -34,6 +34,7 @@ FleetCheck = Literal[
     "drawdown_latch",
     "linked_futures_breaker",
     "entry_cluster",
+    "live_futures",
 ]
 Admissibility = Literal["yes", "blocked", "unknown"]
 

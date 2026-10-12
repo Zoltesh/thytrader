@@ -172,5 +172,5 @@ function positionsLine(positions: FuturesPositionRow[] | null): string {
 	const rows = positions.map(
 		(row) => `${row.product_id} ${row.side} ${row.number_of_contracts} contract(s)`
 	);
-	return `External, not managed by any bot: ${rows.join(' · ')}`;
+	return `Venue positions (ownership shown separately): ${rows.join(' · ')}`;
 }

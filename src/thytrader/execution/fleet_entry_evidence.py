@@ -16,6 +16,7 @@ from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_paper import load_futures_legs
+from thytrader.execution.futures_visibility_fleet import load_live_futures_probes
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.accounting_evidence import accounting_snapshot, risk_market_data_scope
@@ -25,7 +26,12 @@ from thytrader.risk.fleet_entry_health import evaluate_fleet_entry_health, fleet
 from thytrader.risk.fleet_entry_models import BlockingBook, FleetEntryHealth, FleetScopeEvidence
 from thytrader.risk.futures_collateral import load_futures_collateral
 from thytrader.trading.ids import utc_now
-from thytrader.trading.models import ExecutionStoreError, resolved_product_id, snapshot_positions
+from thytrader.trading.models import (
+    DeploymentMode,
+    ExecutionStoreError,
+    resolved_product_id,
+    snapshot_positions,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -33,9 +39,10 @@ if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.execution.futures_paper import FuturesRuntime
     from thytrader.market_data.service import MarketDataService
     from thytrader.risk.models import RiskPolicyDefinition
-    from thytrader.trading.models import Deployment, DeploymentMode, DeploymentSnapshot
+    from thytrader.trading.models import Deployment, DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
 
 _READ_ERRORS = (ExecutionStoreError, RuntimeError, ValueError, OSError)
@@ -49,6 +56,7 @@ async def load_fleet_entry_health(
     market_data: MarketDataService | None,
     futures_account: FuturesAccountSnapshotStore | None,
     now: datetime | None = None,
+    futures_runtime: FuturesRuntime | None = None,
 ) -> FleetEntryHealth:
     """Evaluate every occupied scope; ``complete`` is false only when listing failed."""
     as_of = utc_now() if now is None else now
@@ -82,6 +90,7 @@ async def load_fleet_entry_health(
                 futures_account=futures_account,
                 as_of=as_of,
                 inhibited=None if inhibition is None else inhibition.get(mode.value),
+                futures_runtime=futures_runtime,
             )
             for mode, scope in fleet_entry_scopes(deployments)
         ]
@@ -155,6 +164,7 @@ async def _scope_evidence(
     futures_account: FuturesAccountSnapshotStore | None,
     as_of: datetime,
     inhibited: bool | None,
+    futures_runtime: FuturesRuntime | None = None,
 ) -> FleetScopeEvidence:
     """β, futures legs and the collateral state, read as entry admission reads them."""
     probe = _probe(scope, deployments, mode)
@@ -177,7 +187,14 @@ async def _scope_evidence(
         collateral = await load_futures_collateral(futures_account, mode=mode, as_of=as_of)
     except _EVIDENCE_ERRORS:
         collateral_loaded = False
+    venue, probes = (None, {})
+    if mode is DeploymentMode.LIVE and scope == FUTURES_SCOPE:
+        venue, probes = await load_live_futures_probes(
+            snapshots, store=futures_account, runtime=futures_runtime, now=as_of
+        )
     return FleetScopeEvidence(
+        live_futures_venue=venue,
+        live_futures_probes=probes,
         mode=mode,
         scope=scope,
         probe_product=probe,

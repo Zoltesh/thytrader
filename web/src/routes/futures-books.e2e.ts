@@ -104,6 +104,113 @@ function book(overrides: Record<string, unknown> = {}) {
 	};
 }
 
+for (const accountVisible of [false, true]) {
+	test(`Home shows failed books envelope with account ${accountVisible}`, async ({ page }) => {
+		await page.route('**/api/v1/operator/futures-account', (route) =>
+			route.fulfill({
+				json: {
+					overall_status: accountVisible ? 'healthy' : 'degraded',
+					components: accountVisible
+						? []
+						: [
+								{
+									name: 'futures_account',
+									status: 'degraded',
+									reason_code: 'FUTURES_MIRROR_NOT_RUN',
+									detail: 'Not observed'
+								}
+							],
+					payload: {
+						observed_at: accountVisible ? '2026-10-10T01:00:00Z' : null,
+						age_seconds: null,
+						stale: false,
+						enablement: accountVisible ? 'enabled' : null,
+						read_failures: [],
+						balance: null,
+						positions: []
+					}
+				}
+			})
+		);
+		await page.route('**/api/v1/operator/futures-books', (route) =>
+			route.fulfill({
+				json: {
+					...futuresBooksReport([]),
+					overall_status: 'failed',
+					components: [
+						{
+							name: 'futures_books',
+							status: 'failed',
+							reason_code: 'STORE_UNAVAILABLE',
+							detail: 'Execution storage could not be read.'
+						}
+					]
+				}
+			})
+		);
+		await page.goto('/');
+		await expect(page.getByTestId('futures-card')).toContainText('Managed inventory is unknown');
+		await expect(page.getByTestId('futures-card')).toContainText('STORE_UNAVAILABLE');
+	});
+}
+
+test('Home retains last good books across domain and transport refresh failure then recovers', async ({
+	page
+}) => {
+	let phase = 0;
+	await page.route('**/api/v1/operator/futures-books', (route) =>
+		route.fulfill({
+			status: phase === 2 ? 503 : 200,
+			json:
+				phase === 2
+					? { detail: 'Synthetic unavailable' }
+					: {
+							...futuresBooksReport(
+								phase === 1
+									? []
+									: [book({ strategy_name: phase === 3 ? 'Recovered book' : 'Last good book' })]
+							),
+							overall_status: phase === 1 ? 'failed' : 'healthy',
+							components:
+								phase === 1
+									? [
+											{
+												name: 'futures_books',
+												status: 'failed',
+												reason_code: 'STORE_UNAVAILABLE',
+												detail: 'Execution storage could not be read.'
+											}
+										]
+									: []
+						}
+		})
+	);
+	await page.goto('/');
+	const card = page.getByTestId('futures-card');
+	await expect(card).toContainText('Last good book');
+	for (phase = 1; phase <= 2; phase++) {
+		await card.getByRole('button', { name: 'Refresh futures books' }).click();
+		await expect(card).toContainText('Managed inventory is unknown');
+		await expect(card).toContainText('Last good book');
+		await expect(card).toContainText('stale');
+	}
+	await card.getByRole('button', { name: 'Refresh futures books' }).click();
+	await expect(card).toContainText('Recovered book');
+	await expect(card).not.toContainText('Managed inventory is unknown');
+});
+
+test('Home shows non-2xx partial rows as unverified inventory', async ({ page }) => {
+	await page.route('**/api/v1/operator/futures-books', (route) =>
+		route.fulfill({ status: 503, json: futuresBooksReport([book()]) })
+	);
+	await page.goto('/');
+	const card = page.getByTestId('futures-card');
+	await expect(card).toContainText('Managed inventory is unknown');
+	await expect(card).toContainText('HTTP_READ_FAILED');
+	await expect(card.getByTestId('futures-book-row')).toContainText('BTC perp trend');
+	await expect(card).toContainText('incomplete');
+});
+
 const unknownBook = book({
 	contract_kind: null,
 	fee_per_contract: null,
@@ -186,6 +293,56 @@ async function mockDetail(
 	}
 	return { futuresRequests: () => futuresRequests };
 }
+
+test('live futures detail keeps unknown settlement and disabled starts visible', async ({
+	page
+}) => {
+	await mockDetail(page, futuresDeployment({ mode: 'live' }), book({ mode: 'live' }));
+	await page.goto(`/deployments/${futuresId}`);
+	const card = page.getByTestId('futures-book');
+	await expect(card.getByRole('heading', { name: 'Live futures book (USD)' })).toBeVisible();
+	await expect(card.getByTestId('futures-fact-venue-match')).toContainText('Unknown');
+	await expect(card.getByTestId('futures-fact-funding-drift')).toContainText(
+		'SETTLEMENT_PROVENANCE_UNAVAILABLE'
+	);
+	await expect(card.getByTestId('futures-fact-live-orderable')).toContainText(
+		'starts remain disabled'
+	);
+});
+
+test('Home separates managed and external CFM positions', async ({ page }) => {
+	await page.route('**/api/v1/operator/futures-books', (route) =>
+		route.fulfill({ json: futuresBooksReport([book({ mode: 'live' })]) })
+	);
+	await page.route('**/api/v1/operator/venue-reconciliation', (route) =>
+		route.fulfill({
+			json: {
+				payload: {
+					futures: {
+						positions_source: 'mirror_snapshot',
+						positions: [
+							{
+								product_id: product,
+								classification: 'managed_matched',
+								number_of_contracts: '1',
+								side: 'long'
+							},
+							{
+								product_id: 'ETP-20DEC30-CDE',
+								classification: 'external_unmanaged',
+								number_of_contracts: '1',
+								side: 'short'
+							}
+						]
+					}
+				}
+			}
+		})
+	);
+	await page.goto('/');
+	await expect(page.getByTestId('futures-ownership')).toContainText('Managed matched');
+	await expect(page.getByTestId('futures-ownership')).toContainText('External unmanaged');
+});
 
 test('bot detail shows a known paper futures book in USD', async ({ page }) => {
 	await mockDetail(page, futuresDeployment(), book());
