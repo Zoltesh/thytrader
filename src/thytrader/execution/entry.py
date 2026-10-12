@@ -347,6 +347,7 @@ async def _submit_sized_entry(
     if (
         side is PositionSide.SHORT
         and snapshot.deployment.mode is DeploymentMode.LIVE
+        and not is_futures_product_id(product.product_id)
         and (live_base_available is None or live_base_available < sized.quantity)
     ):
         note_entry_block(
@@ -449,7 +450,17 @@ def _futures_entry_block(
     state = current_futures_book(snapshot.deployment.id)
     if state is None:
         return ("FUTURES_CONTRACT_UNBOUND", "The paper futures book state is not loaded.")
-    return state.entry_block()
+    blocked = state.entry_block()
+    if blocked is not None:
+        return blocked
+    if snapshot.deployment.mode is DeploymentMode.LIVE and (
+        state.latest_funding_rate is None or not state.latest_funding_rate.is_finite()
+    ):
+        return (
+            "FUNDING_HISTORY_MISSING",
+            "The live futures book needs a known settled funding rate.",
+        )
+    return None
 
 
 def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:

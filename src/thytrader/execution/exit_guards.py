@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.broker import CANCEL_PENDING_REASON
 from thytrader.execution.reconcile import FILLED_WITHOUT_REST_FILLS_DETAIL
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.fill_ledger import applied_fill_quantity
 from thytrader.trading.models import (
     IntentPurpose,
@@ -132,7 +133,11 @@ def bracket_rejection(snapshot: DeploymentSnapshot, position: Position) -> Submi
     return _rejection_run(
         snapshot,
         label="live bracket" if position.target_price is not None else "live stop-limit",
-        purposes=frozenset({IntentPurpose.BRACKET}),
+        purposes=(
+            frozenset({IntentPurpose.BRACKET, IntentPurpose.STOP})
+            if position.target_price is None and is_futures_product_id(position.product_id)
+            else frozenset({IntentPurpose.BRACKET})
+        ),
         matches=lambda order: _same_geometry(order, position),
     )
 

@@ -63,6 +63,21 @@ fields under a new revision. Replacement protection reconciles cancel-time execu
 for complete applied economics before sizing; missing publication is not permission to infer a
 sell quantity. Peer breaker pauses preserve current cash, lifecycle intent and other latches
 ([ADR 0121](../../docs/decisions/0121-execution-write-boundaries.md)).
+Dormant injected futures retain an accepted cancel even when its confirmation read fails;
+subsequent polls and restarts read the order rather than sending the cancel again. No-target
+strategies use STOP-purpose standalone protection; target-enabled protection remains BRACKET.
+These are fake-venue runtime guarantees, not permission to start live futures.
+Dormant cancellation and position proofs require an account observation more than five seconds
+after the latest fill; even a supported far-future fill timestamp keeps proof unknown and
+flat verification pending rather than aborting supervision.
+Dormant injected futures safety duties are independent of mismatch diagnostics: `show` and
+operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmation_after`. A
+present timestamp means verification is pending, not a successful venue read. Natural protective
+fills during managed shutdown (and closes applied before a stop command) create the same duty as
+explicit flatten; local flatness alone cannot retire supervision. Neither restart,
+resume nor recovered margin clears these duties; there is no manual-clear command. Live starts
+remain refused. See [live futures policy](references/live-futures-policy.md) and ADR 0135.
+
 UTC day-open and high-water baselines persist
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital
 on `thytrader-runtime show`.
@@ -204,8 +219,10 @@ separate from spot, even in USD; live margin equity requires finite positive all
 merely a pinned performance basis. Unrepresentable live admission arithmetic denies rather than
 rounding away contracts, allocations or margin requirements. Unset fields keep old fingerprints.
 Publication does **not** enable live futures: all starts remain
-`FUTURES_LIVE_UNSUPPORTED`; monitoring, alerts and switch-on are later slices. P2-2 adds
-only dormant, fake-transport-tested futures adapters, not an operator order path. Both
+`FUTURES_LIVE_UNSUPPORTED`. P2-4 exercises injected futures runtime preparation, position checks,
+funding accrual and candle-free protective reductions with fake venues and memory/PostgreSQL
+stores. Default API/worker composition stays spot-only: there is no operator order path or
+activation flag. Operational protection, visibility/alerts and switch-on remain later slices. Both
 constructor-selected reduction candidates and post-only/protection venue acceptance remain
 pending supervised verification; attachments are disabled and no automatic fallback exists.
 See the same reference for the adapter boundary and refusal meanings, including exact fill

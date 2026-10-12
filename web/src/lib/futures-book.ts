@@ -65,6 +65,8 @@ export type FuturesBookPayload = {
 	funding_hours: number;
 	funding_overdue_since: string | null;
 	recent_funding: FuturesFundingEntry[];
+	futures_derisk_pending?: boolean;
+	futures_flat_confirmation_after?: string | null;
 	daily_loss_latched: boolean;
 	entry_blocks: FuturesEntryBlock[];
 	unknown: FuturesUnknownEvidence[];

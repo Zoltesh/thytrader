@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
+from thytrader.trading.futures_repair import project_excess_reduction
+from thytrader.trading.futures_safety import require_futures_flat_confirmation
 from thytrader.trading.geometry import entry_bar_bucket
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
@@ -189,6 +191,8 @@ def fill_projection_deployment(
         cash=projected.deployment.cash,
         status=projected.deployment.status,
         mismatch_detail=projected.deployment.mismatch_detail,
+        futures_derisk_pending=projected.deployment.futures_derisk_pending,
+        futures_flat_confirmation_after=projected.deployment.futures_flat_confirmation_after,
         phase=aggregate_phase(projected.instrument_runtimes),
         updated_at=projected.deployment.updated_at,
     )
@@ -213,9 +217,23 @@ def project_fill_economics(
     not merely in the caller's overlay. Sibling positions are never the exit target.
     """
     product_id = resolved_product_id(order.product_id, snapshot.deployment)
-    focused = overlay_snapshot(snapshot, product_id)
-    projected, stamped = _project_inventory(
-        focused, fill=fill, order=order, cooldown_bars=cooldown_bars, timeframe=timeframe
+    repaired = project_excess_reduction(snapshot, fill=fill, order=order, now=utc_now())
+    if repaired is not None:
+        projected, stamped = repaired
+    else:
+        focused = overlay_snapshot(snapshot, product_id)
+        projected, stamped = _project_inventory(
+            focused, fill=fill, order=order, cooldown_bars=cooldown_bars, timeframe=timeframe
+        )
+    # This belongs in the atomic economics transaction, not a later worker/status write.
+    # Natural protection/target fills can retire discovery just as explicit reductions can.
+    projected = replace(
+        projected,
+        deployment=require_futures_flat_confirmation(
+            projected.deployment,
+            after=utc_now(),
+            fill_projected_flat=projected.position is None,
+        ),
     )
     if not snapshot.instrument_runtimes:
         return replace(projected, instrument_runtimes=()), stamped

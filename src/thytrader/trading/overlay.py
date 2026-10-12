@@ -240,6 +240,8 @@ class InstrumentScopedStore:
             cash=deployment.cash,
             status=deployment.status,
             mismatch_detail=deployment.mismatch_detail,
+            futures_derisk_pending=deployment.futures_derisk_pending,
+            futures_flat_confirmation_after=deployment.futures_flat_confirmation_after,
             last_signal=deployment.last_signal,
             phase=aggregate_phase(tuple(runtimes)),
             lifecycle_command=deployment.lifecycle_command,

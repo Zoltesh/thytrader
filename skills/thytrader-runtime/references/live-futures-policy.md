@@ -1,4 +1,4 @@
-# Live futures policy preparation (P2-3) and dormant adapters (P2-2)
+# Live futures policy preparation and dormant runtime (P2-2–P2-4)
 
 This surface publishes **policy only**, not trading authority. All live futures start
 paths still refuse `FUTURES_LIVE_UNSUPPORTED` until P2-7 (ADR 0134). There is no supported
@@ -7,7 +7,7 @@ live futures start command in this slice. Do not probe order endpoints or bypass
 ## Dormant adapter is not a supported order path
 
 P2-2 adds internal futures request and product-routing adapters, exercised only with fake
-transports. No worker/API wiring or operator command constructs them; `futures_order_paths`
+transports. The default worker/API wiring and all operator commands remain spot-only; `futures_order_paths`
 remains empty. Do not import an adapter as an operating workaround or treat a passing fake
 venue test as proof of Coinbase acceptance. No real probe or policy change is authorized by
 this implementation.
@@ -16,8 +16,8 @@ The two constructor-only reduction candidates are sized `close_position` (planne
 and market IOC with `reduce_only: true`. There is no automatic fallback, plain market exit
 or market entry. Post-only entries, both reduction modes and standalone venue protection
 still need supervised acceptance/enforcement evidence before live wiring; attached entry
-brackets remain disabled. Future runtime integration must retain product exclusivity and
-position checks. Opaque order ids are resolved from bounded venue reads, not a memory cache;
+brackets remain disabled. P2-4 tests injected runtime composition with product exclusivity and
+position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
 incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
 id does not require an attached spot child's local bookkeeping label to be echoed. Client-only
 scans require exact client matching and valid identities on every row/page; malformed nonmatches
@@ -56,7 +56,7 @@ Existing authentication/CSRF rules still apply. Policy publication never arms tr
 | `--futures-live-enabled true\|false` | `live_enabled` | Explicit opt-in; unset or false denies live futures risk. False is retained, not omitted. |
 | `--futures-live-capital-usd N` | `live_capital_usd` | Positive USD allocation envelope and basis for futures-scope daily loss/exposure; not buying power or spot capital. |
 | `--futures-product-allowlist PRODUCT` (repeatable) | `product_allowlist` | Up to 32 unique `CODE-DDMONYY-CDE` IDs. Live requires a nonempty list. A nonempty list also restricts paper futures. Spot uses the separate top-level allowlist. |
-| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], future margin-monitor threshold on available margin / liquidation threshold. Persisted now; monitor wiring is P2-4. |
+| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], margin-monitor threshold on available margin / liquidation threshold. Exercised in the injected P2-4 runtime only; production activation is still refused. |
 | `--futures-live-funding-drift-tolerance-usd N` | `live_funding_drift_tolerance_usd` | Positive USD tolerance. Persisted now; alert wiring is P2-6. |
 | `--futures-max-order-contracts N` | `max_order_contracts` | Existing positive integer cap: live defaults to one contract when unset, for both the order and resulting position. Paper keeps its existing unset behavior. |
 
@@ -100,6 +100,54 @@ ceiling does **not** inherit the spot `--max-daily-loss-quote`, even for a USD s
 Spot USD and CFM USD are distinct settlement scopes. Linked latches still deny across the
 collateral group; they do not import another scope's limit.
 
-The worker does not yet supply this gate's live venue evidence. Live futures fleet-health,
-alerts, monitoring and start wiring remain later slices. Do not interpret a stored opt-in,
-a healthy spot report, or a passing policy validation as live futures readiness.
+## Injected runtime is not operational readiness (P2-4)
+
+The runtime can now prepare an existing synthetic live book, read fresh CFM balance/position
+facts, use futures fees and whole-contract sizing, reconcile signed positions, accrue funding,
+and cancel-confirm before explicit reductions. It is exercised with fake transports through the
+real worker, broker adapter and atomic memory/PostgreSQL stores. Production venue construction
+still supplies **no futures runtime**. There is no command to activate or bypass that boundary.
+
+Future operational semantics are pinned, not enabled here:
+- An exact accepted futures cancel remains pending if its confirmation GET fails. Restarts use
+  the persisted marker and GET-only reconciliation; acceptance is not terminal cancellation.
+  Malformed acknowledgements are uncertain, never manufactured acceptance or definite rejection.
+- A validated strategy without a take-profit submits standalone STOP-purpose stop-limit protection,
+  including paused partial-fill replacements. Target-enabled protection retains BRACKET purpose.
+  Definite protection rejections retain the existing backoff latch; spot identities are unchanged.
+- Two distinct fresh valid position mismatches pause the book. Unknown or reused evidence cannot
+  manufacture confirmation. Confirmed unfilled resting protection does not suppress comparison;
+  uncertain/in-flight transactions and fills do. Restart rechecks; it never clears a pause.
+- An intent-only crash restores an UNKNOWN local observation anchor with the original client id
+  for reconciliation. It never resubmits, even if the venue scan finds no order. Stopped-flat books
+  with unresolved intents remain supervised; absence is not evidence that a retry is safe.
+- Orphan or displaced managed protection is canceled only with independent complete exclusive
+  signed fill-ledger ownership proof. Cancellation precedes strict position comparison when a
+  partial OPEN stop would block it; matching open-book protection stays resting. A flip/excess is
+  reduced only after cancellation/race-fill reconciliation and two fresh valid mismatches;
+  unrelated inventory is untouched. The book stays paused after repair. No operator repair command is added.
+- Margin de-risk continues under entry disarm, managed stop and live-policy disablement. A breach
+  is stored independently as `futures_derisk_pending` before any cancellation and remains pending
+  through unrelated reconciliation faults, restart and cancel/submit uncertainty, even if margin
+  recovers. A filled de-risk
+  pauses entries for review. Stops must be confirmed canceled before any reduction is sent.
+- Futures flatten uses an explicit price-free reduction without inventing a candle. Unknown
+  position/quantity/ownership still blocks it. All live futures closes, including natural protective
+  fills during managed shutdown and closes applied before a stop command, wait for a subsequent
+  fresh venue-flat observation before retirement. `futures_flat_confirmation_after` is the durable
+  lower bound, not a successful observation timestamp. It is persisted before cancellation or
+  submission and advanced atomically with canonical fill accounting. A later distinct complete
+  observation must be strictly after the last fill plus five seconds. Exactly five seconds is
+  insufficient. Future fills, including supported timestamps near the upper UTC date limit, keep
+  cancellation and position proofs unknown without aborting supervision or discarding canonical
+  fill economics; the pending duty remains. This is an elapsed-interval check, not a clamped date.
+  A margin-monitor message
+  cannot overwrite this duty. Read both fields with `thytrader-runtime show` or operator `runtime`;
+  never clear them by database edits. Alembic 0076 and ops contract v95 are required (ADR 0135).
+  This does not change spot/paper flatten semantics.
+- Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
+  missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
+
+Venue enforcement/acceptance probes, the protection decision (P2-5), live futures fleet-health
+and alerts (P2-6), and acknowledgements/start activation (P2-7) remain outstanding. Do not interpret
+a stored opt-in, a healthy spot report or a passing fake-runtime test as live futures readiness.

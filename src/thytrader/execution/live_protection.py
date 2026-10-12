@@ -34,6 +34,7 @@ from thytrader.execution.runtime_ops import (
 )
 from thytrader.execution.signals import named_atr
 from thytrader.execution.submit import submit_intent
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.strategies.models import atr_trailing_stop
 from thytrader.trading.geometry import (
     exit_order_side,
@@ -406,7 +407,13 @@ async def _submit_live_bracket(
         broker=broker,
         deployment_id=snapshot.deployment.id,
         product_id=product.product_id,
-        purpose=IntentPurpose.BRACKET,
+        # Preserve spot's historical BRACKET identity for standalone stops. Futures
+        # require STOP at their purpose/kind boundary, including every replacement.
+        purpose=(
+            IntentPurpose.STOP
+            if target is None and is_futures_product_id(product.product_id)
+            else IntentPurpose.BRACKET
+        ),
         side=cover,
         kind=kind,
         quantity=position.quantity,

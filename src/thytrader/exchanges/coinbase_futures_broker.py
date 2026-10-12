@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 from thytrader.exchanges.coinbase_broker import (
     _DEFINITE_CREATE_REJECTIONS,
-    _cancel_failure_reason,
     _http_reject_reason,
 )
 from thytrader.exchanges.coinbase_fills import _next_fills_cursor, _reject_incomplete_fills_page
@@ -52,6 +51,22 @@ _CANCEL_PATH = "/api/v3/brokerage/orders/batch_cancel"
 _FILLS_PATH = "/api/v3/brokerage/orders/historical/fills"
 _MAX_PAGES = 20
 _TERMINAL = frozenset({OrderStatus.FILLED, OrderStatus.CANCELED, OrderStatus.REJECTED})
+
+
+def _futures_cancel_failure(payload: Mapping[str, Any], venue_order_id: str) -> str | None:
+    """Require one exact boolean acknowledgement; malformed JSON remains uncertain."""
+    rows = payload.get("results")
+    if not isinstance(rows, list) or len(rows) != 1:
+        raise BrokerError("Coinbase futures cancel acknowledgement is unknown.")
+    row = rows[0]
+    if not isinstance(row, dict) or row.get("order_id") != venue_order_id:
+        raise BrokerError("Coinbase futures cancel acknowledgement identity is unknown.")
+    if row.get("success") is True:
+        return None
+    failure = _text(row.get("failure_reason"))
+    if row.get("success") is False and failure:
+        return failure
+    raise BrokerError("Coinbase futures cancel acknowledgement is unknown.")
 
 
 class CoinbaseFuturesBroker:
@@ -219,13 +234,21 @@ class CoinbaseFuturesBroker:
             )
         except (OSError, TimeoutError, TypeError, ValueError) as error:
             raise BrokerError("Coinbase futures cancel request failed.") from error
-        failure = _cancel_failure_reason(payload, venue_order_id)
+        failure = _futures_cancel_failure(payload, venue_order_id)
+        observed = initial
         for attempt in range(3):
             if attempt:
                 await asyncio.sleep(self._cancel_confirm_delay)
-            observed = await self.get_order(
-                venue_order_id=venue_order_id, client_order_id=client_order_id
-            )
+            try:
+                observed = await self.get_order(
+                    venue_order_id=venue_order_id, client_order_id=client_order_id
+                )
+            except BrokerError:
+                # A failed GET cannot undo an accepted POST. Return only the last
+                # validated observation; callers persist pending and subsequently GET.
+                if failure in {None, "DUPLICATE_CANCEL_REQUEST"}:
+                    return replace(observed, reject_reason=CANCEL_PENDING_REASON)
+                raise
             if observed.status in _TERMINAL:
                 return observed
         reason = (

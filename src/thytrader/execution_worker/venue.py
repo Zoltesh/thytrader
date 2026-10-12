@@ -35,6 +35,7 @@ from thytrader.market_data.service import MarketDataService
 if TYPE_CHECKING:
     from thytrader.config import Settings
     from thytrader.execution.broker import Broker
+    from thytrader.execution.futures_live import FuturesLiveRuntime
     from thytrader.execution_worker.ports import QuoteBalanceReader
 
 _logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ class ExecutionVenue:
     jwt_provider: Callable[[], str] | None
     source: VenueSource
     generation: int
+    futures_runtime: FuturesLiveRuntime | None = None
 
     @property
     def live_enabled(self) -> bool:

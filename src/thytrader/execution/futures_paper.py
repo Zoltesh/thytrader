@@ -24,10 +24,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, DecimalException, Inexact, InvalidOperation, localcontext
 import logging
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.market_data.cycle_reads import shared_read
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.futures_beta import FuturesLegs
@@ -129,7 +130,7 @@ async def prepare_futures_book(
         binding=None,
         margin=None,
     )
-    if runtime is None or deployment.mode is not DeploymentMode.PAPER:
+    if runtime is None:
         return unbound, snapshot
     try:
         binding = await runtime.contracts.load_contract(deployment.id)
@@ -199,8 +200,16 @@ async def _margin_terms(
         buffer = futures_policy.liquidation_buffer_fraction
         if futures_policy.max_leverage is not None:
             leverage = min(leverage, Decimal(futures_policy.max_leverage))
+
+    async def read() -> tuple[FuturesInstrumentObservation, datetime] | None:
+        """Use the same cycle catalog identity as CatalogContractSizes at the broker boundary."""
+        return await runtime.observations.latest_instrument(binding.contract.product_id)
+
     try:
-        latest = await runtime.observations.latest_instrument(binding.contract.product_id)
+        latest = await shared_read(
+            ("futures_catalog", str(id(runtime.observations)), binding.contract.product_id),
+            read,
+        )
     except Exception:  # noqa: BLE001 - storage failures leave margin unknown, never zero.
         _logger.warning("futures_margin_unavailable product_id=%s", binding.contract.product_id)
         return None, None
@@ -269,19 +278,67 @@ async def _settle_funding(
             if funding_overdue(hour, now):
                 overdue = hour
             break
-        flows.append(
-            funding_flow(
+        flow = _funding_candidate(snapshot, hour=hour, mark=mark, rate=rate, now=now)
+        if flow is None:
+            overdue = hour
+            break
+        flows.append(flow)
+    if flows:
+        if snapshot.deployment.mode is DeploymentMode.LIVE and not _funding_cash_known(
+            snapshot, flows
+        ):
+            return snapshot, flows[0].funding_time
+        snapshot = await _apply(store, snapshot, tuple(flows))
+    return snapshot, overdue
+
+
+def _funding_candidate(
+    snapshot: DeploymentSnapshot,
+    *,
+    hour: datetime,
+    mark: Decimal,
+    rate: Decimal,
+    now: datetime,
+) -> FundingCashFlow | None:
+    """Preserve paper math; live accrual requires finite exact quantity, mark and rate."""
+    if snapshot.deployment.mode is DeploymentMode.PAPER:
+        return funding_flow(
+            snapshot,
+            product_id=snapshot.deployment.product_id,
+            hour=hour,
+            mark_price=mark,
+            rate=rate,
+            applied_at=now,
+        )
+    if not mark.is_finite() or mark <= 0 or not rate.is_finite():
+        return None
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            flow = funding_flow(
                 snapshot,
-                product_id=product_id,
+                product_id=snapshot.deployment.product_id,
                 hour=hour,
                 mark_price=mark,
                 rate=rate,
                 applied_at=now,
             )
-        )
-    if flows:
-        snapshot = await _apply(store, snapshot, tuple(flows))
-    return snapshot, overdue
+            if not flow.amount.is_finite() or not flow.signed_quantity.is_finite():
+                return None
+            return flow
+    except DecimalException:
+        return None
+
+
+def _funding_cash_known(snapshot: DeploymentSnapshot, flows: Sequence[FundingCashFlow]) -> bool:
+    """Never persist an accrual whose complete transaction would poison or round cash."""
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            cash = snapshot.deployment.cash + sum((flow.amount for flow in flows), Decimal(0))
+            return cash.is_finite()
+    except DecimalException:
+        return False
 
 
 async def _apply(

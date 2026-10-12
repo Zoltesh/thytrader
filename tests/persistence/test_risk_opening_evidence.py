@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from alembic.config import Config
 from pydantic import SecretStr
 import pytest
-from sqlalchemy import select
+from sqlalchemy import MetaData, Table, select, text
 
 from alembic import command
 from tests.persistence.test_migration_0048_strategy_root import scratch_database
@@ -83,9 +83,16 @@ async def test_no_backfill_scoped_save_restart_and_safe_downgrade(scratch_databa
             timeframe="1h",
         )
         values = _deployment_values(root)
-        values.pop("risk_day_open_evidence")
         async with engine.begin() as connection:
-            await connection.execute(deployments.insert().values(**values))
+            legacy = await connection.run_sync(
+                lambda sync: Table("deployments", MetaData(), autoload_with=sync)
+            )
+            assert "risk_day_open_evidence" not in legacy.c
+            await connection.execute(
+                legacy.insert().values(
+                    **{key: value for key, value in values.items() if key in legacy.c}
+                )
+            )
         deployment_id = root.id
     finally:
         await dispose(engine)
@@ -96,7 +103,7 @@ async def test_no_backfill_scoped_save_restart_and_safe_downgrade(scratch_databa
             raw = (
                 (
                     await connection.execute(
-                        select(deployments).where(deployments.c.id == deployment_id)
+                        text("SELECT * FROM deployments WHERE id = :id"), {"id": deployment_id}
                     )
                 )
                 .mappings()
@@ -106,6 +113,25 @@ async def test_no_backfill_scoped_save_restart_and_safe_downgrade(scratch_databa
             assert raw["utc_day_open_equity"] == "9950"
             assert raw["utc_day_open_at"] == _MIDNIGHT
             assert raw["cash"] == "9900"
+    finally:
+        await dispose(engine)
+    # Historical migration assertions use historical SQL. Current stores require HEAD.
+    await asyncio.to_thread(_migrate, scratch_database, "head")
+    engine = create_engine(SecretStr(scratch_database))
+    try:
+        async with engine.connect() as connection:
+            current = (
+                (
+                    await connection.execute(
+                        select(deployments).where(deployments.c.id == deployment_id)
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert current["risk_day_open_evidence"] is None
+            assert current["futures_derisk_pending"] is False
+            assert current["futures_flat_confirmation_after"] is None
         store = PostgresExecutionStore(engine)
         for order in full.orders:
             await store.save_intent(

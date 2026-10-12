@@ -122,7 +122,9 @@ Alembic 0075; ADR 0131), or the execution cycle budget (``CYCLE_WITHIN_BUDGET``,
 ``budget_seconds``, ``book_groups`` and ``shared_reads``; ADR 0132), or the live futures
 policy and admission gate (``futures.live_enabled``, ``live_capital_usd``,
 ``product_allowlist``, ``live_derisk_margin_ratio`` and ``live_funding_drift_tolerance_usd``;
-ADR 0134, P2-3, with live futures starts still refused) change.
+ADR 0134, P2-3, with live futures starts still refused), or durable futures safety duties
+(``futures_derisk_pending`` / ``futures_flat_confirmation_after`` on deployment/runtime and
+futures-book reports; Alembic 0076, ADR 0135) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -151,8 +153,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v94"
-EXPECTED_SCHEMA_REVISION = "0075"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v95"
+EXPECTED_SCHEMA_REVISION = "0076"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",

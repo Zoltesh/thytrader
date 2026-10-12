@@ -93,6 +93,8 @@ class DeploymentSummary(_FrozenModel):
     last_signal: str | None
     books: tuple[DeploymentBookSummary, ...] = ()
     lifecycle_command: str = "none"
+    futures_derisk_pending: bool = False
+    futures_flat_confirmation_after: datetime | None = None
     daily_loss_latched: bool = False
     drawdown_latched: bool = False
     revision: int = 0

@@ -330,6 +330,8 @@ def _deployment_summary(
             snapshot, extra_product_ids=extra_product_ids or (deployment.product_id,)
         ),
         lifecycle_command=deployment.lifecycle_command.value,
+        futures_derisk_pending=deployment.futures_derisk_pending,
+        futures_flat_confirmation_after=deployment.futures_flat_confirmation_after,
         daily_loss_latched=deployment.daily_loss_latched,
         drawdown_latched=deployment.drawdown_latched,
         revision=deployment.revision,

@@ -3159,6 +3159,24 @@
           "title": "Lifecycle Command",
           "type": "string"
         },
+        "futures_derisk_pending": {
+          "default": false,
+          "title": "Futures Derisk Pending",
+          "type": "boolean"
+        },
+        "futures_flat_confirmation_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Flat Confirmation After"
+        },
         "daily_loss_latched": {
           "default": false,
           "title": "Daily Loss Latched",
@@ -6432,6 +6450,24 @@
           },
           "title": "Recent Funding",
           "type": "array"
+        },
+        "futures_derisk_pending": {
+          "default": false,
+          "title": "Futures Derisk Pending",
+          "type": "boolean"
+        },
+        "futures_flat_confirmation_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Flat Confirmation After"
         },
         "daily_loss_latched": {
           "title": "Daily Loss Latched",

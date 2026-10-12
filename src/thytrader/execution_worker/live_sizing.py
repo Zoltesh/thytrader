@@ -5,9 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.capital import apply_venue_quote
+from thytrader.execution.futures_live import current_live_futures_account
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.market_data.cycle_reads import shared_read
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.ids import utc_now
 from thytrader.trading.inventory_claims import unmanaged_available_base
 from thytrader.trading.models import DeploymentStatus, with_runtime
@@ -52,6 +54,8 @@ async def _prepare_live(
     )
     if snapshot.deployment.status is DeploymentStatus.PAUSED:
         return snapshot, None
+    if is_futures_product_id(product_id):
+        return await _prepare_futures_sizing(snapshot, store=store, quote_reader=quote_reader)
     if quote_reader is not None:
         available = await _currency_available(quote_reader, quote_currency)
         current = await store.get_deployment(deployment.id)
@@ -60,6 +64,31 @@ async def _prepare_live(
         snapshot = await store.get_deployment(deployment.id)
     fee_profile = await _live_fee_profile(quote_reader)
     return snapshot, fee_profile
+
+
+async def _prepare_futures_sizing(
+    snapshot: DeploymentSnapshot,
+    *,
+    store: ExecutionStore,
+    quote_reader: QuoteBalanceReader | None,
+) -> tuple[DeploymentSnapshot, FeeProfile | None]:
+    """CFM USD buying power and futures fees never fall back to spot USD or USDC."""
+    account = current_live_futures_account()
+    now = utc_now()
+    available = None
+    if account is not None and account.venue.is_fresh(now):
+        available = account.venue.buying_power_usd
+    await store.save_deployment(
+        apply_venue_quote(snapshot.deployment, available=available, now=now)
+    )
+    profile = None
+    get_profile = getattr(quote_reader, "get_futures_fee_profile", None)
+    if get_profile is not None:
+        try:
+            profile = await shared_read(("futures_fee_profile", str(id(quote_reader))), get_profile)
+        except RuntimeError, ValueError, TypeError, OSError:
+            _logger.warning("live_futures_fee_profile_fetch_failed")
+    return await store.get_deployment(snapshot.deployment.id), profile
 
 
 async def _live_fee_profile(

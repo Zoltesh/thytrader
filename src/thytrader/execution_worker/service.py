@@ -15,6 +15,7 @@ from thytrader.execution.decision_journal import (
     decision_journal_scope,
     prune_decisions,
 )
+from thytrader.execution.futures_live import futures_decisions_deferred, live_futures_runtime_scope
 from thytrader.execution.futures_paper import prepare_futures_book
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution_worker.bar_journal import _journaled_bar
@@ -27,6 +28,7 @@ from thytrader.execution_worker.cycle_timing import (
 )
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
+from thytrader.execution_worker.futures_step import supervised_live_futures
 from thytrader.execution_worker.portfolio_supervisor import supervise_portfolios
 from thytrader.execution_worker.ports import QuoteBalanceReader, _logger
 from thytrader.execution_worker.stopped_step import _process_stopped, _stopped_strategy_definition
@@ -175,11 +177,13 @@ async def run_execution_worker(
                 live_broker,
                 quote_reader,
             )
+            cycle_futures_runtime = None
             if venue_provider is not None:
                 venue = venue_provider()
                 cycle_market_data = venue.market_data
                 cycle_live_broker = venue.live_broker
                 cycle_quote_reader = venue.quote_reader
+                cycle_futures_runtime = venue.futures_runtime
             wait_seconds = (
                 settings_store.current().execution_worker_interval_seconds
                 if settings_store is not None
@@ -192,7 +196,11 @@ async def run_execution_worker(
                 window_cache=window_cache_of(cycle_market_data),
             )
             await record_cycle_start(cycle_store, timer)
-            with execution_audit_scope(audit_store), decision_journal_scope(decision_store):
+            with (
+                execution_audit_scope(audit_store),
+                decision_journal_scope(decision_store),
+                live_futures_runtime_scope(cycle_futures_runtime),
+            ):
                 report = await _run_cycle(
                     store=store,
                     publication_store=publication_store,
@@ -408,15 +416,25 @@ async def _process_one(
                 market_data=market_data,
                 policy=risk_policy,
             )
-        with futures_book_scope(futures_book):
-            await _process_stopped(
-                snapshot,
-                strategy=strategy,
-                store=store,
-                market_data=market_data,
-                paper_broker=paper_broker,
-                live_broker=live_broker,
-            )
+        async with supervised_live_futures(
+            snapshot,
+            state=futures_book,
+            broker=live_broker,
+            store=store,
+            policy=risk_policy,
+            portfolio=portfolio,
+        ) as snapshot:
+            if futures_decisions_deferred(snapshot):
+                return
+            with futures_book_scope(futures_book):
+                await _process_stopped(
+                    snapshot,
+                    strategy=strategy,
+                    store=store,
+                    market_data=market_data,
+                    paper_broker=paper_broker,
+                    live_broker=live_broker,
+                )
         return
     if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
         strategy = await _strategy_definition(
@@ -441,20 +459,30 @@ async def _process_one(
     futures_book, snapshot = await prepare_futures_book(
         snapshot, strategy=strategy, store=store, market_data=market_data, policy=risk_policy
     )
-    with risk_market_data_scope(market_data), futures_book_scope(futures_book):
-        await _advance_strategy(
-            snapshot,
-            strategy=strategy,
-            store=store,
-            market_data=market_data,
-            paper_broker=paper_broker,
-            live_broker=live_broker,
-            quote_reader=quote_reader,
-            risk_policy=risk_policy,
-            portfolio=portfolio,
-            user_feed_store=user_feed_store,
-            memory_store=memory_store,
-        )
+    async with supervised_live_futures(
+        snapshot,
+        state=futures_book,
+        broker=live_broker,
+        store=store,
+        policy=risk_policy,
+        portfolio=portfolio,
+    ) as snapshot:
+        if futures_decisions_deferred(snapshot):
+            return
+        with risk_market_data_scope(market_data), futures_book_scope(futures_book):
+            await _advance_strategy(
+                snapshot,
+                strategy=strategy,
+                store=store,
+                market_data=market_data,
+                paper_broker=paper_broker,
+                live_broker=live_broker,
+                quote_reader=quote_reader,
+                risk_policy=risk_policy,
+                portfolio=portfolio,
+                user_feed_store=user_feed_store,
+                memory_store=memory_store,
+            )
 
 
 async def _risk_snapshots(

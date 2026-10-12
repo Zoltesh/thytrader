@@ -129,6 +129,8 @@ class FuturesBookPayload(_FrozenModel):
     funding_hours: int
     funding_overdue_since: datetime | None
     recent_funding: tuple[FuturesFundingEntryPayload, ...]
+    futures_derisk_pending: bool = False
+    futures_flat_confirmation_after: datetime | None = None
     daily_loss_latched: bool
     entry_blocks: tuple[EntryBlock, ...]
     unknown: tuple[UnknownEvidence, ...]
@@ -295,6 +297,8 @@ def book_payload(
             )
             for flow in reversed(funding[-RECENT_FUNDING_HOURS:])
         ),
+        futures_derisk_pending=deployment.futures_derisk_pending,
+        futures_flat_confirmation_after=deployment.futures_flat_confirmation_after,
         daily_loss_latched=deployment.daily_loss_latched,
         entry_blocks=_entry_blocks(binding, long_rate, short_rate, overdue, policy),
         unknown=unknown,
