@@ -86,8 +86,15 @@ canonical/model-copy serialization, publication and verified reads:
   64 coefficient digits after removing insignificant trailing zeros; adjusted exponent
   in `[-128, 128]`; stored Decimal exponent in `[-191, 128]`; at most 196 characters per
   numeric lexeme and 196 stored coefficient digits. Bounds are inclusive and checked
-  without arithmetic normalization. Numeric lexemes are bounded before Decimal parsing;
-  ordinary nonnumeric identifiers/build labels are not amounts. Canonical ledger text
+  without arithmetic normalization. Numeric lexemes are bounded before Decimal parsing,
+  including nested domain fields. Recognition strips outer Unicode whitespace, removes
+  ASCII underscores anywhere, and accepts Unicode decimal (`Nd`) digits, optional signs,
+  decimal points and exponents, matching the existing Decimal adapter grammar. The budget
+  counts the **original** characters, not this recognition-only spelling. Case-insensitive
+  ASCII `Inf`/`Infinity` and `NaN`/`sNaN` (with optional diagnostic digits) also receive the
+  lexical check before their finite-value refusal. Recognition is linear lexical work,
+  not Decimal construction; file admission separately retains the 16 MiB artifact cap.
+  Ordinary nonnumeric identifiers/build labels are not amounts. Canonical ledger text
   remains fixed-point, with positive price/quantity, nonnegative fees and signed cash.
 - Ledger folding retains Decimal64 `ROUND_HALF_EVEN`. Overflow, nonzero subnormal/underflow,
   clamping, invalid operations and division by zero MUST produce controlled unavailable

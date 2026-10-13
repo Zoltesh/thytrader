@@ -27,7 +27,9 @@ MIN_ADJUSTED = -128
 MAX_ADJUSTED = 128
 MIN_EXPONENT = MIN_ADJUSTED - PRECISION + 1
 MAX_TEXT_LENGTH = 196
-_DECIMAL_LEXEME = re.compile(r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?\Z")
+_DECIMAL_LEXEME = re.compile(
+    r"[+-]?(?:(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|(?ai:inf(?:inity)?)|(?ai:s?nan)\d*)\Z"
+)
 
 
 @contextmanager
@@ -88,9 +90,16 @@ def validate_numeric_inputs(value: object) -> None:
 
     This walk is confined to normalized model input. Numeric-only string identifiers
     share the lexical budget; other strings are never parsed as financial values.
+    Recognition mirrors Decimal: strip outer Unicode whitespace, then remove ASCII
+    underscores anywhere and recognize Unicode Nd digits and nonfinite aliases.
+    ASCII-case-insensitive Inf/Infinity and NaN/sNaN diagnostics still fail finiteness.
+    This linear lexical work does not construct a Decimal; financial_text checks
+    the ORIGINAL length before
+    conversion. File readers independently enforce the 16 MiB artifact cap.
     """
     if isinstance(value, str):
-        if value and value[0] in "+-.0123456789" and _DECIMAL_LEXEME.fullmatch(value):
+        normalized = value.strip().replace("_", "")
+        if _DECIMAL_LEXEME.fullmatch(normalized):
             financial_text(value)
     elif isinstance(value, Decimal):
         validate_decimal(value)
