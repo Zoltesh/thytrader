@@ -9,10 +9,13 @@ Once a snapshot is remembered, a missing mode fails closed.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from contextlib import AbstractAsyncContextManager
     from datetime import datetime
 
@@ -32,6 +35,19 @@ class _LatchCache:
 
 
 _cache = _LatchCache()
+_RECORDED_LATCH: ContextVar[tuple[str, bool] | None] = ContextVar(
+    "recorded_entry_latch", default=None
+)
+
+
+@contextmanager
+def entry_inhibition_scope(mode: DeploymentMode, inhibited: bool) -> Iterator[None]:
+    """Supply a captured per-mode latch in one isolated task; never change the live cache."""
+    token = _RECORDED_LATCH.set((mode.value, inhibited))
+    try:
+        yield
+    finally:
+        _RECORDED_LATCH.reset(token)
 
 
 def process_entry_inhibited(mode: DeploymentMode) -> bool:
@@ -41,6 +57,9 @@ def process_entry_inhibited(mode: DeploymentMode) -> bool:
     refresh the snapshot first; the durable store remains authoritative for
     starts and intent persistence.
     """
+    recorded = _RECORDED_LATCH.get()
+    if recorded is not None and recorded[0] == mode.value:
+        return recorded[1]
     snapshot = _cache.snapshot
     if snapshot is None:
         return True

@@ -30,6 +30,7 @@
       "research.mutation_local",
       "research.mutation_parser",
       "research.run_cli",
+      "replay.cli",
       "runtime_control",
       "runtime_control.*",
       "security.client"
@@ -69,6 +70,7 @@
         "data_control",
         "market_data_worker",
         "operator",
+        "replay",
         "ops_contract"
       ]
     },
@@ -162,6 +164,7 @@
         "decimal_text",
         "exit_codes",
         "ids",
+        "runtime_inputs",
         "thytrader"
       ]
     }

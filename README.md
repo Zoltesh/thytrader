@@ -86,6 +86,27 @@ make down     # tear down Compose (keeps database + market-data volumes; make st
 
 Deep setup, credentials (names only), native processes: **[docs/user/setup.md](docs/user/setup.md)**
 
+## Offline execution evidence
+
+No running stack or Coinbase credentials are needed by `thytrader-replay`:
+
+```bash
+uv run thytrader-replay --help
+umask 077
+mkdir -p ./private-replays
+uv run thytrader-replay export --input tests/replay/fixtures/no-signal.input.json --root ./private-replays/packages > ./private-replays/export.json
+MANIFEST=$(python -c 'import json; print(json.load(open("./private-replays/export.json"))["manifest"])')
+uv run thytrader-replay inspect "$MANIFEST"
+uv run thytrader-replay run "$MANIFEST" --format json
+```
+
+`MANIFEST` is extracted from export's returned path. This publishes synthetic
+local files only; choose an approved private root outside Git for real account evidence.
+See the [complete operator example](skills/thytrader-runtime/references/live-execution-replay.md)
+for path extraction, privacy, capture opt-in and exit codes. A matching synthetic run still returns
+`3` when original research evidence is missing. Signal agreement or external golden acceptance
+is not full historical/economic parity and never grants real-order authority.
+
 ## User guide
 
 | | |

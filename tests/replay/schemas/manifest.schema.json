@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "description": "One fixed-name payload; no caller-selected transport paths.",
+  "properties": {
+    "fingerprint": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "title": "Fingerprint",
+      "type": "string"
+    },
+    "payload": {
+      "const": "evidence.json",
+      "title": "Payload",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "thytrader-replay-manifest-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "size": {
+      "maximum": 16777216,
+      "minimum": 1,
+      "title": "Size",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "schema_version",
+    "fingerprint",
+    "payload",
+    "size"
+  ],
+  "title": "Manifest",
+  "type": "object"
+}

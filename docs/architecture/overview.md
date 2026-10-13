@@ -35,6 +35,17 @@ Research worker (N processes) -----------+   backtests, studies, portfolio backt
       +---- immutable Parquet datasets <----> Polars / DuckDB
 ```
 
+## Offline evidence companion
+
+[Offline execution replay](live-execution-replay.md) ([ADR 0137](../decisions/0137-offline-live-execution-replay.md))
+adds immutable as-seen input publication, in-memory execution/reconciliation replay and separate
+entry-signal versus original-rule comparisons through `thytrader-replay`. It constructs no
+application settings, real broker, network or database client and cannot send orders. Prospective
+live-worker capture is explicitly opt-in, bounded and private; it starts after pre-bar preparation
+and cannot recover missing past windows. Matching a signal comparison or external golden is not
+full historical economics parity. Commands and capture/privacy limits are in the
+[operator reference](../../skills/thytrader-runtime/references/live-execution-replay.md).
+
 ## Initial components
 
 ### Web application

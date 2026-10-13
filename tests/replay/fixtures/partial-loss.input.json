@@ -1,0 +1,46 @@
+{
+  "schema_version": "thytrader-replay-v1",
+  "evidence_kind": "synthetic",
+  "source": {
+    "execution_build": null,
+    "research_build": null
+  },
+  "strategy": null,
+  "original_strategy": null,
+  "steps": [],
+  "ledger": {
+    "starting_cash": "0",
+    "observed_ending_cash": "-3.02",
+    "fills": [
+      {
+        "fill_id": "synthetic-entry",
+        "side": "buy",
+        "price": "10",
+        "quantity": "2",
+        "fee": "0.1",
+        "filled_at": "2026-01-01T00:00:00Z"
+      },
+      {
+        "fill_id": "synthetic-exit-a",
+        "side": "sell",
+        "price": "9",
+        "quantity": "0.5",
+        "fee": "0.05",
+        "filled_at": "2026-01-01T01:00:00Z"
+      },
+      {
+        "fill_id": "synthetic-exit-b",
+        "side": "sell",
+        "price": "8.5",
+        "quantity": "1.5",
+        "fee": "0.12",
+        "filled_at": "2026-01-01T01:01:00Z"
+      }
+    ]
+  },
+  "unavailable_reasons": [
+    "AS_SEEN_WINDOWS_MISSING",
+    "BROKER_RESPONSES_MISSING",
+    "ORIGINAL_RESEARCH_MISSING"
+  ]
+}

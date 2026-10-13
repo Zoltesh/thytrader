@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import os
+from pathlib import Path
 import signal
-from typing import TYPE_CHECKING
 
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.supervision_inputs import AlertThresholds
@@ -34,13 +35,11 @@ from thytrader.persistence.postgres_strategies import PostgresStrategyStore
 from thytrader.persistence.postgres_user_feed import PostgresUserOrderFeedStateStore
 from thytrader.persistence.postgres_worker_heartbeats import PostgresWorkerHeartbeatStore
 from thytrader.persistence.query_timing import instrument_engine
+from thytrader.replay.capture import FileCapture, capture_scope
 from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 
 async def run() -> None:
@@ -103,6 +102,7 @@ async def run() -> None:
         with (
             risk_futures_account_scope(PostgresFuturesAccountStore(engine)),
             futures_runtime_scope(futures_runtime),
+            capture_scope(configured_replay_capture()),
         ):
             await asyncio.gather(
                 run_execution_worker(
@@ -156,6 +156,12 @@ def _set_readiness(readiness_file: Path | None, ready: bool) -> None:
         return
     with contextlib.suppress(FileNotFoundError):
         readiness_file.unlink()
+
+
+def configured_replay_capture() -> FileCapture | None:
+    """Resolve the explicit contributor opt-in; never read credentials or create directories."""
+    root = os.environ.get("THYTRADER_REPLAY_CAPTURE_ROOT")
+    return FileCapture(Path(root)) if root else None
 
 
 def main() -> None:

@@ -1,0 +1,1064 @@
+{
+  "$defs": {
+    "AcceptanceComparison": {
+      "additionalProperties": false,
+      "description": "Data-only golden acceptance is separate from historical parity and evidence completeness.",
+      "properties": {
+        "differences": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Differences",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "match",
+            "mismatch"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "AcceptanceComparison",
+      "type": "object"
+    },
+    "BrokerMethodTiming": {
+      "additionalProperties": false,
+      "description": "Invocation/return of an injected broker method, not transport send/venue acknowledgement.",
+      "properties": {
+        "boundary": {
+          "const": "normalized_broker_method_invocation_return",
+          "default": "normalized_broker_method_invocation_return",
+          "title": "Boundary",
+          "type": "string"
+        },
+        "client_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Client Order Id"
+        },
+        "error_category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error Category"
+        },
+        "invoked_at": {
+          "format": "date-time",
+          "title": "Invoked At",
+          "type": "string"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "returned_at": {
+          "format": "date-time",
+          "title": "Returned At",
+          "type": "string"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Venue Order Id"
+        }
+      },
+      "required": [
+        "operation",
+        "client_order_id",
+        "venue_order_id",
+        "invoked_at",
+        "returned_at",
+        "error_category"
+      ],
+      "title": "BrokerMethodTiming",
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "description": "One evidence-qualified comparison, never a blanket parity certificate.",
+      "properties": {
+        "reasons": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "scope": {
+          "default": "specified_evidence_only",
+          "title": "Scope",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "match",
+            "mismatch",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Comparison",
+      "type": "object"
+    },
+    "DeploymentStatus": {
+      "description": "Operator-visible lifecycle of one deployment.",
+      "enum": [
+        "running",
+        "paused",
+        "stopped"
+      ],
+      "title": "DeploymentStatus",
+      "type": "string"
+    },
+    "EntryConditionOutcome": {
+      "description": "Auditable outcome of one completed-candle entry-condition evaluation.",
+      "enum": [
+        "matched",
+        "not_matched",
+        "undefined"
+      ],
+      "title": "EntryConditionOutcome",
+      "type": "string"
+    },
+    "ExecutionOutcome": {
+      "additionalProperties": false,
+      "description": "Full order/fill and position economics, independently recomputed from inputs.",
+      "properties": {
+        "cash": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Cash",
+          "type": "string"
+        },
+        "daily_loss_latched": {
+          "default": false,
+          "title": "Daily Loss Latched",
+          "type": "boolean"
+        },
+        "deployment_status": {
+          "$ref": "#/$defs/DeploymentStatus",
+          "default": "running"
+        },
+        "drawdown_latched": {
+          "default": false,
+          "title": "Drawdown Latched",
+          "type": "boolean"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/Fill"
+          },
+          "title": "Fills",
+          "type": "array"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/Order"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "phase": {
+          "$ref": "#/$defs/RuntimePhase"
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "title": "Positions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cash",
+        "phase",
+        "positions",
+        "orders",
+        "fills"
+      ],
+      "title": "ExecutionOutcome",
+      "type": "object"
+    },
+    "ExecutionReplay": {
+      "additionalProperties": false,
+      "description": "Recomputed orchestration outcomes, not comparisons of recorded values to themselves.",
+      "properties": {
+        "status": {
+          "enum": [
+            "match",
+            "mismatch",
+            "unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/StepResult"
+          },
+          "title": "Steps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "steps"
+      ],
+      "title": "ExecutionReplay",
+      "type": "object"
+    },
+    "Fill": {
+      "description": "One exact fill against a known order.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "economics_applied_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Economics Applied At"
+        },
+        "fee": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Fee",
+          "type": "string"
+        },
+        "filled_at": {
+          "format": "date-time",
+          "title": "Filled At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "order_id": {
+          "format": "uuid",
+          "title": "Order Id",
+          "type": "string"
+        },
+        "price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "venue_fill_id": {
+          "title": "Venue Fill Id",
+          "type": "string"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        }
+      },
+      "required": [
+        "id",
+        "deployment_id",
+        "order_id",
+        "venue_fill_id",
+        "price",
+        "quantity",
+        "fee",
+        "filled_at"
+      ],
+      "title": "Fill",
+      "type": "object"
+    },
+    "IndicatorTraceValue": {
+      "additionalProperties": false,
+      "description": "One named canonical indicator value or an explicit undefined state.",
+      "properties": {
+        "indicator_id": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}(?:\\.[a-z][a-z0-9_]{0,31})?(?:@(?:[1-9]|[1-9]\\d|[1-4]\\d{2}|500))?$",
+          "title": "Indicator Id",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "maxLength": 6210,
+              "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d*[1-9])?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "indicator_id",
+        "value"
+      ],
+      "title": "IndicatorTraceValue",
+      "type": "object"
+    },
+    "LedgerReplay": {
+      "additionalProperties": false,
+      "description": "Independent cash/quantity reconstruction plus the existing accounting kernel result.",
+      "properties": {
+        "ending_cash": {
+          "title": "Ending Cash",
+          "type": "string"
+        },
+        "ending_quantity": {
+          "title": "Ending Quantity",
+          "type": "string"
+        },
+        "observed_ending_cash": {
+          "title": "Observed Ending Cash",
+          "type": "string"
+        },
+        "realized_net_pnl": {
+          "title": "Realized Net Pnl",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "match",
+            "mismatch"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total_fees": {
+          "title": "Total Fees",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "ending_cash",
+        "ending_quantity",
+        "total_fees",
+        "realized_net_pnl",
+        "observed_ending_cash"
+      ],
+      "title": "LedgerReplay",
+      "type": "object"
+    },
+    "Order": {
+      "description": "One venue-visible order derived from a persisted intent.",
+      "properties": {
+        "attached_child_venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attached Child Venue Order Id"
+        },
+        "client_order_id": {
+          "title": "Client Order Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "filled_quantity": {
+          "default": "0",
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Filled Quantity",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "intent_id": {
+          "format": "uuid",
+          "title": "Intent Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/OrderKind"
+        },
+        "parent_order_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Order Id"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "product_id": {
+          "default": "",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "pyramid_add": {
+          "default": false,
+          "title": "Pyramid Add",
+          "type": "boolean"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason"
+        },
+        "side": {
+          "$ref": "#/$defs/OrderSide"
+        },
+        "status": {
+          "$ref": "#/$defs/OrderStatus"
+        },
+        "stop_trigger_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Trigger Price"
+        },
+        "take_profit_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Take Profit Price"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "venue_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Observed At"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        }
+      },
+      "required": [
+        "id",
+        "deployment_id",
+        "intent_id",
+        "client_order_id",
+        "side",
+        "kind",
+        "quantity",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Order",
+      "type": "object"
+    },
+    "OrderKind": {
+      "description": "Maker, marketable, venue-native OCO, or venue stop-limit execution style.\n\n``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit\n(ADR 0090); paper never submits it. ``ADOPTION`` is never routed to any broker: it\nrecords coins already held in the venue account that a live book took ownership of\nat a mark (ADR 0124), and every broker refuses it.",
+      "enum": [
+        "post_only_limit",
+        "marketable",
+        "trigger_bracket",
+        "stop_limit",
+        "adoption"
+      ],
+      "title": "OrderKind",
+      "type": "string"
+    },
+    "OrderSide": {
+      "description": "Spot order side.",
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "title": "OrderSide",
+      "type": "string"
+    },
+    "OrderStatus": {
+      "description": "Persisted venue-neutral order status.",
+      "enum": [
+        "pending",
+        "open",
+        "filled",
+        "canceled",
+        "rejected",
+        "unknown"
+      ],
+      "title": "OrderStatus",
+      "type": "string"
+    },
+    "Position": {
+      "description": "One long or short product book held by a deployment.\n\n``target_price`` is None when the strategy declares no take-profit (ADR 0090).\n``signal_exit_bar`` is the UTC start of the closed bar whose ``exits.signal_exit`` rule\nmatched (ADR 0093): the book keeps exiting (protection cancelled, then a marketable\ncover) on every cycle until it is flat, so a cancel that completes between bars is\nfollowed by the exit rather than by freshly rested protection.",
+      "properties": {
+        "add_count": {
+          "default": 1,
+          "title": "Add Count",
+          "type": "integer"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "entered_bar": {
+          "format": "date-time",
+          "title": "Entered Bar",
+          "type": "string"
+        },
+        "entry_price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Entry Price",
+          "type": "string"
+        },
+        "product_id": {
+          "default": "",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/PositionSide",
+          "default": "long"
+        },
+        "signal_exit_bar": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Exit Bar"
+        },
+        "stop_price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Stop Price",
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Price"
+        },
+        "trail_extreme": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trail Extreme"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "quantity",
+        "entry_price",
+        "stop_price",
+        "target_price",
+        "entered_bar",
+        "updated_at"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "PositionSide": {
+      "description": "Spot inventory direction for one deployment.",
+      "enum": [
+        "long",
+        "short"
+      ],
+      "title": "PositionSide",
+      "type": "string"
+    },
+    "ReplayBoundaries": {
+      "additionalProperties": false,
+      "description": "Independent comparison seams; no member implies universal execution parity.",
+      "properties": {
+        "accounting": {
+          "$ref": "#/$defs/Comparison"
+        },
+        "indicators_signals": {
+          "$ref": "#/$defs/Comparison"
+        },
+        "orders_fills": {
+          "$ref": "#/$defs/Comparison"
+        },
+        "sizing_risk": {
+          "$ref": "#/$defs/Comparison"
+        }
+      },
+      "required": [
+        "indicators_signals",
+        "sizing_risk",
+        "orders_fills",
+        "accounting"
+      ],
+      "title": "ReplayBoundaries",
+      "type": "object"
+    },
+    "RuntimePhase": {
+      "description": "Single-position runtime state machine.",
+      "enum": [
+        "flat",
+        "pending_entry",
+        "open",
+        "pending_exit"
+      ],
+      "title": "RuntimePhase",
+      "type": "string"
+    },
+    "SignalTraceRecord": {
+      "additionalProperties": false,
+      "description": "One auditable condition result for a completed evaluation candle.\n\n``exit_condition`` is the ``exits.signal_exit`` outcome on this candle. It is present\nonly when the strategy declares a signal exit (ADR 0093) and omitted from canonical\nbytes otherwise, so every older trace keeps its fingerprint. It is evaluated on every\ncandle; whether a position was open to act on it is the simulator's concern.",
+      "properties": {
+        "candle_starts_at": {
+          "title": "Candle Starts At",
+          "type": "string"
+        },
+        "entry_condition": {
+          "$ref": "#/$defs/EntryConditionOutcome"
+        },
+        "exit_condition": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EntryConditionOutcome"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "indicator_values": {
+          "items": {
+            "$ref": "#/$defs/IndicatorTraceValue"
+          },
+          "minItems": 1,
+          "title": "Indicator Values",
+          "type": "array"
+        }
+      },
+      "required": [
+        "candle_starts_at",
+        "indicator_values",
+        "entry_condition"
+      ],
+      "title": "SignalTraceRecord",
+      "type": "object"
+    },
+    "StepResult": {
+      "additionalProperties": false,
+      "description": "Actual independently executed state beside the package's expected state.",
+      "properties": {
+        "actual": {
+          "$ref": "#/$defs/ExecutionOutcome"
+        },
+        "expected": {
+          "$ref": "#/$defs/ExecutionOutcome"
+        },
+        "status": {
+          "enum": [
+            "match",
+            "mismatch"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actual",
+        "expected",
+        "status"
+      ],
+      "title": "StepResult",
+      "type": "object"
+    },
+    "StepTimingReport": {
+      "additionalProperties": false,
+      "description": "Observed decision timestamps and optional measured CPU/database/venue-call counters.",
+      "properties": {
+        "broker_methods": {
+          "items": {
+            "$ref": "#/$defs/BrokerMethodTiming"
+          },
+          "title": "Broker Methods",
+          "type": "array"
+        },
+        "data_available_at": {
+          "format": "date-time",
+          "title": "Data Available At",
+          "type": "string"
+        },
+        "decision_completed_at": {
+          "format": "date-time",
+          "title": "Decision Completed At",
+          "type": "string"
+        },
+        "evaluation_started_at": {
+          "format": "date-time",
+          "title": "Evaluation Started At",
+          "type": "string"
+        },
+        "measured": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimingEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unavailable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "data_available_at",
+        "evaluation_started_at",
+        "decision_completed_at",
+        "measured",
+        "broker_methods",
+        "unavailable_reasons"
+      ],
+      "title": "StepTimingReport",
+      "type": "object"
+    },
+    "TimingEvidence": {
+      "additionalProperties": false,
+      "description": "Integer nanosecond observations; absent spans remain absent, never inferred from fills.",
+      "properties": {
+        "computation_cpu_ns": {
+          "minimum": 0,
+          "title": "Computation Cpu Ns",
+          "type": "integer"
+        },
+        "database_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Database Calls"
+        },
+        "database_elapsed_ns": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Database Elapsed Ns"
+        },
+        "elapsed_ns": {
+          "minimum": 0,
+          "title": "Elapsed Ns",
+          "type": "integer"
+        },
+        "queue_wait_ns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Queue Wait Ns"
+        },
+        "unavailable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Reasons",
+          "type": "array"
+        },
+        "venue_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Calls"
+        },
+        "venue_elapsed_ns": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Elapsed Ns"
+        }
+      },
+      "required": [
+        "elapsed_ns",
+        "computation_cpu_ns",
+        "unavailable_reasons"
+      ],
+      "title": "TimingEvidence",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Stable public JSON report for cross-language acceptance.",
+  "properties": {
+    "acceptance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AcceptanceComparison"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "boundaries": {
+      "$ref": "#/$defs/ReplayBoundaries"
+    },
+    "build_compatibility": {
+      "$ref": "#/$defs/Comparison"
+    },
+    "configuration_differences": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Configuration Differences",
+      "type": "array"
+    },
+    "evidence_kind": {
+      "enum": [
+        "synthetic",
+        "prospective",
+        "historical"
+      ],
+      "title": "Evidence Kind",
+      "type": "string"
+    },
+    "execution": {
+      "$ref": "#/$defs/ExecutionReplay"
+    },
+    "ledger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LedgerReplay"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "original_research_deployed": {
+      "$ref": "#/$defs/Comparison"
+    },
+    "same_config_research_execution": {
+      "$ref": "#/$defs/Comparison"
+    },
+    "schema_version": {
+      "const": "thytrader-replay-report-v1",
+      "default": "thytrader-replay-report-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "signals": {
+      "items": {
+        "$ref": "#/$defs/SignalTraceRecord"
+      },
+      "title": "Signals",
+      "type": "array"
+    },
+    "timing": {
+      "items": {
+        "$ref": "#/$defs/StepTimingReport"
+      },
+      "title": "Timing",
+      "type": "array"
+    }
+  },
+  "required": [
+    "evidence_kind",
+    "original_research_deployed",
+    "configuration_differences",
+    "same_config_research_execution",
+    "boundaries",
+    "build_compatibility",
+    "ledger",
+    "execution",
+    "signals",
+    "timing",
+    "limitations"
+  ],
+  "title": "ReplayReport",
+  "type": "object"
+}
