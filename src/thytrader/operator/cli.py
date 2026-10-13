@@ -37,6 +37,7 @@ from thytrader.operator.funding_report import (
 from thytrader.operator.health_models import HealthReport
 from thytrader.operator.http import fetch_operator_report
 from thytrader.operator.redaction import configured_secrets, dumps_redacted, redact_text
+from thytrader.operator.runtime_models import PerformanceReport
 from thytrader.operator.schema_check import SchemaCheckError, check_operator_schema
 from thytrader.operator.session import operator_diagnostics
 from thytrader.operator.status import EXIT_FAILED, EXIT_HEALTHY, EXIT_USAGE, exit_code_for
@@ -547,7 +548,36 @@ def _render(report: OperatorEnvelope, *, fmt: str, secrets: tuple[str, ...]) -> 
             for component in report.components
         ),
     ]
+    if isinstance(report, PerformanceReport) and report.payload.mode != "backtest":
+        lines.extend(_performance_valuation_text(report))
     return redact_text("\n".join(lines), secrets)
+
+
+def _performance_valuation_text(report: PerformanceReport) -> list[str]:
+    """Label candidate prices separately from accepted preview valuation marks."""
+    payload = report.payload
+    lines = [
+        "Performance valuation channel: market_data_preview; not journal-local position marks.",
+        f"closed_trades={payload.trade_count}; "
+        f"recorded_realized_net_pnl={payload.realized_net_pnl}; paid_fees={payload.total_fees}",
+        "Open-book total_net_pnl projections share deployment cash and MUST NOT be summed. "
+        "Recorded net PnL already includes paid fees; do not subtract them again.",
+        *report.partial_result_warnings,
+    ]
+    for book in payload.books:
+        receipt = book.valuation
+        use = "accepted mark" if receipt.used else "not used"
+        price_label = "mark_price" if receipt.used else "candidate_price"
+        lines.append(
+            f"{book.product_id} recorded: closed_trades={book.trade_count}; "
+            f"recorded_realized_net_pnl={book.realized_net_pnl}; paid_fees={book.total_fees}"
+        )
+        lines.append(
+            f"{book.product_id}: {receipt.status}; {use}; {receipt.reason_code}; "
+            f"{price_label}={receipt.price}; candle_closed_at={receipt.candle_closed_at}; "
+            f"observed_at={receipt.observed_at}; source={receipt.source}"
+        )
+    return lines
 
 
 async def _run_local(arguments: argparse.Namespace) -> int:

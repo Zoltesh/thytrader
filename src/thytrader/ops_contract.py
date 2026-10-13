@@ -153,7 +153,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v96"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v97"
 EXPECTED_SCHEMA_REVISION = "0076"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -283,6 +283,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "explicit_deployment_twins",
     "rule_matched_deployment_twins",
     "capital_normalized_performance",
+    "performance_valuation_receipts",
     "exchange_read_failures",
     "audit_failure_evidence",
     "watched_market_tail_health",

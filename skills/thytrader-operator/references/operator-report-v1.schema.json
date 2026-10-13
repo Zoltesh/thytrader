@@ -10545,6 +10545,7 @@
               "explicit_deployment_twins",
               "rule_matched_deployment_twins",
               "capital_normalized_performance",
+              "performance_valuation_receipts",
               "exchange_read_failures",
               "audit_failure_evidence",
               "watched_market_tail_health",
@@ -10922,7 +10923,7 @@
     },
     "PerformanceBookPayload": {
       "additionalProperties": false,
-      "description": "One product book within a deployment performance slice.",
+      "description": "Product-local recorded facts alongside a non-additive current projection.\n\nOpen-book totals share deployment cash and MUST NOT be summed. Historical\ntotals are null in mixed open/closed sets. Complete all-flat totals require an\nexact partition of deployment total PnL; non-fill cash can prevent that proof.\nRecorded realized PnL and fees are fill-only, excluding non-fill cash flows.\nFees are already included in net PnL, not a further deduction.",
       "properties": {
         "product_id": {
           "title": "Product Id",
@@ -10931,6 +10932,30 @@
         "trade_count": {
           "title": "Trade Count",
           "type": "integer"
+        },
+        "realized_net_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Realized Net Pnl"
+        },
+        "total_fees": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Fees"
         },
         "total_net_pnl": {
           "anyOf": [
@@ -10947,12 +10972,16 @@
         "mark_complete": {
           "title": "Mark Complete",
           "type": "boolean"
+        },
+        "valuation": {
+          "$ref": "#/$defs/PerformanceValuationReceipt"
         }
       },
       "required": [
         "product_id",
         "trade_count",
-        "mark_complete"
+        "mark_complete",
+        "valuation"
       ],
       "title": "PerformanceBookPayload",
       "type": "object"
@@ -11141,6 +11170,30 @@
           "default": null,
           "title": "Marked Exposure"
         },
+        "realized_net_pnl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Realized Net Pnl"
+        },
+        "total_fees": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Total Fees"
+        },
         "books": {
           "default": [],
           "items": {
@@ -11275,6 +11328,82 @@
         "payload"
       ],
       "title": "PerformanceReport",
+      "type": "object"
+    },
+    "PerformanceValuationReceipt": {
+      "additionalProperties": false,
+      "description": "Preview evidence, distinct from an accepted price used to value inventory.\n\nObservation time is the preview's as-of time, never report generation time.\nFailed reads and flat books do not manufacture a successful observation.",
+      "properties": {
+        "source": {
+          "const": "market_data_preview",
+          "default": "market_data_preview",
+          "title": "Source",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "fresh",
+            "stale",
+            "empty",
+            "unavailable",
+            "not_required"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "used": {
+          "default": false,
+          "title": "Used",
+          "type": "boolean"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "candle_closed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Candle Closed At"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason_code"
+      ],
+      "title": "PerformanceValuationReceipt",
       "type": "object"
     },
     "PortfolioBacktestDigest": {

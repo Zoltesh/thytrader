@@ -14,6 +14,7 @@
 		performanceCurrencySuffix,
 		performanceHeadline,
 		performanceReportText,
+		recordedPerformanceText,
 		displayQuoteOf,
 		quoteAmountLabel
 	} from '$lib/deployment-detail';
@@ -63,7 +64,12 @@
 		{/if}
 	</article>
 	<article class="card kpi" data-testid="kpi-pnl">
-		<h2 class="label">PnL</h2>
+		<h2 class="label">
+			Performance PnL · {performanceError !== null ||
+			(!performanceLoading && performancePayload === null)
+				? 'journal-local fallback'
+				: 'preview valuation'}
+		</h2>
 		{#if performanceLoading && performanceReport === null}
 			<p class="value">—</p>
 			<p class="delta" data-testid="performance-loading">Loading operator performance…</p>
@@ -73,7 +79,7 @@
 				{fallback.text}
 			</p>
 			<p class="delta problem" data-testid="performance-error" role="status">
-				Operator performance report unavailable ({performanceError}). Ledger summary:
+				Operator performance report unavailable ({performanceError}). Journal-local ledger summary:
 				{ledgerPerformanceText(current)}
 			</p>
 		{:else if performancePayload}
@@ -84,11 +90,31 @@
 			<p class="delta" data-testid="deployment-performance">
 				{performanceReportText(performancePayload)}
 			</p>
+			<p class="delta" data-testid="recorded-performance">
+				{recordedPerformanceText(performancePayload)}
+			</p>
 			<p class="delta">
 				Fill ledger{performanceCurrencySuffix(performancePayload.currency).trim() === ''
 					? ' · quote currency unknown'
 					: ''} · {isLive ? 'after Coinbase fees' : 'assumed paper fees'}
 			</p>
+			<p class="delta">Separate from journal-local position marks; previews are reobserved.</p>
+			{#each performancePayload.books ?? [] as book (book.product_id)}
+				{@const receipt = book.valuation}
+				<p
+					class="delta"
+					class:contract-note={!receipt.used && receipt.status !== 'not_required'}
+					data-testid="valuation-receipt"
+				>
+					{book.product_id}: {receipt.status} · {receipt.used ? 'Accepted mark' : 'Not used'}
+					· {receipt.reason_code} · source {receipt.source}
+					{#if receipt.price !== null}
+						· {receipt.used ? 'Mark price' : 'Candidate price'} {receipt.price}
+					{/if}
+					{#if receipt.candle_closed_at !== null}· Candle close {receipt.candle_closed_at}{/if}
+					{#if receipt.observed_at !== null}· Observed {receipt.observed_at}{/if}
+				</p>
+			{/each}
 			{#if drawdownIsCaveated(performancePayload)}
 				<p class="delta" data-testid="performance-drawdown-caveat">
 					Drawdown {(Number(performancePayload.maximum_drawdown_fraction) * 100).toFixed(2)}% from

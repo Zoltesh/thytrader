@@ -178,6 +178,17 @@ export type DeploymentLedgerPage<T> = {
 	nextCursor: string | null;
 };
 
+/** Observed candidate evidence; only `used` certifies an accepted valuation mark. */
+export type PerformanceValuationReceipt = {
+	source: 'market_data_preview';
+	status: 'fresh' | 'stale' | 'empty' | 'unavailable' | 'not_required';
+	used: boolean;
+	price: string | null;
+	candle_closed_at: string | null;
+	observed_at: string | null;
+	reason_code: string;
+};
+
 /** One operator performance slice for a runtime deployment. */
 export type OperatorPerformance = {
 	mode: 'backtest' | 'paper' | 'live' | string;
@@ -192,6 +203,18 @@ export type OperatorPerformance = {
 	maximum_drawdown_fraction: string | null;
 	mark_complete: boolean | null;
 	marked_exposure: string | null;
+	realized_net_pnl?: string | null;
+	total_fees?: string | null;
+	books?: {
+		product_id: string;
+		trade_count: number;
+		realized_net_pnl: string | null;
+		total_fees: string | null;
+		/** Shared-cash open projections MUST NOT be summed; mixed historical rows are null. */
+		total_net_pnl: string | null;
+		mark_complete: boolean;
+		valuation: PerformanceValuationReceipt;
+	}[];
 };
 
 /** One operator performance report envelope. */

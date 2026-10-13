@@ -465,7 +465,7 @@ describe('operator performance provenance', () => {
 		expect(text).toContain('open inventory without a mark — not final');
 	});
 
-	it('says when performance is not yet computable', () => {
+	it('separates known trades from unknown current marked economics', () => {
 		expect(
 			performanceReportText({
 				mode: 'paper',
@@ -475,7 +475,9 @@ describe('operator performance provenance', () => {
 				total_return_fraction: null,
 				mark_complete: false
 			})
-		).toBe('Net performance not yet computed from the fill ledger.');
+		).toBe(
+			'0 closed trades · Current marked PnL unknown · return unknown · Marked exposure unknown · open inventory without a mark — not final'
+		);
 	});
 
 	it('caveats runtime drawdown but not backtest drawdown', () => {

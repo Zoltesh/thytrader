@@ -348,7 +348,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v96`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v97`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -407,7 +407,28 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    the product quote for discretionary books; `null` means provenance could not be established
    and is accompanied by a warning. Never relabel USD amounts as USDC. Performance timeframe is the strategy snapshot's clock, or the discretionary book
    clock. Paper/live `total_net_pnl` is a fill ledger (realized/unrealized, fees, drawdown) marked
-   at last close; `MISSING_MARK` means open inventory was not marked. Live REST fill ingest uses
+   at an accepted fresh preview close when available, separate from the journal-local position mark
+   on detail/portfolio (ADR 0098). `runtime_observability: performance_valuation_receipts`
+   exposes each `books[].valuation`: price, candle-close time, preview observation time,
+   source, status, reason and `used`. Only `used: true` is an accepted valuation mark.
+   `stale` receipts retain their candidate price for explanation, never current economics;
+   `MISSING_MARK` covers stale or unavailable marks and nulls dependent PnL/return/exposure.
+   The existing age rule is unchanged: strictly more than two intervals is stale. Known
+   `realized_net_pnl`, `trade_count` and `total_fees` include every product's recorded fills,
+   folded independently per product before summing; they are not a certificate of complete
+   current accounting. Each book exposes its own recorded `realized_net_pnl` and `total_fees`.
+   Fees are already included in net PnL; never subtract them again. Existing open-book
+   `total_net_pnl` projections share deployment cash and **MUST NOT be summed**. Historical
+   rows have null `total_net_pnl` when inventory is open; complete all-flat historical rows
+   retain realized totals only when their exact sum equals deployment total PnL. Otherwise
+   historical totals are null with a non-fill cash warning (for example, applied funding).
+   Recorded realized PnL/fees are fill-only; deployment cash PnL can include other flows.
+   Flat/trade-only books need no preview:
+   `not_required`, `used: false`, null price/timestamps. See the
+   [receipt fields](references/report-schemas.md#performance-valuation-receipts).
+   Text CLI names the preview channel without asserting freshness and prints per-book recorded
+   statistics. The browser keeps recorded facts visible beside unknown current economics;
+   if the performance request fails, its full-detail ledger fallback is labeled journal-local. Live REST fill ingest uses
    documented List Fills **cursor** pagination (not `has_next`) and quarantines incomplete or
    unparseable rows ([ADR 0059](../../docs/decisions/0059-coinbase-list-fills-cursor-pagination.md));
    do not treat a truncated or failed fill page as a complete ledger.
@@ -595,6 +616,10 @@ the default 30 s interval): the slack health already grants every worker loop.
 - The worker's heartbeat is refreshed between books, so `HEARTBEAT_STALE` on
   `execution_worker` means one step has been stuck past the stale window or the worker is
   down; a slow but progressing cycle shows only `CYCLE_SLOW`.
+
+Feed and credential-reload nudges received during a cycle schedule one immediate sequential
+follow-up. Bursts coalesce; they never create concurrent cycles. With no new nudge, the worker
+still waits its configured interval after work. Stop/cancellation cleans up idle waiters.
 
 Report the slowest phase and books, the venue and database time, and whether books
 were `warming` (a cold candle cache after a restart is slow for a few cycles and clears by
