@@ -10,6 +10,23 @@ diverge; `ops/.cursor/skills/` symlinks here. Operating agents should open [`ops
 so they load these skills without the contributor GitNexus workflow. The human browser guide is
 [`docs/user/operate.md`](../docs/user/operate.md).
 
+## Offline evidence companion: `thytrader-replay`
+
+File-only export, inspect and replay, separate from all seven HTTP lanes:
+
+- Discover: `uv run thytrader-replay --help`.
+- Commands: `export --input FILE --root DIR`, `inspect MANIFEST`,
+  `run MANIFEST --format json|text [--expected FILE]`, `schema --kind package|manifest|report`.
+- [Canonical procedure](thytrader-runtime/references/live-execution-replay.md): credential-free
+  example, exit codes, private capture root, budgets, retention and limits.
+- [Research interpretation](thytrader-research/references/live-execution-replay.md): entry-signal
+  agreement is not full economics parity; original-rule diffs are a separate comparison.
+- No settings/network/real-broker/database construction, live acknowledgement or `--confirm`
+  flag. `export` writes local evidence and needs authorization for the chosen root, not trading
+  authority. Opting in to worker capture/restarting it is separate authorized installation work.
+- The HTTP transport/auth/stale-image preflight rules below apply to lane clients, **not** this
+  offline companion. Capture-status HTTP/CLI and browser replay UI are not implemented.
+
 ## Gates (every lane)
 
 - Operator is read-only. Data, research, runtime, portfolio, and memory mutations require

@@ -15,6 +15,16 @@ description: >-
 
 Bounded research mutations only. This skill is not an extension of `thytrader-operator` and has no paper, live, arming, cancellation, or kill-switch authority.
 
+For offline research-versus-execution evidence, discover the separate companion with
+`uv run thytrader-replay --help`. Its commands are `export --input FILE --root DIR`,
+`inspect MANIFEST`, `run MANIFEST --format json|text [--expected FILE]`, and
+`schema --kind package|manifest|report`; they never submit research jobs or real orders.
+Read [replay comparison guidance](references/live-execution-replay.md) before interpreting a
+match: entry-signal/indicator agreement is not full economics parity, and equal deployed/original
+rules do not prove original capital, costs or build. Root publication authorization is distinct
+from trading authority; prospective worker setup belongs to a separately authorized installation
+action, not research promotion.
+
 Default transport is the loopback HTTP API (base URL from `--base-url`, `THYTRADER_API_BASE_URL`,
 or settings; see the [shared rules](../README.md#shared-rules-every-lane)). Pass `--local` only when you intentionally want PostgreSQL stores. Do not fall back from HTTP to
 the database if the API is down.

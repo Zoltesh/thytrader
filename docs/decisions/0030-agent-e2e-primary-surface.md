@@ -1,6 +1,6 @@
 # 0030: Agent-driven E2E as the primary product surface
 
-- Status: Accepted
+- Status: Accepted; file-only offline replay surface amended by [0137](0137-offline-live-execution-replay.md)
 - Date: 2026-09-15
 - Relates to: [0001](0001-sveltekit-frontend.md), [0012](0012-operator-diagnostics.md),
   [0013](0013-http-first-agent-clients.md), [0031](0031-coinbase-first-platform-end-state.md)
@@ -45,6 +45,13 @@ agent tools. Those safety boundaries are unchanged. What changes is product-surf
 - Planned journals, sentiment, pattern learning, and notifications (roadmap Phase 14 and later)
   stay subordinate to confirmation gates, scoped authority, immutable evidence, and risk controls.
   They are not shipped by this ADR.
+
+## Amendment: file-only offline evidence companion
+
+[ADR 0137](0137-offline-live-execution-replay.md) makes a bounded exception to the CLI + HTTP +
+skill completeness requirement: offline replay has a CLI, portable JSON schemas and shipped
+operator references, with no replay HTTP/browser surface. Local artifact publication is not
+trading authority; existing HTTP lane and live-confirmation requirements are unchanged.
 
 ## Consequences
 

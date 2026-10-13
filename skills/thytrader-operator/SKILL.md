@@ -13,6 +13,17 @@ description: >-
 
 Read-only diagnostics for a running instance. Do not scrape logs, query PostgreSQL, or import private internals.
 
+For a supplied replay artifact, the **offline** companion is `uv run thytrader-replay --help`:
+`inspect MANIFEST` verifies publication; `run MANIFEST --format json|text [--expected FILE]`
+recomputes its captured boundary; `schema --kind package|manifest|report` exposes the portable
+contract. It has no operator HTTP route or settings/real-broker/database construction.
+See the [replay reference](../thytrader-runtime/references/live-execution-replay.md) for exact
+commands, exit codes and privacy. `export --input FILE --root DIR` writes local evidence only;
+authorize the root separately and do not treat publication as a read-only action or live consent.
+Matching entry signals or a golden is not full historical/economic parity. The existing `runtime`
+cycle report is not a capture-health endpoint; no supported capture-status endpoint exists.
+Operator observation never enables capture, edits deployment setup or restarts a worker on its own.
+
 Portfolio exposure counts inventory cost plus working entry remainders. Verified protective and
 other exit intents, including paper limit exits, do not add entry exposure. Orders without intent
 evidence stay conservatively counted. The portfolio manager briefing marks open books from the

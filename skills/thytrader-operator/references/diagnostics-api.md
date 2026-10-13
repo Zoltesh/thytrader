@@ -1,5 +1,20 @@
 # Operator diagnostics API
 
+## Offline replay companion (not an HTTP route)
+
+`uv run thytrader-replay --help` discovers the file-only replay surface. Use
+`inspect MANIFEST` for verified input identity/gaps, `run MANIFEST --format json|text` for
+recomputed comparisons, `run MANIFEST --expected FILE` for external golden acceptance, and
+`schema --kind package|manifest|report` for wire schemas. `export --input FILE --root DIR`
+mutates local artifacts only and requires authorization for that private root; it cannot mutate
+trading state. No `/api/v1/operator` replay route, capture-status report or capture-health alert
+is introduced. Existing `runtime` cycle telemetry remains separate from capture timing.
+Read the [canonical replay reference](../../thytrader-runtime/references/live-execution-replay.md)
+for complete commands, meaningful exit codes, limits and privacy. Do not bypass this boundary by
+querying the database or scraping logs to reconstruct missing as-seen input.
+
+## HTTP diagnostics
+
 All routes are `GET` under `/api/v1/operator`. They share application services with `thytrader-operator` and do not mutate orders, strategies, or deployments.
 
 Base URL: the loopback API origin of this install, resolved as in the

@@ -35,7 +35,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0027](0027-phase-9-roc-williams-cci.md) | Phase 9 second slice: `roc`, `williams_r`, and `cci` | Accepted |
 | [0028](0028-phase-9-identity-constant.md) | Phase 9 third slice: `identity` OHLCV and `constant` levels | Accepted |
 | [0029](0029-phase-9-wma-momentum-mfi.md) | Phase 9 fourth slice: `wma`, `momentum`, and `mfi` | Accepted |
-| [0030](0030-agent-e2e-primary-surface.md) | Agent-driven E2E is the primary product surface; UI still required | Accepted |
+| [0030](0030-agent-e2e-primary-surface.md) | Agent-driven E2E is the primary product surface; UI still required | Accepted; file-only offline replay exception amended by 0137 |
 | [0031](0031-coinbase-first-platform-end-state.md) | Coinbase-first platform end-state: on-demand trades, venue TFs, single- and multi-asset | Accepted — superseded in part by 0046 |
 | [0032](0032-phase-9-macd-bollinger.md) | Phase 9 fifth slice: `macd` and `bollinger` with referenceable series ids | Accepted |
 | [0033](0033-phase-10-risk-policy-registry.md) | Phase 10 risk-policy registry, capital allocation, concurrent single-instrument paper/live | Accepted — extended by 0056 |
@@ -142,6 +142,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 
 | [0135](0135-durable-futures-safety-obligations.md) | Independent revision-fenced futures de-risk and flat-confirmation duties, atomic fill rearming, proof-aware cancellation; Alembic 0076 and additive reports, ops contract v95; dormant runtime only | Accepted |
 | [0136](0136-performance-valuation-receipts.md) | Performance rejects stale previews, discloses per-book candidate/accepted valuation receipts and retains flat/trade-only books and known fill statistics; ADR 0098 journal-local marks remain separate; sequential worker wake consumption at cycle start with cancellation cleanup; ops contract v97 | Accepted |
+| [0137](0137-offline-live-execution-replay.md) | Immutable as-seen inputs, offline execution/reconciliation replay and portable acceptance; separate entry-signal and original-rule evidence, opt-in private worker capture and qualified timing; no trading authority | Accepted |
 
 ## Status values
 
