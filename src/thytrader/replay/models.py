@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from thytrader.decimal_text import canonical_decimal
 from thytrader.market_data.quality import validate_candle_timestamp
 from thytrader.replay.codec import validate_no_coercion, wire_value
+from thytrader.replay.numeric import financial_text, validate_numeric_inputs
 from thytrader.replay.steps import ReplayStep
 from thytrader.replay.windows import validate_auxiliary_windows, validate_window
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
@@ -48,7 +49,7 @@ class LedgerEvent(FrozenModel):
     @classmethod
     def canonical_amount(cls, value: str) -> str:
         """Require positive price/quantity, nonnegative fees and exact canonical spelling."""
-        amount = Decimal(value)
+        amount = financial_text(value)
         if amount < 0 or canonical_decimal(amount) != value:
             raise ValueError("financial values must be nonnegative canonical decimal strings")
         return value
@@ -84,7 +85,7 @@ class LedgerEvidence(FrozenModel):
         if len(set(ids)) != len(ids) or instants != sorted(instants):
             raise ValueError("fill identities must be unique and timestamps ordered")
         for value in (self.starting_cash, self.observed_ending_cash):
-            if canonical_decimal(Decimal(value)) != value:
+            if canonical_decimal(financial_text(value)) != value:
                 raise ValueError("cash must be canonical")
         return self
 
@@ -101,9 +102,36 @@ class ReplayPackage(FrozenModel):
     ledger: LedgerEvidence | None
     unavailable_reasons: tuple[Reason, ...]
 
+    @classmethod
+    def model_validate_json(
+        cls,
+        json_data: str | bytes | bytearray,
+        *,
+        strict: bool | None = None,
+        extra: Literal["allow", "ignore", "forbid"] | None = None,
+        context: object | None = None,
+        by_alias: bool | None = None,
+        by_name: bool | None = None,
+    ) -> Self:
+        """Preflight numeric allocation while preserving Pydantic's strict JSON decoding.
+
+        A before-model validator changes strict JSON tuple/enum decoding into Python
+        decoding. Inspect separately, then pass the original bytes to the JSON engine.
+        """
+        validate_numeric_inputs(json.loads(json_data))
+        return super().model_validate_json(
+            json_data,
+            strict=strict,
+            extra=extra,
+            context=context,
+            by_alias=by_alias,
+            by_name=by_name,
+        )
+
     @model_validator(mode="after")
     def validate_temporal_inputs(self) -> Self:
         """Reject future/gapped windows and timestamp identity contradictions before publication."""
+        wire_value(self.model_dump(mode="python", by_alias=True, warnings="error"))
         if self.steps and self.strategy is None:
             raise ValueError("execution steps require an exact strategy snapshot")
         for step in self.steps:
@@ -119,10 +147,17 @@ def validate_step_inputs(step: ReplayStep, strategy: StrategyDefinition) -> None
         validate_candle_timestamp(instant)
     if not step.data_available_at <= step.evaluation_started_at <= step.decision_completed_at:
         raise ValueError("capture timestamps are out of causal order")
+    validate_observation_times(step)
+    mark_keys = [key for key, _amount in step.marks]
+    if len(set(mark_keys)) != len(mark_keys):
+        raise ValueError("mark product identities must be unique")
     if step.before.deployment.strategy_fingerprint != strategy_fingerprint(strategy):
         raise ValueError("book and strategy identities disagree")
-    if step.product.product_id != strategy.instrument.product_id or (
-        step.before.deployment.product_id != strategy.instrument.product_id
+    if (
+        step.product.product_id != strategy.instrument.product_id
+        or step.product.base_currency != strategy.instrument.base_currency
+        or step.product.quote_currency != strategy.instrument.quote_currency
+        or step.before.deployment.product_id != strategy.instrument.product_id
     ):
         raise ValueError("primary product identity disagrees with strategy or book")
     if step.before.deployment.timeframe not in {None, strategy.timeframe}:
@@ -133,6 +168,24 @@ def validate_step_inputs(step: ReplayStep, strategy: StrategyDefinition) -> None
         raise ValueError("empty closed-bar execution step")
     validate_primary_window(step, strategy)
     validate_auxiliary_windows(step, strategy)
+
+
+def validate_observation_times(step: ReplayStep) -> None:
+    """Bound invocation/return spans and nondecreasing actual clock reads, not history."""
+    start, done = step.evaluation_started_at, step.decision_completed_at
+    for event in step.broker_events:
+        validate_candle_timestamp(event.started_at)
+        validate_candle_timestamp(event.completed_at)
+        if not start <= event.started_at <= event.completed_at <= done:
+            raise ValueError("broker observation is outside the operation envelope")
+    previous = start
+    for event in step.runtime_inputs:
+        if event.kind == "clock":
+            instant = datetime.fromisoformat(event.value)
+            validate_candle_timestamp(instant)
+            if not previous <= instant <= done:
+                raise ValueError("runtime clock is outside the causal operation envelope")
+            previous = instant
 
 
 def validate_primary_window(step: ReplayStep, strategy: StrategyDefinition) -> None:

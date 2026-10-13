@@ -32,7 +32,8 @@ For file-only evidence work, use the separate **`thytrader-replay`** companion:
 `run MANIFEST --format json|text [--expected FILE]`, and `schema --kind package|manifest|report`.
 The [replay operator reference](references/live-execution-replay.md) contains the complete
 credential-free example, exit codes, comparison limits, privacy/retention and prospective capture
-opt-in/disable procedure. It never sends real orders or changes deployments. Local artifact
+opt-in/disable procedure and semantic input refusals (finite amounts, causal clock/broker spans,
+matching currency units and unique marks). It never sends real orders or changes deployments. Local artifact
 publication requires authorization for the chosen root, not `--confirm` or live acknowledgement
 (the offline CLI has neither flag). Capture setup/restart is a separate authorized installation
 action, not runtime `set-settings`, not a replay action and not automatic live consent.

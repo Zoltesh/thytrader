@@ -60,6 +60,24 @@ The package validator checks strategy/book fingerprint agreement and primary com
 causality, continuity and OHLCV semantics. Additional clock/reference inputs must retain their
 product/clock identity; consumers still enforce their evaluation requirements. Preserving supplied
 inputs does not establish that a missing original dataset or external risk read was captured.
+Primary product base/quote units must match the immutable strategy as well as its product id;
+venue aliases do not change units. Mark product keys must be unique, even for equal values.
+Broker invocation/return instants must be ordered inside the inclusive evaluation-start to
+decision-complete envelope; actual runtime clock reads must be nondecreasing in that same
+interval. Equal instants are valid, including explicitly synthetic schedules. Historical book,
+order and fill timestamps and UUIDs requested for old timestamps are not current clock reads.
+The two tapes do not establish an interleaved wire-event order.
+
+Financial strings and typed Decimals share the [normative finite envelope](../decisions/0137-offline-live-execution-replay.md#input-integrity-requirements):
+64 coefficient digits excluding insignificant trailing zeros, adjusted exponent -128..128,
+stored exponent -191..128, and a 196-character numeric lexical/coefficient budget before parsing
+or canonical expansion. Cash may be negative; fill price/quantity must be positive, fees nonnegative.
+Ledger arithmetic retains Decimal64 HALF_EVEN rounding and refuses overflow, subnormal/underflow,
+clamping, invalid/division-by-zero and trap-disabled saturation as controlled unavailable evidence,
+not a financial match or traceback. Ordinary indicator rounding and existing execution precision
+are preserved, not replaced with blanket Inexact traps. Numeric-only string identifiers share
+raw lexeme bounds; unrelated nonnumeric build labels remain unchanged.
+
 Clock and broker tapes are consumed in order and must be completely consumed. A changed request,
 extra request, wrong event kind or leftover tape is evidence rejection, not permission to fall
 back to a venue read. Recorded timeout/refusal categories remain recorded failures, not evidence

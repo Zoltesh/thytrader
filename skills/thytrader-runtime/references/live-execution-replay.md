@@ -98,6 +98,18 @@ incomplete. Newly downloading candles or enabling future capture does not recove
 Keep product, clock, quote currency and source identity explicit; do not substitute a USD proxy
 for a USDC investigation.
 
+### Semantic input refusals
+
+Replay refuses conflicting product base/quote units, all duplicate mark product keys, broker
+spans outside evaluation-start..decision-complete, and decreasing/out-of-envelope actual clock
+reads. Historical book/order/fill timestamps and historical UUID timestamps remain allowed.
+Equal observation instants are valid. Financial strings and typed amounts share the finite
+64-digit coefficient envelope with adjusted exponent -128..128, stored exponent -191..128 and
+196-character numeric lexeme budget; see the normative architecture/ADR for precise limits.
+Cash remains signed. Unusable derived arithmetic exits `2` with redacted stderr rather than
+silently becoming zero, saturating or printing a traceback. Ordinary rounding is still allowed.
+Do not edit original evidence, change currency units or retune a golden to bypass a refusal.
+
 ## Prospective worker capture: opt-in, not a replay action
 
 Capture observes the actual live worker's closed-bar call after ordinary pre-bar reconciliation

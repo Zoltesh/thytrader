@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from thytrader.decimal_text import canonical_decimal
+from thytrader.replay.numeric import validate_decimal
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
@@ -21,9 +22,7 @@ def wire_value(value: object) -> JsonValue:
     dictionary. Decimal normalization does not use the ambient arithmetic context.
     """
     if isinstance(value, Decimal):
-        if not value.is_finite() or len(value.as_tuple().digits) > 64:
-            raise ValueError("replay financial evidence exceeds the finite Decimal envelope")
-        return canonical_decimal(value)
+        return canonical_decimal(validate_decimal(value))
     if isinstance(value, datetime):
         if value.utcoffset() != timedelta(0):
             raise ValueError("replay timestamps must be UTC")

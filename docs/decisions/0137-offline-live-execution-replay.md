@@ -77,6 +77,37 @@ and operator reference.
    establishes that bounded acceptance case, not historical parity, provenance authorization or
    economic edge.
 
+## Input-integrity requirements
+
+These are admission rules, not schema-only checks. They apply to normalized input,
+canonical/model-copy serialization, publication and verified reads:
+
+- Financial strings and typed Decimals MUST share a finite, usable envelope: at most
+  64 coefficient digits after removing insignificant trailing zeros; adjusted exponent
+  in `[-128, 128]`; stored Decimal exponent in `[-191, 128]`; at most 196 characters per
+  numeric lexeme and 196 stored coefficient digits. Bounds are inclusive and checked
+  without arithmetic normalization. Numeric lexemes are bounded before Decimal parsing;
+  ordinary nonnumeric identifiers/build labels are not amounts. Canonical ledger text
+  remains fixed-point, with positive price/quantity, nonnegative fees and signed cash.
+- Ledger folding retains Decimal64 `ROUND_HALF_EVEN`. Overflow, nonzero subnormal/underflow,
+  clamping, invalid operations and division by zero MUST produce controlled unavailable
+  evidence (CLI exit `2`), not a false match, finite saturation or traceback. Ordinary
+  finite-precision rounding remains allowed; do not trap every `Inexact`/`Rounded` signal
+  or replace the existing indicator engine's arithmetic. Replay guards retain the existing
+  execution precision outside the explicit Decimal64 ledger context.
+- Every normalized broker invocation/return MUST satisfy
+  `evaluation_started_at <= started_at <= completed_at <= decision_completed_at`.
+  Actual runtime `clock` reads MUST be UTC, nondecreasing and inside that inclusive
+  operation envelope. Equal instants are valid. Historical deployment/order/fill facts
+  and UUIDs requested for historical timestamps are not actual current clock reads and
+  MUST NOT be forced into the current step. Broker and runtime tapes are separate
+  sequences, not a complete cross-tape wire-event order proof.
+- Primary product id, base currency and quote currency MUST match the strategy instrument;
+  the initial book must retain the same primary product id. A venue alias does not change
+  settlement units. This does not create a new risk-policy currency identity contract.
+- Mark product identities MUST be unique before mapping conversion. Reject equal-value
+  duplicates as well as conflicting duplicates; last-key-wins is not financial evidence.
+
 ## Consequences
 
 - Agents can export, inspect and run packages without a running ThyTrader installation or venue
