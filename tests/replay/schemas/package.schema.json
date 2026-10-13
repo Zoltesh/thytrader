@@ -1,0 +1,4673 @@
+{
+  "$defs": {
+    "AllCondition": {
+      "additionalProperties": false,
+      "description": "Require every bounded child condition in the group to be true.",
+      "properties": {
+        "all": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ComparisonCondition"
+              },
+              {
+                "$ref": "#/$defs/AllCondition"
+              },
+              {
+                "$ref": "#/$defs/AnyCondition"
+              },
+              {
+                "$ref": "#/$defs/NotCondition"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "All",
+          "type": "array"
+        }
+      },
+      "required": [
+        "all"
+      ],
+      "title": "AllCondition",
+      "type": "object"
+    },
+    "AnyCondition": {
+      "additionalProperties": false,
+      "description": "Require at least one bounded child condition in the group to be true.",
+      "properties": {
+        "any": {
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ComparisonCondition"
+              },
+              {
+                "$ref": "#/$defs/AllCondition"
+              },
+              {
+                "$ref": "#/$defs/AnyCondition"
+              },
+              {
+                "$ref": "#/$defs/NotCondition"
+              }
+            ]
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Any",
+          "type": "array"
+        }
+      },
+      "required": [
+        "any"
+      ],
+      "title": "AnyCondition",
+      "type": "object"
+    },
+    "AtrMultipleStop": {
+      "additionalProperties": false,
+      "description": "Define an initial stop as a positive multiple of a named ATR.",
+      "properties": {
+        "atr_indicator": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Atr Indicator",
+          "type": "string"
+        },
+        "kind": {
+          "const": "atr_multiple",
+          "title": "Kind",
+          "type": "string"
+        },
+        "multiple": {
+          "title": "Multiple",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "atr_indicator",
+        "multiple"
+      ],
+      "title": "AtrMultipleStop",
+      "type": "object"
+    },
+    "AtrTrailingStop": {
+      "additionalProperties": false,
+      "description": "Raise a long stop from the highest high using a named ATR multiple.",
+      "properties": {
+        "atr_indicator": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Atr Indicator",
+          "type": "string"
+        },
+        "enabled": {
+          "const": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "kind": {
+          "const": "atr_multiple",
+          "title": "Kind",
+          "type": "string"
+        },
+        "multiple": {
+          "title": "Multiple",
+          "type": "string"
+        }
+      },
+      "required": [
+        "enabled",
+        "kind",
+        "atr_indicator",
+        "multiple"
+      ],
+      "title": "AtrTrailingStop",
+      "type": "object"
+    },
+    "AwesomeOscillatorIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "High/low-locked Awesome Oscillator fast and slow median-price SMA windows.",
+      "properties": {
+        "fast_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Fast Period",
+          "type": "integer"
+        },
+        "slow_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Slow Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fast_period",
+        "slow_period"
+      ],
+      "title": "AwesomeOscillatorIndicatorParameters",
+      "type": "object"
+    },
+    "BollingerIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Close-locked SMA period and population-stdev band multiplier (Bollinger, %B, bandwidth).",
+      "properties": {
+        "period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        },
+        "stdev_multiplier": {
+          "title": "Stdev Multiplier",
+          "type": "string"
+        }
+      },
+      "required": [
+        "period",
+        "stdev_multiplier"
+      ],
+      "title": "BollingerIndicatorParameters",
+      "type": "object"
+    },
+    "BrokerEvent": {
+      "additionalProperties": false,
+      "description": "Response observation with actual call boundaries and a stable failure category.",
+      "properties": {
+        "completed_at": {
+          "format": "date-time",
+          "title": "Completed At",
+          "type": "string"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "enum": [
+                "BrokerError",
+                "TimeoutError",
+                "ValueError"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "fill": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fill"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fills": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Fill"
+          },
+          "title": "Fills",
+          "type": "array"
+        },
+        "maker_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maker Price"
+        },
+        "operation": {
+          "enum": [
+            "place",
+            "cancel",
+            "get",
+            "fills",
+            "match",
+            "maker",
+            "lookup"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/$defs/BrokerRequest"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SubmitResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "started_at": {
+          "format": "date-time",
+          "title": "Started At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "operation",
+        "request",
+        "started_at",
+        "completed_at"
+      ],
+      "title": "BrokerEvent",
+      "type": "object"
+    },
+    "BrokerRequest": {
+      "additionalProperties": false,
+      "description": "Only provider-neutral arguments; credentials and raw transport payloads have no field.",
+      "properties": {
+        "candle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Candle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "client_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Order Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderKind"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "mark": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mark"
+        },
+        "order": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Order"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Id"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Id"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderSide"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "stop_trigger_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Trigger Price"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted At"
+        },
+        "take_profit_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Take Profit Price"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        }
+      },
+      "title": "BrokerRequest",
+      "type": "object"
+    },
+    "Candle": {
+      "description": "One exact OHLCV candle identified by its UTC opening instant.",
+      "properties": {
+        "close": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Close",
+          "type": "string"
+        },
+        "high": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "High",
+          "type": "string"
+        },
+        "low": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Low",
+          "type": "string"
+        },
+        "open": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Open",
+          "type": "string"
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        },
+        "volume": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Volume",
+          "type": "string"
+        }
+      },
+      "required": [
+        "starts_at",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume"
+      ],
+      "title": "Candle",
+      "type": "object"
+    },
+    "CandleWindow": {
+      "additionalProperties": false,
+      "description": "Exact normalized completed bars on a named auxiliary clock.",
+      "properties": {
+        "candles": {
+          "items": {
+            "$ref": "#/$defs/Candle"
+          },
+          "maxItems": 20000,
+          "title": "Candles",
+          "type": "array"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "enum": [
+            "1h",
+            "5m",
+            "15m",
+            "30m",
+            "6h",
+            "1d",
+            "1m",
+            "2h",
+            "4h"
+          ],
+          "title": "Timeframe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "product_id",
+        "timeframe",
+        "candles"
+      ],
+      "title": "CandleWindow",
+      "type": "object"
+    },
+    "CapitalAllocation": {
+      "additionalProperties": false,
+      "description": "Quote budget reserved for one published strategy identity.",
+      "properties": {
+        "allocated_quote": {
+          "title": "Allocated Quote",
+          "type": "string"
+        },
+        "strategy_id": {
+          "format": "uuid",
+          "title": "Strategy Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "strategy_id",
+        "allocated_quote"
+      ],
+      "title": "CapitalAllocation",
+      "type": "object"
+    },
+    "ComparisonCondition": {
+      "additionalProperties": false,
+      "description": "Compare two declarative operands without arbitrary expressions.",
+      "properties": {
+        "left": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndicatorOperand"
+            },
+            {
+              "$ref": "#/$defs/LiteralOperand"
+            }
+          ],
+          "title": "Left"
+        },
+        "operator": {
+          "$ref": "#/$defs/ComparisonOperator"
+        },
+        "right": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndicatorOperand"
+            },
+            {
+              "$ref": "#/$defs/LiteralOperand"
+            }
+          ],
+          "title": "Right"
+        }
+      },
+      "required": [
+        "left",
+        "operator",
+        "right"
+      ],
+      "title": "ComparisonCondition",
+      "type": "object"
+    },
+    "ComparisonOperator": {
+      "description": "Pure comparison operations supported by the first reference profile.",
+      "enum": [
+        "greater_than",
+        "greater_than_or_equal",
+        "less_than",
+        "less_than_or_equal",
+        "equals",
+        "crosses_above",
+        "crosses_below"
+      ],
+      "title": "ComparisonOperator",
+      "type": "string"
+    },
+    "ConstantIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Named finite level repeated on every completed bar.",
+      "properties": {
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "ConstantIndicatorParameters",
+      "type": "object"
+    },
+    "DailyOpeningEvidence": {
+      "additionalProperties": false,
+      "description": "Reconstructed day equity with fill identity and actual overnight inventory marks.\n\nReaders revalidate the fill fingerprint and projections. This is derived evidence,\nnot permission to rewrite legacy equity stamps or operational cash. A paper futures\nbook also reverses its applied funding (``per_product_applied_fills_and_funding_v1``,\nADR 0129 \u00a74); its fingerprint then covers the funding hours too.",
+      "properties": {
+        "day_start": {
+          "format": "date-time",
+          "title": "Day Start",
+          "type": "string"
+        },
+        "equity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Equity",
+          "type": "string"
+        },
+        "fills_fingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Fills Fingerprint",
+          "type": "string"
+        },
+        "marks": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/MidnightMark"
+          },
+          "title": "Marks",
+          "type": "array"
+        },
+        "source": {
+          "default": "per_product_applied_fills_v1",
+          "enum": [
+            "per_product_applied_fills_v1",
+            "per_product_applied_fills_and_funding_v1"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "day_start",
+        "equity",
+        "fills_fingerprint"
+      ],
+      "title": "DailyOpeningEvidence",
+      "type": "object"
+    },
+    "DataRequirements": {
+      "additionalProperties": false,
+      "description": "Historical inputs required before strategy evaluation can begin.\n\n``reference_instruments`` (ADR 0096) declares read-only cross-instrument series. It is\nomitted from canonical JSON when empty, so documents without references keep their\ncanonical bytes and fingerprints. Each reference's warmup and OHLCV fields are derived\nfrom the indicators whose ``source`` names it; ``warmup_bars`` and ``required_fields``\ndescribe the traded instrument's decision clock only.",
+      "properties": {
+        "reference_instruments": {
+          "default": [],
+          "description": "Optional read-only reference series (1-3) that indicators may read with `source: <id>`. Never traded. Omitted when empty.",
+          "items": {
+            "$ref": "#/$defs/ReferenceInstrument"
+          },
+          "maxItems": 3,
+          "title": "Reference Instruments",
+          "type": "array"
+        },
+        "required_fields": {
+          "items": {
+            "enum": [
+              "open",
+              "high",
+              "low",
+              "close",
+              "volume"
+            ],
+            "type": "string"
+          },
+          "maxItems": 5,
+          "minItems": 1,
+          "title": "Required Fields",
+          "type": "array"
+        },
+        "warmup_bars": {
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Warmup Bars",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "warmup_bars",
+        "required_fields"
+      ],
+      "title": "DataRequirements",
+      "type": "object"
+    },
+    "Deployment": {
+      "description": "One paper or live runtime bound to a strategy snapshot or a discretionary book.",
+      "properties": {
+        "allocated_capital": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Allocated Capital"
+        },
+        "bars_held": {
+          "default": 0,
+          "title": "Bars Held",
+          "type": "integer"
+        },
+        "baseline_equity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Baseline Equity"
+        },
+        "cash": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Cash",
+          "type": "string"
+        },
+        "cooldown_bars_remaining": {
+          "default": 0,
+          "title": "Cooldown Bars Remaining",
+          "type": "integer"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "daily_loss_latched": {
+          "default": false,
+          "title": "Daily Loss Latched",
+          "type": "boolean"
+        },
+        "drawdown_latched": {
+          "default": false,
+          "title": "Drawdown Latched",
+          "type": "boolean"
+        },
+        "futures_derisk_pending": {
+          "default": false,
+          "title": "Futures Derisk Pending",
+          "type": "boolean"
+        },
+        "futures_flat_confirmation_after": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Futures Flat Confirmation After"
+        },
+        "high_water_mark_equity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "High Water Mark Equity"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "initial_equity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Initial Equity"
+        },
+        "inventory_cost": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Inventory Cost"
+        },
+        "kind": {
+          "$ref": "#/$defs/DeploymentKind",
+          "default": "strategy"
+        },
+        "last_evaluated_bar": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Evaluated Bar"
+        },
+        "last_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Signal"
+        },
+        "last_signal_event_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Signal Event At"
+        },
+        "last_signal_processed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Signal Processed At"
+        },
+        "lifecycle_command": {
+          "$ref": "#/$defs/LifecycleCommand",
+          "default": "none"
+        },
+        "mismatch_detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mismatch Detail"
+        },
+        "mode": {
+          "$ref": "#/$defs/DeploymentMode"
+        },
+        "paper_maker_fee_rate": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Maker Fee Rate"
+        },
+        "paper_starting_cash": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Starting Cash"
+        },
+        "paper_taker_fee_rate": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Taker Fee Rate"
+        },
+        "pending_entry_bars": {
+          "default": 0,
+          "title": "Pending Entry Bars",
+          "type": "integer"
+        },
+        "pending_stop_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Stop Price"
+        },
+        "pending_target_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Target Price"
+        },
+        "performance_capital_quote": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Performance Capital Quote"
+        },
+        "performance_equity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Performance Equity"
+        },
+        "performance_maximum_drawdown_fraction": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Performance Maximum Drawdown Fraction"
+        },
+        "phase": {
+          "$ref": "#/$defs/RuntimePhase"
+        },
+        "portfolio_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Portfolio Id"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "reserved_buying_power": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reserved Buying Power"
+        },
+        "revision": {
+          "default": 0,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "risk_day_open_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DailyOpeningEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "$ref": "#/$defs/DeploymentStatus"
+        },
+        "strategy_fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Strategy Fingerprint"
+        },
+        "strategy_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Strategy Id"
+        },
+        "strategy_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Strategy Name"
+        },
+        "timeframe": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeframe"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "utc_day_open_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Utc Day Open At"
+        },
+        "utc_day_open_equity": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Utc Day Open Equity"
+        },
+        "venue_available_quote": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Available Quote"
+        },
+        "worker_lease_expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worker Lease Expires At"
+        },
+        "worker_lease_holder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Worker Lease Holder"
+        }
+      },
+      "required": [
+        "id",
+        "strategy_fingerprint",
+        "strategy_id",
+        "product_id",
+        "mode",
+        "status",
+        "cash",
+        "phase",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Deployment",
+      "type": "object"
+    },
+    "DeploymentKind": {
+      "description": "Whether a runtime is a published strategy or a discretionary book.",
+      "enum": [
+        "strategy",
+        "discretionary"
+      ],
+      "title": "DeploymentKind",
+      "type": "string"
+    },
+    "DeploymentMode": {
+      "description": "Venue selected when a published strategy is deployed.",
+      "enum": [
+        "paper",
+        "live"
+      ],
+      "title": "DeploymentMode",
+      "type": "string"
+    },
+    "DeploymentSnapshot": {
+      "description": "One deployment plus positions, orders, fills, and per-product runtime overlays.",
+      "properties": {
+        "accounting_complete": {
+          "default": true,
+          "title": "Accounting Complete",
+          "type": "boolean"
+        },
+        "deployment": {
+          "$ref": "#/$defs/Deployment"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/Fill"
+          },
+          "title": "Fills",
+          "type": "array"
+        },
+        "funding": {
+          "items": {
+            "$ref": "#/$defs/FundingCashFlow"
+          },
+          "title": "Funding",
+          "type": "array"
+        },
+        "instrument_runtimes": {
+          "items": {
+            "$ref": "#/$defs/InstrumentRuntime"
+          },
+          "title": "Instrument Runtimes",
+          "type": "array"
+        },
+        "intents": {
+          "items": {
+            "$ref": "#/$defs/OrderIntent"
+          },
+          "title": "Intents",
+          "type": "array"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/Order"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "position": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Position"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "title": "Positions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "deployment"
+      ],
+      "title": "DeploymentSnapshot",
+      "type": "object"
+    },
+    "DeploymentStatus": {
+      "description": "Operator-visible lifecycle of one deployment.",
+      "enum": [
+        "running",
+        "paused",
+        "stopped"
+      ],
+      "title": "DeploymentStatus",
+      "type": "string"
+    },
+    "Derivatives": {
+      "additionalProperties": false,
+      "description": "Futures settings a strategy carries.\n\n``max_leverage`` is the strategy's own ceiling (gross notional at mark over futures\nequity); the risk policy's ceiling applies too and the lower wins. ``margin_mode`` is\n``overnight`` in P1: intraday rates are never used for sizing or admission.\n``flatten_before_expiry_hours`` flattens a dated contract that many hours before its\nexpiry; it is required for dated contracts when the contract is bound.",
+      "properties": {
+        "flatten_before_expiry_hours": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Flatten Before Expiry Hours"
+        },
+        "margin_mode": {
+          "const": "overnight",
+          "default": "overnight",
+          "title": "Margin Mode",
+          "type": "string"
+        },
+        "max_leverage": {
+          "title": "Max Leverage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "max_leverage"
+      ],
+      "title": "Derivatives",
+      "type": "object"
+    },
+    "DisabledTrailingStop": {
+      "additionalProperties": false,
+      "description": "Explicitly disable trailing stops. Canonical JSON is only ``enabled: false``.",
+      "properties": {
+        "enabled": {
+          "const": false,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "DisabledTrailingStop",
+      "type": "object"
+    },
+    "EconomicEntryGuard": {
+      "additionalProperties": false,
+      "description": "Require a declared maker target to clear this net return on entry notional.",
+      "properties": {
+        "minimum_net_target_return_fraction": {
+          "maxLength": 80,
+          "pattern": "^(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "title": "Minimum Net Target Return Fraction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "minimum_net_target_return_fraction"
+      ],
+      "title": "EconomicEntryGuard",
+      "type": "object"
+    },
+    "EmptyIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "No rolling or level parameters; used by identity OHLCV kinds.",
+      "properties": {},
+      "title": "EmptyIndicatorParameters",
+      "type": "object"
+    },
+    "EntryDefinition": {
+      "additionalProperties": false,
+      "description": "Define conservative long or short entry intent, cooldown, and optional pyramiding.",
+      "properties": {
+        "cooldown_bars": {
+          "maximum": 10000,
+          "minimum": 0,
+          "title": "Cooldown Bars",
+          "type": "integer"
+        },
+        "economic_guard": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EconomicEntryGuard"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_open_positions": {
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Open Positions",
+          "type": "integer"
+        },
+        "pyramiding": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IntraStrategyPyramiding"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "side": {
+          "enum": [
+            "long",
+            "short"
+          ],
+          "title": "Side",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "When"
+        }
+      },
+      "required": [
+        "side",
+        "when",
+        "cooldown_bars",
+        "max_open_positions"
+      ],
+      "title": "EntryDefinition",
+      "type": "object"
+    },
+    "ExecutionOutcome": {
+      "additionalProperties": false,
+      "description": "Full order/fill and position economics, independently recomputed from inputs.",
+      "properties": {
+        "cash": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Cash",
+          "type": "string"
+        },
+        "daily_loss_latched": {
+          "default": false,
+          "title": "Daily Loss Latched",
+          "type": "boolean"
+        },
+        "deployment_status": {
+          "$ref": "#/$defs/DeploymentStatus",
+          "default": "running"
+        },
+        "drawdown_latched": {
+          "default": false,
+          "title": "Drawdown Latched",
+          "type": "boolean"
+        },
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/Fill"
+          },
+          "title": "Fills",
+          "type": "array"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/Order"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "phase": {
+          "$ref": "#/$defs/RuntimePhase"
+        },
+        "positions": {
+          "items": {
+            "$ref": "#/$defs/Position"
+          },
+          "title": "Positions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cash",
+        "phase",
+        "positions",
+        "orders",
+        "fills"
+      ],
+      "title": "ExecutionOutcome",
+      "type": "object"
+    },
+    "ExecutionPreferences": {
+      "additionalProperties": false,
+      "description": "Declare venue-neutral execution preferences for later runtimes.\n\nEntries are always post-only maker limits in backtest, paper, and live.\n``marketable_limit`` is retired: it parses only so persisted snapshots keep verifying\nbyte-for-byte, and the strategy library rejects it on save (``authoring_issues``).",
+      "properties": {
+        "entry_preference": {
+          "enum": [
+            "maker_only",
+            "marketable_limit"
+          ],
+          "title": "Entry Preference",
+          "type": "string"
+        },
+        "max_entry_wait_bars": {
+          "maximum": 50,
+          "minimum": 1,
+          "title": "Max Entry Wait Bars",
+          "type": "integer"
+        },
+        "on_unfilled_entry": {
+          "enum": [
+            "cancel",
+            "reprice"
+          ],
+          "title": "On Unfilled Entry",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entry_preference",
+        "max_entry_wait_bars",
+        "on_unfilled_entry"
+      ],
+      "title": "ExecutionPreferences",
+      "type": "object"
+    },
+    "ExitDefinition": {
+      "additionalProperties": false,
+      "description": "Declare initial-stop, optional take-profit, optional ATR trailing, and time-exit policy.\n\n``signal_exit`` is optional and omitted from canonical JSON when absent, so every\ndocument written before ADR 0093 keeps its bytes and fingerprint.",
+      "properties": {
+        "initial_stop": {
+          "$ref": "#/$defs/AtrMultipleStop"
+        },
+        "signal_exit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SignalExit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "take_profit": {
+          "discriminator": {
+            "mapping": {
+              "none": "#/$defs/NoTakeProfit",
+              "reward_risk": "#/$defs/RewardRiskTakeProfit"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/RewardRiskTakeProfit"
+            },
+            {
+              "$ref": "#/$defs/NoTakeProfit"
+            }
+          ],
+          "title": "Take Profit"
+        },
+        "time_exit": {
+          "$ref": "#/$defs/TimeExit"
+        },
+        "trailing_stop": {
+          "discriminator": {
+            "mapping": {
+              "False": "#/$defs/DisabledTrailingStop",
+              "True": "#/$defs/AtrTrailingStop"
+            },
+            "propertyName": "enabled"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/DisabledTrailingStop"
+            },
+            {
+              "$ref": "#/$defs/AtrTrailingStop"
+            }
+          ],
+          "title": "Trailing Stop"
+        }
+      },
+      "required": [
+        "initial_stop",
+        "take_profit",
+        "trailing_stop",
+        "time_exit"
+      ],
+      "title": "ExitDefinition",
+      "type": "object"
+    },
+    "FeeProfile": {
+      "additionalProperties": false,
+      "description": "Normalized, exact fee tier rates and 30-day volume from Coinbase.",
+      "properties": {
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "fee_tier": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Fee Tier",
+          "type": "string"
+        },
+        "maker_fee_rate": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Maker Fee Rate",
+          "type": "string"
+        },
+        "source": {
+          "const": "coinbase",
+          "default": "coinbase",
+          "title": "Source",
+          "type": "string"
+        },
+        "taker_fee_rate": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Taker Fee Rate",
+          "type": "string"
+        },
+        "usd_volume_30d": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Usd Volume 30D",
+          "type": "string"
+        }
+      },
+      "required": [
+        "taker_fee_rate",
+        "maker_fee_rate",
+        "usd_volume_30d",
+        "fee_tier",
+        "as_of"
+      ],
+      "title": "FeeProfile",
+      "type": "object"
+    },
+    "Fill": {
+      "description": "One exact fill against a known order.",
+      "properties": {
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "economics_applied_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Economics Applied At"
+        },
+        "fee": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Fee",
+          "type": "string"
+        },
+        "filled_at": {
+          "format": "date-time",
+          "title": "Filled At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "order_id": {
+          "format": "uuid",
+          "title": "Order Id",
+          "type": "string"
+        },
+        "price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "venue_fill_id": {
+          "title": "Venue Fill Id",
+          "type": "string"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        }
+      },
+      "required": [
+        "id",
+        "deployment_id",
+        "order_id",
+        "venue_fill_id",
+        "price",
+        "quantity",
+        "fee",
+        "filled_at"
+      ],
+      "title": "Fill",
+      "type": "object"
+    },
+    "FundingCashFlow": {
+      "description": "One funding hour applied to a paper futures book's cash (ADR 0129 \u00a74).\n\n``amount`` is ``-signed_quantity x mark_price x rate`` in USD: longs pay a positive\nrate and shorts receive it. It is applied once, in the same row-locked transaction that\nupdates the book's cash, and is part of the book's ledger like a fill.",
+      "properties": {
+        "amount": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Amount",
+          "type": "string"
+        },
+        "applied_at": {
+          "format": "date-time",
+          "title": "Applied At",
+          "type": "string"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "funding_time": {
+          "format": "date-time",
+          "title": "Funding Time",
+          "type": "string"
+        },
+        "mark_price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Mark Price",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "rate": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Rate",
+          "type": "string"
+        },
+        "signed_quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Signed Quantity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "product_id",
+        "funding_time",
+        "signed_quantity",
+        "mark_price",
+        "rate",
+        "amount",
+        "applied_at"
+      ],
+      "title": "FundingCashFlow",
+      "type": "object"
+    },
+    "FuturesRiskPolicy": {
+      "additionalProperties": false,
+      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is \u2265 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital, and\n``max_daily_loss_usd`` is an optional absolute ceiling on it.\n\nThe futures entry gate (ADR 0129 \u00a75): ``max_leverage`` (gross notional over futures\nbook equity; the lower of it and the strategy's applies), ``min_liquidation_buffer_fraction``\n((equity - maintenance) / equity after the entry; 0.5 while unset),\n``max_exposure_fraction`` (gross futures notional over ``paper_capital_usd``),\n``max_order_contracts`` (per order), ``max_hourly_funding_rate_abs`` (deny while the\nlatest settled hourly rate exceeds it) and ``max_btc_beta_exposure_fraction`` (the futures\nscope's own BTC-beta cap over ``paper_capital_usd``). ``beta_netting`` ``net_by_underlying``\nlets managed same-mode futures positions net, in base units, against same-underlying spot\ninventory for the spot BTC-beta cap only (\u00a76); unset is ``gross``.\n\nLive futures (ADR 0134 \u00a72, I2): starts and entries need ``live_enabled: true``,\n``live_capital_usd`` (the USD envelope live futures allocations draw from, and the capital\nof the live ``CFM-USD`` daily loss and exposure caps) and the product on\n``product_allowlist`` (futures ids only; the policy's top-level allowlist stays spot-only).\nA non-empty ``product_allowlist`` also restricts paper futures books. Live orders and the\nlive position hold at most ``max_order_contracts`` contracts, **1** while it is unset.\n``live_derisk_margin_ratio`` (> 1, on the venue's ``available_margin /\nliquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are stored for the\nfuture live margin monitor and funding drift alert. The opt-in never gates exits or\nprotection.",
+      "properties": {
+        "beta_netting": {
+          "anyOf": [
+            {
+              "enum": [
+                "gross",
+                "net_by_underlying"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Beta Netting"
+        },
+        "daily_loss_limit_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Loss Limit Fraction"
+        },
+        "live_capital_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Capital Usd"
+        },
+        "live_derisk_margin_ratio": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Derisk Margin Ratio"
+        },
+        "live_enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Enabled"
+        },
+        "live_funding_drift_tolerance_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Funding Drift Tolerance Usd"
+        },
+        "live_spot_collateral_reserve_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Spot Collateral Reserve Quote"
+        },
+        "max_btc_beta_exposure_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Btc Beta Exposure Fraction"
+        },
+        "max_daily_loss_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Daily Loss Usd"
+        },
+        "max_exposure_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Exposure Fraction"
+        },
+        "max_hourly_funding_rate_abs": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Hourly Funding Rate Abs"
+        },
+        "max_leverage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Leverage"
+        },
+        "max_order_contracts": {
+          "anyOf": [
+            {
+              "maximum": 1000000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Order Contracts"
+        },
+        "min_liquidation_buffer_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Liquidation Buffer Fraction"
+        },
+        "paper_capital_usd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paper Capital Usd"
+        },
+        "peg_haircut": {
+          "default": "1.25",
+          "title": "Peg Haircut",
+          "type": "string"
+        },
+        "product_allowlist": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 32,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Allowlist"
+        }
+      },
+      "title": "FuturesRiskPolicy",
+      "type": "object"
+    },
+    "HigherTimeframeFilter": {
+      "additionalProperties": false,
+      "description": "Optional closed-bar HTF filter AND-ed with LTF entry on the decision clock.",
+      "properties": {
+        "data_requirements": {
+          "$ref": "#/$defs/DataRequirements"
+        },
+        "indicators": {
+          "items": {
+            "$ref": "#/$defs/IndicatorDefinition"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Indicators",
+          "type": "array"
+        },
+        "timeframe": {
+          "enum": [
+            "1h",
+            "5m",
+            "15m",
+            "30m",
+            "6h",
+            "1d",
+            "1m",
+            "2h",
+            "4h"
+          ],
+          "title": "Timeframe",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "When"
+        }
+      },
+      "required": [
+        "timeframe",
+        "data_requirements",
+        "indicators",
+        "when"
+      ],
+      "title": "HigherTimeframeFilter",
+      "type": "object"
+    },
+    "HistoricalVolatilityIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Close-locked historical volatility window with explicit annualization periods.",
+      "properties": {
+        "annualization_periods": {
+          "maximum": 525600,
+          "minimum": 1,
+          "title": "Annualization Periods",
+          "type": "integer"
+        },
+        "period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "annualization_periods"
+      ],
+      "title": "HistoricalVolatilityIndicatorParameters",
+      "type": "object"
+    },
+    "IchimokuIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "High/low-locked Ichimoku conversion, base, and leading-span-B windows.",
+      "properties": {
+        "kijun_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Kijun Period",
+          "type": "integer"
+        },
+        "senkou_b_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Senkou B Period",
+          "type": "integer"
+        },
+        "tenkan_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Tenkan Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "tenkan_period",
+        "kijun_period",
+        "senkou_b_period"
+      ],
+      "title": "IchimokuIndicatorParameters",
+      "type": "object"
+    },
+    "IndicatorDefinition": {
+      "additionalProperties": false,
+      "description": "One named declarative indicator with no executable expression surface.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "input": {
+          "anyOf": [
+            {
+              "enum": [
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume"
+              ],
+              "type": "string"
+            },
+            {
+              "maxItems": 3,
+              "minItems": 3,
+              "prefixItems": [
+                {
+                  "const": "high",
+                  "type": "string"
+                },
+                {
+                  "const": "low",
+                  "type": "string"
+                },
+                {
+                  "const": "close",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "const": "high",
+                  "type": "string"
+                },
+                {
+                  "const": "low",
+                  "type": "string"
+                },
+                {
+                  "const": "close",
+                  "type": "string"
+                },
+                {
+                  "const": "volume",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "const": "high",
+                  "type": "string"
+                },
+                {
+                  "const": "low",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "const": "close",
+                  "type": "string"
+                },
+                {
+                  "const": "volume",
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input"
+        },
+        "kind": {
+          "$ref": "#/$defs/IndicatorKind"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 500,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Bar lag on this indicator's own clock: every value is the one from `offset` completed bars earlier. Omitted (or 0) means the current completed bar.",
+          "title": "Offset"
+        },
+        "parameters": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MacdIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/BollingerIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/StochasticIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/IndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/ConstantIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/EmptyIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/KamaIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/SupertrendIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/ParabolicSarIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/IchimokuIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/StochasticRsiIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/UltimateOscillatorIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/AwesomeOscillatorIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/TsiIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/KeltnerIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/HistoricalVolatilityIndicatorParameters"
+            },
+            {
+              "$ref": "#/$defs/SignalLineIndicatorParameters"
+            }
+          ],
+          "title": "Parameters"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Reference instrument id (data_requirements.reference_instruments[].id) whose closed bars this indicator reads, on that reference's timeframe. Omitted means the traded instrument (ADR 0096).",
+          "title": "Source"
+        },
+        "timeframe": {
+          "anyOf": [
+            {
+              "enum": [
+                "1h",
+                "5m",
+                "15m",
+                "30m",
+                "6h",
+                "1d",
+                "1m",
+                "2h",
+                "4h"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeframe"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "parameters"
+      ],
+      "title": "IndicatorDefinition",
+      "type": "object"
+    },
+    "IndicatorKind": {
+      "description": "Fail-closed kinds in the canonical indicator registry.",
+      "enum": [
+        "ema",
+        "sma",
+        "rsi",
+        "atr",
+        "volume_sma",
+        "highest",
+        "lowest",
+        "stdev",
+        "roc",
+        "williams_r",
+        "cci",
+        "identity",
+        "constant",
+        "wma",
+        "momentum",
+        "mfi",
+        "macd",
+        "bollinger",
+        "stdev_sample",
+        "stochastic",
+        "adx",
+        "dema",
+        "tema",
+        "hma",
+        "kama",
+        "vwma",
+        "supertrend",
+        "parabolic_sar",
+        "aroon",
+        "ichimoku",
+        "vortex",
+        "linear_regression",
+        "trix",
+        "stochastic_rsi",
+        "ppo",
+        "ultimate_oscillator",
+        "awesome_oscillator",
+        "cmo",
+        "tsi",
+        "keltner",
+        "donchian",
+        "bollinger_percent_b",
+        "bollinger_bandwidth",
+        "natr",
+        "choppiness",
+        "historical_volatility",
+        "obv",
+        "cmf",
+        "accumulation_distribution",
+        "vwap",
+        "force_index",
+        "zscore",
+        "percent_rank"
+      ],
+      "title": "IndicatorKind",
+      "type": "string"
+    },
+    "IndicatorOperand": {
+      "additionalProperties": false,
+      "description": "Reference a previously declared indicator, and a series when the kind is multi-output.",
+      "properties": {
+        "indicator": {
+          "pattern": "^[a-z][a-z0-9_]{0,63}$",
+          "title": "Indicator",
+          "type": "string"
+        },
+        "offset": {
+          "anyOf": [
+            {
+              "maximum": 500,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Additional lag in completed bars of the referenced indicator's own clock.",
+          "title": "Offset"
+        },
+        "series": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][a-z0-9_]{0,31}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Series"
+        }
+      },
+      "required": [
+        "indicator"
+      ],
+      "title": "IndicatorOperand",
+      "type": "object"
+    },
+    "IndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Bounded period parameters shared by the implemented rolling indicator profile.",
+      "properties": {
+        "period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period"
+      ],
+      "title": "IndicatorParameters",
+      "type": "object"
+    },
+    "Instrument": {
+      "additionalProperties": false,
+      "description": "One Coinbase spot instrument, or (``kind: future``) one CFM futures contract.\n\nSpot: ``product_id`` is ``BASE-QUOTE`` and matches the two currencies; ``kind`` is\nomitted so spot documents keep their canonical bytes. Futures (ADR 0128): a CDE\ncontract id, ``quote_currency`` ``USD`` (the settlement currency) and\n``base_currency`` = the contract's underlying (``contract_root_unit``; ``BIP`` is\n``BTC``), which the catalog confirms when the contract is bound.",
+      "properties": {
+        "base_currency": {
+          "pattern": "^[A-Z0-9]{2,20}$",
+          "title": "Base Currency",
+          "type": "string"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "const": "future",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "product_id": {
+          "pattern": "^(?:[A-Z0-9]{2,20}-(?:USD|USDC|USDT)|[A-Z0-9]{2,6}-\\d{2}[A-Z]{3}\\d{2}-CDE)$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quote_currency": {
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "base_currency",
+        "quote_currency"
+      ],
+      "title": "Instrument",
+      "type": "object"
+    },
+    "InstrumentRuntime": {
+      "description": "Per-product overlay of the single-book runtime machine.",
+      "properties": {
+        "bars_held": {
+          "default": 0,
+          "title": "Bars Held",
+          "type": "integer"
+        },
+        "cooldown_bars_remaining": {
+          "default": 0,
+          "title": "Cooldown Bars Remaining",
+          "type": "integer"
+        },
+        "last_evaluated_bar": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Evaluated Bar"
+        },
+        "last_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Signal"
+        },
+        "pending_entry_bars": {
+          "default": 0,
+          "title": "Pending Entry Bars",
+          "type": "integer"
+        },
+        "pending_stop_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Stop Price"
+        },
+        "pending_target_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pending Target Price"
+        },
+        "phase": {
+          "$ref": "#/$defs/RuntimePhase"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "phase"
+      ],
+      "title": "InstrumentRuntime",
+      "type": "object"
+    },
+    "IntentOrigin": {
+      "description": "Who requested the intent so audits can separate human, agent, and runtime.",
+      "enum": [
+        "human",
+        "agent",
+        "runtime"
+      ],
+      "title": "IntentOrigin",
+      "type": "string"
+    },
+    "IntentPurpose": {
+      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing. ``LIQUIDATION`` is the\nprotective marketable exit a paper futures book sends when its equity falls below\nmaintenance (ADR 0129 \u00a74); like every exit it is never gated.",
+      "enum": [
+        "entry",
+        "take_profit",
+        "stop",
+        "time_exit",
+        "bracket",
+        "signal_exit",
+        "adoption",
+        "liquidation"
+      ],
+      "title": "IntentPurpose",
+      "type": "string"
+    },
+    "IntraStrategyPyramiding": {
+      "additionalProperties": false,
+      "description": "Opt-in same-side adds onto one open position. Averaging down is rejected.",
+      "properties": {
+        "enabled": {
+          "const": true,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "require_unrealized_profit": {
+          "const": true,
+          "default": true,
+          "title": "Require Unrealized Profit",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "title": "IntraStrategyPyramiding",
+      "type": "object"
+    },
+    "KamaIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Kaufman adaptive MA: efficiency-ratio window plus fast and slow smoothing periods.",
+      "properties": {
+        "fast_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Fast Period",
+          "type": "integer"
+        },
+        "period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        },
+        "slow_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Slow Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "fast_period",
+        "slow_period"
+      ],
+      "title": "KamaIndicatorParameters",
+      "type": "object"
+    },
+    "KeltnerIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "HLC-locked Keltner channel: EMA middle period, Wilder ATR period, band multiplier.",
+      "properties": {
+        "atr_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Atr Period",
+          "type": "integer"
+        },
+        "multiplier": {
+          "title": "Multiplier",
+          "type": "string"
+        },
+        "period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "atr_period",
+        "multiplier"
+      ],
+      "title": "KeltnerIndicatorParameters",
+      "type": "object"
+    },
+    "LedgerEvent": {
+      "additionalProperties": false,
+      "description": "One normalized observed fill, with side resolved from its authoritative order.",
+      "properties": {
+        "fee": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "title": "Fee",
+          "type": "string"
+        },
+        "fill_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Fill Id",
+          "type": "string"
+        },
+        "filled_at": {
+          "format": "date-time",
+          "title": "Filled At",
+          "type": "string"
+        },
+        "price": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "title": "Price",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "side": {
+          "enum": [
+            "buy",
+            "sell"
+          ],
+          "title": "Side",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fill_id",
+        "side",
+        "price",
+        "quantity",
+        "fee",
+        "filled_at"
+      ],
+      "title": "LedgerEvent",
+      "type": "object"
+    },
+    "LedgerEvidence": {
+      "additionalProperties": false,
+      "description": "Cashflow ledger evidence, separate from allocation-funded performance capital.",
+      "properties": {
+        "fills": {
+          "items": {
+            "$ref": "#/$defs/LedgerEvent"
+          },
+          "maxItems": 5000,
+          "title": "Fills",
+          "type": "array"
+        },
+        "observed_ending_cash": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "title": "Observed Ending Cash",
+          "type": "string"
+        },
+        "starting_cash": {
+          "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$",
+          "title": "Starting Cash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "starting_cash",
+        "observed_ending_cash",
+        "fills"
+      ],
+      "title": "LedgerEvidence",
+      "type": "object"
+    },
+    "LifecycleCommand": {
+      "description": "Operator command that is distinct from the visible running/paused/stopped status.\n\nA STOPPED book is not operationally terminal until inventory and orders are\nsettled or explicitly transferred. ``STOP_NEW_ENTRIES`` is pause. ``FLATTEN``\nmarketably exits then cancels remainders. ``MANAGED_SHUTDOWN`` (default HTTP\nstop) cancels risk-increasing entries, keeps protective brackets, and keeps\nresidual occupancy in account-level risk until the book is flat.",
+      "enum": [
+        "none",
+        "stop_new_entries",
+        "flatten",
+        "managed_shutdown"
+      ],
+      "title": "LifecycleCommand",
+      "type": "string"
+    },
+    "LiteralOperand": {
+      "additionalProperties": false,
+      "description": "Represent one exact decimal literal used in a comparison.",
+      "properties": {
+        "literal": {
+          "title": "Literal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "literal"
+      ],
+      "title": "LiteralOperand",
+      "type": "object"
+    },
+    "MacdIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Close-locked EMA windows shared by MACD and PPO: fast, slow, and signal smoothing.",
+      "properties": {
+        "fast_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Fast Period",
+          "type": "integer"
+        },
+        "signal_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Signal Period",
+          "type": "integer"
+        },
+        "slow_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Slow Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fast_period",
+        "slow_period",
+        "signal_period"
+      ],
+      "title": "MacdIndicatorParameters",
+      "type": "object"
+    },
+    "MarketProduct": {
+      "description": "One tradable spot product with exact venue constraints.\n\n``status`` is the venue's product status text (Coinbase reports ``online``\nfor a normally trading market) or ``None`` when the venue omitted it.\n``alias`` names the product whose order book this one shares (Coinbase lists\n``BTC-USDC`` with alias ``BTC-USD``), or ``None`` for a standalone book.",
+      "properties": {
+        "alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Alias"
+        },
+        "base_currency": {
+          "title": "Base Currency",
+          "type": "string"
+        },
+        "base_increment": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Base Increment",
+          "type": "string"
+        },
+        "base_min_size": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Base Min Size",
+          "type": "string"
+        },
+        "price_increment": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price Increment",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quote_currency": {
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "quote_increment": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quote Increment",
+          "type": "string"
+        },
+        "quote_min_size": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quote Min Size",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "trading_enabled": {
+          "title": "Trading Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "product_id",
+        "base_currency",
+        "quote_currency",
+        "price_increment",
+        "base_increment",
+        "quote_increment",
+        "base_min_size",
+        "quote_min_size",
+        "trading_enabled"
+      ],
+      "title": "MarketProduct",
+      "type": "object"
+    },
+    "MidnightMark": {
+      "additionalProperties": false,
+      "description": "An actual closed candle price at midnight for one product; never a current mark.",
+      "properties": {
+        "closes_at": {
+          "format": "date-time",
+          "title": "Closes At",
+          "type": "string"
+        },
+        "price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Price",
+          "type": "string"
+        },
+        "product_id": {
+          "title": "Product Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_id",
+        "closes_at",
+        "price"
+      ],
+      "title": "MidnightMark",
+      "type": "object"
+    },
+    "NoTakeProfit": {
+      "additionalProperties": false,
+      "description": "Declare no take-profit: exits are the stop, the optional ATR trail, and the time exit.\n\nCanonical JSON is only ``{\"kind\": \"none\"}``. Paper and live rest no take-profit order;\nlive protects the book with a venue stop-limit instead of a TP/SL bracket (ADR 0090).",
+      "properties": {
+        "kind": {
+          "const": "none",
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "NoTakeProfit",
+      "type": "object"
+    },
+    "NotCondition": {
+      "additionalProperties": false,
+      "description": "Negate exactly one bounded child condition.",
+      "properties": {
+        "not": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComparisonCondition"
+            },
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "Not"
+        }
+      },
+      "required": [
+        "not"
+      ],
+      "title": "NotCondition",
+      "type": "object"
+    },
+    "Order": {
+      "description": "One venue-visible order derived from a persisted intent.",
+      "properties": {
+        "attached_child_venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attached Child Venue Order Id"
+        },
+        "client_order_id": {
+          "title": "Client Order Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "filled_quantity": {
+          "default": "0",
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Filled Quantity",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "intent_id": {
+          "format": "uuid",
+          "title": "Intent Id",
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/OrderKind"
+        },
+        "parent_order_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Order Id"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "product_id": {
+          "default": "",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "pyramid_add": {
+          "default": false,
+          "title": "Pyramid Add",
+          "type": "boolean"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason"
+        },
+        "side": {
+          "$ref": "#/$defs/OrderSide"
+        },
+        "status": {
+          "$ref": "#/$defs/OrderStatus"
+        },
+        "stop_trigger_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Trigger Price"
+        },
+        "take_profit_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Take Profit Price"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "venue_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Observed At"
+        },
+        "venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Order Id"
+        }
+      },
+      "required": [
+        "id",
+        "deployment_id",
+        "intent_id",
+        "client_order_id",
+        "side",
+        "kind",
+        "quantity",
+        "status",
+        "created_at",
+        "updated_at"
+      ],
+      "title": "Order",
+      "type": "object"
+    },
+    "OrderIntent": {
+      "description": "One persisted intent recorded before any venue submission.",
+      "properties": {
+        "candle_starts_at": {
+          "format": "date-time",
+          "title": "Candle Starts At",
+          "type": "string"
+        },
+        "client_order_id": {
+          "title": "Client Order Id",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Idempotency Key"
+        },
+        "kind": {
+          "$ref": "#/$defs/OrderKind"
+        },
+        "origin": {
+          "$ref": "#/$defs/IntentOrigin",
+          "default": "runtime"
+        },
+        "price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price"
+        },
+        "product_id": {
+          "default": "",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "purpose": {
+          "$ref": "#/$defs/IntentPurpose"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/OrderSide"
+        },
+        "status": {
+          "$ref": "#/$defs/OrderStatus",
+          "default": "pending"
+        },
+        "stop_trigger_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stop Trigger Price"
+        },
+        "take_profit_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Take Profit Price"
+        }
+      },
+      "required": [
+        "id",
+        "deployment_id",
+        "client_order_id",
+        "purpose",
+        "side",
+        "kind",
+        "quantity",
+        "created_at",
+        "candle_starts_at"
+      ],
+      "title": "OrderIntent",
+      "type": "object"
+    },
+    "OrderKind": {
+      "description": "Maker, marketable, venue-native OCO, or venue stop-limit execution style.\n\n``STOP_LIMIT`` is live-only stop-only protection for a book without a take-profit\n(ADR 0090); paper never submits it. ``ADOPTION`` is never routed to any broker: it\nrecords coins already held in the venue account that a live book took ownership of\nat a mark (ADR 0124), and every broker refuses it.",
+      "enum": [
+        "post_only_limit",
+        "marketable",
+        "trigger_bracket",
+        "stop_limit",
+        "adoption"
+      ],
+      "title": "OrderKind",
+      "type": "string"
+    },
+    "OrderSide": {
+      "description": "Spot order side.",
+      "enum": [
+        "buy",
+        "sell"
+      ],
+      "title": "OrderSide",
+      "type": "string"
+    },
+    "OrderStatus": {
+      "description": "Persisted venue-neutral order status.",
+      "enum": [
+        "pending",
+        "open",
+        "filled",
+        "canceled",
+        "rejected",
+        "unknown"
+      ],
+      "title": "OrderStatus",
+      "type": "string"
+    },
+    "ParabolicSarIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "High/low-locked Parabolic SAR acceleration step and acceleration cap.",
+      "properties": {
+        "max_step": {
+          "title": "Max Step",
+          "type": "string"
+        },
+        "step": {
+          "title": "Step",
+          "type": "string"
+        }
+      },
+      "required": [
+        "step",
+        "max_step"
+      ],
+      "title": "ParabolicSarIndicatorParameters",
+      "type": "object"
+    },
+    "PortfolioLimits": {
+      "additionalProperties": false,
+      "description": "Bound exposure and distinct product-position concurrency for one document.",
+      "properties": {
+        "max_concurrent_positions": {
+          "maximum": 8,
+          "minimum": 1,
+          "title": "Max Concurrent Positions",
+          "type": "integer"
+        },
+        "max_strategy_exposure_fraction": {
+          "title": "Max Strategy Exposure Fraction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "max_strategy_exposure_fraction",
+        "max_concurrent_positions"
+      ],
+      "title": "PortfolioLimits",
+      "type": "object"
+    },
+    "Position": {
+      "description": "One long or short product book held by a deployment.\n\n``target_price`` is None when the strategy declares no take-profit (ADR 0090).\n``signal_exit_bar`` is the UTC start of the closed bar whose ``exits.signal_exit`` rule\nmatched (ADR 0093): the book keeps exiting (protection cancelled, then a marketable\ncover) on every cycle until it is flat, so a cancel that completes between bars is\nfollowed by the exit rather than by freshly rested protection.",
+      "properties": {
+        "add_count": {
+          "default": 1,
+          "title": "Add Count",
+          "type": "integer"
+        },
+        "deployment_id": {
+          "format": "uuid",
+          "title": "Deployment Id",
+          "type": "string"
+        },
+        "entered_bar": {
+          "format": "date-time",
+          "title": "Entered Bar",
+          "type": "string"
+        },
+        "entry_price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Entry Price",
+          "type": "string"
+        },
+        "product_id": {
+          "default": "",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "quantity": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Quantity",
+          "type": "string"
+        },
+        "side": {
+          "$ref": "#/$defs/PositionSide",
+          "default": "long"
+        },
+        "signal_exit_bar": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signal Exit Bar"
+        },
+        "stop_price": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Stop Price",
+          "type": "string"
+        },
+        "target_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Target Price"
+        },
+        "trail_extreme": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trail Extreme"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "deployment_id",
+        "quantity",
+        "entry_price",
+        "stop_price",
+        "target_price",
+        "entered_bar",
+        "updated_at"
+      ],
+      "title": "Position",
+      "type": "object"
+    },
+    "PositionSide": {
+      "description": "Spot inventory direction for one deployment.",
+      "enum": [
+        "long",
+        "short"
+      ],
+      "title": "PositionSide",
+      "type": "string"
+    },
+    "ReferenceInstrument": {
+      "additionalProperties": false,
+      "description": "One read-only cross-instrument series that indicators may declare as their ``source``.\n\nA reference is never traded and never receives orders: it only feeds indicator values\n(for example a BTC-USDC 1d regime gate on an alt strategy; ADR 0096). Its bars align like\nan HTF clock: at each decision close only the last reference bar that has already closed\nis visible, so a reference bar is used only after it closes.",
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][a-z0-9_]{0,31}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "product_id": {
+          "pattern": "^[A-Z0-9]{2,20}-(?:USD|USDC|USDT)$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "enum": [
+            "1h",
+            "5m",
+            "15m",
+            "30m",
+            "6h",
+            "1d",
+            "1m",
+            "2h",
+            "4h"
+          ],
+          "title": "Timeframe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "product_id",
+        "timeframe"
+      ],
+      "title": "ReferenceInstrument",
+      "type": "object"
+    },
+    "ReplayStep": {
+      "additionalProperties": false,
+      "description": "One exact book, completed window, risk policy and clock/identity tape.",
+      "properties": {
+        "allow_new_entries": {
+          "title": "Allow New Entries",
+          "type": "boolean"
+        },
+        "before": {
+          "$ref": "#/$defs/DeploymentSnapshot"
+        },
+        "broker_events": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/BrokerEvent"
+          },
+          "maxItems": 5000,
+          "title": "Broker Events",
+          "type": "array"
+        },
+        "broker_supports_client_lookup": {
+          "default": false,
+          "title": "Broker Supports Client Lookup",
+          "type": "boolean"
+        },
+        "candles": {
+          "items": {
+            "$ref": "#/$defs/Candle"
+          },
+          "maxItems": 20000,
+          "title": "Candles",
+          "type": "array"
+        },
+        "data_available_at": {
+          "format": "date-time",
+          "title": "Data Available At",
+          "type": "string"
+        },
+        "decision_completed_at": {
+          "format": "date-time",
+          "title": "Decision Completed At",
+          "type": "string"
+        },
+        "entry_inhibited": {
+          "default": true,
+          "title": "Entry Inhibited",
+          "type": "boolean"
+        },
+        "evaluation_started_at": {
+          "format": "date-time",
+          "title": "Evaluation Started At",
+          "type": "string"
+        },
+        "expected": {
+          "$ref": "#/$defs/ExecutionOutcome"
+        },
+        "fee_profile": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeeProfile"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "htf_candles": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Candle"
+          },
+          "title": "Htf Candles",
+          "type": "array"
+        },
+        "indicator_windows": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CandleWindow"
+          },
+          "title": "Indicator Windows",
+          "type": "array"
+        },
+        "live_base_available": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live Base Available"
+        },
+        "marks": {
+          "default": [],
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "type": "array"
+          },
+          "title": "Marks",
+          "type": "array"
+        },
+        "operation": {
+          "title": "Operation",
+          "type": "string"
+        },
+        "portfolio": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DeploymentSnapshot"
+          },
+          "title": "Portfolio",
+          "type": "array"
+        },
+        "product": {
+          "$ref": "#/$defs/MarketProduct"
+        },
+        "reference_windows": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CandleWindow"
+          },
+          "title": "Reference Windows",
+          "type": "array"
+        },
+        "risk_policy": {
+          "$ref": "#/$defs/RiskPolicyDefinition"
+        },
+        "runtime_inputs": {
+          "items": {
+            "$ref": "#/$defs/RuntimeInput"
+          },
+          "maxItems": 5000,
+          "title": "Runtime Inputs",
+          "type": "array"
+        },
+        "timing": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimingEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "operation",
+        "before",
+        "product",
+        "data_available_at",
+        "evaluation_started_at",
+        "decision_completed_at",
+        "candles",
+        "risk_policy",
+        "allow_new_entries",
+        "runtime_inputs",
+        "expected"
+      ],
+      "title": "ReplayStep",
+      "type": "object"
+    },
+    "RewardRiskTakeProfit": {
+      "additionalProperties": false,
+      "description": "Define take profit as a positive reward-to-risk ratio.",
+      "properties": {
+        "kind": {
+          "const": "reward_risk",
+          "title": "Kind",
+          "type": "string"
+        },
+        "multiple": {
+          "title": "Multiple",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "multiple"
+      ],
+      "title": "RewardRiskTakeProfit",
+      "type": "object"
+    },
+    "RiskFractionSizing": {
+      "additionalProperties": false,
+      "description": "Size positions by bounded portfolio risk and quote-notional limits.",
+      "properties": {
+        "kind": {
+          "const": "risk_fraction",
+          "title": "Kind",
+          "type": "string"
+        },
+        "max_quote_notional": {
+          "title": "Max Quote Notional",
+          "type": "string"
+        },
+        "min_quote_notional": {
+          "title": "Min Quote Notional",
+          "type": "string"
+        },
+        "risk_fraction": {
+          "title": "Risk Fraction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "risk_fraction",
+        "min_quote_notional",
+        "max_quote_notional"
+      ],
+      "title": "RiskFractionSizing",
+      "type": "object"
+    },
+    "RiskPolicyDefinition": {
+      "additionalProperties": false,
+      "description": "One immutable portfolio risk policy shared by paper and live.",
+      "properties": {
+        "allocations": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/CapitalAllocation"
+          },
+          "title": "Allocations",
+          "type": "array"
+        },
+        "allow_intra_strategy_pyramiding": {
+          "default": false,
+          "title": "Allow Intra Strategy Pyramiding",
+          "type": "boolean"
+        },
+        "daily_loss_limit_fraction": {
+          "default": "1",
+          "title": "Daily Loss Limit Fraction",
+          "type": "string"
+        },
+        "fleet_entry_window_minutes": {
+          "anyOf": [
+            {
+              "maximum": 1440,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fleet Entry Window Minutes"
+        },
+        "futures": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FuturesRiskPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "max_btc_beta_exposure_fraction": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Btc Beta Exposure Fraction"
+        },
+        "max_btc_beta_exposure_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Btc Beta Exposure Quote"
+        },
+        "max_cancellations_per_minute": {
+          "default": 60,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Cancellations Per Minute",
+          "type": "integer"
+        },
+        "max_concurrent_open_positions": {
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Max Concurrent Open Positions",
+          "type": "integer"
+        },
+        "max_concurrent_running_deployments": {
+          "maximum": 128,
+          "minimum": 1,
+          "title": "Max Concurrent Running Deployments",
+          "type": "integer"
+        },
+        "max_daily_loss_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Daily Loss Quote"
+        },
+        "max_entry_orders_per_minute": {
+          "default": 60,
+          "maximum": 1000,
+          "minimum": 1,
+          "title": "Max Entry Orders Per Minute",
+          "type": "integer"
+        },
+        "max_fleet_entries_per_window": {
+          "anyOf": [
+            {
+              "maximum": 128,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Fleet Entries Per Window"
+        },
+        "max_order_notional_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Order Notional Quote"
+        },
+        "max_order_quantity": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Order Quantity"
+        },
+        "max_portfolio_exposure_fraction": {
+          "title": "Max Portfolio Exposure Fraction",
+          "type": "string"
+        },
+        "max_portfolio_exposure_quote": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Portfolio Exposure Quote"
+        },
+        "max_strategy_drawdown_fraction": {
+          "default": "1",
+          "title": "Max Strategy Drawdown Fraction",
+          "type": "string"
+        },
+        "max_venue_order_actions_per_minute": {
+          "anyOf": [
+            {
+              "maximum": 10000,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Venue Order Actions Per Minute"
+        },
+        "min_available_quote_reserve": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min Available Quote Reserve"
+        },
+        "paper_capital_quote": {
+          "title": "Paper Capital Quote",
+          "type": "string"
+        },
+        "per_product_max_exposure_fraction": {
+          "title": "Per Product Max Exposure Fraction",
+          "type": "string"
+        },
+        "policy_id": {
+          "format": "uuid",
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "product_allowlist": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 256,
+          "title": "Product Allowlist",
+          "type": "array"
+        },
+        "quote_currency": {
+          "default": "USDC",
+          "enum": [
+            "USD",
+            "USDC",
+            "USDT"
+          ],
+          "title": "Quote Currency",
+          "type": "string"
+        },
+        "reference_price_collar_fraction": {
+          "default": "0.5",
+          "title": "Reference Price Collar Fraction",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "thytrader-risk-policy-v1",
+          "default": "thytrader-risk-policy-v1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "version": {
+          "minimum": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "policy_id",
+        "version",
+        "max_concurrent_running_deployments",
+        "max_concurrent_open_positions",
+        "max_portfolio_exposure_fraction",
+        "per_product_max_exposure_fraction",
+        "paper_capital_quote"
+      ],
+      "title": "RiskPolicyDefinition",
+      "type": "object"
+    },
+    "RuntimeInput": {
+      "description": "One nondeterministic input in the exact order consumed by orchestration.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "clock",
+            "uuid"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "RuntimeInput",
+      "type": "object"
+    },
+    "RuntimePhase": {
+      "description": "Single-position runtime state machine.",
+      "enum": [
+        "flat",
+        "pending_entry",
+        "open",
+        "pending_exit"
+      ],
+      "title": "RuntimePhase",
+      "type": "string"
+    },
+    "SignalExit": {
+      "additionalProperties": false,
+      "description": "Close an open position when a closed-bar condition tree matches (ADR 0093).\n\n``when`` uses the ``entry.when`` grammar and may reference the same decision-list\nindicators (never HTF-filter indicators). It is evaluated on every closed bar after\nthe fill bar while a position is open, and a match exits as a taker at that bar's\nclose, like the time exit. The initial stop stays mandatory: the protective stop, the\noptional trail, the take-profit, and the time exit still apply, and the stop wins a\nsame-bar tie.",
+      "properties": {
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AllCondition"
+            },
+            {
+              "$ref": "#/$defs/AnyCondition"
+            },
+            {
+              "$ref": "#/$defs/NotCondition"
+            }
+          ],
+          "title": "When"
+        }
+      },
+      "required": [
+        "when"
+      ],
+      "title": "SignalExit",
+      "type": "object"
+    },
+    "SignalLineIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Signal-line SMA period over a cumulative series (OBV, accumulation/distribution).",
+      "properties": {
+        "signal_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Signal Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "signal_period"
+      ],
+      "title": "SignalLineIndicatorParameters",
+      "type": "object"
+    },
+    "SourceIdentity": {
+      "additionalProperties": false,
+      "description": "Original engine/build facts; absent source identity is never inferred from a checkout.",
+      "properties": {
+        "execution_build": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Execution Build"
+        },
+        "research_build": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Research Build"
+        }
+      },
+      "required": [
+        "execution_build",
+        "research_build"
+      ],
+      "title": "SourceIdentity",
+      "type": "object"
+    },
+    "StochasticIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "HLC-locked fast stochastic windows: raw %K lookback and %D SMA.",
+      "properties": {
+        "d_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "D Period",
+          "type": "integer"
+        },
+        "k_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "K Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "k_period",
+        "d_period"
+      ],
+      "title": "StochasticIndicatorParameters",
+      "type": "object"
+    },
+    "StochasticRsiIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Close-locked stochastic RSI: RSI window, stochastic window, and %K / %D smoothing.",
+      "properties": {
+        "d_period": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "D Period",
+          "type": "integer"
+        },
+        "k_period": {
+          "maximum": 100,
+          "minimum": 1,
+          "title": "K Period",
+          "type": "integer"
+        },
+        "rsi_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Rsi Period",
+          "type": "integer"
+        },
+        "stoch_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Stoch Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rsi_period",
+        "stoch_period",
+        "k_period",
+        "d_period"
+      ],
+      "title": "StochasticRsiIndicatorParameters",
+      "type": "object"
+    },
+    "StrategyDefinition": {
+      "additionalProperties": false,
+      "description": "One validated canonical strategy document (schema 1.0).\n\nThe document carries no lifecycle state: a strategy is one mutable object and\neach backtest, study, or deployment snapshots this definition by content\nfingerprint. Legacy ``version``/``status`` keys from pre-ADR-0082 exports are\naccepted and dropped so they never reach canonical bytes or the fingerprint.",
+      "properties": {
+        "additional_instruments": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Instrument"
+          },
+          "maxItems": 7,
+          "title": "Additional Instruments",
+          "type": "array"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "data_requirements": {
+          "$ref": "#/$defs/DataRequirements"
+        },
+        "derivatives": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Derivatives"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "description": {
+          "anyOf": [
+            {
+              "maxLength": 500,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "entry": {
+          "$ref": "#/$defs/EntryDefinition"
+        },
+        "execution": {
+          "$ref": "#/$defs/ExecutionPreferences"
+        },
+        "exits": {
+          "$ref": "#/$defs/ExitDefinition"
+        },
+        "htf_filter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HigherTimeframeFilter"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "indicators": {
+          "items": {
+            "$ref": "#/$defs/IndicatorDefinition"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Indicators",
+          "type": "array"
+        },
+        "instrument": {
+          "$ref": "#/$defs/Instrument"
+        },
+        "metadata": {
+          "$ref": "#/$defs/StrategyMetadata"
+        },
+        "name": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "portfolio_limits": {
+          "$ref": "#/$defs/PortfolioLimits"
+        },
+        "schema_version": {
+          "const": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "sizing": {
+          "$ref": "#/$defs/RiskFractionSizing"
+        },
+        "strategy_id": {
+          "description": "Time-sortable UUID version 7 strategy identity.",
+          "format": "uuid7",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "title": "Strategy Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "enum": [
+            "1h",
+            "5m",
+            "15m",
+            "30m",
+            "6h",
+            "1d",
+            "1m",
+            "2h",
+            "4h"
+          ],
+          "title": "Timeframe",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema_version",
+        "strategy_id",
+        "name",
+        "created_at",
+        "instrument",
+        "timeframe",
+        "data_requirements",
+        "indicators",
+        "entry",
+        "sizing",
+        "portfolio_limits",
+        "exits",
+        "execution",
+        "metadata"
+      ],
+      "title": "StrategyDefinition",
+      "type": "object"
+    },
+    "StrategyMetadata": {
+      "additionalProperties": false,
+      "description": "Bounded human annotations that are included in immutable identity.",
+      "properties": {
+        "notes": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Notes",
+          "type": "array"
+        },
+        "tags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 20,
+          "title": "Tags",
+          "type": "array"
+        }
+      },
+      "title": "StrategyMetadata",
+      "type": "object"
+    },
+    "SubmitResult": {
+      "description": "Immediate venue snapshot after create, cancel, or get.\n\n``fill_fee`` is recorded only on the immediate FILLED path. Live Coinbase\nacknowledgements leave it at zero; venue fees arrive later through fill ingest.",
+      "properties": {
+        "attached_child_venue_order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Attached Child Venue Order Id"
+        },
+        "fill_fee": {
+          "default": "0",
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Fill Fee",
+          "type": "string"
+        },
+        "fill_price": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fill Price"
+        },
+        "filled_quantity": {
+          "default": "0",
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Filled Quantity",
+          "type": "string"
+        },
+        "reject_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reject Reason"
+        },
+        "status": {
+          "$ref": "#/$defs/OrderStatus"
+        },
+        "venue_order_id": {
+          "title": "Venue Order Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "venue_order_id"
+      ],
+      "title": "SubmitResult",
+      "type": "object"
+    },
+    "SupertrendIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "HLC-locked Supertrend: Wilder ATR period and band multiplier.",
+      "properties": {
+        "multiplier": {
+          "title": "Multiplier",
+          "type": "string"
+        },
+        "period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "period",
+        "multiplier"
+      ],
+      "title": "SupertrendIndicatorParameters",
+      "type": "object"
+    },
+    "TimeExit": {
+      "additionalProperties": false,
+      "description": "Close intent after a bounded number of completed holding bars.",
+      "properties": {
+        "max_bars_held": {
+          "maximum": 100000,
+          "minimum": 1,
+          "title": "Max Bars Held",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_bars_held"
+      ],
+      "title": "TimeExit",
+      "type": "object"
+    },
+    "TimingEvidence": {
+      "additionalProperties": false,
+      "description": "Integer nanosecond observations; absent spans remain absent, never inferred from fills.",
+      "properties": {
+        "computation_cpu_ns": {
+          "minimum": 0,
+          "title": "Computation Cpu Ns",
+          "type": "integer"
+        },
+        "database_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Database Calls"
+        },
+        "database_elapsed_ns": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Database Elapsed Ns"
+        },
+        "elapsed_ns": {
+          "minimum": 0,
+          "title": "Elapsed Ns",
+          "type": "integer"
+        },
+        "queue_wait_ns": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Queue Wait Ns"
+        },
+        "unavailable_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unavailable Reasons",
+          "type": "array"
+        },
+        "venue_calls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Calls"
+        },
+        "venue_elapsed_ns": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Venue Elapsed Ns"
+        }
+      },
+      "required": [
+        "elapsed_ns",
+        "computation_cpu_ns",
+        "unavailable_reasons"
+      ],
+      "title": "TimingEvidence",
+      "type": "object"
+    },
+    "TsiIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "Close-locked True Strength Index double-smoothing and signal windows.",
+      "properties": {
+        "long_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Long Period",
+          "type": "integer"
+        },
+        "short_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Short Period",
+          "type": "integer"
+        },
+        "signal_period": {
+          "maximum": 500,
+          "minimum": 2,
+          "title": "Signal Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "long_period",
+        "short_period",
+        "signal_period"
+      ],
+      "title": "TsiIndicatorParameters",
+      "type": "object"
+    },
+    "UltimateOscillatorIndicatorParameters": {
+      "additionalProperties": false,
+      "description": "HLC-locked Ultimate Oscillator short, medium, and long buying-pressure windows.",
+      "properties": {
+        "long_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Long Period",
+          "type": "integer"
+        },
+        "medium_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Medium Period",
+          "type": "integer"
+        },
+        "short_period": {
+          "maximum": 100,
+          "minimum": 2,
+          "title": "Short Period",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "short_period",
+        "medium_period",
+        "long_period"
+      ],
+      "title": "UltimateOscillatorIndicatorParameters",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Immutable input evidence; missing historical fields stay explicitly absent.",
+  "properties": {
+    "evidence_kind": {
+      "enum": [
+        "synthetic",
+        "prospective",
+        "historical"
+      ],
+      "title": "Evidence Kind",
+      "type": "string"
+    },
+    "ledger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LedgerEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "original_strategy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StrategyDefinition"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "schema_version": {
+      "const": "thytrader-replay-v1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/SourceIdentity"
+    },
+    "steps": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/ReplayStep"
+      },
+      "maxItems": 1000,
+      "title": "Steps",
+      "type": "array"
+    },
+    "strategy": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StrategyDefinition"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "unavailable_reasons": {
+      "items": {
+        "pattern": "^[A-Z][A-Z0-9_]{1,79}$",
+        "type": "string"
+      },
+      "title": "Unavailable Reasons",
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "evidence_kind",
+    "source",
+    "strategy",
+    "original_strategy",
+    "ledger",
+    "unavailable_reasons"
+  ],
+  "title": "ReplayPackage",
+  "type": "object"
+}

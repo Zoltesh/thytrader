@@ -10,6 +10,10 @@ import secrets
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader.runtime_inputs import resolve_id, runtime_input_scope
+
+__all__ = ["runtime_input_scope", "uuid7"]
+
 if TYPE_CHECKING:
     from datetime import datetime
 
@@ -24,4 +28,4 @@ def uuid7(created_at: datetime) -> UUID:
         | (0b10 << 62)
         | secrets.randbits(62)
     )
-    return UUID(int=value)
+    return resolve_id(lambda: UUID(int=value), timestamp_milliseconds=milliseconds)

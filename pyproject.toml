@@ -35,6 +35,7 @@ thytrader-playbook = "thytrader.agent_orchestration.cli:main"
 thytrader-memory = "thytrader.memory.cli:main"
 thytrader-research-evaluate = "thytrader.research.cli:main"
 thytrader-research-run = "thytrader.research.run_cli:main"
+thytrader-replay = "thytrader.replay.cli:main"
 thytrader-backtest = "thytrader.backtest.cli:main"
 
 [build-system]
@@ -135,7 +136,7 @@ max-complexity = 10
 
 [tool.ruff.lint.flake8-type-checking]
 # Pydantic evaluates model field annotations at runtime; these imports are required.
-runtime-evaluated-base-classes = ["pydantic.BaseModel", "thytrader.strategies.schema.primitives._FrozenModel", "thytrader.operator.models._FrozenModel", "thytrader.operator.models.OperatorEnvelope"]
+runtime-evaluated-base-classes = ["pydantic.BaseModel", "thytrader.strategies.schema.primitives._FrozenModel", "thytrader.operator.models._FrozenModel", "thytrader.operator.models.OperatorEnvelope", "thytrader.replay.models.FrozenModel", "thytrader.replay.steps.StepModel"]
 runtime-evaluated-decorators = ["fastapi.APIRouter.get", "fastapi.APIRouter.post", "fastapi.APIRouter.put", "fastapi.APIRouter.delete"]
 
 [tool.ruff.lint.per-file-ignores]

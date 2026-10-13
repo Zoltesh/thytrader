@@ -52,6 +52,12 @@ def database_call_scope(ledger: DatabaseCallLedger) -> Iterator[DatabaseCallLedg
         _CURRENT.reset(token)
 
 
+def current_call_totals() -> CallTotals | None:
+    """Read current scoped totals without installing a new scope or altering call observation."""
+    ledger = _CURRENT.get()
+    return None if ledger is None else ledger.totals()
+
+
 def record_database_call(seconds: float) -> None:
     """Record one statement into the bound ledger; a no-op when none is bound."""
     ledger = _CURRENT.get()

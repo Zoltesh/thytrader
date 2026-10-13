@@ -42,6 +42,7 @@ from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.memory.trade_reason_scope import strategy_trade_reason_scope, trade_reason_scope
+from thytrader.replay.capture import captured_closed_bar
 from thytrader.strategies.models import lockstep_product_ids
 from thytrader.trading.geometry import base_currency
 from thytrader.trading.ids import utc_now
@@ -417,8 +418,9 @@ async def _evaluate_strategy_due_bars(
                 allow_new_entries=allow_new_entries,
                 reference_gate=gate,
                 advance=partial(
-                    process_closed_bar,
+                    captured_closed_bar,
                     current,
+                    process=process_closed_bar,
                     strategy=strategy,
                     product=product,
                     candles=window,
