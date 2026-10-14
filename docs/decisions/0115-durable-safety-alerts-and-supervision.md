@@ -1,6 +1,6 @@
 # 0115: Durable safety alerts and execution supervision
 
-- Status: Accepted
+- Status: Accepted; delivery grading amended by [0138](0138-live-alert-delivery.md)
 - Date: 2026-10-05
 - Relates to: [0058](0058-protection-lifecycle-accounting.md), [0091](0091-portfolio-deployment-limits-and-manager-proposals.md), [0104](0104-bounded-newest-candle-wait.md)
 

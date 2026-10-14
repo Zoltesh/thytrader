@@ -9,6 +9,9 @@ x-backend-environment: &backend-environment
   THYTRADER_CREDENTIALS_DIR: /var/lib/thytrader/credentials
   THYTRADER_COINBASE_API_KEY_NAME: ${THYTRADER_COINBASE_API_KEY_NAME:-}
   THYTRADER_COINBASE_API_PRIVATE_KEY: ${THYTRADER_COINBASE_API_PRIVATE_KEY:-}
+  # Alert webhook destination and optional HMAC key (ADR 0138). notify_provider stays YAML.
+  THYTRADER_NOTIFY_WEBHOOK_URL: ${THYTRADER_NOTIFY_WEBHOOK_URL:-}
+  THYTRADER_NOTIFY_WEBHOOK_SECRET: ${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}
 
 services:
   postgres:

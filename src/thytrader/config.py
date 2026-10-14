@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     yolo_tiers: Annotated[tuple[YoloTier, ...], NoDecode] = ()
     notify_provider: NotifyProvider = NotifyProvider.NONE
     notify_webhook_url: SecretStr | None = None
+    # Optional HMAC-SHA256 key: when set, each webhook POST carries a signature (ADR 0138).
+    notify_webhook_secret: SecretStr | None = None
     # ADR 0115 safety-supervision thresholds. Defaults are deliberately sane for
     # a 30s execution-worker cycle; changing them never weakens fail-closed gates.
     alert_consecutive_failure_cycles: int = Field(default=3, ge=1, le=100)
@@ -154,6 +156,21 @@ class Settings(BaseSettings):
         """Treat empty environment placeholders as absent optional secrets."""
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("notify_webhook_secret", mode="before")
+    @classmethod
+    def normalize_webhook_secret(cls, value: object) -> object:
+        """An exactly empty placeholder is absent; a whitespace-only key is an error.
+
+        Compose passes ``${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}``, so empty means unset. A
+        nonempty blank key must never quietly turn signing off (ADR 0138).
+        """
+        if isinstance(value, str):
+            if value == "":
+                return None
+            if not value.strip():
+                raise ValueError("THYTRADER_NOTIFY_WEBHOOK_SECRET must not be whitespace only.")
         return value
 
     @field_validator("coinbase_api_private_key", mode="before")
@@ -216,17 +233,19 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_notify_provider(self) -> Self:
-        """Webhook notify requires a URL; other providers must not set one."""
+        """Webhook notify requires a URL; a secret requires a URL.
+
+        A URL may be staged while the YAML provider is still ``none``/``log`` (ADR 0138): the
+        provider lives in YAML and the URL in the environment, so enabling delivery sets the
+        URL, restarts, then switches the provider. Health reports disabled delivery while live.
+        """
         if self.notify_provider is NotifyProvider.WEBHOOK and self.notify_webhook_url is None:
             raise ValueError(
                 "THYTRADER_NOTIFY_PROVIDER=webhook requires THYTRADER_NOTIFY_WEBHOOK_URL."
             )
-        if (
-            self.notify_provider is not NotifyProvider.WEBHOOK
-            and self.notify_webhook_url is not None
-        ):
+        if self.notify_webhook_secret is not None and self.notify_webhook_url is None:
             raise ValueError(
-                "THYTRADER_NOTIFY_WEBHOOK_URL requires THYTRADER_NOTIFY_PROVIDER=webhook."
+                "THYTRADER_NOTIFY_WEBHOOK_SECRET requires THYTRADER_NOTIFY_WEBHOOK_URL."
             )
         return self
 

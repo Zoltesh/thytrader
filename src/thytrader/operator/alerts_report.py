@@ -11,6 +11,7 @@ from pydantic import Field
 from thytrader import __version__
 from thytrader.alerts.store import ALERT_REPORT_ROW_LIMIT, DisabledAlertStore
 from thytrader.config import NotifyProvider
+from thytrader.operator.alert_delivery_health import alert_delivery_component
 from thytrader.operator.models import (
     STANDARD_REDACTION,
     ComponentReport,
@@ -79,8 +80,14 @@ class AlertsReport(OperatorEnvelope):
     payload: AlertsPayload
 
 
-async def build_alerts_report(store: AlertStore | None, settings: Settings) -> AlertsReport:
-    """Assemble the alerts envelope from the durable feed and notify settings."""
+async def build_alerts_report(
+    store: AlertStore | None, settings: Settings, *, live_books: int | None
+) -> AlertsReport:
+    """Assemble the alerts envelope from the durable feed and notify settings.
+
+    ``live_books`` counts live running or paused books (``None`` when unreadable): with no
+    external delivery they make ``alert_delivery`` degraded (ADR 0138).
+    """
     now = datetime.now(UTC)
     delivery_enabled = settings.notify_provider is not NotifyProvider.NONE
     warning = None if delivery_enabled else _DELIVERY_DISABLED
@@ -96,13 +103,13 @@ async def build_alerts_report(store: AlertStore | None, settings: Settings) -> A
     max_attempts = settings.alert_delivery_max_attempts
     open_critical = sum(1 for row in open_rows if row.severity.value == "critical")
     open_warning = sum(1 for row in open_rows if row.severity.value == "warning")
-    components = _components(
-        storage=storage,
-        open_critical=open_critical,
-        open_warning=open_warning,
-        delivery_enabled=delivery_enabled,
-        open_rows=open_rows,
-    )
+    failed_delivery = any(row.delivery_status == "failed" for row in open_rows)
+    components = [
+        _feed_component(storage=storage, open_critical=open_critical, open_warning=open_warning),
+        alert_delivery_component(
+            settings, live_books=live_books, failed_delivery=failed_delivery and delivery_enabled
+        ),
+    ]
     warnings: list[str] = []
     if warning is not None:
         warnings.append(warning)
@@ -149,66 +156,35 @@ async def _rows(
         return (), "unavailable"
 
 
-def _components(
-    *,
-    storage: str,
-    open_critical: int,
-    open_warning: int,
-    delivery_enabled: bool,
-    open_rows: tuple[OperatorAlert, ...],
-) -> list[ComponentReport]:
-    """Grade the feed and delivery without treating a disabled provider as a failure."""
+def _feed_component(*, storage: str, open_critical: int, open_warning: int) -> ComponentReport:
+    """Grade the durable feed: storage availability, then open critical/warning rows."""
     if storage != "available":
-        feed = ComponentReport(
+        return ComponentReport(
             name="alerts",
             status=ReportStatus.DEGRADED,
             reason_code="ALERT_STORAGE_UNAVAILABLE",
             detail="Durable alert storage is not configured.",
         )
-    elif open_critical:
-        feed = ComponentReport(
+    if open_critical:
+        return ComponentReport(
             name="alerts",
             status=ReportStatus.FAILED,
             reason_code="OPEN_CRITICAL_ALERTS",
             detail=f"{open_critical} open critical safety alert(s).",
         )
-    elif open_warning:
-        feed = ComponentReport(
+    if open_warning:
+        return ComponentReport(
             name="alerts",
             status=ReportStatus.DEGRADED,
             reason_code="OPEN_WARNING_ALERTS",
             detail=f"{open_warning} open warning safety alert(s).",
         )
-    else:
-        feed = ComponentReport(
-            name="alerts",
-            status=ReportStatus.HEALTHY,
-            reason_code="NO_OPEN_ALERTS",
-            detail="No open safety alerts.",
-        )
-    failed_delivery = any(row.delivery_status == "failed" and delivery_enabled for row in open_rows)
-    if not delivery_enabled:
-        delivery = ComponentReport(
-            name="alert_delivery",
-            status=ReportStatus.HEALTHY,
-            reason_code="DELIVERY_DISABLED",
-            detail=_DELIVERY_DISABLED,
-        )
-    elif failed_delivery:
-        delivery = ComponentReport(
-            name="alert_delivery",
-            status=ReportStatus.DEGRADED,
-            reason_code="DELIVERY_FAILED",
-            detail="An open alert could not be delivered. The local feed still has it.",
-        )
-    else:
-        delivery = ComponentReport(
-            name="alert_delivery",
-            status=ReportStatus.HEALTHY,
-            reason_code="DELIVERY_CONFIGURED",
-            detail="Notification provider is configured. Webhook URLs are not reported.",
-        )
-    return [feed, delivery]
+    return ComponentReport(
+        name="alerts",
+        status=ReportStatus.HEALTHY,
+        reason_code="NO_OPEN_ALERTS",
+        detail="No open safety alerts.",
+    )
 
 
 def _item(alert: OperatorAlert, *, max_attempts: int) -> AlertItem:

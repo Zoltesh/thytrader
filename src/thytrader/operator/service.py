@@ -15,6 +15,7 @@ from thytrader.execution.futures_paper import FuturesRuntime
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
+from thytrader.operator.alert_delivery_health import delivery_live_books
 from thytrader.operator.alerts_report import AlertsReport, build_alerts_report
 from thytrader.operator.decisions import decisions_report
 from thytrader.operator.diagnostics.findings import (
@@ -486,7 +487,8 @@ class OperatorDiagnostics:
 
     async def alerts(self) -> AlertsReport:
         """Return the durable safety-alert feed without trading authority."""
-        return await build_alerts_report(self.alert_store, self.settings)
+        live_books = await delivery_live_books(self.settings, self.execution)
+        return await build_alerts_report(self.alert_store, self.settings, live_books=live_books)
 
     async def monitor(self) -> MonitorReport:
         """Watch deployments, recent journals, and notification delivery."""

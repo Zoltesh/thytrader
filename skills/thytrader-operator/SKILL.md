@@ -359,7 +359,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v97`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v98`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -382,6 +382,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    its interval: run `runtime` and read `payload.execution_cycle` (see
    [Execution cycle timing](#execution-cycle-timing-adr-0131)). Do not restart a worker whose
    heartbeat is fresh; restarting empties its candle cache and makes the next cycle slower.
+   An `alert_delivery` component with `DELIVERY_DISABLED_WHILE_LIVE` (or
+   `DELIVERY_DISABLED_LIVE_UNKNOWN`) means live books hold risk but no alert leaves
+   this installation: tell the user that nobody is paged. Do not change `notify_provider`
+   yourself; see [alert delivery](#alert-delivery-adr-0138).
 4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
    `products` lists each enabled spot product's order constraints: `price_increment`,
    `base_increment`, `quote_increment`, `base_min_size`, `quote_min_size` (exact decimal
@@ -722,6 +726,22 @@ durable local feed and explicit warning intact. Attempts are durably claimed, bo
 and retried with stable alert IDs; a webhook receiver must dedupe that ID to prevent duplicate
 processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
 external delivery is not guaranteed. Delivery errors never reveal the configured destination.
+
+### Alert delivery (ADR 0138)
+
+`alert_delivery` (in `health` and `alerts`) grades delivery against live exposure. With
+`notify_provider` `none` or `log`, any LIVE book holding risk (RUNNING, PAUSED, or STOPPED with
+residual inventory, working entries or a pending futures de-risk duty) makes it `degraded`
+(`DELIVERY_DISABLED_WHILE_LIVE`); an unreadable fleet is `DELIVERY_DISABLED_LIVE_UNKNOWN`
+(unknown is never zero). Paper-only or idle installs stay `healthy` (`DELIVERY_DISABLED`). A
+webhook is `DELIVERY_CONFIGURED` until an open alert's delivery failed (`DELIVERY_FAILED`).
+`THYTRADER_NOTIFY_WEBHOOK_URL` and the optional `THYTRADER_NOTIFY_WEBHOOK_SECRET` are environment
+secrets (never YAML, never printed). With a secret, each POST carries a Unix-seconds timestamp
+header and a hex HMAC-SHA256(secret, `timestamp + "." + body`) signature header (exact header
+names in [ADR 0138](../../docs/decisions/0138-live-alert-delivery.md)). Enabling delivery
+is the user's setup: set both variables, rebuild, then switch `notify_provider` to `webhook`
+with `thytrader-runtime set-settings`. A delivered webhook proves an HTTP success, not that a
+person read it.
 
 ## Backtest fee attribution
 

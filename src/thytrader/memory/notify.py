@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import logging
+import time
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -13,11 +16,25 @@ from thytrader.config import NotifyProvider
 from thytrader.memory.models import DeliveryStatus, NotificationRecord
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from thytrader.config import Settings
     from thytrader.settings_yaml import SettingsStore
 
 _logger = logging.getLogger(__name__)
 _WEBHOOK_TIMEOUT_SECONDS = 10.0
+WEBHOOK_TIMESTAMP_HEADER = "X-Webhook-Timestamp"
+WEBHOOK_SIGNATURE_HEADER = "X-Webhook-Signature-V2"
+
+
+def webhook_signature(secret: str, *, timestamp: str, body: bytes) -> str:
+    """Hex HMAC-SHA256 of ``timestamp + "." + body`` (ADR 0138).
+
+    Signing the exact request bytes with a timestamp lets a receiver reject forged or replayed
+    alerts without sharing anything but the key.
+    """
+    message = timestamp.encode("ascii") + b"." + body
+    return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
 class DeliveryResult:
@@ -75,13 +92,23 @@ class LogNotificationSender:
 
 
 class WebhookNotificationSender:
-    """POST a redacted JSON body to an operator-configured URL."""
+    """POST a redacted JSON body to an operator-configured URL, optionally HMAC-signed."""
 
-    def __init__(self, webhook_url: str) -> None:
-        """Bind one webhook URL that must never be logged or stored on the row."""
+    def __init__(
+        self,
+        webhook_url: str,
+        *,
+        signing_secret: str | None = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        """Bind one webhook URL and optional signing key; neither is ever logged or stored."""
         if not webhook_url.strip():
             raise ValueError("webhook URL must be non-empty")
+        if signing_secret is not None and not signing_secret.strip():
+            raise ValueError("webhook signing secret must be non-empty when set")
         self._webhook_url = webhook_url
+        self._signing_secret = signing_secret
+        self._clock = clock
 
     def provider(self) -> NotifyProvider:
         """Advertise the webhook provider."""
@@ -103,11 +130,16 @@ class WebhookNotificationSender:
             "severity": record.severity.value,
             "occurred_at": record.occurred_at.isoformat(),
         }
+        body = json.dumps(payload).encode("utf-8")
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self._signing_secret is not None:
+            timestamp = str(int(self._clock()))
+            headers[WEBHOOK_TIMESTAMP_HEADER] = timestamp
+            headers[WEBHOOK_SIGNATURE_HEADER] = webhook_signature(
+                self._signing_secret, timestamp=timestamp, body=body
+            )
         request = Request(  # noqa: S310 - URL comes from operator Settings, not user input.
-            self._webhook_url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={"Accept": "application/json", "Content-Type": "application/json"},
-            method="POST",
+            self._webhook_url, data=body, headers=headers, method="POST"
         )
         try:
             with urlopen(request, timeout=_WEBHOOK_TIMEOUT_SECONDS) as response:  # noqa: S310
@@ -154,7 +186,11 @@ def notification_sender_from_settings(settings: Settings) -> NotificationSender:
         secret = settings.notify_webhook_url
         if secret is None:
             raise ValueError("webhook notify requires THYTRADER_NOTIFY_WEBHOOK_URL")
-        return WebhookNotificationSender(secret.get_secret_value())
+        signing = settings.notify_webhook_secret
+        return WebhookNotificationSender(
+            secret.get_secret_value(),
+            signing_secret=None if signing is None else signing.get_secret_value(),
+        )
     return DisabledNotificationSender()
 
 
