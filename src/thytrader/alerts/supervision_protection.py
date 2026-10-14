@@ -344,7 +344,7 @@ def _cover_voided_by_triggered_stops(
         for order in snapshot.orders
         if resolved_product_id(order.product_id, deployment) == product_id
         and order.side is closing
-        and order.status in _STOP_TRIGGER_WATCH_STATUSES
+        and _may_trigger(order)
     )
     if not watching:
         return False

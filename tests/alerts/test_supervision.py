@@ -200,6 +200,60 @@ async def test_live_uncovered_stop_and_triggered_unfilled_do_not_escalate() -> N
 
 
 @pytest.mark.anyio
+async def test_a_marked_historical_stop_does_not_mask_voided_cover() -> None:
+    """A live stop that traded through still alerts beside a venue-closed historical stop."""
+    deployment = _deployment(mode=DeploymentMode.LIVE, phase=RuntimePhase.OPEN, timeframe="1h")
+    position = _position(deployment)
+    triggered = datetime(2026, 3, 2, 5, 0, tzinfo=UTC)
+
+    def stop(client_order_id: str, status: OrderStatus, reason: str | None) -> Order:
+        return Order(
+            id=uuid4(),
+            deployment_id=deployment.id,
+            intent_id=uuid4(),
+            client_order_id=client_order_id,
+            side=OrderSide.SELL,
+            kind=OrderKind.STOP_LIMIT,
+            quantity=Decimal("0.01"),
+            status=status,
+            created_at=triggered - timedelta(hours=2),
+            updated_at=_NOW,
+            stop_trigger_price=Decimal("95"),
+            product_id="BTC-USD",
+            reject_reason=reason,
+        )
+
+    live = stop("stop-live", OrderStatus.OPEN, None)
+    old = stop("stop-old", OrderStatus.UNKNOWN, TERMINAL_READ_UNCONFIRMED_REASON)
+    snapshot = DeploymentSnapshot(
+        deployment=deployment, position=position, positions=(position,), orders=(live, old)
+    )
+
+    async def candles(
+        product_id: str, timeframe: str, deploy_anchor: datetime
+    ) -> tuple[Candle, ...]:
+        del product_id, timeframe, deploy_anchor
+        return (
+            _candle(start=triggered, low=Decimal("94"), high=Decimal("101"), close=Decimal("96")),
+        )
+
+    found = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(snapshot),
+        closed_candles=candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+    )
+    subjects = {(item.code, item.subject) for item in found.findings}
+    assert (AlertCode.STOP_TRIGGERED_UNFILLED, f"{deployment.id}:{live.id}") in subjects
+    assert (AlertCode.STOP_TRIGGERED_UNFILLED, f"{deployment.id}:{old.id}") not in subjects
+    # The marked order is still unknown cover, so cover is reported unverified, never safe.
+    codes = {code for code, _ in subjects}
+    assert codes & {AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN}
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("status", "reason", "alerted"),
     [
