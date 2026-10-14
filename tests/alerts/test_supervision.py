@@ -199,6 +199,49 @@ async def test_live_uncovered_stop_and_triggered_unfilled_do_not_escalate() -> N
 
 
 @pytest.mark.anyio
+async def test_a_canceled_historical_stop_never_raises_triggered_unfilled() -> None:
+    """Only possibly working stops are watched; a canceled one whose trigger traded is history.
+
+    Reconciliation keeps a canceled stop canceled when a later venue read fails, which is what
+    keeps this check quiet on flat paused books (ADR 0115, reconcile read failures).
+    """
+    deployment = _deployment(mode=DeploymentMode.LIVE, phase=RuntimePhase.FLAT, timeframe="1h")
+    triggered = datetime(2026, 3, 2, 5, 0, tzinfo=UTC)
+    order = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="stop-old",
+        side=OrderSide.SELL,
+        kind=OrderKind.STOP_LIMIT,
+        quantity=Decimal("0.01"),
+        status=OrderStatus.CANCELED,
+        created_at=triggered - timedelta(hours=2),
+        updated_at=_NOW,
+        stop_trigger_price=Decimal("95"),
+        product_id="BTC-USD",
+    )
+
+    async def candles(
+        product_id: str, timeframe: str, deploy_anchor: datetime
+    ) -> tuple[Candle, ...]:
+        del product_id, timeframe, deploy_anchor
+        return (
+            _candle(start=triggered, low=Decimal("94"), high=Decimal("101"), close=Decimal("96")),
+        )
+
+    found = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(DeploymentSnapshot(deployment=deployment, orders=(order,))),
+        closed_candles=candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+    )
+    assert AlertCode.STOP_TRIGGERED_UNFILLED not in {item.code for item in found.findings}
+
+
+@pytest.mark.anyio
 async def test_six_hour_book_inside_settling_grace_is_not_stale() -> None:
     """A 6h close plus a few seconds is not a missed decision."""
     now = datetime(2026, 3, 2, 6, 0, 30, tzinfo=UTC)

@@ -935,6 +935,13 @@ The worker never re-submits an order automatically
   If a complete scan finds nothing, the book stays paused with `mismatch_detail`
   `Order submit is unconfirmed: no Coinbase order with client_order_id … was found; …`
   (audit `unconfirmed_order_not_found`). Resuming does not clear it; the next poll re-pauses.
+- **Failed reconcile reads.** A failed GET order or fill-page read pauses the book with
+  `Order reconciliation is unconfirmed: order read failed.` or `…: fill read failed.` Canceled
+  orders stay watched for late fills, so this can come from an old canceled stop. A possibly
+  working order (open, pending, or locally filled short of its quantity) becomes `unknown`; a
+  venue-`canceled` order or one filled for its full quantity keeps its status, so a historical
+  stop is never reported as a triggered-but-unfilled live stop. Resuming does not clear a
+  retained fault; report it with the order's status.
 - **Operator recovery for a not-found unconfirmed order.** Do not retry the order. Ask the user to
   check Coinbase Advanced Trade orders (the product, around the submit time) for that
   `client_order_id` and for any matching fill. If Coinbase shows the order, wait: the worker
