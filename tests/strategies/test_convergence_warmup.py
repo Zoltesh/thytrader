@@ -319,3 +319,19 @@ def test_recovery_never_lowers_a_float_declared_warmup() -> None:
     assert evaluated.definition.data_requirements.warmup_bars == 9000
     assert evaluated.definition.htf_filter is not None
     assert evaluated.definition.htf_filter.data_requirements.warmup_bars == 891
+
+
+@pytest.mark.parametrize("declared", ["9000", 9000.0, 9000])
+def test_recovery_reads_declared_warmups_exactly_as_the_schema_does(declared: object) -> None:
+    """Numeric strings and integral floats the schema accepts are kept, not rejected."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = json.loads(canonical_strategy_bytes(saved))
+    next(item for item in document["indicators"] if item["id"] == "slow")["parameters"][
+        "period"
+    ] = 500
+    document["data_requirements"]["warmup_bars"] = declared
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is not None, evaluated.validation
+    assert evaluated.definition.data_requirements.warmup_bars == 9000

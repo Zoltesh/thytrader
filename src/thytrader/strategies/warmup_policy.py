@@ -10,9 +10,9 @@ never calls this: existing snapshots and stored rows keep their exact meaning.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
-from pydantic import ValidationError
+from pydantic import Field, TypeAdapter, ValidationError
 
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 from thytrader.strategies.schema.conditions import condition_indicator_operands
@@ -103,15 +103,16 @@ def converge_draft(document: dict[str, JsonValue]) -> StrategyDefinition:
     return StrategyDefinition.model_validate(final)
 
 
+_WARMUP_FIELD = TypeAdapter(Annotated[int, Field(ge=1, le=MAX_DECLARED_WARMUP_BARS)])
+"""The schema type of ``warmup_bars``: coercion and bounds exactly as validation applies them."""
+
+
 def _declared_warmup(value: JsonValue) -> int | None:
-    """A declared warmup as pydantic reads it (integers, integral floats), else ``None``."""
-    if isinstance(value, bool):
+    """A declared warmup read exactly as schema validation reads it, else ``None``."""
+    try:
+        return _WARMUP_FIELD.validate_python(value)
+    except ValidationError:
         return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, float) and value.is_integer():
-        return int(value)
-    return None
 
 
 def _declared_warmups_well_formed(document: dict[str, JsonValue]) -> bool:
@@ -127,8 +128,7 @@ def _declared_warmups_well_formed(document: dict[str, JsonValue]) -> bool:
     for block in blocks:
         if not isinstance(block, dict):
             return False
-        declared = _declared_warmup(block.get("warmup_bars"))
-        if declared is None or not 1 <= declared <= MAX_DECLARED_WARMUP_BARS:
+        if _declared_warmup(block.get("warmup_bars")) is None:
             return False
     return True
 
