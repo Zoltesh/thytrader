@@ -70,6 +70,7 @@ async def run() -> None:
             decision_missed_bars=settings.alert_decision_missed_bars,
             delivery_max_attempts=settings.alert_delivery_max_attempts,
         ),
+        min_severity=lambda: settings_store.current().notify_min_severity,
     )
     venue_runtime = ExecutionVenueRuntime(settings)
     credential_runtime = WorkerCredentialRuntime(

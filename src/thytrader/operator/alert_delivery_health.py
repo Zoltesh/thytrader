@@ -93,7 +93,10 @@ def alert_delivery_component(
             name=ALERT_DELIVERY_COMPONENT,
             status=ReportStatus.HEALTHY,
             reason_code="DELIVERY_CONFIGURED",
-            detail="Webhook delivery is configured. Webhook URLs are not reported.",
+            detail=(
+                f"Webhook delivery is configured for {settings.notify_min_severity} and more "
+                "severe alerts (notify_min_severity). Webhook URLs are not reported."
+            ),
         )
     if live_books is None:
         return ComponentReport(

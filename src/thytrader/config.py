@@ -35,6 +35,9 @@ class YoloTier(StrEnum):
     LIVE = "live"
 
 
+NotifyMinSeverity = Literal["info", "warning", "critical"]
+
+
 class NotifyProvider(StrEnum):
     """Configured delivery backend. Default is no external send."""
 
@@ -132,6 +135,8 @@ class Settings(BaseSettings):
     yolo_enabled: bool = False
     yolo_tiers: Annotated[tuple[YoloTier, ...], NoDecode] = ()
     notify_provider: NotifyProvider = NotifyProvider.NONE
+    # Lowest safety-alert severity sent externally; lower ones stay in the local feed (ADR 0139).
+    notify_min_severity: NotifyMinSeverity = "info"
     notify_webhook_url: SecretStr | None = None
     # Optional HMAC-SHA256 key: when set, each webhook POST carries a signature (ADR 0138).
     notify_webhook_secret: SecretStr | None = None

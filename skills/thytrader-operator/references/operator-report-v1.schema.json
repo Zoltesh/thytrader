@@ -1395,6 +1395,16 @@
           "title": "Notify Provider",
           "type": "string"
         },
+        "notify_min_severity": {
+          "default": "info",
+          "enum": [
+            "info",
+            "warning",
+            "critical"
+          ],
+          "title": "Notify Min Severity",
+          "type": "string"
+        },
         "notify_webhook_configured": {
           "default": false,
           "title": "Notify Webhook Configured",
@@ -10562,7 +10572,8 @@
               "fleet_entry_health",
               "execution_cycle_timing",
               "execution_cycle_budget",
-              "live_alert_delivery_health"
+              "live_alert_delivery_health",
+              "alert_min_severity"
             ],
             "type": "string"
           },

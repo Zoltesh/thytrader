@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import errno
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -17,10 +20,11 @@ from thytrader.settings_yaml import (
     load_yaml_overlay,
     overlay_from_mapping,
     reject_secret_keys,
+    write_settings_file,
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from collections.abc import Callable
 
 
 def test_yaml_scalar_paper_overlay() -> None:
@@ -90,3 +94,53 @@ def test_dump_yaml_document_never_includes_secrets() -> None:
     assert isinstance(loaded, dict)
     reject_secret_keys(loaded)
     assert "yolo:" in text
+
+
+def _refuse_rename(code: int) -> Callable[..., Path]:
+    """Path.replace stand-in that fails like a rename over a bind-mounted file."""
+
+    def refuse(self: Path, target: Path) -> Path:
+        del self, target
+        raise OSError(code, os.strerror(code))
+
+    return refuse
+
+
+def test_settings_write_rewrites_a_bind_mounted_file_in_place(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Compose mounts thytrader.yaml as one file; EBUSY falls back to the same inode."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("notify_provider: none\nlog_level: INFO\n# a longer original tail\n")
+    inode = path.stat().st_ino
+    monkeypatch.setattr(Path, "replace", _refuse_rename(errno.EBUSY))
+    write_settings_file(path, "notify_provider: webhook\n")
+    assert path.read_text() == "notify_provider: webhook\n"
+    assert path.stat().st_ino == inode
+    assert not (tmp_path / "thytrader.yaml.tmp").exists()
+
+
+def test_settings_write_does_not_hide_other_rename_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only mount-point errors fall back; anything else still fails loudly."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("notify_provider: none\n")
+    monkeypatch.setattr(Path, "replace", _refuse_rename(errno.EACCES))
+    with pytest.raises(PermissionError):
+        write_settings_file(path, "notify_provider: log\n")
+    assert path.read_text() == "notify_provider: none\n"
+    assert not (tmp_path / "thytrader.yaml.tmp").exists()
+
+
+def test_settings_store_replace_works_on_a_bind_mounted_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``set-settings`` over HTTP used to return 500 in Compose; the store now writes in place."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    store = SettingsStore(path, env_file=None)
+    monkeypatch.setattr(Path, "replace", _refuse_rename(errno.EBUSY))
+    settings = store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
+    assert settings.log_level == "WARNING"
+    assert load_yaml_overlay(path)[0]["log_level"] == "WARNING"

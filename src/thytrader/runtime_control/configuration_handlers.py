@@ -97,6 +97,9 @@ def _settings_write_payload(
             30,
         ),
         "notify_provider": arguments.notify_provider or current.get("notify_provider") or "none",
+        "notify_min_severity": (
+            arguments.notify_min_severity or current.get("notify_min_severity") or "info"
+        ),
     }
 
 

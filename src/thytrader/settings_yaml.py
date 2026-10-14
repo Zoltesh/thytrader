@@ -8,6 +8,7 @@ file. Process-identity knobs (bind address, dataset root, environment) stay in
 from __future__ import annotations
 
 from collections.abc import Mapping
+import errno
 import hashlib
 import logging
 import os
@@ -18,7 +19,13 @@ from typing import Any, Literal, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
 
-from thytrader.config import NotifyProvider, Settings, YoloTier, parse_yolo_tiers_value
+from thytrader.config import (
+    NotifyMinSeverity,
+    NotifyProvider,
+    Settings,
+    YoloTier,
+    parse_yolo_tiers_value,
+)
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +47,7 @@ YAML_SCALAR_FIELDS: frozenset[str] = frozenset(
         "market_data_worker_product_id",
         "execution_worker_interval_seconds",
         "notify_provider",
+        "notify_min_severity",
     }
 )
 SECRET_KEY_TOKENS: frozenset[str] = frozenset(
@@ -171,6 +179,7 @@ def document_from_settings(settings: Settings) -> dict[str, object]:
         "market_data_worker_product_id": settings.market_data_worker_product_id,
         "execution_worker_interval_seconds": settings.execution_worker_interval_seconds,
         "notify_provider": settings.notify_provider.value,
+        "notify_min_severity": settings.notify_min_severity,
     }
 
 
@@ -222,6 +231,8 @@ class YamlSettingsWrite(BaseModel):
     market_data_worker_product_id: str = Field(default="BTC-USD", pattern=SPOT_PRODUCT_ID_PATTERN)
     execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)
     notify_provider: NotifyProvider = NotifyProvider.NONE
+    # Omitted means keep the current value, so clients that predate it never reset it.
+    notify_min_severity: NotifyMinSeverity | None = None
 
     @field_validator("yolo_tiers", mode="before")
     @classmethod
@@ -257,6 +268,7 @@ def view_from_settings(
         market_data_worker_product_id=settings.market_data_worker_product_id,
         execution_worker_interval_seconds=settings.execution_worker_interval_seconds,
         notify_provider=settings.notify_provider,
+        notify_min_severity=settings.notify_min_severity,
         settings_file=str(settings_file),
         yaml_loaded=yaml_loaded,
         process=ProcessSettingsView(
@@ -342,15 +354,16 @@ class SettingsStore:
                     "market_data_worker_product_id": write.market_data_worker_product_id,
                     "execution_worker_interval_seconds": (write.execution_worker_interval_seconds),
                     "notify_provider": write.notify_provider,
+                    "notify_min_severity": (
+                        write.notify_min_severity or self._current.notify_min_severity
+                    ),
                 },
                 env_file=self._env_file,
             )
             document = document_from_settings(probe)
             reject_secret_keys(document)
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp_path.write_text(dump_yaml_document(document), encoding="utf-8")
-            tmp_path.replace(self.path)
+            write_settings_file(self.path, dump_yaml_document(document))
             self._current = self._build(force_overlay=overlay_from_mapping(document))
             apply_log_level(self._current)
             return self._current
@@ -384,6 +397,30 @@ class SettingsStore:
         settings = _settings_from_overlay(overlay, env_file=self._env_file)
         apply_log_level(settings)
         return settings
+
+
+def write_settings_file(path: Path, text: str) -> None:
+    """Atomically replace the YAML, or rewrite it in place when the path is a mount point.
+
+    Compose bind-mounts ``thytrader.yaml`` as a single file, and renaming over a mount point
+    fails with ``EBUSY`` (``EXDEV`` across devices). The fallback keeps the mounted inode,
+    writes the complete document before truncating (readers never see an empty file) and
+    fsyncs. It is not atomic: a reader racing it fails that one reload and retries next time.
+    """
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    tmp_path.write_text(text, encoding="utf-8")
+    try:
+        tmp_path.replace(path)
+    except OSError as error:
+        tmp_path.unlink(missing_ok=True)
+        if error.errno not in {errno.EBUSY, errno.EXDEV}:
+            raise
+        payload = text.encode("utf-8")
+        with path.open("r+b") as handle:
+            handle.write(payload)
+            handle.truncate(len(payload))
+            handle.flush()
+            os.fsync(handle.fileno())
 
 
 def _settings_from_overlay(

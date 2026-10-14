@@ -160,6 +160,7 @@ class OpsContractPayload(_FrozenModel):
             "execution_cycle_timing",
             "execution_cycle_budget",
             "live_alert_delivery_health",
+            "alert_min_severity",
         ],
         ...,
     ]
@@ -282,6 +283,7 @@ class ConfigurationPayload(_FrozenModel):
     yolo_enabled: bool = False
     yolo_tiers: tuple[str, ...] = ()
     notify_provider: str = "none"
+    notify_min_severity: Literal["info", "warning", "critical"] = "info"
     notify_webhook_configured: bool = False
     settings_file: str = "thytrader.yaml"
     yaml_loaded: bool = False

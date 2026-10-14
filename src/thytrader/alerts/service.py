@@ -27,7 +27,7 @@ from thytrader.memory.notify import DeliveryResult
 from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from datetime import datetime
 
     from thytrader.alerts.models import AlertCheck, OperatorAlert, SupervisionFinding
@@ -42,6 +42,7 @@ _SEVERITY_TO_NOTIFY: dict[str, NotifySeverity] = {
     "critical": NotifySeverity.ERROR,
 }
 _RECOVERY_DETAIL = "condition cleared; next observation confirmed recovery"
+_SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
 _TITLE_BOUND = 200
 _BODY_BOUND = 4000
 
@@ -68,11 +69,17 @@ class AlertService:
         sender: AlertDeliverySender,
         *,
         thresholds: AlertThresholds,
+        min_severity: Callable[[], str] = lambda: "info",
     ) -> None:
-        """Bind the durable store, the delivery sender, and the thresholds."""
+        """Bind the store, sender, thresholds and the live minimum delivery severity.
+
+        ``min_severity`` is read at each delivery so a YAML change applies without a
+        restart (ADR 0139). Alerts below it are recorded as skipped, never sent.
+        """
         self._store = store
         self._sender = sender
         self._thresholds = thresholds
+        self._min_severity = min_severity
 
     @property
     def thresholds(self) -> AlertThresholds:
@@ -133,6 +140,16 @@ class AlertService:
             provider = self._sender.provider()
             if not isinstance(provider, NotifyProvider):
                 _logger.warning("alert_provider_invalid")
+                return
+            minimum = self._min_severity()
+            if provider is not NotifyProvider.NONE and _SEVERITY_RANK[
+                alert.severity.value
+            ] < _SEVERITY_RANK.get(minimum, 0):
+                detail = f"below notify_min_severity={minimum}: alert retained locally"
+                if alert.delivery_status != "skipped" or alert.delivery_detail != detail:
+                    await self._store.skip_delivery(
+                        alert.id, provider=provider.value, now=now, detail=detail
+                    )
                 return
             claim = await self._store.claim_delivery(
                 alert.id,

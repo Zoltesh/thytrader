@@ -177,6 +177,7 @@ async def build_configuration_report(diagnostics: OperatorDiagnostics) -> Config
             yolo_enabled=diagnostics.settings.yolo_enabled,
             yolo_tiers=tuple(tier.value for tier in diagnostics.settings.yolo_tiers),
             notify_provider=diagnostics.settings.notify_provider.value,
+            notify_min_severity=diagnostics.settings.notify_min_severity,
             notify_webhook_configured=diagnostics.settings.notify_webhook_url is not None,
             settings_file=_yaml_settings_file(diagnostics.runtime),
             yaml_loaded=_yaml_settings_loaded(diagnostics.runtime),

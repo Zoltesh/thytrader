@@ -153,7 +153,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v98"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v99"
 EXPECTED_SCHEMA_REVISION = "0076"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -301,6 +301,7 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "execution_cycle_timing",
     "execution_cycle_budget",
     "live_alert_delivery_health",
+    "alert_min_severity",
 )
 # Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
 # no execution, live, adoption or discretionary surface accepts a futures id.

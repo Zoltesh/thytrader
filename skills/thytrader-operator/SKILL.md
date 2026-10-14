@@ -359,7 +359,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v98`, schema revision `0076`) and exits on any
+   this checkout's (`thytrader-ops-contract-v99`, schema revision `0076`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -739,9 +739,16 @@ webhook is `DELIVERY_CONFIGURED` until an open alert's delivery failed (`DELIVER
 secrets (never YAML, never printed). With a secret, each POST carries a Unix-seconds timestamp
 header and a hex HMAC-SHA256(secret, `timestamp + "." + body`) signature header (exact header
 names in [ADR 0138](../../docs/decisions/0138-live-alert-delivery.md)). Enabling delivery
-is the user's setup: set both variables, rebuild, then switch `notify_provider` to `webhook`
-with `thytrader-runtime set-settings`. A delivered webhook proves an HTTP success, not that a
-person read it.
+is the user's setup, including which channel receives it: set both variables, rebuild, then
+switch `notify_provider` to `webhook` with `thytrader-runtime set-settings`. Never enable or test
+delivery on the user's behalf. A delivered webhook proves an HTTP success, not that a person
+read it.
+
+`notify_min_severity` (YAML: `info` default, `warning`, `critical`; ADR 0139) is the lowest alert
+severity sent. Lower alerts stay in the local feed as `skipped` with detail
+`below notify_min_severity=…`, spend no retry attempt, and are delivered if the minimum is later
+lowered while they are open. Enabling a provider sends every open alert that was skipped, so set
+the minimum first. The `alert_delivery` detail and the `configuration` report show the minimum.
 
 ## Backtest fee attribution
 

@@ -359,6 +359,15 @@ def add_settings_parsers(
         default=None,
         help="Webhook URL stays in ignored .env and still needs a restart.",
     )
+    set_settings.add_argument(
+        "--notify-min-severity",
+        choices=("info", "warning", "critical"),
+        default=None,
+        help=(
+            "Lowest safety-alert severity sent externally (default info: all). Lower alerts "
+            "stay in the local feed as skipped. Omitted keeps the current value (ADR 0139)."
+        ),
+    )
     set_settings.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
 
 
