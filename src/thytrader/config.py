@@ -133,6 +133,8 @@ class Settings(BaseSettings):
     yolo_tiers: Annotated[tuple[YoloTier, ...], NoDecode] = ()
     notify_provider: NotifyProvider = NotifyProvider.NONE
     notify_webhook_url: SecretStr | None = None
+    # Optional HMAC-SHA256 key: when set, each webhook POST carries a signature (ADR 0138).
+    notify_webhook_secret: SecretStr | None = None
     # ADR 0115 safety-supervision thresholds. Defaults are deliberately sane for
     # a 30s execution-worker cycle; changing them never weakens fail-closed gates.
     alert_consecutive_failure_cycles: int = Field(default=3, ge=1, le=100)
@@ -146,6 +148,7 @@ class Settings(BaseSettings):
         "database_url",
         "coinbase_api_key_name",
         "notify_webhook_url",
+        "notify_webhook_secret",
         "installation_token",
         mode="before",
     )
@@ -227,6 +230,10 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "THYTRADER_NOTIFY_WEBHOOK_URL requires THYTRADER_NOTIFY_PROVIDER=webhook."
+            )
+        if self.notify_webhook_secret is not None and self.notify_webhook_url is None:
+            raise ValueError(
+                "THYTRADER_NOTIFY_WEBHOOK_SECRET requires THYTRADER_NOTIFY_WEBHOOK_URL."
             )
         return self
 

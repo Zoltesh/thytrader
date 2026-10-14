@@ -13,6 +13,11 @@ from thytrader import __version__
 from thytrader.config import Settings, default_api_base_url
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
+from thytrader.operator.alert_delivery_health import (
+    alert_delivery_component,
+    live_risk_book_count,
+    open_alert_delivery_failed,
+)
 from thytrader.operator.execution_cycle_report import execution_cycle_health
 from thytrader.operator.fleet_health_report import fleet_alert_health_component
 from thytrader.operator.futures_live_health import futures_live_health_component
@@ -52,6 +57,8 @@ async def build_health_report(
     ``fleet_entries`` reads the worker's open ``FLEET_ENTRIES_BLOCKED`` alerts (ADR 0130), so
     a fleet-wide entry block can never leave health reporting healthy. ``execution_cycle``
     grades the newest execution-worker cycle against its interval (``CYCLE_SLOW``, ADR 0131).
+    ``alert_delivery`` is degraded while live books hold risk without external delivery
+    (ADR 0138).
     """
     now = datetime.now(UTC)
     research_component, research_payload = await _research_worker_health(diagnostics)
@@ -68,6 +75,11 @@ async def build_health_report(
         await _exchange_component(diagnostics),
         await fleet_alert_health_component(diagnostics.alert_store),
         await futures_live_health_component(diagnostics.alert_store),
+        alert_delivery_component(
+            diagnostics.settings,
+            live_books=await live_risk_book_count(diagnostics.execution),
+            failed_delivery=await open_alert_delivery_failed(diagnostics.alert_store),
+        ),
     ]
     warnings: list[str] = []
     if diagnostics.settings.database_url is None:

@@ -35,7 +35,9 @@ append-only hooks. They are not a substitute for audit trails or immutable backt
 Why-trade review is this lane (`thytrader-trade-reason-v1`). There is no venue sentiment scrape.
 
 Notify default is `THYTRADER_NOTIFY_PROVIDER=none` (persist as skipped, send nothing). `log` writes
-a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`. Never print that URL.
+a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`, HMAC-signed when
+`THYTRADER_NOTIFY_WEBHOOK_SECRET` is set (ADR 0138). Never print that URL or secret. With live books
+running or paused, `none`/`log` makes operator `alert_delivery` degraded.
 
 ## Hard stop
 

@@ -159,6 +159,7 @@ class OpsContractPayload(_FrozenModel):
             "fleet_entry_health",
             "execution_cycle_timing",
             "execution_cycle_budget",
+            "live_alert_delivery_health",
         ],
         ...,
     ]

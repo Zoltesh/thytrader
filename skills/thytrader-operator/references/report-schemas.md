@@ -22,7 +22,7 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v97` advertises `live_futures_risk_policy` under
+Ops contract `thytrader-ops-contract-v98` advertises `live_futures_risk_policy` under
 `futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
@@ -722,3 +722,11 @@ Delivery timestamps never refresh safety evidence. Notification attempts use dur
 and stable alert IDs; recipients must dedupe those IDs to prevent duplicate handling across
 ambiguous send/ack crashes. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
 while the durable alert stays locally readable.
+
+`components[]` holds `alerts` and `alert_delivery`; operator `health` carries the same
+`alert_delivery` component (ADR 0138). Its `reason_code` is one of `DELIVERY_CONFIGURED`
+(healthy webhook), `DELIVERY_FAILED` (degraded: an open alert's delivery failed),
+`DELIVERY_DISABLED_WHILE_LIVE` (degraded: `none`/`log` while a LIVE book is RUNNING or PAUSED;
+the detail counts them), `DELIVERY_DISABLED_LIVE_UNKNOWN` (degraded: fleet unreadable) or
+`DELIVERY_DISABLED` (healthy: no live book at risk). Ops contract v98 advertises this as
+`runtime_observability: live_alert_delivery_health`. Webhook URLs and secrets are never reported.
