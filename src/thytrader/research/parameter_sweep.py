@@ -350,19 +350,24 @@ def _cover_warmup(
     floor: int,
     htf_floor: int,
 ) -> StrategyDefinition:
-    """Set warmup bars to the exact substituted-period requirement."""
+    """Set warmup bars to the exact substituted-period requirement.
+
+    A base under the convergence policy (ADR 0140) yields candidates whose warmups cover
+    their own substituted periods' convergence; older bases keep the minimum requirement.
+    """
     payload = definition.model_dump(mode="python")
+    policy = definition.data_requirements.warmup_policy
     decision = decision_clock_indicators(definition)
     payload["data_requirements"]["warmup_bars"] = max(
         floor,
         extra_indicator_timeframe_warmup(
-            decision, operands=strategy_indicator_operands(definition)
+            decision, operands=strategy_indicator_operands(definition), policy=policy
         ),
     )
     htf = definition.htf_filter
     if htf is not None:
         needed = extra_indicator_timeframe_warmup(
-            htf.indicators, operands=strategy_indicator_operands(definition)
+            htf.indicators, operands=strategy_indicator_operands(definition), policy=policy
         )
         groups = dict(extra_indicator_timeframe_groups(definition))
         shared = groups.get(htf.timeframe)
@@ -370,7 +375,7 @@ def _cover_warmup(
             needed = max(
                 needed,
                 extra_indicator_timeframe_warmup(
-                    shared, operands=strategy_indicator_operands(definition)
+                    shared, operands=strategy_indicator_operands(definition), policy=policy
                 ),
             )
         payload["htf_filter"]["data_requirements"]["warmup_bars"] = max(htf_floor, needed)

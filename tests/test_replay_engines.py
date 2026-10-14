@@ -36,7 +36,8 @@ async def test_cli_runs_real_engines_on_identical_captured_inputs(tmp_path: Path
     """A descending no-signal window independently expects no orders and unchanged cash."""
     definition = strategy()
     store, before = await paper_book(definition)
-    window = candles(definition.data_requirements.warmup_bars + 1, step="-1", base="100")
+    # Starts high enough to stay positive across the converged warmup (ADR 0140).
+    window = candles(definition.data_requirements.warmup_bars + 1, step="-1", base="1000")
     tape = InputTape()
     started = datetime.now(UTC)
     with runtime_input_scope(tape):

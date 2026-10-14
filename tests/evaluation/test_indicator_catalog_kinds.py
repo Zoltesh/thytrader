@@ -95,9 +95,10 @@ if TYPE_CHECKING:
 CANDLES = synthetic_candles(240)
 CLOSES = [candle.close for candle in CANDLES]
 _START = datetime(2026, 1, 1, tzinfo=UTC)
+# Long enough for a daily EMA(100) reference's convergence warmup (446 bars, ADR 0140).
 _DAILY = tuple(
-    replace(candle, starts_at=_START - timedelta(days=120) + timedelta(days=index))
-    for index, candle in enumerate(synthetic_candles(132, seed=95))
+    replace(candle, starts_at=_START - timedelta(days=480) + timedelta(days=index))
+    for index, candle in enumerate(synthetic_candles(520, seed=95))
 )
 """Synthetic daily reference bars from 2025-09-03 through 2026-01-12 (ADR 0096)."""
 
@@ -809,17 +810,19 @@ def test_templates_evaluate_identically_in_research_and_paper_live(
         template=template.value, product_id="BTC-USDC", timeframe="1h"
     )
     warmup = strategy.data_requirements.warmup_bars
-    evaluation_bars = len(CANDLES) - warmup
+    # Converged templates (ADR 0140) need more than the shared 240-bar series.
+    candles = synthetic_candles(max(len(CANDLES), warmup + 120))
+    evaluation_bars = len(candles) - warmup
     references = {reference.id: _DAILY for reference in reference_instruments(strategy)}
     trace = evaluate_signal_trace(
         _spec(strategy, evaluation_bars=evaluation_bars),
         strategy,
-        CANDLES,
+        candles,
         reference_candles=references,
     )
     assert len(trace.records) == evaluation_bars
     for offset in range(0, evaluation_bars, 6):
-        through = CANDLES[: warmup + offset + 1]
+        through = candles[: warmup + offset + 1]
         expected = trace.records[offset].entry_condition
         assert evaluate_latest_entry(strategy, through, reference_candles=references) is (
             expected
@@ -836,8 +839,9 @@ def test_catalog_templates_produce_signals_on_the_synthetic_series() -> None:
     ):
         strategy = create_template_strategy(template=template.value, product_id="BTC-USDC")
         warmup = strategy.data_requirements.warmup_bars
+        candles = synthetic_candles(warmup + len(CANDLES))  # converged warmup (ADR 0140)
         trace = evaluate_signal_trace(
-            _spec(strategy, evaluation_bars=len(CANDLES) - warmup), strategy, CANDLES
+            _spec(strategy, evaluation_bars=len(candles) - warmup), strategy, candles
         )
         matched[template.value] = sum(
             1 for record in trace.records if record.entry_condition == "matched"
@@ -888,9 +892,10 @@ def test_new_kinds_work_in_htf_filters_and_on_extra_indicator_timeframes() -> No
     assert validated.htf_filter is not None
     prior = next(item for item in validated.indicators if item.id == "prior_channel")
     assert indicator_min_warmup(prior) == 6
-    four_hour = _aggregate(CANDLES, 4)
     warmup = validated.data_requirements.warmup_bars
     evaluation_bars = 120
+    hourly = synthetic_candles(warmup + evaluation_bars + 8)  # converged warmup (ADR 0140)
+    four_hour = _aggregate(hourly, 4)
     trace = evaluate_signal_trace(
         _spec(
             validated,
@@ -898,7 +903,7 @@ def test_new_kinds_work_in_htf_filters_and_on_extra_indicator_timeframes() -> No
             htf_dataset_fingerprint="sha256:" + "5" * 64,
         ),
         validated,
-        CANDLES,
+        hourly,
         htf_candles=four_hour,
     )
     keys = trace.indicator_ids
@@ -907,7 +912,7 @@ def test_new_kinds_work_in_htf_filters_and_on_extra_indicator_timeframes() -> No
     outcomes = {record.entry_condition for record in trace.records}
     assert EntryConditionOutcome.UNDEFINED not in outcomes
     for offset in range(0, evaluation_bars, 7):
-        through = CANDLES[: warmup + offset + 1]
+        through = hourly[: warmup + offset + 1]
         paper_live = evaluate_latest_entry(validated, through, four_hour, {"4h": four_hour})
         assert paper_live is trace.records[offset].entry_condition, offset
 
@@ -1070,14 +1075,15 @@ def test_offset_adds_to_warmup_and_strategy_warmup_must_cover_it() -> None:
             "id": "prior_high",
             "kind": "highest",
             "input": "high",
-            "parameters": {"period": 60},
+            "parameters": {"period": 300},
             "offset": 1,
         }
     )
+    # Longer than the converged template's own warmup, so the lag alone decides.
     with pytest.raises(ValidationError, match="warmup_bars must cover"):
         StrategyDefinition.model_validate(payload)
-    cast("dict[str, object]", payload["data_requirements"])["warmup_bars"] = 61
-    assert StrategyDefinition.model_validate(payload).data_requirements.warmup_bars == 61
+    cast("dict[str, object]", payload["data_requirements"])["warmup_bars"] = 301
+    assert StrategyDefinition.model_validate(payload).data_requirements.warmup_bars == 301
 
 
 def test_reference_helpers_are_exercised_for_every_new_kind() -> None:

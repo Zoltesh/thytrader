@@ -147,9 +147,12 @@ class FakeChildBacktests:
 
 
 def datasets_for_two_sleeves(root: Path) -> tuple[str, str]:
-    """BTC-USDC 1h for 400 hours from July 1; ETH-USDC 4h for 120 bars from July 2."""
-    btc = write_dataset(root, "BTC-USDC", "1h", start=DATA_START, count=400)
+    """BTC-USDC 1h for 2,400 hours from July 1; ETH-USDC 4h for 400 bars from July 2.
+
+    Long enough for template strategies' convergence warmup (ADR 0140) on both clocks.
+    """
+    btc = write_dataset(root, "BTC-USDC", "1h", start=DATA_START, count=2400)
     eth = write_dataset(
-        root, "ETH-USDC", "4h", start=DATA_START + timedelta(days=1), count=120, base=50
+        root, "ETH-USDC", "4h", start=DATA_START + timedelta(days=1), count=400, base=50
     )
     return btc, eth

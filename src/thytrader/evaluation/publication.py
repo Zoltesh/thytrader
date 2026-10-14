@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         IndicatorOperand,
         StrategyDefinition,
     )
+    from thytrader.strategies.schema.market import WarmupPolicy
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -268,7 +269,9 @@ def _require_indicator_timeframe_datasets(
                 evaluation_ends_at=specification.evaluation.ends_at,
                 timeframe=binding.timeframe,
                 warmup_bars=extra_indicator_timeframe_warmup(
-                    groups[binding.timeframe], operands=strategy_indicator_operands(definition)
+                    groups[binding.timeframe],
+                    operands=strategy_indicator_operands(definition),
+                    policy=definition.data_requirements.warmup_policy,
                 ),
             )
         except ValueError as error:
@@ -323,6 +326,7 @@ def _require_additional_instrument_datasets(
             required_extra_clocks=required_extra_clocks,
             groups=groups,
             operands=strategy_indicator_operands(definition),
+            policy=definition.data_requirements.warmup_policy,
         )
 
 
@@ -421,6 +425,7 @@ def _require_additional_extra_tf_coverage(
     required_extra_clocks: tuple[str, ...],
     groups: Mapping[str, tuple[IndicatorDefinition, ...]],
     operands: tuple[IndicatorOperand, ...],
+    policy: WarmupPolicy | None,
 ) -> None:
     """Require extra-TF datasets for one extra product iff the strategy declares those clocks."""
     declared_clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
@@ -451,7 +456,7 @@ def _require_additional_extra_tf_coverage(
                 evaluation_ends_at=specification.evaluation.ends_at,
                 timeframe=clock.timeframe,
                 warmup_bars=extra_indicator_timeframe_warmup(
-                    groups[clock.timeframe], operands=operands
+                    groups[clock.timeframe], operands=operands, policy=policy
                 ),
             )
         except ValueError as error:

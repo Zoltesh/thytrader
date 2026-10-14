@@ -20,6 +20,7 @@ from thytrader.market_data.models import CandleInterval
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore, MarketDataWatchTarget
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 
 
@@ -27,6 +28,8 @@ def _client(
     definition: StrategyDefinition, watchlist: InMemoryMarketDataWatchlistStore
 ) -> tuple[TestClient, InMemoryExecutionStore]:
     """An API client with the strategy published and the given watchlist."""
+    # Seeding stores what saving stores, which adopts convergence warmup (ADR 0140).
+    definition = with_convergence_warmup(definition)
     publication = SeededStrategyStore()
     fingerprint = strategy_fingerprint(definition)
     publication.published[fingerprint] = StrategySnapshot(

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         IndicatorOperand,
         StrategyDefinition,
     )
+    from thytrader.strategies.schema.market import WarmupPolicy
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -233,7 +234,9 @@ def _require_indicator_timeframe_window(
             evaluation_ends_at=evaluation_end,
             timeframe=binding.timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                groups[binding.timeframe], operands=strategy_indicator_operands(definition)
+                groups[binding.timeframe],
+                operands=strategy_indicator_operands(definition),
+                policy=definition.data_requirements.warmup_policy,
             ),
         )
         starts_at = _manifest_instant(manifest.starts_at)
@@ -288,6 +291,7 @@ def _require_additional_instrument_window(
             required_clocks=required_clocks,
             groups=groups,
             operands=strategy_indicator_operands(definition),
+            policy=definition.data_requirements.warmup_policy,
         )
 
 
@@ -379,6 +383,7 @@ def _require_additional_extra_tf_window(
     required_clocks: tuple[str, ...],
     groups: Mapping[str, tuple[IndicatorDefinition, ...]],
     operands: tuple[IndicatorOperand, ...],
+    policy: WarmupPolicy | None,
 ) -> None:
     """Confirm extra-TF datasets for one extra product match the published clocks."""
     clocks = tuple(item.timeframe for item in binding.indicator_dataset_fingerprints)
@@ -407,7 +412,7 @@ def _require_additional_extra_tf_window(
             evaluation_ends_at=evaluation_end,
             timeframe=clock.timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                groups[clock.timeframe], operands=operands
+                groups[clock.timeframe], operands=operands, policy=policy
             ),
         )
         clock_start = _manifest_instant(clock_manifest.starts_at)

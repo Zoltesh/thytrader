@@ -358,7 +358,8 @@ def test_btc_regime_gate_template_reads_btc_in_the_instrument_quote() -> None:
     assert (reference.id, reference.product_id, reference.timeframe) == ("btc", "BTC-USDC", "1d")
     assert _template("SOL-USD").data_requirements.reference_instruments[0].product_id == "BTC-USD"
     (requirement,) = reference_data_requirements(definition)
-    assert requirement.warmup_bars == 100
+    # The daily EMA(100) reference derives its convergence warmup, not 100 (ADR 0140).
+    assert requirement.warmup_bars == 446
     assert [item.id for item in decision_clock_indicators(definition)] == ["fast", "slow", "atr"]
     summary = strategy_summary(definition)
     assert "BTC · close [1d] > BTC · EMA(100) [1d]" in summary

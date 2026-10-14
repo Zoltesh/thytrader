@@ -77,7 +77,7 @@ def test_summary_names_the_effective_lag_of_each_operand(
 def test_signal_exit_summary_includes_the_right_operands_lag() -> None:
     """An exit comparing current fast EMA to prior slow EMA exposes the distinct reads."""
     payload = create_template_strategy().model_dump(mode="json", by_alias=True)
-    payload["data_requirements"]["warmup_bars"] = 52
+    payload["data_requirements"]["warmup_bars"] += 2  # cover the 2-bar lag (ADR 0140 base)
     payload["exits"]["signal_exit"] = {
         "when": {
             "all": [

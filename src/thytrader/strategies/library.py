@@ -27,6 +27,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     strategy_fingerprint,
 )
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -425,6 +426,8 @@ def evaluate_document(
     retired = authoring_issues(definition)
     if retired:
         return _issue_evaluation(normalized, retired, fallback_name)
+    # Saving adopts the convergence warmup policy (ADR 0140); loading never does.
+    definition = with_convergence_warmup(definition)
     canonical = canonical_strategy_bytes(definition).decode("utf-8")
     return EvaluatedDocument(
         document=parse_document_text(canonical),

@@ -630,7 +630,7 @@
     },
     "DailyOpeningEvidence": {
       "additionalProperties": false,
-      "description": "Reconstructed day equity with fill identity and actual overnight inventory marks.\n\nReaders revalidate the fill fingerprint and projections. This is derived evidence,\nnot permission to rewrite legacy equity stamps or operational cash. A paper futures\nbook also reverses its applied funding (``per_product_applied_fills_and_funding_v1``,\nADR 0129 \u00a74); its fingerprint then covers the funding hours too.",
+      "description": "Reconstructed day equity with fill identity and actual overnight inventory marks.\n\nReaders revalidate the fill fingerprint and projections. This is derived evidence,\nnot permission to rewrite legacy equity stamps or operational cash. A paper futures\nbook also reverses its applied funding (``per_product_applied_fills_and_funding_v1``,\nADR 0129 §4); its fingerprint then covers the funding hours too.",
       "properties": {
         "day_start": {
           "format": "date-time",
@@ -708,6 +708,20 @@
           "minimum": 1,
           "title": "Warmup Bars",
           "type": "integer"
+        },
+        "warmup_policy": {
+          "anyOf": [
+            {
+              "const": "convergence",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`convergence` (ADR 0140): every clock's warmup, declared or derived, covers its indicators' convergence warmup, so seeds have decayed before decisions. Omitted keeps the historical minimum-warmup meaning of older documents.",
+          "title": "Warmup Policy"
         }
       },
       "required": [
@@ -1738,7 +1752,7 @@
       "type": "object"
     },
     "FundingCashFlow": {
-      "description": "One funding hour applied to a paper futures book's cash (ADR 0129 \u00a74).\n\n``amount`` is ``-signed_quantity x mark_price x rate`` in USD: longs pay a positive\nrate and shorts receive it. It is applied once, in the same row-locked transaction that\nupdates the book's cash, and is part of the book's ledger like a fill.",
+      "description": "One funding hour applied to a paper futures book's cash (ADR 0129 §4).\n\n``amount`` is ``-signed_quantity x mark_price x rate`` in USD: longs pay a positive\nrate and shorts receive it. It is applied once, in the same row-locked transaction that\nupdates the book's cash, and is part of the book's ledger like a fill.",
       "properties": {
         "amount": {
           "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -1795,7 +1809,7 @@
     },
     "FuturesRiskPolicy": {
       "additionalProperties": false,
-      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is \u2265 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital, and\n``max_daily_loss_usd`` is an optional absolute ceiling on it.\n\nThe futures entry gate (ADR 0129 \u00a75): ``max_leverage`` (gross notional over futures\nbook equity; the lower of it and the strategy's applies), ``min_liquidation_buffer_fraction``\n((equity - maintenance) / equity after the entry; 0.5 while unset),\n``max_exposure_fraction`` (gross futures notional over ``paper_capital_usd``),\n``max_order_contracts`` (per order), ``max_hourly_funding_rate_abs`` (deny while the\nlatest settled hourly rate exceeds it) and ``max_btc_beta_exposure_fraction`` (the futures\nscope's own BTC-beta cap over ``paper_capital_usd``). ``beta_netting`` ``net_by_underlying``\nlets managed same-mode futures positions net, in base units, against same-underlying spot\ninventory for the spot BTC-beta cap only (\u00a76); unset is ``gross``.\n\nLive futures (ADR 0134 \u00a72, I2): starts and entries need ``live_enabled: true``,\n``live_capital_usd`` (the USD envelope live futures allocations draw from, and the capital\nof the live ``CFM-USD`` daily loss and exposure caps) and the product on\n``product_allowlist`` (futures ids only; the policy's top-level allowlist stays spot-only).\nA non-empty ``product_allowlist`` also restricts paper futures books. Live orders and the\nlive position hold at most ``max_order_contracts`` contracts, **1** while it is unset.\n``live_derisk_margin_ratio`` (> 1, on the venue's ``available_margin /\nliquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are stored for the\nfuture live margin monitor and funding drift alert. The opt-in never gates exits or\nprotection.",
+      "description": "Futures-related risk settings.\n\n``live_spot_collateral_reserve_quote`` is an amount in the policy quote that live spot\nbooks leave untouched for futures margin. While manual futures are ``in_use``, live\nUSDC/USD spot entries continue only when it is set, it covers the CFM initial margin\ntimes ``peg_haircut`` (a yes/no threshold check; the two currencies are never added),\nand it is withheld from the spot capital base. ``peg_haircut`` is ≥ 1.0.\n\n``paper_capital_usd`` is the simulated USD envelope paper futures books draw from; it is\nseparate from ``paper_capital_quote`` and an unset value refuses a paper futures start.\n``daily_loss_limit_fraction`` bounds the futures-scope daily loss (change in paper futures\nbook equity since the UTC day open) as a fraction of ``paper_capital_usd``; unset means\nthe policy's ``daily_loss_limit_fraction`` applies to that USD capital, and\n``max_daily_loss_usd`` is an optional absolute ceiling on it.\n\nThe futures entry gate (ADR 0129 §5): ``max_leverage`` (gross notional over futures\nbook equity; the lower of it and the strategy's applies), ``min_liquidation_buffer_fraction``\n((equity - maintenance) / equity after the entry; 0.5 while unset),\n``max_exposure_fraction`` (gross futures notional over ``paper_capital_usd``),\n``max_order_contracts`` (per order), ``max_hourly_funding_rate_abs`` (deny while the\nlatest settled hourly rate exceeds it) and ``max_btc_beta_exposure_fraction`` (the futures\nscope's own BTC-beta cap over ``paper_capital_usd``). ``beta_netting`` ``net_by_underlying``\nlets managed same-mode futures positions net, in base units, against same-underlying spot\ninventory for the spot BTC-beta cap only (§6); unset is ``gross``.\n\nLive futures (ADR 0134 §2, I2): starts and entries need ``live_enabled: true``,\n``live_capital_usd`` (the USD envelope live futures allocations draw from, and the capital\nof the live ``CFM-USD`` daily loss and exposure caps) and the product on\n``product_allowlist`` (futures ids only; the policy's top-level allowlist stays spot-only).\nA non-empty ``product_allowlist`` also restricts paper futures books. Live orders and the\nlive position hold at most ``max_order_contracts`` contracts, **1** while it is unset.\n``live_derisk_margin_ratio`` (> 1, on the venue's ``available_margin /\nliquidation_threshold``) and ``live_funding_drift_tolerance_usd`` are stored for the\nfuture live margin monitor and funding drift alert. The opt-in never gates exits or\nprotection.",
       "properties": {
         "beta_netting": {
           "anyOf": [
@@ -2599,7 +2613,7 @@
       "type": "string"
     },
     "IntentPurpose": {
-      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing. ``LIQUIDATION`` is the\nprotective marketable exit a paper futures book sends when its equity falls below\nmaintenance (ADR 0129 \u00a74); like every exit it is never gated.",
+      "description": "Why the runtime created one order intent.\n\n``SIGNAL_EXIT`` is the marketable exit sent when the strategy's ``exits.signal_exit``\nrule matched on a closed bar (ADR 0093). ``ADOPTION`` opens inventory from coins the\nvenue account already held (ADR 0124); it is not an entry, so it never consumes the\nentry-rate cap and is never cancelled as risk-increasing. ``LIQUIDATION`` is the\nprotective marketable exit a paper futures book sends when its equity falls below\nmaintenance (ADR 0129 §4); like every exit it is never gated.",
       "enum": [
         "entry",
         "take_profit",

@@ -37,6 +37,7 @@ from thytrader.strategies.schema.timeframes import (
     is_valid_htf_pair,
     is_valid_reference_pair,
     resolved_indicator_timeframe,
+    warmup_need,
 )
 
 if TYPE_CHECKING:
@@ -115,10 +116,15 @@ def _validate_decision_indicators(definition: StrategyDefinition) -> None:
     if not required_fields.issubset(definition.data_requirements.required_fields):
         raise ValueError("required_fields must include every indicator input")
     required_warmup = extra_indicator_timeframe_warmup(
-        decision_indicators, operands=strategy_indicator_operands(definition)
+        decision_indicators,
+        operands=strategy_indicator_operands(definition),
+        policy=definition.data_requirements.warmup_policy,
     )
     if definition.data_requirements.warmup_bars < required_warmup:
-        raise ValueError("warmup_bars must cover the longest indicator period")
+        raise ValueError(
+            "warmup_bars must cover the longest indicator period"
+            f"{warmup_need(required_warmup, definition.data_requirements.warmup_policy)}"
+        )
 
 
 def _validate_reference_instruments(definition: StrategyDefinition) -> None:
@@ -242,10 +248,15 @@ def _require_htf_coverage_for_shared_indicator_clock(definition: StrategyDefinit
     if shared is None:
         return
     needed_warmup = extra_indicator_timeframe_warmup(
-        shared, operands=strategy_indicator_operands(definition)
+        shared,
+        operands=strategy_indicator_operands(definition),
+        policy=definition.data_requirements.warmup_policy,
     )
     if htf_filter.data_requirements.warmup_bars < needed_warmup:
-        raise ValueError("HTF warmup_bars must cover extra indicators on the HTF timeframe")
+        raise ValueError(
+            "HTF warmup_bars must cover extra indicators on the HTF timeframe"
+            f"{warmup_need(needed_warmup, definition.data_requirements.warmup_policy)}"
+        )
     needed_fields = extra_indicator_required_fields(shared)
     if not set(needed_fields).issubset(htf_filter.data_requirements.required_fields):
         raise ValueError("HTF required_fields must include extra indicators on the HTF timeframe")

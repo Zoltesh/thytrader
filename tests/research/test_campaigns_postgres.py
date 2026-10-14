@@ -46,8 +46,8 @@ def test_campaign_survives_restart_and_concurrent_refresh(tmp_path: Path) -> Non
             request = BacktestStartRequest(
                 strategy_id=strategy.strategy_id,
                 dataset_fingerprint=fingerprint,
-                evaluation_start=DATA_START + timedelta(hours=200),
-                evaluation_end=DATA_START + timedelta(hours=300),
+                evaluation_start=DATA_START + timedelta(hours=250),  # converged warmup
+                evaluation_end=DATA_START + timedelta(hours=350),
                 initial_quote_balance="1000",
                 maker_fee_rate="0.005",
                 taker_fee_rate="0.009",

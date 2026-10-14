@@ -237,7 +237,9 @@ def test_squeeze_sweep_updates_both_current_and_prior_band_reads() -> None:
         "channel",
         "atr",
     }
-    assert candidate.data_requirements.warmup_bars == 31
+    # Bollinger(30) read one bar back needs 31; the converged template's ATR/Keltner terms
+    # already need more (ADR 0140), and candidates never drop below the base warmup.
+    assert candidate.data_requirements.warmup_bars == max(base.data_requirements.warmup_bars, 31)
     assert isinstance(candidate.entry.when, AllCondition)
     prior = candidate.entry.when.all[0]
     current = candidate.entry.when.all[2]

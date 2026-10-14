@@ -258,7 +258,9 @@ def _intersect_indicator_omitted_window(
             manifest,
             clock_timeframe=binding.timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                groups[binding.timeframe], operands=strategy_indicator_operands(strategy.definition)
+                groups[binding.timeframe],
+                operands=strategy_indicator_operands(strategy.definition),
+                policy=strategy.definition.data_requirements.warmup_policy,
             ),
             decision_timeframe=strategy.definition.timeframe,
         )
@@ -361,7 +363,9 @@ def _clip_additional_extra_tf_window(
             clock_manifest,
             clock_timeframe=clock.timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                groups[clock.timeframe], operands=strategy_indicator_operands(strategy.definition)
+                groups[clock.timeframe],
+                operands=strategy_indicator_operands(strategy.definition),
+                policy=strategy.definition.data_requirements.warmup_policy,
             ),
             decision_timeframe=strategy.definition.timeframe,
         )

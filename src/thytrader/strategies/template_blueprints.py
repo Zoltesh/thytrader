@@ -20,7 +20,7 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
     """
     blueprints: dict[StrategyTemplateId, dict[str, Any]] = {
         StrategyTemplateId.EMA_TREND: {
-            "warmup_bars": 50,
+            "warmup_bars": 223,
             "indicator_ids": ("fast", "slow", "rsi", "atr"),
             "defaults": {
                 "fast.period": "20",
@@ -45,7 +45,7 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
             ),
         },
         StrategyTemplateId.RSI_MEAN_REVERSION: {
-            "warmup_bars": 15,
+            "warmup_bars": 109,
             "indicator_ids": ("rsi", "atr"),
             "defaults": {
                 "rsi.period": "14",
@@ -65,7 +65,7 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
             ),
         },
         StrategyTemplateId.MACD_TREND: {
-            "warmup_bars": 34,
+            "warmup_bars": 155,
             "indicator_ids": ("macd", "atr"),
             "defaults": {
                 "macd.fast_period": "12",
@@ -88,7 +88,7 @@ def template_blueprint(template_id: StrategyTemplateId) -> dict[str, Any]:
             ),
         },
         StrategyTemplateId.BOLLINGER_MEAN_REVERSION: {
-            "warmup_bars": 20,
+            "warmup_bars": 108,
             "indicator_ids": ("close", "bands", "atr"),
             "defaults": {
                 "bands.period": "20",
@@ -136,7 +136,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
     """Return blueprints for the templates built on the wider indicator catalog."""
     return {
         StrategyTemplateId.DONCHIAN_BREAKOUT: {
-            "warmup_bars": 21,
+            "warmup_bars": 108,
             "indicator_ids": ("close", "channel", "atr"),
             "defaults": {"channel.period": "20", "channel.offset": "1", **_SHARED_DEFAULTS},
             "sweepable_axes": (
@@ -146,7 +146,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
             ),
         },
         StrategyTemplateId.SUPERTREND_TREND: {
-            "warmup_bars": 27,
+            "warmup_bars": 215,
             "indicator_ids": ("trend", "zero", "adx", "atr"),
             "defaults": {
                 "trend.period": "10",
@@ -163,7 +163,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
             ),
         },
         StrategyTemplateId.SQUEEZE_BREAKOUT: {
-            "warmup_bars": 21,
+            "warmup_bars": 108,
             "indicator_ids": ("close", "bands", "channel", "atr"),
             "defaults": {
                 "bands.period": "20",
@@ -183,7 +183,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
             ),
         },
         StrategyTemplateId.EMA_TREND_HOLD: {
-            "warmup_bars": 100,
+            "warmup_bars": 446,
             "indicator_ids": ("fast", "slow", "atr"),
             "defaults": {
                 "fast.period": "20",
@@ -208,7 +208,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
             ),
         },
         StrategyTemplateId.ZSCORE_MEAN_REVERSION: {
-            "warmup_bars": 27,
+            "warmup_bars": 215,
             "indicator_ids": ("z", "adx", "chop", "atr"),
             "defaults": {
                 "z.period": "20",
@@ -232,7 +232,7 @@ def _catalog_template_blueprints() -> dict[StrategyTemplateId, dict[str, Any]]:
 
 
 _BTC_REGIME_BLUEPRINT: dict[str, Any] = {
-    "warmup_bars": 50,
+    "warmup_bars": 223,
     "indicator_ids": ("fast", "slow", "atr", "btc_close", "btc_ema"),
     "reference_instruments": (
         {"id": "btc", "product_id": "BTC-<instrument quote>", "timeframe": "1d"},

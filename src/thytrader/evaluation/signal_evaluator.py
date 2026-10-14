@@ -263,7 +263,9 @@ def calculate_extra_indicator_rows(
             evaluation_ends_at=evaluation_ends_at,
             timeframe=timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                indicators, operands=strategy_indicator_operands(strategy)
+                indicators,
+                operands=strategy_indicator_operands(strategy),
+                policy=strategy.data_requirements.warmup_policy,
             ),
         )
         selected = _required_htf_candles(expected_starts, selected_candles)
@@ -314,7 +316,9 @@ def calculate_reference_indicator_rows(
                 evaluation_ends_at=evaluation_ends_at,
                 timeframe=reference.timeframe,
                 warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators, operands=strategy_indicator_operands(strategy)
+                    indicators,
+                    operands=strategy_indicator_operands(strategy),
+                    policy=strategy.data_requirements.warmup_policy,
                 ),
             ),
             strict=strict,

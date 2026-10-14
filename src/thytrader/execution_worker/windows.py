@@ -153,7 +153,9 @@ def _shared_clock_union_warmup(
                 strategy,
                 timeframe=timeframe,
                 warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators, operands=strategy_indicator_operands(strategy)
+                    indicators,
+                    operands=strategy_indicator_operands(strategy),
+                    policy=strategy.data_requirements.warmup_policy,
                 ),
                 deploy_anchor=deploy_anchor,
             ),
@@ -219,7 +221,9 @@ async def _closed_indicator_timeframe_windows(
             strategy,
             timeframe=timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                indicators, operands=strategy_indicator_operands(strategy)
+                indicators,
+                operands=strategy_indicator_operands(strategy),
+                policy=strategy.data_requirements.warmup_policy,
             ),
             deploy_anchor=deploy_anchor,
         )
