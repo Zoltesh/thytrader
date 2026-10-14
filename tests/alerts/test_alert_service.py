@@ -245,3 +245,84 @@ async def test_send_ack_crash_retries_after_claim_expiry_with_stable_id() -> Non
     await _service(store, retry).apply((), now=_NOW + timedelta(seconds=61))
     assert retry.delivered[0].id == sender.delivered[0].id
     assert (await store.list_open_alerts())[0].delivery_attempts == 2
+
+
+def _critical() -> SupervisionFinding:
+    """One critical durable identity, as a stop-cover incident would raise."""
+    return SupervisionFinding(
+        code=AlertCode.STOP_UNCOVERED,
+        scope=AlertScope.DEPLOYMENT,
+        subject=str(uuid4()),
+        severity=AlertSeverity.CRITICAL,
+        detail="open live book has no verified resting exit",
+    )
+
+
+async def test_min_severity_sends_critical_and_keeps_lower_alerts_local() -> None:
+    """A critical minimum sends critical alerts only; warnings stay in the feed as skipped."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await service.apply((_finding(), _critical()), now=_NOW)
+    assert [record.title for record in sender.delivered] == ["[thytrader] CRITICAL: STOP_UNCOVERED"]
+    warning = next(row for row in await store.list_open_alerts() if row.severity.value == "warning")
+    assert warning.delivery_status == "skipped"
+    assert warning.delivery_detail is not None
+    assert "notify_min_severity=critical" in warning.delivery_detail
+
+
+async def test_enabling_delivery_with_a_critical_minimum_does_not_flush_old_warnings() -> None:
+    """Switching a provider on re-sends skipped open alerts; the minimum still filters them."""
+    store = InMemoryAlertStore()
+    await _service(store).apply((_finding(), _critical()), now=_NOW)
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await service.dispatch_pending(now=_NOW + timedelta(seconds=1))
+    await service.dispatch_pending(now=_NOW + timedelta(seconds=2))
+    assert [record.title for record in sender.delivered] == ["[thytrader] CRITICAL: STOP_UNCOVERED"]
+
+
+async def test_min_severity_is_read_live_and_skips_spend_no_attempts() -> None:
+    """A YAML change applies at the next delivery; skipped alerts keep their retry budget.
+
+    Dispatch revisits open alerts every 30 seconds. A skip must not consume an attempt, or a
+    warning would exhaust its budget within minutes and never deliver after the minimum drops.
+    """
+    store = InMemoryAlertStore()
+    minimum = ["critical"]
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: minimum[0]
+    )
+    await service.apply((_finding(),), now=_NOW)
+    for second in range(1, 10):
+        await service.dispatch_pending(now=_NOW + timedelta(seconds=second))
+    assert sender.delivered == []
+    warning = (await store.list_open_alerts())[0]
+    assert warning.delivery_status == "skipped"
+    assert warning.delivery_attempts == 0
+    minimum[0] = "info"
+    await service.dispatch_pending(now=_NOW + timedelta(seconds=20))
+    assert [record.id for record in sender.delivered] == [warning.id]
+
+
+async def test_raising_the_minimum_never_erases_failed_delivery_evidence() -> None:
+    """A warning whose delivery failed stays ``failed`` after the minimum moves above it."""
+    store = InMemoryAlertStore()
+    failing = AlertService(
+        store, _FailureSender(raises=True), thresholds=AlertThresholds(delivery_max_attempts=1)
+    )
+    await failing.apply((_finding(),), now=_NOW)
+    assert (await store.list_open_alerts())[0].delivery_status == "failed"
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    quiet = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await quiet.dispatch_pending(now=_NOW + timedelta(minutes=5))
+    row = (await store.list_open_alerts())[0]
+    assert row.delivery_status == "failed"
+    assert sender.delivered == []

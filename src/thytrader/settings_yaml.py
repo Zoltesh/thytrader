@@ -8,17 +8,28 @@ file. Process-identity knobs (bind address, dataset root, environment) stay in
 from __future__ import annotations
 
 from collections.abc import Mapping
+from contextlib import contextmanager
+from dataclasses import dataclass
+import errno
+import fcntl
 import hashlib
 import logging
 import os
 from pathlib import Path
+import tempfile
 from threading import Lock
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, BinaryIO, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 import yaml
 
-from thytrader.config import NotifyProvider, Settings, YoloTier, parse_yolo_tiers_value
+from thytrader.config import (
+    NotifyMinSeverity,
+    NotifyProvider,
+    Settings,
+    YoloTier,
+    parse_yolo_tiers_value,
+)
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +51,7 @@ YAML_SCALAR_FIELDS: frozenset[str] = frozenset(
         "market_data_worker_product_id",
         "execution_worker_interval_seconds",
         "notify_provider",
+        "notify_min_severity",
     }
 )
 SECRET_KEY_TOKENS: frozenset[str] = frozenset(
@@ -64,6 +76,9 @@ RESTART_REQUIRED_FIELDS: tuple[str, ...] = (
     "allow_remote_access",
     "market_data_dataset_root",
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 LogLevel = Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"]
 
 
@@ -140,21 +155,88 @@ def overlay_from_mapping(raw: Mapping[str, object]) -> dict[str, object]:
     return overlay
 
 
-def load_yaml_overlay(path: Path) -> tuple[dict[str, object], bool]:
-    """Load one overlay dict. Missing files yield an empty overlay."""
-    if not path.is_file():
-        return {}, False
+@dataclass(frozen=True, slots=True)
+class FileSnapshot:
+    """One consistent read of the settings file: bytes, mtime and digest of those bytes."""
+
+    exists: bool
+    payload: bytes = b""
+    mtime: float | None = None
+    digest: str | None = None
+
+    @property
+    def fingerprint(self) -> tuple[float | None, str | None]:
+        """Identity used to decide whether a reload is needed."""
+        return self.mtime, self.digest
+
+
+_LOCK_UNSUPPORTED = frozenset({errno.EOPNOTSUPP, errno.ENOLCK, errno.EINVAL, errno.ENOSYS})
+
+
+def read_settings_snapshot(path: Path) -> FileSnapshot:
+    """Read the file once under a shared lock (ADR 0139).
+
+    ThyTrader writers hold an exclusive ``flock`` while rewriting a bind-mounted file in
+    place, so readers never observe a half-written document from them. The digest and mtime
+    describe exactly the bytes returned.
+
+    On a filesystem without ``flock`` the read is unlocked; reloads stay safe because content
+    that does not load keeps the previous settings.
+    """
     try:
-        loaded: object = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        message = "YAML settings file is not valid YAML."
+        with path.open("rb") as handle:
+            held = _try_flock(handle.fileno(), fcntl.LOCK_SH)
+            try:
+                return _snapshot_from(handle)
+            finally:
+                if held:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    except FileNotFoundError, IsADirectoryError:
+        return FileSnapshot(exists=False)
+
+
+def _try_flock(descriptor: int, operation: int) -> bool:
+    """Take a ``flock``; ``False`` where the filesystem does not support locking."""
+    try:
+        fcntl.flock(descriptor, operation)
+    except OSError as error:
+        if error.errno in _LOCK_UNSUPPORTED:
+            return False
+        raise
+    return True
+
+
+def _snapshot_from(handle: BinaryIO) -> FileSnapshot:
+    """Snapshot an already locked handle from its start."""
+    handle.seek(0)
+    payload = handle.read()
+    mtime = os.fstat(handle.fileno()).st_mtime
+    return FileSnapshot(
+        exists=True, payload=payload, mtime=mtime, digest=hashlib.sha256(payload).hexdigest()
+    )
+
+
+def parse_yaml_overlay(payload: bytes) -> dict[str, object]:
+    """Parse settings bytes; undecodable, invalid or non-mapping content is a settings error."""
+    try:
+        loaded: object = yaml.safe_load(payload.decode("utf-8"))
+    except (UnicodeDecodeError, yaml.YAMLError) as error:
+        message = "YAML settings file is not valid UTF-8 YAML."
         raise YamlSettingsError(message) from error
     if loaded is None:
-        return {}, True
+        return {}
     if not isinstance(loaded, dict):
         raise YamlSettingsError("YAML settings root must be a mapping.")
     typed = cast("dict[str, object]", loaded)
-    return overlay_from_mapping(typed), True
+    return overlay_from_mapping(typed)
+
+
+def load_yaml_overlay(path: Path) -> tuple[dict[str, object], bool]:
+    """Load one overlay dict. Missing files yield an empty overlay."""
+    snapshot = read_settings_snapshot(path)
+    if not snapshot.exists:
+        return {}, False
+    return parse_yaml_overlay(snapshot.payload), True
 
 
 def document_from_settings(settings: Settings) -> dict[str, object]:
@@ -171,6 +253,7 @@ def document_from_settings(settings: Settings) -> dict[str, object]:
         "market_data_worker_product_id": settings.market_data_worker_product_id,
         "execution_worker_interval_seconds": settings.execution_worker_interval_seconds,
         "notify_provider": settings.notify_provider.value,
+        "notify_min_severity": settings.notify_min_severity,
     }
 
 
@@ -222,6 +305,8 @@ class YamlSettingsWrite(BaseModel):
     market_data_worker_product_id: str = Field(default="BTC-USD", pattern=SPOT_PRODUCT_ID_PATTERN)
     execution_worker_interval_seconds: int = Field(default=30, ge=5, le=3_600)
     notify_provider: NotifyProvider = NotifyProvider.NONE
+    # Omitted means keep the current value, so clients that predate it never reset it.
+    notify_min_severity: NotifyMinSeverity | None = None
 
     @field_validator("yolo_tiers", mode="before")
     @classmethod
@@ -257,6 +342,7 @@ def view_from_settings(
         market_data_worker_product_id=settings.market_data_worker_product_id,
         execution_worker_interval_seconds=settings.execution_worker_interval_seconds,
         notify_provider=settings.notify_provider,
+        notify_min_severity=settings.notify_min_severity,
         settings_file=str(settings_file),
         yaml_loaded=yaml_loaded,
         process=ProcessSettingsView(
@@ -288,10 +374,11 @@ class SettingsStore:
         self.path = path
         self._env_file = env_file
         self._lock = Lock()
-        self._mtime: float | None = None
-        self._content_hash: str | None = None
+        self._fingerprint: tuple[float | None, str | None] = (None, None)
+        self._rejected: tuple[float | None, str | None] | None = None
         self._yaml_loaded = False
-        self._current = self._build(force_overlay=None)
+        self._yaml_invalid = False
+        self._current = self._publish(read_settings_snapshot(path))
 
     @classmethod
     def open(
@@ -308,14 +395,58 @@ class SettingsStore:
         """True when the YAML file exists and was parsed on the last reload."""
         return self._yaml_loaded
 
+    @property
+    def yaml_invalid(self) -> bool:
+        """True while the file on disk fails to load and the last valid settings are kept."""
+        return self._yaml_invalid
+
     def current(self) -> Settings:
         """Return cached Settings, reloading when mtime or content changes."""
         with self._lock:
-            mtime = self._stat_mtime()
-            content_hash = self._stat_content_hash()
-            if mtime != self._mtime or content_hash != self._content_hash:
-                self._current = self._build(force_overlay=None)
+            self._refresh_locked()
             return self._current
+
+    def _refresh_locked(self) -> None:
+        """Reload a changed file; keep the last valid settings when it does not load.
+
+        A hand edit can still be saved non-atomically or with a typo. Neither may stop a
+        running process: the previous settings stay in force, the failure is logged once per
+        file content and reported by ``yaml_invalid``, and the next change is retried. Only
+        construction fails loudly.
+        """
+        try:
+            snapshot = read_settings_snapshot(self.path)
+        except OSError:
+            if not self._yaml_invalid:
+                LOGGER.warning("settings_yaml_unreadable_keeping_previous path=%s", self.path)
+            self._yaml_invalid = True
+            return
+        self._refresh_from(snapshot)
+
+    def _refresh_from(self, snapshot: FileSnapshot) -> None:
+        """Apply one snapshot unless it is already published or already rejected."""
+        if snapshot.fingerprint == self._fingerprint:
+            self._yaml_invalid = False
+            return
+        if snapshot.fingerprint == self._rejected:
+            self._yaml_invalid = True
+            return
+        try:
+            self._current = self._publish(snapshot)
+        except YamlSettingsError:
+            self._rejected = snapshot.fingerprint
+            self._yaml_invalid = True
+            LOGGER.warning("settings_yaml_invalid_keeping_previous path=%s", self.path)
+
+    def _publish(self, snapshot: FileSnapshot) -> Settings:
+        """Validate one snapshot, then publish its settings and fingerprint together."""
+        overlay = parse_yaml_overlay(snapshot.payload) if snapshot.exists else {}
+        settings = _settings_from_overlay(overlay, env_file=self._env_file)
+        apply_log_level(settings)
+        self._yaml_loaded = snapshot.exists
+        self._yaml_invalid = False
+        self._fingerprint = snapshot.fingerprint
+        return settings
 
     def adopt_process_settings(self, settings: Settings) -> None:
         """Replace the cached Settings without writing YAML.
@@ -327,8 +458,14 @@ class SettingsStore:
             self._current = settings
 
     def replace(self, write: YamlSettingsWrite) -> Settings:
-        """Atomically write YAML, reload, and return the new Settings."""
-        with self._lock:
+        """Atomically write YAML, reload, and return the new Settings.
+
+        The on-disk file is reloaded first, so fields a client omits keep their current
+        value even when another process changed the file since this one last read it.
+        """
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, _exclusive_settings_file(self.path) as locked:
+            self._refresh_from(_snapshot_from(locked.handle))
             probe = _settings_from_overlay(
                 {
                     "yolo_enabled": write.yolo_enabled,
@@ -342,48 +479,116 @@ class SettingsStore:
                     "market_data_worker_product_id": write.market_data_worker_product_id,
                     "execution_worker_interval_seconds": (write.execution_worker_interval_seconds),
                     "notify_provider": write.notify_provider,
+                    "notify_min_severity": (
+                        write.notify_min_severity or self._current.notify_min_severity
+                    ),
                 },
                 env_file=self._env_file,
             )
             document = document_from_settings(probe)
             reject_secret_keys(document)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
-            tmp_path.write_text(dump_yaml_document(document), encoding="utf-8")
-            tmp_path.replace(self.path)
-            self._current = self._build(force_overlay=overlay_from_mapping(document))
-            apply_log_level(self._current)
+            write_settings_file(self.path, dump_yaml_document(document), locked=locked)
+            self._current = self._publish(read_after_write(self.path, locked))
             return self._current
 
-    def _stat_mtime(self) -> float | None:
-        """Return the YAML mtime, or None when the file is absent."""
-        try:
-            return self.path.stat().st_mtime
-        except FileNotFoundError:
-            return None
 
-    def _stat_content_hash(self) -> str | None:
-        """Return a SHA-256 digest of the YAML bytes, or None when absent."""
-        if not self.path.is_file():
-            return None
-        try:
-            payload = self.path.read_bytes()
-        except OSError:
-            return None
-        return hashlib.sha256(payload).hexdigest()
+@dataclass(frozen=True, slots=True)
+class LockedSettingsFile:
+    """A read-only handle on the settings inode and whether an exclusive lock is held."""
 
-    def _build(self, *, force_overlay: dict[str, object] | None) -> Settings:
-        """Construct Settings from env plus YAML overlay."""
-        if force_overlay is None:
-            overlay, loaded = load_yaml_overlay(self.path)
-        else:
-            overlay, loaded = force_overlay, True
-        self._yaml_loaded = loaded
-        self._mtime = self._stat_mtime()
-        self._content_hash = self._stat_content_hash()
-        settings = _settings_from_overlay(overlay, env_file=self._env_file)
-        apply_log_level(settings)
-        return settings
+    handle: BinaryIO
+    held: bool
+
+
+@contextmanager
+def _exclusive_settings_file(path: Path) -> Iterator[LockedSettingsFile]:
+    """Hold an exclusive ``flock`` on the current settings inode for read-merge-write.
+
+    Every process (API and workers, host or container) sees the same bind-mounted inode, so
+    this serializes ThyTrader writers and blocks shared-lock readers during an in-place
+    rewrite. The lock uses a read-only descriptor, so an atomic rename never needs write
+    access to the file itself. If another writer replaced the file while this one waited, the
+    lock is retaken on the new inode. Without ``flock`` support nothing is held, and only an
+    atomic rename may then write.
+    """
+    while True:
+        descriptor = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
+        handle = os.fdopen(descriptor, "rb")
+        try:
+            held = _try_flock(handle.fileno(), fcntl.LOCK_EX)
+            if held and os.fstat(handle.fileno()).st_ino != path.stat().st_ino:
+                continue
+            yield LockedSettingsFile(handle, held)
+            return
+        finally:
+            handle.close()
+
+
+def read_after_write(path: Path, locked: LockedSettingsFile) -> FileSnapshot:
+    """Snapshot what was just written: the locked inode when rewritten in place, else the path."""
+    if _same_inode(path, locked.handle):
+        return _snapshot_from(locked.handle)
+    return read_settings_snapshot(path)
+
+
+def _same_inode(path: Path, handle: BinaryIO) -> bool:
+    """Whether ``path`` still names the inode ``handle`` has open."""
+    try:
+        return os.fstat(handle.fileno()).st_ino == path.stat().st_ino
+    except FileNotFoundError:
+        return False
+
+
+def write_settings_file(path: Path, text: str, *, locked: LockedSettingsFile | None = None) -> None:
+    """Atomically replace the YAML, or rewrite it in place when the path is a mount point.
+
+    Compose bind-mounts ``thytrader.yaml`` as a single file, and renaming over a mount point
+    fails with ``EBUSY`` (``EXDEV`` across devices). The fallback keeps the mounted inode and
+    rewrites it only under an exclusive ``flock`` (the caller's ``locked`` file, or one taken
+    here), so ThyTrader readers never see it half written. Where the file cannot be locked the
+    in-place rewrite is refused rather than performed unlocked (ADR 0139). Each write uses its
+    own temporary file, so even unserialized writers never share an inode; without ``flock``
+    the last atomic rename wins.
+    """
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(text.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_path.chmod(0o644)
+        tmp_path.replace(path)
+    except OSError as error:
+        tmp_path.unlink(missing_ok=True)
+        if error.errno not in {errno.EBUSY, errno.EXDEV}:
+            raise
+        payload = text.encode("utf-8")
+        if locked is not None:
+            _rewrite_locked(path, locked, payload)
+            return
+        with _exclusive_settings_file(path) as own:
+            _rewrite_locked(path, own, payload)
+
+
+def _rewrite_locked(path: Path, locked: LockedSettingsFile, payload: bytes) -> None:
+    """Rewrite the locked inode in place, refusing when no lock is held."""
+    if not locked.held:
+        message = "The settings file cannot be locked, so it is not rewritten in place."
+        raise YamlSettingsError(message)
+    with path.open("r+b") as handle:
+        if os.fstat(handle.fileno()).st_ino != os.fstat(locked.handle.fileno()).st_ino:
+            raise YamlSettingsError("The settings file changed during an in-place rewrite.")
+        _rewrite_in_place(handle, payload)
+
+
+def _rewrite_in_place(handle: BinaryIO, payload: bytes) -> None:
+    """Replace the content of an exclusively locked handle and make it durable."""
+    handle.seek(0)
+    handle.write(payload)
+    handle.truncate(len(payload))
+    handle.flush()
+    os.fsync(handle.fileno())
 
 
 def _settings_from_overlay(

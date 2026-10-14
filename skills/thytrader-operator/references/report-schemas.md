@@ -22,7 +22,7 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v98` advertises `live_futures_risk_policy` under
+Ops contract `thytrader-ops-contract-v99` advertises `live_futures_risk_policy` under
 `futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
@@ -730,3 +730,10 @@ while the durable alert stays locally readable.
 RUNNING, PAUSED, or STOPPED with residual exposure; the detail counts them), `DELIVERY_DISABLED_LIVE_UNKNOWN` (degraded: fleet unreadable) or
 `DELIVERY_DISABLED` (healthy: no live book at risk). Ops contract v98 advertises this as
 `runtime_observability: live_alert_delivery_health`. Webhook URLs and secrets are never reported.
+Ops contract v99 adds `alert_min_severity`: the `configuration` report carries
+`notify_min_severity` (`info`, `warning` or `critical`), and alert rows below it show
+`delivery.status` `skipped` with detail `below notify_min_severity=<value>: alert retained locally`
+and zero attempts spent; a `failed` row stays `failed` (ADR 0139). The `configuration` report
+payload carries `yaml_invalid`; when true its component is `degraded`
+(`YAML_INVALID_PREVIOUS_IN_FORCE`): the file on disk does not load and the last valid settings
+remain in force.

@@ -180,6 +180,36 @@ class PostgresAlertStore:
             raise AlertStoreError("Alert delivery claim is unavailable.") from error
         return DeliveryClaim(_parse(row), token) if row is not None else None
 
+    async def skip_delivery(
+        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+    ) -> None:
+        """Record a deliberate skip on an open, unclaimed row without spending an attempt.
+
+        ``failed`` rows keep their status so delivery-failure evidence is never erased.
+        """
+        statement = (
+            update(operator_alerts)
+            .where(
+                operator_alerts.c.id == alert_id,
+                operator_alerts.c.resolved_at.is_(None),
+                operator_alerts.c.delivery_status.in_(("pending", "skipped")),
+                operator_alerts.c.delivery_expires_at.is_(None)
+                | (operator_alerts.c.delivery_expires_at <= now),
+            )
+            .values(
+                delivery_provider=provider,
+                delivery_status="skipped",
+                delivery_detail=clip_alert_text(detail),
+                delivery_token=None,
+                delivery_expires_at=None,
+            )
+        )
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(statement)
+        except SQLAlchemyError as error:
+            raise AlertStoreError("Alert delivery skip is unavailable.") from error
+
     async def finish_delivery(
         self, alert_id: UUID, token: UUID, *, status: str, detail: str
     ) -> None:

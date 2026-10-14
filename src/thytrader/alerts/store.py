@@ -96,6 +96,17 @@ class AlertStore(Protocol):
         """Acknowledge only the currently owned claim, without changing evidence age."""
         ...
 
+    async def skip_delivery(
+        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+    ) -> None:
+        """Record a deliberate skip without spending a retry slot (ADR 0139).
+
+        Only an open ``pending`` or ``skipped`` row with no active claim changes; ``failed``
+        evidence is preserved. A later change of configuration can still deliver a skipped row
+        with its full attempt budget.
+        """
+        ...
+
 
 def observation_keys(
     findings: Sequence[SupervisionFinding], evaluated: Sequence[AlertCheck]
@@ -227,6 +238,32 @@ class InMemoryAlertStore:
             rows[-1] = claimed
             return DeliveryClaim(claimed, token)
         return None
+
+    async def skip_delivery(
+        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+    ) -> None:
+        """Mark an open, unclaimed, undelivered row skipped without spending an attempt.
+
+        A ``failed`` row keeps its status: a later filter must never erase delivery-failure
+        (or exhausted-budget) evidence that health grades.
+        """
+        for rows in self.history.values():
+            row = rows[-1]
+            if row.id != alert_id or not row.is_open:
+                continue
+            if row.delivery_status not in {"pending", "skipped"}:
+                return
+            if row.delivery_expires_at is not None and row.delivery_expires_at > now:
+                return
+            rows[-1] = replace(
+                row,
+                delivery_provider=provider,
+                delivery_status="skipped",
+                delivery_detail=clip_alert_text(detail),
+                delivery_token=None,
+                delivery_expires_at=None,
+            )
+            return
 
     async def finish_delivery(
         self, alert_id: UUID, token: UUID, *, status: str, detail: str

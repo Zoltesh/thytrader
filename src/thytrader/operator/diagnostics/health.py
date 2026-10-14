@@ -148,7 +148,11 @@ async def _research_worker_health(
 async def build_configuration_report(diagnostics: OperatorDiagnostics) -> ConfigurationReport:
     """Return validated settings with secrets omitted."""
     now = datetime.now(UTC)
-    components = [_configuration_component(diagnostics.settings)]
+    components = [
+        _configuration_component(
+            diagnostics.settings, yaml_invalid=_yaml_settings_invalid(diagnostics.runtime)
+        )
+    ]
     overall = aggregate_status(components)
     return ConfigurationReport(
         application_version=__version__,
@@ -177,9 +181,11 @@ async def build_configuration_report(diagnostics: OperatorDiagnostics) -> Config
             yolo_enabled=diagnostics.settings.yolo_enabled,
             yolo_tiers=tuple(tier.value for tier in diagnostics.settings.yolo_tiers),
             notify_provider=diagnostics.settings.notify_provider.value,
+            notify_min_severity=diagnostics.settings.notify_min_severity,
             notify_webhook_configured=diagnostics.settings.notify_webhook_url is not None,
             settings_file=_yaml_settings_file(diagnostics.runtime),
             yaml_loaded=_yaml_settings_loaded(diagnostics.runtime),
+            yaml_invalid=_yaml_settings_invalid(diagnostics.runtime),
             effective_api_base_url=default_api_base_url(diagnostics.settings),
         ),
     )
@@ -420,6 +426,13 @@ def _yaml_settings_loaded(runtime: RuntimeState | None) -> bool:
     return runtime.settings_store.yaml_loaded
 
 
+def _yaml_settings_invalid(runtime: RuntimeState | None) -> bool:
+    """True when this process's YAML file fails to load and older settings are in force."""
+    if runtime is None or runtime.settings_store is None:
+        return False
+    return runtime.settings_store.yaml_invalid
+
+
 def _readiness_component(name: str, path: Path | None) -> ComponentReport:
     """Interpret a worker readiness file without treating absence as health."""
     if path is None:
@@ -468,8 +481,8 @@ def _probe_api(settings: Settings) -> ComponentReport:
     )
 
 
-def _configuration_component(settings: Settings) -> ComponentReport:
-    """Flag remote-access and production-without-database as configuration risk."""
+def _configuration_component(settings: Settings, *, yaml_invalid: bool) -> ComponentReport:
+    """Flag remote access, production without a database and an unloadable YAML file."""
     if settings.allow_remote_access:
         return ComponentReport(
             name="configuration",
@@ -483,6 +496,16 @@ def _configuration_component(settings: Settings) -> ComponentReport:
             status=ReportStatus.FAILED,
             reason_code="DATABASE_UNCONFIGURED",
             detail="Production requires THYTRADER_DATABASE_URL.",
+        )
+    if yaml_invalid:
+        return ComponentReport(
+            name="configuration",
+            status=ReportStatus.DEGRADED,
+            reason_code="YAML_INVALID_PREVIOUS_IN_FORCE",
+            detail=(
+                "thytrader.yaml on disk does not load; the last valid settings stay in force "
+                "until it is fixed (ADR 0139)."
+            ),
         )
     return ComponentReport(
         name="configuration",

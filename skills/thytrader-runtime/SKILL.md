@@ -775,6 +775,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | Publish risk policy with absolute caps and a venue budget | `uv run thytrader-runtime set-risk-policy --max-concurrent-running-deployments 8 --max-concurrent-open-positions 8 --max-portfolio-exposure-fraction 1 --per-product-max-exposure-fraction 1 --paper-capital-quote 100000 --max-daily-loss-quote 2500 --max-portfolio-exposure-quote 50000 --max-venue-order-actions-per-minute 90 --confirm` |
 | Show YAML settings | `uv run thytrader-runtime show-settings` |
 | Set YOLO paper without restart | `uv run thytrader-runtime set-settings --yolo-enabled true --yolo-tiers paper --confirm` |
+| Send only critical safety alerts (user-approved delivery) | `uv run thytrader-runtime set-settings --notify-min-severity critical --confirm` |
 | Show Coinbase credential flags | `uv run thytrader-runtime show-coinbase-credentials` |
 | Set Coinbase credentials | `uv run thytrader-runtime set-coinbase-credentials --api-key-name organizations/…/apiKeys/… --private-key-file ./coinbase.pem --confirm` |
 | Clear Coinbase credentials | `uv run thytrader-runtime clear-coinbase-credentials --confirm` |
@@ -993,6 +994,11 @@ Underlying HTTP:
 YOLO on/off and independent tiers live in `thytrader.yaml` (loopback `/settings`, or
 `set-settings --confirm`). Leftover `THYTRADER_YOLO_TIERS=paper` is valid. YAML wins leftover env
 and applies without restart. Secrets stay out of YAML. Live still needs `--i-understand-live`.
+`set-settings` writes the bind-mounted Compose `thytrader.yaml` in place when an atomic rename
+is impossible (ADR 0139); a 500 from it on an older build meant that rename failed.
+`--notify-provider` and `--notify-min-severity {info,warning,critical}` change alert delivery;
+omitted flags keep current values. Only the user decides whether and where alerts are sent:
+never enable delivery, change the channel or send test notifications on your own initiative.
 
 ## Forbidden
 

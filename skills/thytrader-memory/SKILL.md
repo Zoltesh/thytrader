@@ -37,7 +37,8 @@ Why-trade review is this lane (`thytrader-trade-reason-v1`). There is no venue s
 Notify default is `THYTRADER_NOTIFY_PROVIDER=none` (persist as skipped, send nothing). `log` writes
 a structured line. `webhook` POSTs JSON to `THYTRADER_NOTIFY_WEBHOOK_URL`, HMAC-signed when
 `THYTRADER_NOTIFY_WEBHOOK_SECRET` is set (ADR 0138). Never print that URL or secret. While live books
-hold risk, `none`/`log` makes operator `alert_delivery` degraded.
+hold risk, `none`/`log` makes operator `alert_delivery` degraded. Safety alerts below
+`notify_min_severity` (YAML) are not sent; `notify` messages from this lane always are.
 
 ## Hard stop
 

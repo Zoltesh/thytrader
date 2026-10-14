@@ -275,6 +275,41 @@ async def test_postgres_none_provider_persists_skipped_without_consuming_retry(
     assert "delivery disabled" in row.delivery_detail
 
 
+async def test_postgres_severity_skip_spends_no_attempt_and_respects_active_claims(
+    store: PostgresAlertStore,
+) -> None:
+    """A below-minimum skip keeps the full retry budget and never revokes an in-flight send."""
+    change = await store.record(_finding(), now=_NOW)
+    await store.skip_delivery(
+        change.alert.id, provider="webhook", now=_NOW, detail="below notify_min_severity=critical"
+    )
+    row = next(row for row in await store.list_open_alerts() if row.id == change.alert.id)
+    assert row.delivery_status == "skipped"
+    assert row.delivery_attempts == 0
+    assert "notify_min_severity" in row.delivery_detail
+    claim = await store.claim_delivery(
+        change.alert.id, provider="webhook", now=_NOW, max_attempts=2, ttl=timedelta(seconds=60)
+    )
+    assert claim is not None
+    await store.skip_delivery(
+        change.alert.id, provider="webhook", now=_NOW, detail="below notify_min_severity=critical"
+    )
+    claimed = next(row for row in await store.list_open_alerts() if row.id == change.alert.id)
+    assert claimed.delivery_status == "failed"
+    assert claimed.delivery_attempts == 1
+    await store.finish_delivery(
+        change.alert.id, claim.token, status="failed", detail="notification outcome: failed"
+    )
+    await store.skip_delivery(
+        change.alert.id,
+        provider="webhook",
+        now=_NOW + timedelta(minutes=5),
+        detail="below notify_min_severity=critical",
+    )
+    failed = next(row for row in await store.list_open_alerts() if row.id == change.alert.id)
+    assert failed.delivery_status == "failed", "a filter never erases failure evidence"
+
+
 async def test_postgres_deleted_book_keeps_alert_history_and_requires_authoritative_clear(
     store: PostgresAlertStore,
 ) -> None:
