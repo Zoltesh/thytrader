@@ -22,16 +22,23 @@ bind-mounts as a single file, and a rename over a mount point fails with `EBUSY`
    `set-settings --notify-min-severity`) is the lowest safety-alert severity sent. The worker
    reads it at each delivery, so changes apply without a restart. Alerts below it are recorded
    as `skipped` with detail `below notify_min_severity=<value>: alert retained locally` through a
-   new `skip_delivery` store operation that spends **no** retry attempt and never revokes an
-   in-flight claim. If the minimum is lowered while such an alert is open, it is delivered with
-   its full budget. The local feed, alert grading and supervision are unchanged; memory-lane
+   new `skip_delivery` store operation that spends **no** retry attempt, never revokes an
+   in-flight claim and never overwrites a `failed` row, so delivery-failure (and exhausted
+   budget) evidence that health grades survives a later filter. If the minimum is lowered while
+   a skipped alert is open, it is delivered with its full budget. The local feed, alert grading and supervision are unchanged; memory-lane
    `notify` messages are explicit sends and are not filtered.
 2. **Settings writes fall back to an in-place rewrite** when the atomic rename fails with
    `EBUSY` or `EXDEV`: the mounted inode is kept, the full document is written before truncating
    (no empty-file window) and fsynced. Other rename failures still raise. The fallback is not
-   atomic; a reader racing it fails that one reload and retries.
+   atomic, so readers became tolerant: a reload that does not load (a torn read, or an operator
+   typo) keeps the last valid settings, logs once per file content, retries when the file
+   changes, and makes the `configuration` component `degraded` with
+   `YAML_INVALID_PREVIOUS_IN_FORCE` (payload `yaml_invalid: true`). Only store construction still
+   fails loudly on an invalid file.
 3. `YamlSettingsWrite.notify_min_severity` is optional: omitted keeps the current value, so a
-   client that predates the field (such as the browser settings form) never resets it.
+   client that predates the field (such as the browser settings form) never resets it. A write
+   first reloads the file on disk, so "current" is never a stale cache of another process's
+   write.
 
 Ops contract v99 advertises `runtime_observability: alert_min_severity`; the `configuration`
 report carries `notify_min_severity` and the `alert_delivery` detail names it.

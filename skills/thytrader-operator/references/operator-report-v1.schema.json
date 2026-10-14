@@ -1420,6 +1420,11 @@
           "title": "Yaml Loaded",
           "type": "boolean"
         },
+        "yaml_invalid": {
+          "default": false,
+          "title": "Yaml Invalid",
+          "type": "boolean"
+        },
         "yaml_source_of_truth": {
           "const": true,
           "default": true,

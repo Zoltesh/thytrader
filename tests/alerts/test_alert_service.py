@@ -308,3 +308,21 @@ async def test_min_severity_is_read_live_and_skips_spend_no_attempts() -> None:
     minimum[0] = "info"
     await service.dispatch_pending(now=_NOW + timedelta(seconds=20))
     assert [record.id for record in sender.delivered] == [warning.id]
+
+
+async def test_raising_the_minimum_never_erases_failed_delivery_evidence() -> None:
+    """A warning whose delivery failed stays ``failed`` after the minimum moves above it."""
+    store = InMemoryAlertStore()
+    failing = AlertService(
+        store, _FailureSender(raises=True), thresholds=AlertThresholds(delivery_max_attempts=1)
+    )
+    await failing.apply((_finding(),), now=_NOW)
+    assert (await store.list_open_alerts())[0].delivery_status == "failed"
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    quiet = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await quiet.dispatch_pending(now=_NOW + timedelta(minutes=5))
+    row = (await store.list_open_alerts())[0]
+    assert row.delivery_status == "failed"
+    assert sender.delivered == []

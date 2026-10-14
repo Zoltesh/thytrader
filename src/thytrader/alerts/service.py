@@ -146,7 +146,10 @@ class AlertService:
                 alert.severity.value
             ] < _SEVERITY_RANK.get(minimum, 0):
                 detail = f"below notify_min_severity={minimum}: alert retained locally"
-                if alert.delivery_status != "skipped" or alert.delivery_detail != detail:
+                # Failed rows keep their evidence; already-skipped rows need no rewrite.
+                if alert.delivery_status == "pending" or (
+                    alert.delivery_status == "skipped" and alert.delivery_detail != detail
+                ):
                     await self._store.skip_delivery(
                         alert.id, provider=provider.value, now=now, detail=detail
                     )

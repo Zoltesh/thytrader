@@ -303,6 +303,7 @@ class SettingsStore:
         self._mtime: float | None = None
         self._content_hash: str | None = None
         self._yaml_loaded = False
+        self._yaml_invalid = False
         self._current = self._build(force_overlay=None)
 
     @classmethod
@@ -320,14 +321,37 @@ class SettingsStore:
         """True when the YAML file exists and was parsed on the last reload."""
         return self._yaml_loaded
 
+    @property
+    def yaml_invalid(self) -> bool:
+        """True while the file on disk fails to load and the last valid settings are kept."""
+        return self._yaml_invalid
+
     def current(self) -> Settings:
         """Return cached Settings, reloading when mtime or content changes."""
         with self._lock:
-            mtime = self._stat_mtime()
-            content_hash = self._stat_content_hash()
-            if mtime != self._mtime or content_hash != self._content_hash:
-                self._current = self._build(force_overlay=None)
+            self._refresh_locked()
             return self._current
+
+    def _refresh_locked(self) -> None:
+        """Reload a changed file; keep the last valid settings when it does not load.
+
+        An in-place rewrite of a bind-mounted file (ADR 0139) can be observed half written,
+        and an operator can save a typo. Neither may stop a running worker: the previous
+        settings stay in force, the failure is logged once per file content and reported by
+        ``yaml_invalid``, and the next change is retried. Only construction fails loudly.
+        """
+        mtime = self._stat_mtime()
+        content_hash = self._stat_content_hash()
+        if mtime == self._mtime and content_hash == self._content_hash:
+            return
+        try:
+            self._current = self._build(force_overlay=None)
+        except YamlSettingsError:
+            self._mtime, self._content_hash = mtime, content_hash
+            self._yaml_invalid = True
+            LOGGER.warning("settings_yaml_invalid_keeping_previous path=%s", self.path)
+            return
+        self._yaml_invalid = False
 
     def adopt_process_settings(self, settings: Settings) -> None:
         """Replace the cached Settings without writing YAML.
@@ -339,8 +363,13 @@ class SettingsStore:
             self._current = settings
 
     def replace(self, write: YamlSettingsWrite) -> Settings:
-        """Atomically write YAML, reload, and return the new Settings."""
+        """Atomically write YAML, reload, and return the new Settings.
+
+        The on-disk file is reloaded first, so fields a client omits keep their current
+        value even when another process changed the file since this one last read it.
+        """
         with self._lock:
+            self._refresh_locked()
             probe = _settings_from_overlay(
                 {
                     "yolo_enabled": write.yolo_enabled,

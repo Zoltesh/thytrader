@@ -287,6 +287,7 @@ class ConfigurationPayload(_FrozenModel):
     notify_webhook_configured: bool = False
     settings_file: str = "thytrader.yaml"
     yaml_loaded: bool = False
+    yaml_invalid: bool = False
     yaml_source_of_truth: Literal[True] = True
     effective_api_base_url: str | None = None
 

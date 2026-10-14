@@ -297,6 +297,17 @@ async def test_postgres_severity_skip_spends_no_attempt_and_respects_active_clai
     claimed = next(row for row in await store.list_open_alerts() if row.id == change.alert.id)
     assert claimed.delivery_status == "failed"
     assert claimed.delivery_attempts == 1
+    await store.finish_delivery(
+        change.alert.id, claim.token, status="failed", detail="notification outcome: failed"
+    )
+    await store.skip_delivery(
+        change.alert.id,
+        provider="webhook",
+        now=_NOW + timedelta(minutes=5),
+        detail="below notify_min_severity=critical",
+    )
+    failed = next(row for row in await store.list_open_alerts() if row.id == change.alert.id)
+    assert failed.delivery_status == "failed", "a filter never erases failure evidence"
 
 
 async def test_postgres_deleted_book_keeps_alert_history_and_requires_authoritative_clear(

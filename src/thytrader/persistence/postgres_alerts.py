@@ -183,13 +183,16 @@ class PostgresAlertStore:
     async def skip_delivery(
         self, alert_id: UUID, *, provider: str, now: datetime, detail: str
     ) -> None:
-        """Record a deliberate skip on an open, unclaimed row without spending an attempt."""
+        """Record a deliberate skip on an open, unclaimed row without spending an attempt.
+
+        ``failed`` rows keep their status so delivery-failure evidence is never erased.
+        """
         statement = (
             update(operator_alerts)
             .where(
                 operator_alerts.c.id == alert_id,
                 operator_alerts.c.resolved_at.is_(None),
-                operator_alerts.c.delivery_status.in_(("pending", "skipped", "failed")),
+                operator_alerts.c.delivery_status.in_(("pending", "skipped")),
                 operator_alerts.c.delivery_expires_at.is_(None)
                 | (operator_alerts.c.delivery_expires_at <= now),
             )

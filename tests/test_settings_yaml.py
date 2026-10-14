@@ -144,3 +144,41 @@ def test_settings_store_replace_works_on_a_bind_mounted_file(
     settings = store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
     assert settings.log_level == "WARNING"
     assert load_yaml_overlay(path)[0]["log_level"] == "WARNING"
+
+
+def test_settings_reload_keeps_previous_values_when_the_file_does_not_load(
+    tmp_path: Path,
+) -> None:
+    """A torn in-place write or a typo never stops a running process (ADR 0139)."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("notify_min_severity: critical\n")
+    store = SettingsStore(path, env_file=None)
+    assert store.current().notify_min_severity == "critical"
+    path.write_text("notify_min_severity: info\ncal\n  bad: [\n")
+    assert store.current().notify_min_severity == "critical"
+    assert store.yaml_invalid is True
+    path.write_text("notify_min_severity: warning\n")
+    assert store.current().notify_min_severity == "warning"
+    assert store.yaml_invalid is False
+
+
+def test_settings_store_still_refuses_an_invalid_file_at_construction(tmp_path: Path) -> None:
+    """With no previous settings to keep, an unloadable file stays a startup error."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: [\n")
+    with pytest.raises(YamlSettingsError):
+        SettingsStore(path, env_file=None)
+
+
+def test_settings_replace_merges_omitted_fields_from_the_file_on_disk(tmp_path: Path) -> None:
+    """An older client omitting the minimum keeps another process's newer on-disk value."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("notify_min_severity: info\n")
+    api = SettingsStore(path, env_file=None)
+    assert api.current().notify_min_severity == "info"
+    SettingsStore(path, env_file=None).replace(
+        YamlSettingsWrite(yolo_enabled=False, notify_min_severity="critical")
+    )
+    written = api.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
+    assert written.notify_min_severity == "critical"
+    assert load_yaml_overlay(path)[0]["notify_min_severity"] == "critical"

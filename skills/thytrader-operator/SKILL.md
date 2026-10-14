@@ -749,6 +749,8 @@ severity sent. Lower alerts stay in the local feed as `skipped` with detail
 `below notify_min_severity=…`, spend no retry attempt, and are delivered if the minimum is later
 lowered while they are open. Enabling a provider sends every open alert that was skipped, so set
 the minimum first. The `alert_delivery` detail and the `configuration` report show the minimum.
+A `configuration` component `YAML_INVALID_PREVIOUS_IN_FORCE` means `thytrader.yaml` on disk does
+not load and the process keeps its last valid settings: report it; do not edit the file.
 
 ## Backtest fee attribution
 

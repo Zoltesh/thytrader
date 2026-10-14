@@ -733,4 +733,7 @@ RUNNING, PAUSED, or STOPPED with residual exposure; the detail counts them), `DE
 Ops contract v99 adds `alert_min_severity`: the `configuration` report carries
 `notify_min_severity` (`info`, `warning` or `critical`), and alert rows below it show
 `delivery.status` `skipped` with detail `below notify_min_severity=<value>: alert retained locally`
-and zero attempts spent (ADR 0139).
+and zero attempts spent; a `failed` row stays `failed` (ADR 0139). The `configuration` report
+payload carries `yaml_invalid`; when true its component is `degraded`
+(`YAML_INVALID_PREVIOUS_IN_FORCE`): the file on disk does not load and the last valid settings
+remain in force.
