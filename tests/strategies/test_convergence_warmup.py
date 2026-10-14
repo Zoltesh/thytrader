@@ -264,3 +264,31 @@ def test_lengthening_an_indicator_in_a_saved_document_raises_its_warmup() -> Non
     assert evaluated.definition is not None, evaluated.validation
     assert evaluated.definition.data_requirements.warmup_bars == 891
     assert evaluated.definition.data_requirements.warmup_policy == "convergence"
+
+
+def test_an_edit_past_the_declared_minimum_still_saves_converged() -> None:
+    """EMA(50) -> EMA(500) with 223 declared bars saves valid at 2,227 bars (review finding)."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = json.loads(canonical_strategy_bytes(saved))
+    next(item for item in document["indicators"] if item["id"] == "slow")["parameters"][
+        "period"
+    ] = 500
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is not None, evaluated.validation
+    assert evaluated.definition.data_requirements.warmup_bars == indicator_convergence_warmup(
+        _indicator("ema", period=500)
+    )
+
+
+def test_other_validation_errors_still_surface_on_save() -> None:
+    """Warmup recovery never hides an unrelated problem."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = json.loads(canonical_strategy_bytes(saved))
+    document["data_requirements"]["required_fields"] = ["volume"]
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is None
+    assert evaluated.validation.issues

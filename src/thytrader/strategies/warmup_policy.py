@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 from thytrader.strategies.schema.conditions import condition_indicator_operands
 from thytrader.strategies.schema.document_queries import (
@@ -23,6 +25,8 @@ from thytrader.strategies.schema.timeframes import extra_indicator_timeframe_war
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
+
+    from thytrader.strategies.schema.market import WarmupPolicy
 
 MAX_DECLARED_WARMUP_BARS = 10_000
 """Upper bound of ``DataRequirements.warmup_bars``."""
@@ -68,6 +72,84 @@ def with_convergence_warmup(definition: StrategyDefinition) -> StrategyDefinitio
     if htf is not None and isinstance(htf_document, dict):
         _raise(htf_document, htf)
     return StrategyDefinition.model_validate(document)
+
+
+def converge_draft(document: dict[str, JsonValue]) -> StrategyDefinition:
+    """Validate a saved draft and adopt the convergence policy (ADR 0140).
+
+    The draft is validated with any policy stripped, under the historical minimum rules. If only
+    its declared warmups are too short (an edit lengthened an indicator), they are recomputed
+    rather than rejected: the larger of what was declared and what convergence requires, or the
+    historical minimum without a policy when convergence cannot be declared. Any other problem
+    raises the original ``ValidationError``.
+    """
+    stripped = without_warmup_policy(document)
+    try:
+        return with_convergence_warmup(StrategyDefinition.model_validate(stripped))
+    except ValidationError as error:
+        probe_document = _with_declared_warmups(stripped, MAX_DECLARED_WARMUP_BARS)
+        try:
+            probe = StrategyDefinition.model_validate(probe_document)
+        except ValidationError:
+            raise error from None
+    decision, htf = convergence_warmups(probe)
+    policy: WarmupPolicy | None = "convergence"
+    if decision > MAX_DECLARED_WARMUP_BARS or (htf or 0) > MAX_DECLARED_WARMUP_BARS:
+        decision, htf = _minimum_warmups(probe)
+        policy = None
+    final = _with_declared_warmups(stripped, None, decision=decision, htf=htf, policy=policy)
+    return StrategyDefinition.model_validate(final)
+
+
+def _minimum_warmups(definition: StrategyDefinition) -> tuple[int, int | None]:
+    """Decision-clock and HTF warmups under the historical minimum rules."""
+    operands = strategy_indicator_operands(definition)
+    decision = extra_indicator_timeframe_warmup(
+        decision_clock_indicators(definition), operands=operands
+    )
+    htf_filter = definition.htf_filter
+    if htf_filter is None:
+        return decision, None
+    htf = extra_indicator_timeframe_warmup(
+        htf_filter.indicators, operands=condition_indicator_operands(htf_filter.when)
+    )
+    shared = dict(extra_indicator_timeframe_groups(definition)).get(htf_filter.timeframe)
+    if shared:
+        htf = max(htf, extra_indicator_timeframe_warmup(shared, operands=operands))
+    return decision, htf
+
+
+def _with_declared_warmups(
+    document: dict[str, JsonValue],
+    fixed: int | None,
+    *,
+    decision: int | None = None,
+    htf: int | None = None,
+    policy: WarmupPolicy | None = None,
+) -> dict[str, JsonValue]:
+    """Copy a document with declared warmups set to ``fixed`` or raised to the given values."""
+    copied: dict[str, JsonValue] = json.loads(json.dumps(document))
+    _set_warmup(copied.get("data_requirements"), fixed, decision, policy)
+    htf_document = copied.get("htf_filter")
+    if isinstance(htf_document, dict):
+        _set_warmup(htf_document.get("data_requirements"), fixed, htf, policy)
+    return copied
+
+
+def _set_warmup(
+    block: JsonValue, fixed: int | None, required: int | None, policy: WarmupPolicy | None
+) -> None:
+    """Set one block's warmup to ``fixed``, or to max(declared, required) with the policy."""
+    if not isinstance(block, dict):
+        return
+    if fixed is not None:
+        block["warmup_bars"] = fixed
+        return
+    declared = block.get("warmup_bars")
+    current = declared if isinstance(declared, int) else 0
+    block["warmup_bars"] = max(current, required or 0)
+    if policy is not None:
+        block["warmup_policy"] = policy
 
 
 def without_warmup_policy(document: dict[str, JsonValue]) -> dict[str, JsonValue]:
