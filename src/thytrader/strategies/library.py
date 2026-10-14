@@ -27,7 +27,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     strategy_fingerprint,
 )
-from thytrader.strategies.warmup_policy import with_convergence_warmup
+from thytrader.strategies.warmup_policy import with_convergence_warmup, without_warmup_policy
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -420,7 +420,9 @@ def evaluate_document(
     normalized["strategy_id"] = str(strategy_id)
     normalized["created_at"] = created_at.isoformat().replace("+00:00", "Z")
     try:
-        definition = StrategyDefinition.model_validate(normalized)
+        # Validate under the historical minimum rules, then adopt the policy (ADR 0140), so an
+        # edit that lengthens an indicator raises warmup instead of making the draft invalid.
+        definition = StrategyDefinition.model_validate(without_warmup_policy(normalized))
     except ValidationError as error:
         return _invalid_evaluation(normalized, error, fallback_name)
     retired = authoring_issues(definition)

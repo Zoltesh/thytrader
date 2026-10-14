@@ -210,3 +210,57 @@ def test_reference_fixture_is_dated_utc() -> None:
     """Guard the fixture assumption used above (UTC creation instant)."""
     assert reference_strategy().created_at.tzinfo == UTC
     assert reference_strategy().created_at < datetime.now(UTC)
+
+
+def _with_htf_ema(document: dict, *, period: int, warmup: int) -> dict:
+    """Attach a 4h HTF filter reading EMA(period) with the given declared warmup."""
+    document["htf_filter"] = {
+        "timeframe": "4h",
+        "data_requirements": {"warmup_bars": warmup, "required_fields": ["close"]},
+        "indicators": [
+            {"id": "htf_ema", "kind": "ema", "input": "close", "parameters": {"period": period}}
+        ],
+        "when": {
+            "all": [
+                {
+                    "left": {"indicator": "htf_ema"},
+                    "operator": "greater_than",
+                    "right": {"literal": "0"},
+                }
+            ]
+        },
+    }
+    return document
+
+
+def test_an_htf_filter_cannot_opt_out_of_the_document_policy() -> None:
+    """A converged document whose HTF filter lacks the policy is invalid (review finding)."""
+    base = json.loads(canonical_strategy_bytes(with_convergence_warmup(reference_strategy())))
+    document = _with_htf_ema(base, period=200, warmup=200)
+    with pytest.raises(ValidationError, match="HTF warmup_policy must match"):
+        StrategyDefinition.model_validate(document)
+
+
+def test_saving_converges_an_htf_filter_too() -> None:
+    """Materialization raises an HTF EMA(200) to its convergence warmup and marks the policy."""
+    document = _with_htf_ema(
+        json.loads(canonical_strategy_bytes(reference_strategy())), period=200, warmup=200
+    )
+    converged = with_convergence_warmup(StrategyDefinition.model_validate(document))
+    assert converged.htf_filter is not None
+    assert converged.htf_filter.data_requirements.warmup_policy == "convergence"
+    assert converged.htf_filter.data_requirements.warmup_bars == 891
+
+
+def test_lengthening_an_indicator_in_a_saved_document_raises_its_warmup() -> None:
+    """Editing a converged EMA(50) to EMA(200) saves valid with 891 bars, not as invalid."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = json.loads(canonical_strategy_bytes(saved))
+    slow = next(item for item in document["indicators"] if item["id"] == "slow")
+    slow["parameters"]["period"] = 200
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is not None, evaluated.validation
+    assert evaluated.definition.data_requirements.warmup_bars == 891
+    assert evaluated.definition.data_requirements.warmup_policy == "convergence"

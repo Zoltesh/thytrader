@@ -54,12 +54,11 @@ def convergence_warmups(definition: StrategyDefinition) -> tuple[int, int | None
 def with_convergence_warmup(definition: StrategyDefinition) -> StrategyDefinition:
     """Return the definition under the convergence policy, raising declared warmups as needed.
 
-    Declared warmups are only ever raised, never lowered. A definition whose convergence
+    Declared warmups are only ever raised, never lowered, and the policy is set on the decision
+    clock and the HTF filter together, so the result is idempotent. A definition whose convergence
     warmup cannot be declared (above ``MAX_DECLARED_WARMUP_BARS``, e.g. KAMA with a very slow
     constant) is returned unchanged under the historical policy; starts refuse it later.
     """
-    if definition.data_requirements.warmup_policy == "convergence":
-        return definition
     decision, htf = convergence_warmups(definition)
     if decision > MAX_DECLARED_WARMUP_BARS or (htf or 0) > MAX_DECLARED_WARMUP_BARS:
         return definition
@@ -69,6 +68,31 @@ def with_convergence_warmup(definition: StrategyDefinition) -> StrategyDefinitio
     if htf is not None and isinstance(htf_document, dict):
         _raise(htf_document, htf)
     return StrategyDefinition.model_validate(document)
+
+
+def without_warmup_policy(document: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """Return a document with any ``warmup_policy`` removed (decision clock and HTF filter).
+
+    Saving validates a draft under the historical minimum rules first and then materializes the
+    policy, so an edit that lengthens an indicator raises warmup instead of failing validation.
+    """
+    stripped = dict(document)
+    if "data_requirements" in stripped:
+        stripped["data_requirements"] = _drop_policy(stripped["data_requirements"])
+    htf = stripped.get("htf_filter")
+    if isinstance(htf, dict):
+        stripped["htf_filter"] = {
+            **htf,
+            "data_requirements": _drop_policy(htf.get("data_requirements")),
+        }
+    return stripped
+
+
+def _drop_policy(block: JsonValue) -> JsonValue:
+    """Copy one ``data_requirements`` mapping without its policy; leave other values alone."""
+    if not isinstance(block, dict):
+        return block
+    return {name: value for name, value in block.items() if name != "warmup_policy"}
 
 
 def _raise(container: dict[str, JsonValue], required: int) -> None:

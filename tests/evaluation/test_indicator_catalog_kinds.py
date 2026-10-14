@@ -867,7 +867,9 @@ def test_new_kinds_work_in_htf_filters_and_on_extra_indicator_timeframes() -> No
     payload["htf_filter"] = {
         "timeframe": "4h",
         "data_requirements": {
-            "warmup_bars": 6,
+            # The HTF filter follows the document's convergence policy (ADR 0140).
+            "warmup_bars": 40,
+            "warmup_policy": "convergence",
             "required_fields": ["open", "high", "low", "close", "volume"],
         },
         "indicators": [

@@ -243,6 +243,10 @@ def _require_htf_coverage_for_shared_indicator_clock(definition: StrategyDefinit
     htf_filter = definition.htf_filter
     if htf_filter is None:
         return
+    policy = definition.data_requirements.warmup_policy
+    if htf_filter.data_requirements.warmup_policy != policy:
+        # The policy covers the whole document (ADR 0140): an HTF filter must not opt out.
+        raise ValueError("HTF warmup_policy must match the strategy's warmup_policy")
     groups = dict(extra_indicator_timeframe_groups(definition))
     shared = groups.get(htf_filter.timeframe)
     if shared is None:
