@@ -18,6 +18,7 @@ from thytrader.trading.fill_ledger import (
 )
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
+    TERMINAL_READ_UNCONFIRMED_REASON,
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -275,9 +276,7 @@ async def _reconcile_venue_order(
                 client_order_id=order.client_order_id,
             )
     except BrokerError:
-        await store.save_order(
-            replace(order, status=OrderStatus.UNKNOWN, venue_observed_at=None, updated_at=utc_now())
-        )
+        await _mark_read_failed(store, order)
         return await _record_reconcile_fault(
             snapshot, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: order read failed."
         )
@@ -318,11 +317,7 @@ async def _reconcile_venue_order(
             product_id=product_id, order_id=updated.venue_order_id
         )
     except BrokerError:
-        await store.save_order(
-            replace(
-                updated, status=OrderStatus.UNKNOWN, venue_observed_at=None, updated_at=utc_now()
-            )
-        )
+        await _mark_read_failed(store, updated)
         return await _record_reconcile_fault(
             snapshot, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: fill read failed."
         )
@@ -410,6 +405,39 @@ async def _pause_unconfirmed_submit(
             product_id=order.product_id,
         )
     return await store.get_deployment(order.deployment_id)
+
+
+async def _mark_read_failed(store: ExecutionStore, order: Order) -> None:
+    """Record a failed venue read without inventing a working order.
+
+    Every order becomes ``UNKNOWN`` until a read succeeds: unknown late fills must keep
+    exits, flatten settlement and exposure fail-closed. When the venue had already reported it
+    terminal (canceled, or filled for its full quantity) the order is marked
+    ``TERMINAL_READ_UNCONFIRMED_REASON`` so supervision never mistakes a historical stop for a
+    triggered-but-unfilled live one. A ``FILLED`` order short of its quantity may be locally
+    inferred while its remainder still works, so it is not marked.
+    """
+    reason = (
+        TERMINAL_READ_UNCONFIRMED_REASON
+        if _terminal(order) or order.reject_reason == TERMINAL_READ_UNCONFIRMED_REASON
+        else order.reject_reason
+    )
+    await store.save_order(
+        replace(
+            order,
+            status=OrderStatus.UNKNOWN,
+            reject_reason=reason,
+            venue_observed_at=None,
+            updated_at=utc_now(),
+        )
+    )
+
+
+def _terminal(order: Order) -> bool:
+    """A venue-cancelled order, or one filled for its full quantity."""
+    if order.status is OrderStatus.CANCELED:
+        return True
+    return order.status is OrderStatus.FILLED and order.filled_quantity >= order.quantity
 
 
 def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:

@@ -36,7 +36,7 @@ from thytrader.alerts.supervision_inputs import (
     SnapshotEvidence,
 )
 from thytrader.alerts.supervision_protection import (
-    _STOP_TRIGGER_WATCH_STATUSES,
+    _may_trigger,
     _protection_findings,
     _snapshot_checks,
     _sticky_trigger_ids,
@@ -179,7 +179,7 @@ async def _trigger_consumed_orders(
     if timeframe is None:
         return consumed
     for order in snapshot.orders:
-        if order.status not in _STOP_TRIGGER_WATCH_STATUSES:
+        if not _may_trigger(order):
             continue
         trigger = order.stop_trigger_price
         if trigger is None or order.filled_quantity >= order.quantity:

@@ -105,6 +105,17 @@ class OrderStatus(StrEnum):
     UNKNOWN = "unknown"
 
 
+TERMINAL_READ_UNCONFIRMED_REASON = "terminal_read_unconfirmed"
+"""``reject_reason`` on an ``UNKNOWN`` order whose last venue status was terminal.
+
+A failed venue read keeps every order ``UNKNOWN`` until a read succeeds, so exits, flatten
+settlement and exposure stay fail-closed while late fills are unknown. The marker records that
+the venue had already reported the order canceled or fully filled: it can no longer trigger,
+so supervision never reports it as a triggered-but-unfilled protective stop. A successful
+read replaces it with the venue's own reason.
+"""
+
+
 class IntentPurpose(StrEnum):
     """Why the runtime created one order intent.
 
