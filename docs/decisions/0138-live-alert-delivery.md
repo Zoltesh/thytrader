@@ -31,8 +31,10 @@ enabled in a supported install. Webhook receivers had no way to authenticate a P
    hex HMAC-SHA256 of `timestamp + "." + body` over the exact request bytes. Receivers can reject
    forged or replayed alerts. A secret without a URL, or a blank secret, is a configuration error.
 3. **Compose passes both webhook variables** to every backend service through the shared
-   environment anchor; empty values stay absent. Set them before switching `notify_provider`
-   to `webhook`, because a webhook provider without a URL fails settings validation.
+   environment anchor; empty values stay absent. A URL may now be staged while the YAML
+   provider is still `none`/`log` (settings previously rejected that, so the only safe enable
+   order, URL first, crashed every process). Enable by setting the variables, rebuilding, then
+   switching `notify_provider` to `webhook`; a webhook provider without a URL still fails.
 
 No alert codes, trading gates, supervision or retry semantics change. Delivery stays outside
 trading cycles and never blocks or alters orders.

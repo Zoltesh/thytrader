@@ -185,7 +185,12 @@ def test_settings_reject_webhook_notify_without_url() -> None:
         Settings(notify_provider="webhook", _env_file=None)
 
 
-def test_settings_reject_webhook_url_without_webhook_provider() -> None:
-    """A webhook URL is rejected unless the provider is webhook."""
-    with pytest.raises(ValidationError, match="NOTIFY_PROVIDER"):
-        Settings(notify_webhook_url="https://example.test/hook", _env_file=None)
+def test_settings_accept_a_staged_webhook_url_while_delivery_is_off() -> None:
+    """A URL may be staged before the YAML provider switches to webhook (ADR 0138).
+
+    Rejecting it made the documented enable order (set the URL, restart, switch the provider)
+    crash every process at startup. Disabled delivery while live is graded by health instead.
+    """
+    settings = Settings(notify_webhook_url="https://example.test/hook", _env_file=None)
+    assert settings.notify_provider is NotifyProvider.NONE
+    assert settings.notify_webhook_url is not None

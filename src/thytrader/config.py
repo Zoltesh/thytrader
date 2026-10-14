@@ -219,17 +219,15 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_notify_provider(self) -> Self:
-        """Webhook notify requires a URL; other providers must not set one."""
+        """Webhook notify requires a URL; a secret requires a URL.
+
+        A URL may be staged while the YAML provider is still ``none``/``log`` (ADR 0138): the
+        provider lives in YAML and the URL in the environment, so enabling delivery sets the
+        URL, restarts, then switches the provider. Health reports disabled delivery while live.
+        """
         if self.notify_provider is NotifyProvider.WEBHOOK and self.notify_webhook_url is None:
             raise ValueError(
                 "THYTRADER_NOTIFY_PROVIDER=webhook requires THYTRADER_NOTIFY_WEBHOOK_URL."
-            )
-        if (
-            self.notify_provider is not NotifyProvider.WEBHOOK
-            and self.notify_webhook_url is not None
-        ):
-            raise ValueError(
-                "THYTRADER_NOTIFY_WEBHOOK_URL requires THYTRADER_NOTIFY_PROVIDER=webhook."
             )
         if self.notify_webhook_secret is not None and self.notify_webhook_url is None:
             raise ValueError(
