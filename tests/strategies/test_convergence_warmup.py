@@ -292,3 +292,30 @@ def test_other_validation_errors_still_surface_on_save() -> None:
     )
     assert evaluated.definition is None
     assert evaluated.validation.issues
+
+
+@pytest.mark.parametrize("bad", ["invalid", None, 10001.0, 0])
+def test_malformed_declared_warmups_keep_their_validation_error(bad: object) -> None:
+    """Recovery repairs short warmups only; malformed values are reported (review finding)."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = json.loads(canonical_strategy_bytes(saved))
+    document["data_requirements"]["warmup_bars"] = bad
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is None
+
+
+def test_recovery_never_lowers_a_float_declared_warmup() -> None:
+    """A declared 9000.0 is read as 9,000 and kept while another clock is repaired."""
+    saved = create_template_strategy(product_id="BTC-USDC", timeframe="1h", template="ema-trend")
+    document = _with_htf_ema(json.loads(canonical_strategy_bytes(saved)), period=200, warmup=200)
+    document["htf_filter"]["data_requirements"]["warmup_policy"] = "convergence"
+    document["data_requirements"]["warmup_bars"] = 9000.0
+    evaluated = evaluate_document(
+        document, strategy_id=saved.strategy_id, created_at=saved.created_at
+    )
+    assert evaluated.definition is not None, evaluated.validation
+    assert evaluated.definition.data_requirements.warmup_bars == 9000
+    assert evaluated.definition.htf_filter is not None
+    assert evaluated.definition.htf_filter.data_requirements.warmup_bars == 891

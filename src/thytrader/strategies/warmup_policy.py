@@ -87,6 +87,8 @@ def converge_draft(document: dict[str, JsonValue]) -> StrategyDefinition:
     try:
         return with_convergence_warmup(StrategyDefinition.model_validate(stripped))
     except ValidationError as error:
+        if not _declared_warmups_well_formed(stripped):
+            raise
         probe_document = _with_declared_warmups(stripped, MAX_DECLARED_WARMUP_BARS)
         try:
             probe = StrategyDefinition.model_validate(probe_document)
@@ -99,6 +101,36 @@ def converge_draft(document: dict[str, JsonValue]) -> StrategyDefinition:
         policy = None
     final = _with_declared_warmups(stripped, None, decision=decision, htf=htf, policy=policy)
     return StrategyDefinition.model_validate(final)
+
+
+def _declared_warmup(value: JsonValue) -> int | None:
+    """A declared warmup as pydantic reads it (integers, integral floats), else ``None``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    return None
+
+
+def _declared_warmups_well_formed(document: dict[str, JsonValue]) -> bool:
+    """Whether every declared warmup is an integer within the schema bounds.
+
+    Recovery only repairs warmups that are too short; a malformed or out-of-range value keeps
+    its own validation error.
+    """
+    blocks = [document.get("data_requirements")]
+    htf = document.get("htf_filter")
+    if isinstance(htf, dict):
+        blocks.append(htf.get("data_requirements"))
+    for block in blocks:
+        if not isinstance(block, dict):
+            return False
+        declared = _declared_warmup(block.get("warmup_bars"))
+        if declared is None or not 1 <= declared <= MAX_DECLARED_WARMUP_BARS:
+            return False
+    return True
 
 
 def _minimum_warmups(definition: StrategyDefinition) -> tuple[int, int | None]:
@@ -145,8 +177,7 @@ def _set_warmup(
     if fixed is not None:
         block["warmup_bars"] = fixed
         return
-    declared = block.get("warmup_bars")
-    current = declared if isinstance(declared, int) else 0
+    current = _declared_warmup(block.get("warmup_bars")) or 0
     block["warmup_bars"] = max(current, required or 0)
     if policy is not None:
         block["warmup_policy"] = policy
