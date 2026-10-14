@@ -169,22 +169,40 @@ class FileSnapshot:
         return self.mtime, self.digest
 
 
+_LOCK_UNSUPPORTED = frozenset({errno.EOPNOTSUPP, errno.ENOLCK, errno.EINVAL, errno.ENOSYS})
+
+
 def read_settings_snapshot(path: Path) -> FileSnapshot:
     """Read the file once under a shared lock (ADR 0139).
 
     ThyTrader writers hold an exclusive ``flock`` while rewriting a bind-mounted file in
     place, so readers never observe a half-written document from them. The digest and mtime
     describe exactly the bytes returned.
+
+    On a filesystem without ``flock`` the read is unlocked; reloads stay safe because content
+    that does not load keeps the previous settings.
     """
     try:
         with path.open("rb") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+            held = _try_flock(handle.fileno(), fcntl.LOCK_SH)
             try:
                 return _snapshot_from(handle)
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                if held:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
     except FileNotFoundError, IsADirectoryError:
         return FileSnapshot(exists=False)
+
+
+def _try_flock(descriptor: int, operation: int) -> bool:
+    """Take a ``flock``; ``False`` where the filesystem does not support locking."""
+    try:
+        fcntl.flock(descriptor, operation)
+    except OSError as error:
+        if error.errno in _LOCK_UNSUPPORTED:
+            return False
+        raise
+    return True
 
 
 def _snapshot_from(handle: BinaryIO) -> FileSnapshot:
@@ -356,6 +374,7 @@ class SettingsStore:
         self._env_file = env_file
         self._lock = Lock()
         self._fingerprint: tuple[float | None, str | None] = (None, None)
+        self._rejected: tuple[float | None, str | None] | None = None
         self._yaml_loaded = False
         self._yaml_invalid = False
         self._current = self._publish(read_settings_snapshot(path))
@@ -394,16 +413,26 @@ class SettingsStore:
         file content and reported by ``yaml_invalid``, and the next change is retried. Only
         construction fails loudly.
         """
-        self._refresh_from(read_settings_snapshot(self.path))
+        try:
+            snapshot = read_settings_snapshot(self.path)
+        except OSError:
+            if not self._yaml_invalid:
+                LOGGER.warning("settings_yaml_unreadable_keeping_previous path=%s", self.path)
+            self._yaml_invalid = True
+            return
+        self._refresh_from(snapshot)
 
     def _refresh_from(self, snapshot: FileSnapshot) -> None:
-        """Apply one snapshot unless it is the one already published."""
+        """Apply one snapshot unless it is already published or already rejected."""
         if snapshot.fingerprint == self._fingerprint:
+            self._yaml_invalid = False
+            return
+        if snapshot.fingerprint == self._rejected:
             return
         try:
             self._current = self._publish(snapshot)
         except YamlSettingsError:
-            self._fingerprint = snapshot.fingerprint
+            self._rejected = snapshot.fingerprint
             self._yaml_invalid = True
             LOGGER.warning("settings_yaml_invalid_keeping_previous path=%s", self.path)
 
@@ -433,8 +462,8 @@ class SettingsStore:
         value even when another process changed the file since this one last read it.
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock, _exclusive_settings_file(self.path) as handle:
-            self._refresh_from(_snapshot_from(handle))
+        with self._lock, _exclusive_settings_file(self.path) as locked:
+            self._refresh_from(_snapshot_from(locked.handle))
             probe = _settings_from_overlay(
                 {
                     "yolo_enabled": write.yolo_enabled,
@@ -456,49 +485,66 @@ class SettingsStore:
             )
             document = document_from_settings(probe)
             reject_secret_keys(document)
-            write_settings_file(self.path, dump_yaml_document(document), locked=handle)
-            self._current = self._publish(read_after_write(self.path, handle))
+            write_settings_file(self.path, dump_yaml_document(document), locked=locked)
+            self._current = self._publish(read_after_write(self.path, locked))
             return self._current
 
 
+@dataclass(frozen=True, slots=True)
+class LockedSettingsFile:
+    """A read-only handle on the settings inode and whether an exclusive lock is held."""
+
+    handle: BinaryIO
+    held: bool
+
+
 @contextmanager
-def _exclusive_settings_file(path: Path) -> Iterator[BinaryIO]:
+def _exclusive_settings_file(path: Path) -> Iterator[LockedSettingsFile]:
     """Hold an exclusive ``flock`` on the current settings inode for read-merge-write.
 
     Every process (API and workers, host or container) sees the same bind-mounted inode, so
     this serializes ThyTrader writers and blocks shared-lock readers during an in-place
-    rewrite. If another writer atomically replaced the file while this one waited, the lock
-    is retaken on the new inode.
+    rewrite. The lock uses a read-only descriptor, so an atomic rename never needs write
+    access to the file itself. If another writer replaced the file while this one waited, the
+    lock is retaken on the new inode. Without ``flock`` support nothing is held, and only an
+    atomic rename may then write.
     """
     while True:
-        descriptor = os.open(path, os.O_RDWR | os.O_CREAT, 0o644)
-        handle = os.fdopen(descriptor, "r+b")
+        descriptor = os.open(path, os.O_RDONLY | os.O_CREAT, 0o644)
+        handle = os.fdopen(descriptor, "rb")
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            if os.fstat(handle.fileno()).st_ino != path.stat().st_ino:
+            held = _try_flock(handle.fileno(), fcntl.LOCK_EX)
+            if held and os.fstat(handle.fileno()).st_ino != path.stat().st_ino:
                 continue
-            yield handle
+            yield LockedSettingsFile(handle, held)
             return
         finally:
             handle.close()
 
 
-def read_after_write(path: Path, handle: BinaryIO) -> FileSnapshot:
-    """Snapshot what was just written: the locked handle when rewritten in place, else the path."""
+def read_after_write(path: Path, locked: LockedSettingsFile) -> FileSnapshot:
+    """Snapshot what was just written: the locked inode when rewritten in place, else the path."""
+    if _same_inode(path, locked.handle):
+        return _snapshot_from(locked.handle)
+    return read_settings_snapshot(path)
+
+
+def _same_inode(path: Path, handle: BinaryIO) -> bool:
+    """Whether ``path`` still names the inode ``handle`` has open."""
     try:
-        same_inode = os.fstat(handle.fileno()).st_ino == path.stat().st_ino
+        return os.fstat(handle.fileno()).st_ino == path.stat().st_ino
     except FileNotFoundError:
-        same_inode = False
-    return _snapshot_from(handle) if same_inode else read_settings_snapshot(path)
+        return False
 
 
-def write_settings_file(path: Path, text: str, *, locked: BinaryIO | None = None) -> None:
+def write_settings_file(path: Path, text: str, *, locked: LockedSettingsFile | None = None) -> None:
     """Atomically replace the YAML, or rewrite it in place when the path is a mount point.
 
     Compose bind-mounts ``thytrader.yaml`` as a single file, and renaming over a mount point
     fails with ``EBUSY`` (``EXDEV`` across devices). The fallback keeps the mounted inode and
-    rewrites it under an exclusive ``flock`` (the caller's ``locked`` handle, or one taken
-    here), so ThyTrader readers holding a shared lock never see it half written (ADR 0139).
+    rewrites it only under an exclusive ``flock`` (the caller's ``locked`` file, or one taken
+    here), so ThyTrader readers never see it half written. Where the file cannot be locked the
+    in-place rewrite is refused rather than performed unlocked (ADR 0139).
     """
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(text, encoding="utf-8")
@@ -510,14 +556,21 @@ def write_settings_file(path: Path, text: str, *, locked: BinaryIO | None = None
             raise
         payload = text.encode("utf-8")
         if locked is not None:
-            _rewrite_in_place(locked, payload)
+            _rewrite_locked(path, locked, payload)
             return
-        with path.open("r+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                _rewrite_in_place(handle, payload)
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        with _exclusive_settings_file(path) as own:
+            _rewrite_locked(path, own, payload)
+
+
+def _rewrite_locked(path: Path, locked: LockedSettingsFile, payload: bytes) -> None:
+    """Rewrite the locked inode in place, refusing when no lock is held."""
+    if not locked.held:
+        message = "The settings file cannot be locked, so it is not rewritten in place."
+        raise YamlSettingsError(message)
+    with path.open("r+b") as handle:
+        if os.fstat(handle.fileno()).st_ino != os.fstat(locked.handle.fileno()).st_ino:
+            raise YamlSettingsError("The settings file changed during an in-place rewrite.")
+        _rewrite_in_place(handle, payload)
 
 
 def _rewrite_in_place(handle: BinaryIO, payload: bytes) -> None:

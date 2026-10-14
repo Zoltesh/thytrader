@@ -34,7 +34,11 @@ bind-mounts as a single file, and a rename over a mount point fails with `EBUSY`
    (retaking it if another writer swapped the inode meanwhile). The write is an atomic rename;
    when the rename fails with `EBUSY` or `EXDEV` (a single-file bind mount) the locked inode is
    rewritten in place and fsynced, so ThyTrader readers never see it half written. Other
-   rename failures still raise. Hand edits are not locked, so reloads stay tolerant: content
+   rename failures still raise. The exclusive lock uses a read-only descriptor, so an atomic
+   rename never needs write access to the file itself. Where `flock` is unsupported, reads are
+   unlocked and atomic renames still work, but an in-place rewrite is refused rather than done
+   unlocked. Reload I/O errors keep the previous settings and report them like invalid content.
+   Hand edits are not locked, so reloads stay tolerant: content
    that does not load (undecodable bytes, invalid YAML, a non-mapping or failed validation)
    keeps the last valid settings, logs once per file content, retries when the file changes
    and makes the `configuration` component `degraded` with `YAML_INVALID_PREVIOUS_IN_FORCE`

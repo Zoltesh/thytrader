@@ -219,3 +219,56 @@ def test_published_settings_match_the_fingerprint_of_the_same_bytes(tmp_path: Pa
     assert store.current().notify_min_severity == "critical"
     snapshot = read_settings_snapshot(path)
     assert parse_yaml_overlay(snapshot.payload)["notify_min_severity"] == "critical"
+
+
+def _flock_unsupported(descriptor: int, operation: int) -> None:
+    """``fcntl.flock`` on a filesystem without lock support."""
+    del descriptor, operation
+    raise OSError(errno.EOPNOTSUPP, os.strerror(errno.EOPNOTSUPP))
+
+
+def test_settings_work_without_flock_but_refuse_an_unlocked_in_place_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No lock support: reads and atomic writes work; an in-place rewrite is refused."""
+    monkeypatch.setattr("thytrader.settings_yaml.fcntl.flock", _flock_unsupported)
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    store = SettingsStore(path, env_file=None)
+    assert store.current().log_level == "INFO"
+    store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
+    assert store.current().log_level == "WARNING"
+    monkeypatch.setattr(Path, "replace", _refuse_rename(errno.EBUSY))
+    with pytest.raises(YamlSettingsError, match="cannot be locked"):
+        store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="ERROR"))
+    assert load_yaml_overlay(path)[0]["log_level"] == "WARNING"
+
+
+def test_an_unreadable_reload_keeps_previous_settings_then_recovers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A read or lock I/O error during a reload never stops the process."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: WARNING\n")
+    store = SettingsStore(path, env_file=None)
+
+    def unreadable(_: Path) -> None:
+        raise PermissionError(errno.EACCES, "denied")
+
+    monkeypatch.setattr("thytrader.settings_yaml.read_settings_snapshot", unreadable)
+    assert store.current().log_level == "WARNING"
+    assert store.yaml_invalid is True
+    monkeypatch.undo()
+    assert store.current().log_level == "WARNING"
+    assert store.yaml_invalid is False
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file permission bits")
+def test_atomic_replace_needs_no_write_access_to_the_file_itself(tmp_path: Path) -> None:
+    """Locking uses a read-only descriptor, so a read-only file in a writable dir still updates."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    path.chmod(0o444)
+    store = SettingsStore(path, env_file=None)
+    store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
+    assert store.current().log_level == "WARNING"
