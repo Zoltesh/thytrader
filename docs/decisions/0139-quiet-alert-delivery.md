@@ -27,13 +27,18 @@ bind-mounts as a single file, and a rename over a mount point fails with `EBUSY`
    budget) evidence that health grades survives a later filter. If the minimum is lowered while
    a skipped alert is open, it is delivered with its full budget. The local feed, alert grading and supervision are unchanged; memory-lane
    `notify` messages are explicit sends and are not filtered.
-2. **Settings writes fall back to an in-place rewrite** when the atomic rename fails with
-   `EBUSY` or `EXDEV`: the mounted inode is kept, the full document is written before truncating
-   (no empty-file window) and fsynced. Other rename failures still raise. The fallback is not
-   atomic, so readers became tolerant: a reload that does not load (a torn read, or an operator
-   typo) keeps the last valid settings, logs once per file content, retries when the file
-   changes, and makes the `configuration` component `degraded` with
-   `YAML_INVALID_PREVIOUS_IN_FORCE` (payload `yaml_invalid: true`). Only store construction still
+2. **Settings I/O is locked and snapshot-based.** Every process (host or container) sees the
+   same bind-mounted inode, so `flock` coordinates them. A reload reads the file once under a
+   shared lock and parses and fingerprints exactly those bytes, publishing settings and
+   fingerprint together. `replace()` holds an exclusive lock across reload, merge and write
+   (retaking it if another writer swapped the inode meanwhile). The write is an atomic rename;
+   when the rename fails with `EBUSY` or `EXDEV` (a single-file bind mount) the locked inode is
+   rewritten in place and fsynced, so ThyTrader readers never see it half written. Other
+   rename failures still raise. Hand edits are not locked, so reloads stay tolerant: content
+   that does not load (undecodable bytes, invalid YAML, a non-mapping or failed validation)
+   keeps the last valid settings, logs once per file content, retries when the file changes
+   and makes the `configuration` component `degraded` with `YAML_INVALID_PREVIOUS_IN_FORCE`
+   (payload `yaml_invalid: true`). A successful write clears it. Only store construction still
    fails loudly on an invalid file.
 3. `YamlSettingsWrite.notify_min_severity` is optional: omitted keeps the current value, so a
    client that predates the field (such as the browser settings form) never resets it. A write

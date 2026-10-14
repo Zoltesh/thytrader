@@ -19,6 +19,8 @@ from thytrader.settings_yaml import (
     dump_yaml_document,
     load_yaml_overlay,
     overlay_from_mapping,
+    parse_yaml_overlay,
+    read_settings_snapshot,
     reject_secret_keys,
     write_settings_file,
 )
@@ -182,3 +184,38 @@ def test_settings_replace_merges_omitted_fields_from_the_file_on_disk(tmp_path: 
     written = api.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
     assert written.notify_min_severity == "critical"
     assert load_yaml_overlay(path)[0]["notify_min_severity"] == "critical"
+
+
+def test_an_undecodable_torn_read_keeps_previous_settings(tmp_path: Path) -> None:
+    """Bytes cut through a multibyte character are an invalid file, never an uncaught error."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("# café\nnotify_min_severity: critical\n", encoding="utf-8")
+    store = SettingsStore(path, env_file=None)
+    path.write_bytes(b"# caf\xc3\nnotify_min_severity: info\n")
+    assert store.current().notify_min_severity == "critical"
+    assert store.yaml_invalid is True
+
+
+def test_a_successful_replace_clears_the_invalid_flag(tmp_path: Path) -> None:
+    """Repairing the file through set-settings must not leave configuration degraded."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    store = SettingsStore(path, env_file=None)
+    path.write_text("log_level: [\n")
+    store.current()
+    assert store.yaml_invalid is True
+    store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
+    assert store.yaml_invalid is False
+    assert store.current().log_level == "WARNING"
+
+
+def test_published_settings_match_the_fingerprint_of_the_same_bytes(tmp_path: Path) -> None:
+    """Settings and the reload fingerprint come from one read, so a later write always reloads."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("notify_min_severity: warning\n")
+    store = SettingsStore(path, env_file=None)
+    other = SettingsStore(path, env_file=None)
+    other.replace(YamlSettingsWrite(yolo_enabled=False, notify_min_severity="critical"))
+    assert store.current().notify_min_severity == "critical"
+    snapshot = read_settings_snapshot(path)
+    assert parse_yaml_overlay(snapshot.payload)["notify_min_severity"] == "critical"
