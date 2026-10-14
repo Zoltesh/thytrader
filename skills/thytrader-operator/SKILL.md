@@ -383,7 +383,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    [Execution cycle timing](#execution-cycle-timing-adr-0131)). Do not restart a worker whose
    heartbeat is fresh; restarting empties its candle cache and makes the next cycle slower.
    An `alert_delivery` component with `DELIVERY_DISABLED_WHILE_LIVE` (or
-   `DELIVERY_DISABLED_LIVE_UNKNOWN`) means live books are running or paused but no alert leaves
+   `DELIVERY_DISABLED_LIVE_UNKNOWN`) means live books hold risk but no alert leaves
    this installation: tell the user that nobody is paged. Do not change `notify_provider`
    yourself; see [alert delivery](#alert-delivery-adr-0138).
 4. Gather only the extra report needed (market-data, products, strategies, runtime, decisions, performance, reconciliation, studies).
@@ -730,7 +730,8 @@ external delivery is not guaranteed. Delivery errors never reveal the configured
 ### Alert delivery (ADR 0138)
 
 `alert_delivery` (in `health` and `alerts`) grades delivery against live exposure. With
-`notify_provider` `none` or `log`, any LIVE book that is RUNNING or PAUSED makes it `degraded`
+`notify_provider` `none` or `log`, any LIVE book holding risk (RUNNING, PAUSED, or STOPPED with
+residual inventory, working entries or a pending futures de-risk duty) makes it `degraded`
 (`DELIVERY_DISABLED_WHILE_LIVE`); an unreadable fleet is `DELIVERY_DISABLED_LIVE_UNKNOWN`
 (unknown is never zero). Paper-only or idle installs stay `healthy` (`DELIVERY_DISABLED`). A
 webhook is `DELIVERY_CONFIGURED` until an open alert's delivery failed (`DELIVERY_FAILED`).

@@ -95,7 +95,7 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "API, workers, database, exchange, fleet_entries and alert_delivery health (fails "
             "when a live scope's entries are blocked fleet-wide by missing evidence; degraded "
-            "when live books run or are paused without external alert delivery)."
+            "when live books hold risk without external alert delivery)."
         ),
     )
     subparsers.add_parser(
@@ -310,7 +310,7 @@ def _parser() -> argparse.ArgumentParser:
         help=(
             "Durable safety alerts (pause, breaker, stop cover, deadlines, worker failures). "
             "Read-only. Works with notify_provider=none; delivery_warning says so, and "
-            "alert_delivery is degraded while live books run or are paused (ADR 0138)."
+            "alert_delivery is degraded while live books hold risk (ADR 0138)."
         ),
     )
     subparsers.add_parser(

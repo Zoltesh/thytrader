@@ -159,3 +159,13 @@ def test_settings_reject_a_signing_secret_without_a_webhook_url() -> None:
 def test_settings_treat_an_empty_signing_secret_as_absent() -> None:
     """Compose passes ``${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}``; empty means unset."""
     assert Settings(notify_webhook_secret="", _env_file=None).notify_webhook_secret is None
+
+
+def test_settings_reject_a_whitespace_signing_secret() -> None:
+    """A nonempty blank key must never quietly turn signing off."""
+    with pytest.raises(ValidationError, match="whitespace"):
+        Settings(
+            notify_webhook_url=SecretStr("https://example.test/hooks/x"),
+            notify_webhook_secret=_BLANK,
+            _env_file=None,
+        )

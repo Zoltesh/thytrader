@@ -143,7 +143,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0135](0135-durable-futures-safety-obligations.md) | Independent revision-fenced futures de-risk and flat-confirmation duties, atomic fill rearming, proof-aware cancellation; Alembic 0076 and additive reports, ops contract v95; dormant runtime only | Accepted |
 | [0136](0136-performance-valuation-receipts.md) | Performance rejects stale previews, discloses per-book candidate/accepted valuation receipts and retains flat/trade-only books and known fill statistics; ADR 0098 journal-local marks remain separate; sequential worker wake consumption at cycle start with cancellation cleanup; ops contract v97 | Accepted |
 | [0137](0137-offline-live-execution-replay.md) | Immutable as-seen inputs, offline execution/reconciliation replay and portable acceptance; separate entry-signal and original-rule evidence, opt-in private worker capture and qualified timing; no trading authority | Accepted |
-| [0138](0138-live-alert-delivery.md) | `alert_delivery` is degraded while live books run or are paused without external delivery (also in operator health); optional HMAC-signed webhooks; Compose passes webhook env; ops contract v98 | Accepted |
+| [0138](0138-live-alert-delivery.md) | `alert_delivery` is degraded while live books hold risk (running, paused, or stopped with residual exposure) without external delivery (also in operator health); optional HMAC-signed webhooks; Compose passes webhook env; ops contract v98 | Accepted |
 
 ## Status values
 

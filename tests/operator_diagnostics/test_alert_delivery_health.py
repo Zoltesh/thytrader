@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, cast
+from uuid import UUID, uuid4
 
 from pydantic import SecretStr
 import pytest
@@ -18,28 +19,56 @@ from thytrader.operator.models import ReportStatus
 from thytrader.trading.models import DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from thytrader.trading.store import ExecutionStore
 
 
 @dataclass(frozen=True)
 class _Book:
-    """The two fields the delivery grader reads from a deployment."""
+    """The deployment fields the delivery grader reads, plus a residual-exposure marker."""
 
     mode: DeploymentMode
     status: DeploymentStatus
+    residual: bool = False
+    futures_derisk_pending: bool = False
+    id: UUID = field(default_factory=uuid4)
+
+
+@dataclass(frozen=True)
+class _Snapshot:
+    deployment: _Book
 
 
 class _Fleet:
     """Execution-store stand-in that lists fixed deployments or fails to read."""
 
-    def __init__(self, books: tuple[_Book, ...] = (), *, fail: bool = False) -> None:
+    def __init__(
+        self, books: tuple[_Book, ...] = (), *, fail: bool = False, fail_snapshots: bool = False
+    ) -> None:
         self._books = books
         self._fail = fail
+        self._fail_snapshots = fail_snapshots
 
     async def list_deployments(self) -> tuple[_Book, ...]:
         if self._fail:
             raise RuntimeError("database unavailable")
         return self._books
+
+    async def get_deployments(self, ids: Sequence[UUID]) -> tuple[_Snapshot, ...]:
+        if self._fail_snapshots:
+            raise RuntimeError("database unavailable")
+        by_id = {book.id: book for book in self._books}
+        return tuple(_Snapshot(by_id[item]) for item in ids)
+
+
+@pytest.fixture(autouse=True)
+def _residual_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Read residual exposure from the fake's marker; the real helper is tested elsewhere."""
+    monkeypatch.setattr(
+        "thytrader.operator.alert_delivery_health.snapshot_has_residual_exposure",
+        lambda snapshot: snapshot.deployment.residual,
+    )
 
 
 def _count(fleet: _Fleet) -> int | None:
@@ -57,7 +86,7 @@ def _settings(provider: NotifyProvider) -> Settings:
 
 
 def test_live_risk_books_count_running_and_paused_live_only() -> None:
-    """Paper books and stopped live books do not need an external pager."""
+    """Paper books and flat stopped live books do not need an external pager."""
     fleet = _Fleet(
         (
             _Book(DeploymentMode.LIVE, DeploymentStatus.RUNNING),
@@ -69,9 +98,24 @@ def test_live_risk_books_count_running_and_paused_live_only() -> None:
     assert _count(fleet) == 2
 
 
+def test_stopped_live_books_with_residual_risk_still_count() -> None:
+    """Managed shutdown keeps inventory and protection, so a stopped book can still need a pager."""
+    fleet = _Fleet(
+        (
+            _Book(DeploymentMode.LIVE, DeploymentStatus.STOPPED, residual=True),
+            _Book(DeploymentMode.LIVE, DeploymentStatus.STOPPED, futures_derisk_pending=True),
+            _Book(DeploymentMode.LIVE, DeploymentStatus.STOPPED),
+            _Book(DeploymentMode.PAPER, DeploymentStatus.STOPPED, residual=True),
+        )
+    )
+    assert _count(fleet) == 2
+
+
 def test_unreadable_fleet_is_unknown_not_zero() -> None:
     """A failed read must never be mistaken for an installation with no live books."""
     assert _count(_Fleet(fail=True)) is None
+    stopped = (_Book(DeploymentMode.LIVE, DeploymentStatus.STOPPED),)
+    assert _count(_Fleet(stopped, fail_snapshots=True)) is None
     assert asyncio.run(live_risk_book_count(None)) is None
 
 

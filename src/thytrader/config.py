@@ -148,7 +148,6 @@ class Settings(BaseSettings):
         "database_url",
         "coinbase_api_key_name",
         "notify_webhook_url",
-        "notify_webhook_secret",
         "installation_token",
         mode="before",
     )
@@ -157,6 +156,21 @@ class Settings(BaseSettings):
         """Treat empty environment placeholders as absent optional secrets."""
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("notify_webhook_secret", mode="before")
+    @classmethod
+    def normalize_webhook_secret(cls, value: object) -> object:
+        """An exactly empty placeholder is absent; a whitespace-only key is an error.
+
+        Compose passes ``${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}``, so empty means unset. A
+        nonempty blank key must never quietly turn signing off (ADR 0138).
+        """
+        if isinstance(value, str):
+            if value == "":
+                return None
+            if not value.strip():
+                raise ValueError("THYTRADER_NOTIFY_WEBHOOK_SECRET must not be whitespace only.")
         return value
 
     @field_validator("coinbase_api_private_key", mode="before")

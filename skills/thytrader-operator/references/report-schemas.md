@@ -726,7 +726,7 @@ while the durable alert stays locally readable.
 `components[]` holds `alerts` and `alert_delivery`; operator `health` carries the same
 `alert_delivery` component (ADR 0138). Its `reason_code` is one of `DELIVERY_CONFIGURED`
 (healthy webhook), `DELIVERY_FAILED` (degraded: an open alert's delivery failed),
-`DELIVERY_DISABLED_WHILE_LIVE` (degraded: `none`/`log` while a LIVE book is RUNNING or PAUSED;
-the detail counts them), `DELIVERY_DISABLED_LIVE_UNKNOWN` (degraded: fleet unreadable) or
+`DELIVERY_DISABLED_WHILE_LIVE` (degraded: `none`/`log` while a LIVE book holds risk, meaning
+RUNNING, PAUSED, or STOPPED with residual exposure; the detail counts them), `DELIVERY_DISABLED_LIVE_UNKNOWN` (degraded: fleet unreadable) or
 `DELIVERY_DISABLED` (healthy: no live book at risk). Ops contract v98 advertises this as
 `runtime_observability: live_alert_delivery_health`. Webhook URLs and secrets are never reported.

@@ -20,16 +20,19 @@ enabled in a supported install. Webhook receivers had no way to authenticate a P
 1. **Delivery is graded against live exposure.** One grader (`operator/alert_delivery_health.py`)
    serves the `alerts` report and a new `alert_delivery` component in operator health. With no
    external delivery (`none` or `log`):
-   - any LIVE book RUNNING or PAUSED → `degraded`, `DELIVERY_DISABLED_WHILE_LIVE`;
+   - any LIVE book holding risk → `degraded`, `DELIVERY_DISABLED_WHILE_LIVE`. A live book holds
+     risk while RUNNING or PAUSED, or while STOPPED with residual inventory, a working entry, an
+     in-market phase or a pending futures de-risk duty (managed shutdown keeps protection);
    - fleet unreadable → `degraded`, `DELIVERY_DISABLED_LIVE_UNKNOWN` (unknown is never zero);
    - otherwise → `healthy`, `DELIVERY_DISABLED` (paper-only/idle installs keep the default).
    A configured webhook is `healthy` (`DELIVERY_CONFIGURED`) until an open alert's delivery has
    failed (`DELIVERY_FAILED`, `degraded`), now in operator health as well as the alerts report.
-   Stopped live books are excluded: managed shutdown keeps protection, but they no longer enter.
 2. **Optional HMAC signing.** `THYTRADER_NOTIFY_WEBHOOK_SECRET` (env only, never YAML or reports)
    makes each POST carry `X-Webhook-Timestamp` (Unix seconds) and `X-Webhook-Signature-V2`, the
    hex HMAC-SHA256 of `timestamp + "." + body` over the exact request bytes. Receivers can reject
-   forged or replayed alerts. A secret without a URL, or a blank secret, is a configuration error.
+   forged or replayed alerts. An exactly empty value (the Compose placeholder) means unset; a
+   whitespace-only secret, or a secret without a URL, is a configuration error, so signing can
+   never be switched off by accident.
 3. **Compose passes both webhook variables** to every backend service through the shared
    environment anchor; empty values stay absent. A URL may now be staged while the YAML
    provider is still `none`/`log` (settings previously rejected that, so the only safe enable
