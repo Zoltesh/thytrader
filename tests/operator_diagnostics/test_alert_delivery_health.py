@@ -13,14 +13,13 @@ import pytest
 from thytrader.config import NotifyProvider, Settings
 from thytrader.operator.alert_delivery_health import (
     alert_delivery_component,
+    delivery_live_books,
     live_risk_book_count,
 )
 from thytrader.operator.models import ReportStatus
 from thytrader.trading.models import DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from thytrader.trading.store import ExecutionStore
 
 
@@ -36,7 +35,7 @@ class _Book:
 
 
 @dataclass(frozen=True)
-class _Snapshot:
+class _Summary:
     deployment: _Book
 
 
@@ -49,22 +48,26 @@ class _Fleet:
         self._books = books
         self._fail = fail
         self._fail_snapshots = fail_snapshots
+        self.summaries_read: list[UUID] = []
 
     async def list_deployments(self) -> tuple[_Book, ...]:
         if self._fail:
             raise RuntimeError("database unavailable")
         return self._books
 
-    async def get_deployments(self, ids: Sequence[UUID]) -> tuple[_Snapshot, ...]:
+    async def get_deployment_summary(self, deployment_id: UUID) -> _Summary:
         if self._fail_snapshots:
             raise RuntimeError("database unavailable")
-        by_id = {book.id: book for book in self._books}
-        return tuple(_Snapshot(by_id[item]) for item in ids)
+        self.summaries_read.append(deployment_id)
+        return next(_Summary(book) for book in self._books if book.id == deployment_id)
 
 
 @pytest.fixture(autouse=True)
 def _residual_marker(monkeypatch: pytest.MonkeyPatch) -> None:
     """Read residual exposure from the fake's marker; the real helper is tested elsewhere."""
+    monkeypatch.setattr(
+        "thytrader.operator.alert_delivery_health.summary_as_snapshot", lambda summary: summary
+    )
     monkeypatch.setattr(
         "thytrader.operator.alert_delivery_health.snapshot_has_residual_exposure",
         lambda snapshot: snapshot.deployment.residual,
@@ -109,6 +112,15 @@ def test_stopped_live_books_with_residual_risk_still_count() -> None:
         )
     )
     assert _count(fleet) == 2
+    assert len(fleet.summaries_read) == 2, "de-risk duty counts without a summary read"
+
+
+def test_configured_webhook_never_reads_the_fleet() -> None:
+    """A webhook is graded on delivery outcomes, so health does not pay for fleet reads."""
+    store = cast("ExecutionStore", _Fleet(fail=True))
+    assert asyncio.run(delivery_live_books(_settings(NotifyProvider.WEBHOOK), store)) is None
+    disabled = asyncio.run(delivery_live_books(_settings(NotifyProvider.NONE), store))
+    assert disabled is None, "a failed read is unknown, never zero"
 
 
 def test_unreadable_fleet_is_unknown_not_zero() -> None:

@@ -14,19 +14,26 @@ from typing import TYPE_CHECKING
 from thytrader.config import NotifyProvider
 from thytrader.operator.models import ComponentReport, ReportStatus
 from thytrader.trading.exposure import snapshot_has_residual_exposure
-from thytrader.trading.models import DeploymentMode, DeploymentStatus
-from thytrader.trading.store import DeploymentSnapshotBatchReader
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, summary_as_snapshot
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from thytrader.alerts.store import AlertStore
     from thytrader.config import Settings
-    from thytrader.trading.models import DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
 
 ALERT_DELIVERY_COMPONENT = "alert_delivery"
 _LIVE_RISK_STATUSES = frozenset({DeploymentStatus.RUNNING, DeploymentStatus.PAUSED})
+
+
+async def delivery_live_books(settings: Settings, execution: ExecutionStore | None) -> int | None:
+    """Live risk count for grading, read only when delivery is not external.
+
+    A configured webhook is graded on its own delivery outcomes, so its health never pays
+    for reading the fleet.
+    """
+    if settings.notify_provider is NotifyProvider.WEBHOOK:
+        return None
+    return await live_risk_book_count(execution)
 
 
 async def live_risk_book_count(execution: ExecutionStore | None) -> int | None:
@@ -34,35 +41,28 @@ async def live_risk_book_count(execution: ExecutionStore | None) -> int | None:
 
     Running and paused live books count. Stopped live books count while they still carry a
     position, a working entry or an in-market phase (managed shutdown keeps protection), or a
-    pending futures de-risk duty.
+    pending futures de-risk duty. Stopped books are read as bounded summaries (positions,
+    instrument runtimes, open orders), never their historical orders or fills.
     """
     if execution is None:
         return None
     try:
         deployments = await execution.list_deployments()
         live = tuple(item for item in deployments if item.mode is DeploymentMode.LIVE)
-        stopped = tuple(item.id for item in live if item.status is DeploymentStatus.STOPPED)
-        snapshots = await _snapshots(execution, stopped)
+        active = sum(1 for item in live if item.status in _LIVE_RISK_STATUSES)
+        residual = 0
+        for item in live:
+            if item.status is not DeploymentStatus.STOPPED:
+                continue
+            if item.futures_derisk_pending:
+                residual += 1
+                continue
+            summary = await execution.get_deployment_summary(item.id)
+            if snapshot_has_residual_exposure(summary_as_snapshot(summary)):
+                residual += 1
     except Exception:  # noqa: BLE001 - an unreadable fleet is unknown, never "no live books".
         return None
-    active = sum(1 for item in live if item.status in _LIVE_RISK_STATUSES)
-    residual = sum(
-        1
-        for snapshot in snapshots
-        if snapshot.deployment.futures_derisk_pending or snapshot_has_residual_exposure(snapshot)
-    )
     return active + residual
-
-
-async def _snapshots(
-    execution: ExecutionStore, ids: tuple[UUID, ...]
-) -> tuple[DeploymentSnapshot, ...]:
-    """Load stopped live books in one read when the store batches, else one by one."""
-    if not ids:
-        return ()
-    if isinstance(execution, DeploymentSnapshotBatchReader):
-        return await execution.get_deployments(ids)
-    return tuple([await execution.get_deployment(item) for item in ids])
 
 
 async def open_alert_delivery_failed(store: AlertStore | None) -> bool:

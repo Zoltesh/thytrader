@@ -15,7 +15,7 @@ from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.read_errors import ExchangeReadError
 from thytrader.operator.alert_delivery_health import (
     alert_delivery_component,
-    live_risk_book_count,
+    delivery_live_books,
     open_alert_delivery_failed,
 )
 from thytrader.operator.execution_cycle_report import execution_cycle_health
@@ -77,7 +77,7 @@ async def build_health_report(
         await futures_live_health_component(diagnostics.alert_store),
         alert_delivery_component(
             diagnostics.settings,
-            live_books=await live_risk_book_count(diagnostics.execution),
+            live_books=await delivery_live_books(diagnostics.settings, diagnostics.execution),
             failed_delivery=await open_alert_delivery_failed(diagnostics.alert_store),
         ),
     ]
