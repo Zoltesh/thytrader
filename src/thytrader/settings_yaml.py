@@ -16,6 +16,7 @@ import hashlib
 import logging
 import os
 from pathlib import Path
+import tempfile
 from threading import Lock
 from typing import TYPE_CHECKING, Any, BinaryIO, Literal, cast
 
@@ -428,6 +429,7 @@ class SettingsStore:
             self._yaml_invalid = False
             return
         if snapshot.fingerprint == self._rejected:
+            self._yaml_invalid = True
             return
         try:
             self._current = self._publish(snapshot)
@@ -544,11 +546,18 @@ def write_settings_file(path: Path, text: str, *, locked: LockedSettingsFile | N
     fails with ``EBUSY`` (``EXDEV`` across devices). The fallback keeps the mounted inode and
     rewrites it only under an exclusive ``flock`` (the caller's ``locked`` file, or one taken
     here), so ThyTrader readers never see it half written. Where the file cannot be locked the
-    in-place rewrite is refused rather than performed unlocked (ADR 0139).
+    in-place rewrite is refused rather than performed unlocked (ADR 0139). Each write uses its
+    own temporary file, so even unserialized writers never share an inode; without ``flock``
+    the last atomic rename wins.
     """
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(text, encoding="utf-8")
+    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp_path = Path(name)
     try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(text.encode("utf-8"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        tmp_path.chmod(0o644)
         tmp_path.replace(path)
     except OSError as error:
         tmp_path.unlink(missing_ok=True)

@@ -37,7 +37,8 @@ bind-mounts as a single file, and a rename over a mount point fails with `EBUSY`
    rename failures still raise. The exclusive lock uses a read-only descriptor, so an atomic
    rename never needs write access to the file itself. Where `flock` is unsupported, reads are
    unlocked and atomic renames still work, but an in-place rewrite is refused rather than done
-   unlocked. Reload I/O errors keep the previous settings and report them like invalid content.
+   unlocked. Every write uses its own temporary file, so unserialized writers never share an
+   inode; without `flock` the last rename wins, as before this decision. Reload I/O errors keep the previous settings and report them like invalid content.
    Hand edits are not locked, so reloads stay tolerant: content
    that does not load (undecodable bytes, invalid YAML, a non-mapping or failed validation)
    keeps the last valid settings, logs once per file content, retries when the file changes

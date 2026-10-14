@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import errno
 import os
 from pathlib import Path
@@ -119,7 +120,7 @@ def test_settings_write_rewrites_a_bind_mounted_file_in_place(
     write_settings_file(path, "notify_provider: webhook\n")
     assert path.read_text() == "notify_provider: webhook\n"
     assert path.stat().st_ino == inode
-    assert not (tmp_path / "thytrader.yaml.tmp").exists()
+    assert not list(tmp_path.glob(".thytrader.yaml.*.tmp"))
 
 
 def test_settings_write_does_not_hide_other_rename_failures(
@@ -132,7 +133,7 @@ def test_settings_write_does_not_hide_other_rename_failures(
     with pytest.raises(PermissionError):
         write_settings_file(path, "notify_provider: log\n")
     assert path.read_text() == "notify_provider: none\n"
-    assert not (tmp_path / "thytrader.yaml.tmp").exists()
+    assert not list(tmp_path.glob(".thytrader.yaml.*.tmp"))
 
 
 def test_settings_store_replace_works_on_a_bind_mounted_file(
@@ -272,3 +273,31 @@ def test_atomic_replace_needs_no_write_access_to_the_file_itself(tmp_path: Path)
     store = SettingsStore(path, env_file=None)
     store.replace(YamlSettingsWrite(yolo_enabled=False, log_level="WARNING"))
     assert store.current().log_level == "WARNING"
+
+
+def test_restoring_rejected_content_reports_the_file_invalid_again(tmp_path: Path) -> None:
+    """Bringing back bytes that were rejected before (same mtime) is still reported invalid."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    store = SettingsStore(path, env_file=None)
+    path.write_text("log_level: [\n")
+    bad = path.stat()
+    store.current()
+    path.write_text("log_level: WARNING\n")
+    assert store.current().log_level == "WARNING"
+    assert store.yaml_invalid is False
+    path.write_text("log_level: [\n")
+    os.utime(path, ns=(bad.st_atime_ns, bad.st_mtime_ns))
+    assert store.current().log_level == "WARNING"
+    assert store.yaml_invalid is True
+
+
+def test_concurrent_writers_never_share_a_temporary_file(tmp_path: Path) -> None:
+    """Each write publishes its own complete document through a unique temporary file."""
+    path = tmp_path / "thytrader.yaml"
+    path.write_text("log_level: INFO\n")
+    documents = [f"log_level: {level}\n" for level in ("WARNING", "ERROR", "DEBUG")] * 20
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(pool.map(lambda text: write_settings_file(path, text), documents))
+    assert path.read_text() in set(documents)
+    assert not list(tmp_path.glob(".thytrader.yaml.*.tmp"))
