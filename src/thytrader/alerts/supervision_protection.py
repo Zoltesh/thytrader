@@ -20,6 +20,7 @@ from thytrader.alerts.models import (
 from thytrader.alerts.supervision_deadlines import _due_closed_start, _duration_for
 from thytrader.trading.geometry import entry_bar_bucket
 from thytrader.trading.models import (
+    TERMINAL_READ_UNCONFIRMED_REASON,
     Deployment,
     DeploymentMode,
     OrderSide,
@@ -53,6 +54,19 @@ _STOP_TRIGGER_WATCH_STATUSES = frozenset(
 )
 
 
+def _may_trigger(order: Order) -> bool:
+    """Whether a stop could still be working, so its traded trigger is a live incident.
+
+    An ``UNKNOWN`` order marked ``TERMINAL_READ_UNCONFIRMED_REASON`` was already canceled or
+    fully filled at the venue before a read failed; it cannot trigger. It still counts as
+    unknown cover elsewhere.
+    """
+    return (
+        order.status in _STOP_TRIGGER_WATCH_STATUSES
+        and order.reject_reason != TERMINAL_READ_UNCONFIRMED_REASON
+    )
+
+
 def _sticky_trigger_ids(
     deployment: Deployment, snapshot: DeploymentSnapshot, previous: Sequence[OperatorAlert]
 ) -> frozenset[UUID]:
@@ -61,7 +75,7 @@ def _sticky_trigger_ids(
     return frozenset(
         order.id
         for order in snapshot.orders
-        if order.status in _STOP_TRIGGER_WATCH_STATUSES
+        if _may_trigger(order)
         and order.filled_quantity < order.quantity
         and f"{deployment.id}:{order.id}" in prior
     )
@@ -96,7 +110,7 @@ def _snapshot_checks(
     watched = {
         f"{deployment.id}:{order.id}"
         for order in snapshot.orders
-        if order.status in _STOP_TRIGGER_WATCH_STATUSES and order.filled_quantity < order.quantity
+        if _may_trigger(order) and order.filled_quantity < order.quantity
     }
     # A still-unfilled triggered stop cannot recover on price rebound or missing candles.
     terminal_subjects = {f"{deployment.id}:{order.id}" for order in snapshot.orders} - watched

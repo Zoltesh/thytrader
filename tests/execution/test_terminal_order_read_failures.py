@@ -1,35 +1,50 @@
-"""A failed venue read never turns a terminal order back into a possibly working one.
+"""A failed venue read keeps orders UNKNOWN but marks ones the venue already closed.
 
-Regression: a paused live book kept re-reading its canceled trailing stops; one failed fill
-read saved such a stop as ``UNKNOWN``, and supervision then raised a critical
-``STOP_TRIGGERED_UNFILLED`` for a stop that had been canceled days earlier.
+Regression: a paused live book kept re-reading its canceled trailing stops; one failed read
+saved such a stop as a plain ``UNKNOWN``, and supervision then raised a critical
+``STOP_TRIGGERED_UNFILLED`` for a stop canceled days earlier. Every order still becomes
+``UNKNOWN`` so exits, flatten settlement and exposure stay fail-closed while late fills are
+unknown; terminal ones carry ``TERMINAL_READ_UNCONFIRMED_REASON``.
 """
 
 from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pytest
 
-from tests.execution.test_adr_0110_stopped_lifecycle import _deployment, _order, _Venue
+from tests.execution.test_adr_0110_stopped_lifecycle import (
+    _deployment,
+    _order,
+    _remote_fill,
+    _supervise,
+    _Venue,
+)
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
+    TERMINAL_READ_UNCONFIRMED_REASON,
     DeploymentStatus,
+    IntentPurpose,
     LifecycleCommand,
+    Order,
     OrderKind,
+    OrderSide,
     OrderStatus,
 )
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 pytestmark = pytest.mark.anyio
 
 
-async def _reconcile_one(
-    *, status: OrderStatus, venue: _Venue, filled: Decimal | None = None
-) -> tuple[OrderStatus, str]:
-    """Reconcile a paused live book holding one stop; return its stored status and fault."""
-    store = InMemoryExecutionStore()
+async def _paused_book_with_stop(
+    store: InMemoryExecutionStore, *, status: OrderStatus, filled: Decimal | None = None
+) -> tuple[Order, UUID]:
+    """One paused live book holding one sell stop in ``status``."""
     book = await _deployment(
         store,
         status=DeploymentStatus.PAUSED,
@@ -45,68 +60,108 @@ async def _reconcile_one(
         status=status,
     )
     if filled is not None:
-        await store.save_order(replace(order, filled_quantity=filled))
+        order = replace(order, filled_quantity=filled)
+        await store.save_order(order)
+    return order, book.id
+
+
+async def _reconcile_once(
+    store: InMemoryExecutionStore, book_id: UUID, venue: _Venue, order: Order
+) -> tuple[Order, str]:
+    """Reconcile once; return the stored order and the book's fault detail."""
     result = await reconcile_open_orders(
-        await store.get_deployment(book.id), broker=venue, store=store, product_id="BTC-USD"
-    )
-    stored = next(item for item in result.orders if item.id == order.id)
-    return stored.status, result.deployment.mismatch_detail or ""
-
-
-async def test_failed_fill_read_keeps_a_canceled_stop_canceled() -> None:
-    """The venue says CANCELED and the fill page fails: the stop stays canceled, still faulted."""
-    venue = _Venue(statuses={"stop-1": [OrderStatus.CANCELED]}, fills_error={"stop-1"})
-    status, detail = await _reconcile_one(status=OrderStatus.CANCELED, venue=venue)
-    assert status is OrderStatus.CANCELED
-    assert "fill read failed" in detail
-
-
-async def test_failed_order_read_keeps_a_canceled_stop_canceled() -> None:
-    """The order read itself fails: a known-canceled stop is not reopened as UNKNOWN."""
-    venue = _Venue(get_error={"stop-1"})
-    status, detail = await _reconcile_one(status=OrderStatus.CANCELED, venue=venue)
-    assert status is OrderStatus.CANCELED
-    assert "order read failed" in detail
-
-
-async def test_failed_order_read_still_marks_a_working_stop_unknown() -> None:
-    """An OPEN stop may still be working, so a failed read keeps the fail-closed UNKNOWN."""
-    venue = _Venue(get_error={"stop-1"})
-    status, detail = await _reconcile_one(status=OrderStatus.OPEN, venue=venue)
-    assert status is OrderStatus.UNKNOWN
-    assert "order read failed" in detail
-
-
-async def test_failed_read_marks_a_partially_filled_order_unknown() -> None:
-    """A locally FILLED order short of its quantity may still work at the venue."""
-    venue = _Venue(get_error={"stop-1"})
-    status, _ = await _reconcile_one(
-        status=OrderStatus.FILLED, venue=venue, filled=Decimal("0.0005")
-    )
-    assert status is OrderStatus.UNKNOWN
-
-
-async def test_failed_read_keeps_a_fully_filled_order_filled() -> None:
-    """A FILLED order for its full quantity is terminal and stays FILLED."""
-    store = InMemoryExecutionStore()
-    venue = _Venue(get_error={"stop-1"})
-    book = await _deployment(
-        store,
-        status=DeploymentStatus.PAUSED,
-        command=LifecycleCommand.STOP_NEW_ENTRIES,
-        detail="Operator paused entries.",
-    )
-    order = await _order(
-        store,
-        book.id,
-        venue_order_id="stop-1",
+        await store.get_deployment(book_id),
+        broker=venue,
+        store=store,
         product_id="BTC-USD",
-        kind=OrderKind.STOP_LIMIT,
-        status=OrderStatus.FILLED,
-    )
-    await store.save_order(replace(order, filled_quantity=order.quantity))
-    result = await reconcile_open_orders(
-        await store.get_deployment(book.id), broker=venue, store=store, product_id="BTC-USD"
     )
     stored = next(item for item in result.orders if item.id == order.id)
-    assert stored.status is OrderStatus.FILLED
+    return stored, result.deployment.mismatch_detail or ""
+
+
+@pytest.mark.parametrize(
+    ("venue", "detail"),
+    [
+        (_Venue(statuses={"stop-1": [OrderStatus.CANCELED]}, fills_error={"stop-1"}), "fill read"),
+        (_Venue(get_error={"stop-1"}), "order read"),
+    ],
+)
+async def test_failed_read_of_a_canceled_stop_is_unknown_and_marked_terminal(
+    venue: _Venue, detail: str
+) -> None:
+    """The order stays fail-closed UNKNOWN, faulted, and marked as already closed at the venue."""
+    store = InMemoryExecutionStore()
+    order, book_id = await _paused_book_with_stop(store, status=OrderStatus.CANCELED)
+    stored, fault = await _reconcile_once(store, book_id, venue, order)
+    assert stored.status is OrderStatus.UNKNOWN
+    assert stored.reject_reason == TERMINAL_READ_UNCONFIRMED_REASON
+    assert stored.venue_observed_at is None
+    assert f"{detail} failed" in fault
+
+
+async def test_the_marker_survives_repeated_failures_and_clears_on_a_good_read() -> None:
+    """A second failure keeps the marker; the next successful read restores venue truth."""
+    store = InMemoryExecutionStore()
+    order, book_id = await _paused_book_with_stop(store, status=OrderStatus.CANCELED)
+    venue = _Venue(statuses={"stop-1": [OrderStatus.CANCELED]}, get_error={"stop-1"})
+    await _reconcile_once(store, book_id, venue, order)
+    again, _ = await _reconcile_once(store, book_id, venue, order)
+    assert again.reject_reason == TERMINAL_READ_UNCONFIRMED_REASON
+    venue.get_error.clear()
+    healed, _ = await _reconcile_once(store, book_id, venue, order)
+    assert healed.status is OrderStatus.CANCELED
+    assert healed.reject_reason is None
+
+
+@pytest.mark.parametrize(
+    ("status", "fully_filled", "partial", "marked"),
+    [
+        (OrderStatus.OPEN, False, None, False),
+        (OrderStatus.FILLED, False, Decimal("0.0005"), False),
+        (OrderStatus.FILLED, True, None, True),
+    ],
+)
+async def test_only_venue_closed_orders_are_marked(
+    status: OrderStatus, fully_filled: bool, partial: Decimal | None, marked: bool
+) -> None:
+    """Working and partially filled orders stay plain UNKNOWN; fully filled ones are marked."""
+    store = InMemoryExecutionStore()
+    order, book_id = await _paused_book_with_stop(store, status=status, filled=partial)
+    if fully_filled:
+        order = replace(order, filled_quantity=order.quantity)
+        await store.save_order(order)
+    stored, fault = await _reconcile_once(store, book_id, _Venue(get_error={"stop-1"}), order)
+    assert stored.status is OrderStatus.UNKNOWN
+    assert (stored.reject_reason == TERMINAL_READ_UNCONFIRMED_REASON) is marked
+    assert "order read failed" in fault
+
+
+async def test_flatten_never_settles_while_a_canceled_entry_read_fails() -> None:
+    """A stopped flatten keeps the fault until a read succeeds, then ingests the late fill."""
+    store = InMemoryExecutionStore()
+    deployment = await _deployment(store)
+    entry = await _order(
+        store,
+        deployment.id,
+        venue_order_id="late-entry",
+        product_id="BTC-USD",
+        kind=OrderKind.POST_ONLY_LIMIT,
+        side=OrderSide.BUY,
+        purpose=IntentPurpose.ENTRY,
+        status=OrderStatus.CANCELED,
+    )
+    venue = _Venue(statuses={"late-entry": [OrderStatus.CANCELED]}, get_error={"late-entry"})
+    await _supervise(store, deployment, venue)
+    current = await store.get_deployment(deployment.id)
+    stored = next(item for item in current.orders if item.id == entry.id)
+    assert stored.status is OrderStatus.UNKNOWN
+    assert "order read failed" in (current.deployment.mismatch_detail or "")
+    assert current.fills == ()
+    venue.get_error.clear()
+    venue.fills["late-entry"] = [(_remote_fill("late-entry"),)]
+    await _supervise(store, deployment, venue)
+    current = await store.get_deployment(deployment.id)
+    healed = next(item for item in current.orders if item.id == entry.id)
+    assert healed.status is not OrderStatus.UNKNOWN
+    assert healed.reject_reason is None
+    assert [fill.venue_order_id for fill in current.fills] == ["late-entry"]

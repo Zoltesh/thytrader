@@ -14,6 +14,7 @@ from thytrader.alerts.supervision_deadlines import SETTLING_GRACE_SECONDS
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.market_data.models import Candle
 from thytrader.trading.models import (
+    TERMINAL_READ_UNCONFIRMED_REASON,
     Deployment,
     DeploymentKind,
     DeploymentMode,
@@ -199,11 +200,21 @@ async def test_live_uncovered_stop_and_triggered_unfilled_do_not_escalate() -> N
 
 
 @pytest.mark.anyio
-async def test_a_canceled_historical_stop_never_raises_triggered_unfilled() -> None:
-    """Only possibly working stops are watched; a canceled one whose trigger traded is history.
+@pytest.mark.parametrize(
+    ("status", "reason", "alerted"),
+    [
+        (OrderStatus.CANCELED, None, False),
+        (OrderStatus.UNKNOWN, TERMINAL_READ_UNCONFIRMED_REASON, False),
+        (OrderStatus.UNKNOWN, None, True),
+    ],
+)
+async def test_only_possibly_working_stops_raise_triggered_unfilled(
+    status: OrderStatus, reason: str | None, alerted: bool
+) -> None:
+    """Only a possibly working stop whose trigger traded is a live incident.
 
-    Reconciliation keeps a canceled stop canceled when a later venue read fails, which is what
-    keeps this check quiet on flat paused books (ADR 0115, reconcile read failures).
+    A stop the venue already closed is history even while a later read failure leaves it
+    UNKNOWN (``TERMINAL_READ_UNCONFIRMED_REASON``); a plain UNKNOWN stop may still work.
     """
     deployment = _deployment(mode=DeploymentMode.LIVE, phase=RuntimePhase.FLAT, timeframe="1h")
     triggered = datetime(2026, 3, 2, 5, 0, tzinfo=UTC)
@@ -215,7 +226,8 @@ async def test_a_canceled_historical_stop_never_raises_triggered_unfilled() -> N
         side=OrderSide.SELL,
         kind=OrderKind.STOP_LIMIT,
         quantity=Decimal("0.01"),
-        status=OrderStatus.CANCELED,
+        status=status,
+        reject_reason=reason,
         created_at=triggered - timedelta(hours=2),
         updated_at=_NOW,
         stop_trigger_price=Decimal("95"),
@@ -238,7 +250,7 @@ async def test_a_canceled_historical_stop_never_raises_triggered_unfilled() -> N
         thresholds=_THRESHOLDS,
         worker_interval_seconds=30,
     )
-    assert AlertCode.STOP_TRIGGERED_UNFILLED not in {item.code for item in found.findings}
+    assert (AlertCode.STOP_TRIGGERED_UNFILLED in {item.code for item in found.findings}) is alerted
 
 
 @pytest.mark.anyio

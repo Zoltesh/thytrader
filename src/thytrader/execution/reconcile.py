@@ -18,6 +18,7 @@ from thytrader.trading.fill_ledger import (
 )
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
+    TERMINAL_READ_UNCONFIRMED_REASON,
     Deployment,
     DeploymentMode,
     DeploymentStatus,
@@ -409,19 +410,26 @@ async def _pause_unconfirmed_submit(
 async def _mark_read_failed(store: ExecutionStore, order: Order) -> None:
     """Record a failed venue read without inventing a working order.
 
-    A possibly working order becomes ``UNKNOWN``. A terminal one keeps its status: a venue
-    ``CANCELED`` order, or a ``FILLED`` order whose full quantity is filled, cannot be
-    reopened, and an ``UNKNOWN`` historical stop would look like a live protective order to
-    supervision (a false ``STOP_TRIGGERED_UNFILLED``). A ``FILLED`` order with a partial
-    quantity may be locally inferred while its remainder still works, so it still becomes
-    ``UNKNOWN``. Terminal orders stay watched, the fault is still recorded, and only the
-    confirmed observation time is cleared.
+    Every order becomes ``UNKNOWN`` until a read succeeds: unknown late fills must keep
+    exits, flatten settlement and exposure fail-closed. When the venue had already reported it
+    terminal (canceled, or filled for its full quantity) the order is marked
+    ``TERMINAL_READ_UNCONFIRMED_REASON`` so supervision never mistakes a historical stop for a
+    triggered-but-unfilled live one. A ``FILLED`` order short of its quantity may be locally
+    inferred while its remainder still works, so it is not marked.
     """
-    if _terminal(order):
-        await store.save_order(replace(order, venue_observed_at=None, updated_at=utc_now()))
-        return
+    reason = (
+        TERMINAL_READ_UNCONFIRMED_REASON
+        if _terminal(order) or order.reject_reason == TERMINAL_READ_UNCONFIRMED_REASON
+        else order.reject_reason
+    )
     await store.save_order(
-        replace(order, status=OrderStatus.UNKNOWN, venue_observed_at=None, updated_at=utc_now())
+        replace(
+            order,
+            status=OrderStatus.UNKNOWN,
+            reject_reason=reason,
+            venue_observed_at=None,
+            updated_at=utc_now(),
+        )
     )
 
 
