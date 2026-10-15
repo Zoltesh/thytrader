@@ -185,7 +185,12 @@ aggregates must not read as out-of-sample evidence. For a pure sweep (no in-samp
 aggregate zeroes every `oos_*` field and populates `candidate_window_count`,
 `candidate_trade_count`, `candidate_winning_trade_count`, `mean_candidate_return_fraction`, and
 `mean_candidate_drawdown_fraction` instead. Only holdout, walk-forward, and WFO OOS windows use
-`oos_*` names.
+`oos_*` names. Cross-market `full_window` results likewise use `full_window_count`,
+`full_window_trade_count`, `full_window_winning_trade_count`, `mean_full_window_return_fraction`
+and `mean_full_window_drawdown_fraction`. Studies assembled before those aliases counted full
+windows under `oos_*`; their canonical documents are unchanged (they are fingerprinted), the
+catalog's derived `mean_oos_return_fraction` is cleared for them (migration 0077), and the browser
+labels a study's headline by its windows' roles.
 
 ## HTTP
 

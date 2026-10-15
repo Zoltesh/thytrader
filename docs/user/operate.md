@@ -412,7 +412,9 @@ profit, time exit, signal exit, evaluation end). Results saved before this was r
 re-run the backtest to record it. Dataset and result-list failures remain visible without hiding
 strategy evidence. Result summaries report the snapshot's strategy clock,
 including `2h` and `4h`, not a hardcoded `1h`. **Run a study** opens the composed-study builder
-(OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same strategy. Below
+(OOS holdout, walk-forward, parameter sweep, walk-forward optimization) for the same strategy. A
+finished study's headline names what it scored: "OOS" for out-of-sample windows, "full-window" for
+a cross-market study's one window per market, which is not an out-of-sample result. Below
 the run bar, **Results for this strategy** lists every result, each marked **Current rules** or
 **Earlier edit**; opening one shows it inline (`?result=` deep link): a compact header (rules · period · time and a
 **Simulated result (candle-based fills)** chip), a metrics row (net return, buy & hold, max

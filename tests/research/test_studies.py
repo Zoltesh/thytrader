@@ -282,6 +282,63 @@ def test_aggregate_does_not_treat_in_sample_as_oos_performance() -> None:
     assert aggregate.is_oos_return_gap == "0.15"
 
 
+def test_cross_market_full_windows_are_not_reported_as_out_of_sample() -> None:
+    """Full-window results use their own aliases; oos_* stays empty (ADR 0044 honesty)."""
+    summary = BacktestSummary(
+        initial_equity="10000",
+        final_equity="10500",
+        total_net_pnl="500",
+        total_return_fraction="0.05",
+        gross_profit="700",
+        gross_loss="-200",
+        win_rate="0.5",
+        trade_count=4,
+        winning_trade_count=2,
+        maximum_drawdown="300",
+        maximum_drawdown_fraction="0.03",
+        exposure_bars=10,
+        evaluation_bars=10,
+    )
+    second = summary.model_copy(
+        update={
+            "total_return_fraction": "-0.01",
+            "maximum_drawdown_fraction": "0.05",
+            "trade_count": 2,
+            "winning_trade_count": 0,
+        }
+    )
+    start = datetime(2026, 1, 1, tzinfo=UTC)
+    end = datetime(2026, 1, 2, tzinfo=UTC)
+    aggregate = aggregate_windows(
+        tuple(
+            StudyWindowResult(
+                label=product_id,
+                role=WindowRole.FULL_WINDOW,
+                fold_index=index,
+                product_id=product_id,
+                run_fingerprint="sha256:" + str(index + 1) * 64,
+                result_fingerprint="sha256:" + str(index + 3) * 64,
+                strategy_fingerprint="sha256:" + "a" * 64,
+                evaluation_start=start,
+                evaluation_end=end,
+                summary=window_summary,
+            )
+            for index, (product_id, window_summary) in enumerate(
+                (("BTC-USD", summary), ("ETH-USD", second))
+            )
+        )
+    )
+    assert aggregate.oos_window_count == 0
+    assert aggregate.oos_trade_count == 0
+    assert aggregate.mean_oos_return_fraction is None
+    assert aggregate.oos_win_rate is None
+    assert aggregate.full_window_count == 2
+    assert aggregate.full_window_trade_count == 6
+    assert aggregate.full_window_winning_trade_count == 2
+    assert aggregate.mean_full_window_return_fraction == "0.02"
+    assert aggregate.mean_full_window_drawdown_fraction == "0.04"
+
+
 def test_aggregate_is_only_leaves_oos_fields_empty() -> None:
     """In-sample-only studies must not populate OOS aggregate fields from IS windows."""
     summary_is = BacktestSummary(

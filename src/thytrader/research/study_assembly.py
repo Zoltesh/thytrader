@@ -29,15 +29,20 @@ def aggregate_windows(
     *,
     selected_only: bool = False,
 ) -> StudyAggregate:
-    """Summarize scored windows without treating stitching as a live fill."""
+    """Summarize scored windows without treating stitching as a live fill.
+
+    Only ``out_of_sample`` windows count as out-of-sample. Full-window and sweep-candidate
+    results are reported under their own aliases (ADR 0044 aggregate honesty).
+    """
     pool = windows
     if selected_only:
         marked = tuple(item for item in windows if item.selected)
         if marked:
             pool = marked
-    oos = tuple(item for item in pool if item.role is not WindowRole.IN_SAMPLE)
+    oos = tuple(item for item in pool if item.role is WindowRole.OUT_OF_SAMPLE)
     is_windows = tuple(item for item in pool if item.role is WindowRole.IN_SAMPLE)
     candidates = tuple(item for item in pool if item.role is WindowRole.SWEEP_CANDIDATE)
+    full = tuple(item for item in pool if item.role is WindowRole.FULL_WINDOW)
     oos_trades = sum(item.summary.trade_count for item in oos)
     oos_wins = sum(item.summary.winning_trade_count for item in oos)
     mean_oos = _mean_decimal(tuple(item.summary.total_return_fraction for item in oos))
@@ -60,6 +65,22 @@ def aggregate_windows(
         mean_is_return_fraction=mean_is,
         is_oos_return_gap=gap,
     )
+    if full:
+        aggregate = aggregate.model_copy(
+            update={
+                "full_window_count": len(full),
+                "full_window_trade_count": sum(item.summary.trade_count for item in full),
+                "full_window_winning_trade_count": sum(
+                    item.summary.winning_trade_count for item in full
+                ),
+                "mean_full_window_return_fraction": _mean_decimal(
+                    tuple(item.summary.total_return_fraction for item in full)
+                ),
+                "mean_full_window_drawdown_fraction": _mean_decimal(
+                    tuple(item.summary.maximum_drawdown_fraction for item in full)
+                ),
+            }
+        )
     if candidates and not is_windows:
         aggregate = aggregate.model_copy(
             update={

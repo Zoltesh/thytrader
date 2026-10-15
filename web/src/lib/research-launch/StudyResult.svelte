@@ -9,6 +9,7 @@
 	import {
 		formatAxisValues,
 		formatWindowBounds,
+		studyHeadline,
 		type ResearchStudy,
 		type ResearchStudySummary
 	} from '$lib/research-studies';
@@ -26,20 +27,22 @@
 		new Map((studySummary?.window_pnl ?? []).map((row) => [row.result_fingerprint, row]))
 	);
 	const studyCandidates = $derived(studySummary?.candidates ?? []);
+	const headline = $derived(studyHeadline(studyResult));
 </script>
 
 <div class="view-block" data-testid="research-study-result">
 	<h3>Research study</h3>
 	<p class="view-note">
 		{studyResult.kind} ·
-		{studyResult.aggregate.oos_window_count} OOS window(s) · fingerprint
+		{headline.windowCount}
+		{headline.label} window(s) · fingerprint
 		{studyResult.study_fingerprint.slice(0, 18)}…
 	</p>
-	{#if studyResult.aggregate.mean_oos_return_fraction !== null}
+	{#if headline.meanReturnFraction !== null}
 		<p>
-			Mean OOS return {formatPercent(studyResult.aggregate.mean_oos_return_fraction)}
-			{#if studyResult.aggregate.is_oos_return_gap !== null}
-				· IS−OOS gap {formatPercent(studyResult.aggregate.is_oos_return_gap)}
+			Mean {headline.label} return {formatPercent(headline.meanReturnFraction)}
+			{#if headline.isOosGap !== null}
+				· IS−OOS gap {formatPercent(headline.isOosGap)}
 			{/if}
 		</p>
 	{/if}

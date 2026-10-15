@@ -975,3 +975,46 @@ def test_origin_counts_are_tag_scoped_and_independent_of_page() -> None:
             await dispose(engine)
 
     asyncio.run(exercise())
+
+
+def test_a_cross_market_catalog_row_never_reports_an_oos_mean() -> None:
+    """A worker built before 0077 may still write a full-window mean; it is never read as OOS."""
+
+    async def exercise() -> None:
+        engine = _engine()
+        store = PostgresStrategyStore(engine)
+        catalog = PostgresResearchStudyCatalog(engine)
+        try:
+            owner = await _template(store)
+            snapshot = await store.snapshot(owner.strategy_id)
+            means: dict[str, str | None] = {}
+            for kind in ("cross_market", "walk_forward"):
+                study = "sha256:" + uuid4().hex + uuid4().hex
+                canonical = json.dumps(
+                    {
+                        "study_fingerprint": study,
+                        "windows": [{"strategy_fingerprint": snapshot.strategy_fingerprint}],
+                    }
+                )
+                await catalog.persist(
+                    StudyCatalogSummary(
+                        study_fingerprint=study,
+                        request_fingerprint=study,
+                        plan_fingerprint=study,
+                        kind=kind,
+                        published_at=_NOW,
+                        product_id="BTC-USD",
+                        timeframe="1h",
+                        window_count=2,
+                        mean_oos_return_fraction="0.02",
+                    ),
+                    canonical,
+                )
+            for row in await catalog.list_summaries(strategy_id=owner.strategy_id):
+                means[row.kind] = row.mean_oos_return_fraction
+            assert means == {"cross_market": None, "walk_forward": "0.02"}
+            await store.delete(owner.strategy_id)
+        finally:
+            await dispose(engine)
+
+    asyncio.run(exercise())

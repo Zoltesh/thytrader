@@ -160,6 +160,9 @@ export type ResearchStudy = {
 		mean_oos_return_fraction: string | null;
 		mean_is_return_fraction: string | null;
 		is_oos_return_gap: string | null;
+		/** Cross-market full windows (not out-of-sample); absent on older studies. */
+		full_window_count?: number | null;
+		mean_full_window_return_fraction?: string | null;
 	};
 	warnings: string[];
 	selection_metric?: SelectionMetric | null;
@@ -304,4 +307,39 @@ async function finishQueuedStudy(accepted: ResearchJobAccepted): Promise<Researc
 		throw new Error(`Could not load the finished research study (HTTP ${study.status}).`);
 	}
 	return (await study.json()) as ResearchStudy;
+}
+
+/** A study's headline windows, named by what they are (ADR 0044 aggregate honesty). */
+export type StudyHeadline = {
+	label: 'OOS' | 'full-window';
+	windowCount: number;
+	meanReturnFraction: string | null;
+	/** The IS−OOS gap; only out-of-sample headlines have one. */
+	isOosGap: string | null;
+};
+
+/**
+ * Label the aggregate by the windows' roles. Cross-market studies score full windows, not
+ * out-of-sample ones; studies assembled before the `full_window_*` aliases reported those
+ * under `oos_*`, so the roles, not the field names, decide the label.
+ */
+export function studyHeadline(study: ResearchStudy): StudyHeadline {
+	const aggregate = study.aggregate;
+	const outOfSample = study.windows.some((window) => window.role === 'out_of_sample');
+	const fullWindow = study.windows.some((window) => window.role === 'full_window');
+	if (!outOfSample && fullWindow) {
+		return {
+			label: 'full-window',
+			windowCount: aggregate.full_window_count ?? aggregate.oos_window_count,
+			meanReturnFraction:
+				aggregate.mean_full_window_return_fraction ?? aggregate.mean_oos_return_fraction,
+			isOosGap: null
+		};
+	}
+	return {
+		label: 'OOS',
+		windowCount: aggregate.oos_window_count,
+		meanReturnFraction: aggregate.mean_oos_return_fraction,
+		isOosGap: aggregate.is_oos_return_gap
+	};
 }

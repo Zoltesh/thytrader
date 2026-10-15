@@ -372,7 +372,13 @@ a database is unavailable, not empty. Stitched OOS equity compounds non-overlapp
 returns for `walk_forward` OOS and selected WFO OOS; overlapping OOS and embargo gaps are not
 interpolated. Parameter-sweep aggregates are not an out-of-sample claim: sweep documents carry
 `candidate_window_count` / `mean_candidate_return_fraction` (their `oos_*` fields are zero/absent),
-and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-market studies
+and only holdout, walk-forward, and WFO OOS windows use `oos_*` names. Cross-market studies score
+one full window per market, so their aggregate carries `full_window_count`,
+`full_window_trade_count`, `full_window_winning_trade_count`, `mean_full_window_return_fraction`
+and `mean_full_window_drawdown_fraction`, with `oos_*` zero/absent. Cross-market studies assembled
+before 2026-10-15 reported those full windows under `oos_*`: read `windows[].role`
+(`full_window`), never their `oos_*` numbers, as out-of-sample evidence; their catalog
+`mean_oos_return_fraction` is cleared. Cross-market studies
 need 2–8 distinct products, named one of two ways (never mixed): `markets[].strategy_id` for
 strategies already authored per market, or one top-level `strategy_id` plus
 `markets[].product_id` (for example `{"kind": "cross_market", "strategy_id": "…", "markets":
