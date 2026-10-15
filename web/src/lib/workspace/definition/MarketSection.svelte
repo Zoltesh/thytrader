@@ -144,7 +144,11 @@
 	{/if}
 	<label
 		>Warmup bars (required history before signals)
-		<input type="number" min="1" bind:value={model.warmup_bars} oninput={markDirty} /></label
+		<input type="number" min="1" bind:value={model.warmup_bars} oninput={markDirty} />
+		<small class="field-help"
+			>Saving raises this until every indicator has settled (an EMA(200) needs 891 bars), so results
+			do not depend on where the data starts.</small
+		></label
 	>
 	<div class="reference-block" data-testid="reference-instruments">
 		<h3>Reference instruments (optional)</h3>
@@ -227,6 +231,11 @@
 		gap: 6px;
 		color: var(--muted);
 		font-size: var(--fs-sm);
+	}
+	.field-help {
+		color: var(--faint);
+		font-size: var(--fs-xs);
+		line-height: 1.35;
 	}
 	input:not([type='checkbox']):not([type='radio']),
 	select {

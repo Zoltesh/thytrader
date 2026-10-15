@@ -9,6 +9,7 @@ import {
 	defaultInputFor,
 	defaultParameters,
 	groupedIndicatorKinds,
+	indicatorConvergenceWarmupBars,
 	indicatorDisplayLabel,
 	indicatorWarmupBars,
 	inputMatchesKind,
@@ -24,6 +25,7 @@ type WarmupExample = {
 	parameters: Record<string, number | string>;
 	offset: number;
 	warmup_bars: number;
+	convergence_warmup_bars: number;
 };
 
 const examples = examplesDocument.warmup_examples as Record<string, WarmupExample[]>;
@@ -64,6 +66,35 @@ describe('generated indicator catalog', () => {
 			}
 		}
 		expect(checked).toBeGreaterThanOrEqual(INDICATOR_KINDS.length * 2);
+	});
+
+	it('matches every schema-computed convergence warmup example (ADR 0140)', () => {
+		for (const kind of INDICATOR_KINDS) {
+			for (const example of examples[kind] ?? []) {
+				expect(
+					indicatorConvergenceWarmupBars({
+						kind,
+						parameters: example.parameters,
+						offset: example.offset
+					}),
+					`${kind} ${JSON.stringify(example)}`
+				).toBe(example.convergence_warmup_bars);
+			}
+		}
+	});
+
+	it('reports default convergence warmups, recursion, and anchor sensitivity', () => {
+		for (const entry of INDICATOR_CATALOG) {
+			const parameters = defaultParameters(entry.kind);
+			const converged = indicatorConvergenceWarmupBars({ kind: entry.kind, parameters });
+			expect(converged, entry.kind).toBe(entry.default_convergence_warmup_bars);
+			expect(converged > entry.default_warmup_bars, entry.kind).toBe(
+				entry.convergence === 'recursive'
+			);
+		}
+		expect(catalogEntry('ema').default_convergence_warmup_bars).toBe(90);
+		expect(catalogEntry('sma').convergence).toBe('exact');
+		expect(catalogEntry('supertrend').anchor_sensitive).toBe(true);
 	});
 
 	it('ships valid defaults whose warmup equals the reported default warmup', () => {

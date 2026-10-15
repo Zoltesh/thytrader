@@ -354,6 +354,12 @@ fills its parameters with defaults, and each field shows its allowed range and a
 breakout can compare the close with the *previous* bar's 20-bar high; leave it empty for the current
 bar ([ADR 0086](../decisions/0086-indicator-catalog-expansion-and-offset.md)). Conditions list each
 multi-series indicator's outputs under its name, for example `Supertrend(10, 3) · direction`.
+Under each indicator, the builder says how many completed bars it needs. Smoothed indicators (EMA,
+RSI, ATR, MACD and similar) have a first value early but keep settling for longer, for example "First
+value after 200 completed bars; settled after 891". Saving raises **Warmup bars** to the settled
+count, so results do not depend on where the data starts. Supertrend, Parabolic SAR, OBV and A/D also
+note that their direction or running level depends on where the data starts
+([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
 **Position sizing** labels use the product's quote currency (`Minimum USDC notional` for a USDC
 market). New templates in the library — **Donchian breakout**, **Supertrend trend**, **Squeeze
 breakout**, and **Z-score mean reversion** — start from these kinds.

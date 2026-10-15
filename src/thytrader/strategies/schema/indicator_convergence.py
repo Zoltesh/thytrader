@@ -181,3 +181,11 @@ _CONVERGENCE_RULES: dict[IndicatorKind, Callable[[IndicatorParameterBlock], int]
     IndicatorKind.STOCHASTIC_RSI: _stochastic_rsi,
 }
 """Extra decay updates per recursive kind, added after the kind's minimum warmup."""
+
+RECURSIVE_KINDS = frozenset({*_CONVERGENCE_RULES, IndicatorKind.KELTNER})
+"""Kinds with at least one seeded recursive stage; every other kind is an exact window."""
+
+
+def indicator_recursive(kind: IndicatorKind) -> bool:
+    """Whether a kind needs more than its minimum warmup to converge."""
+    return kind in RECURSIVE_KINDS

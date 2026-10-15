@@ -430,7 +430,10 @@ live complete-only candles; they do not bind frozen extra-TF or HTF fingerprints
 Discover implemented indicator kinds with `uv run thytrader-operator indicators` before authoring.
 It lists all 53 kinds with `category`, `inputs` / `input_mode`, every parameter's bounds, builder
 `default`, and `help`, ordering `constraints`, output series, the `warmup` formula, and
-`default_warmup_bars` ([ADR 0086](../../docs/decisions/0086-indicator-catalog-expansion-and-offset.md)).
+`default_warmup_bars` ([ADR 0086](../../docs/decisions/0086-indicator-catalog-expansion-and-offset.md)),
+plus `convergence` (`recursive` kinds keep settling after their first value; `exact` windows do
+not), `default_convergence_warmup_bars` (the warmup saving declares at default parameters) and
+`anchor_sensitive` (see "Convergence warmup").
 Shipped kinds:
 - Trend: `ema`, `sma`, `wma`, `dema`, `tema`, `hma`, `kama`, `vwma` (close/volume), `supertrend`
   (high/low/close; series `value`/`direction`, 1 up / −1 down), `parabolic_sar` (high/low; `step`,

@@ -8,6 +8,7 @@
 	import {
 		MAX_INDICATOR_OFFSET,
 		findCatalogEntry,
+		indicatorConvergenceWarmupBars,
 		indicatorWarmupBars,
 		readParameter,
 		writeParameter,
@@ -205,10 +206,21 @@
 {/if}
 {#if entry !== undefined}
 	{@const warmup = indicatorWarmupBars(indicator)}
+	{@const converged = indicatorConvergenceWarmupBars(indicator)}
 	<p class="kind-summary">
 		<span>{entry.summary}</span>
 		{#if Number.isFinite(warmup) && warmup > 0}
-			<span class="warmup">Needs {warmup} completed {warmup === 1 ? 'bar' : 'bars'}.</span>
+			<span class="warmup" data-testid="indicator-warmup">
+				{#if converged > warmup}
+					First value after {warmup} completed bars; settled after {converged}, the warmup a saved
+					strategy declares.
+				{:else}
+					Needs {warmup} completed {warmup === 1 ? 'bar' : 'bars'}.
+				{/if}
+			</span>
+		{/if}
+		{#if entry.anchor_sensitive}
+			<span class="warmup">Its direction or running level depends on where the data starts.</span>
 		{/if}
 	</p>
 {/if}

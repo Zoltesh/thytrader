@@ -10,7 +10,7 @@ import {
 	type BuilderModel,
 	type StrategyDefinition
 } from './strategies';
-import { plainEnglishSummary, validateDefinition } from './strategy-insight';
+import { plainEnglishSummary, requiredDataText, validateDefinition } from './strategy-insight';
 
 /** An alt EMA cross gated by BTC-USDC 1d close > EMA(100) (ADR 0096). */
 const definition = {
@@ -143,6 +143,32 @@ describe('reference instruments in the builder', () => {
 		const summary = plainEnglishSummary(model());
 		expect(summary).toContain('BTC-USDC 1d');
 		expect(summary).toContain('read-only reference');
+	});
+
+	it('round-trips the convergence warmup policy into both requirement blocks (ADR 0140)', () => {
+		const converged = toBuilderModel(
+			{
+				...definition,
+				data_requirements: { ...definition.data_requirements, warmup_policy: 'convergence' }
+			} as unknown as StrategyDefinition,
+			0
+		);
+		expect(converged.warmup_policy).toBe('convergence');
+		const saved = fromBuilderModel(converged) as unknown as {
+			data_requirements: { warmup_policy?: string };
+		};
+		expect(saved.data_requirements.warmup_policy).toBe('convergence');
+		expect(model().warmup_policy).toBeUndefined();
+		const legacy = fromBuilderModel(model()) as unknown as {
+			data_requirements: Record<string, unknown>;
+		};
+		expect('warmup_policy' in legacy.data_requirements).toBe(false);
+	});
+
+	it('describes a reference warmup as its settled warmup under the policy', () => {
+		expect(requiredDataText(model())).toContain('(btc): 100 completed bars');
+		const converged = { ...model(), warmup_policy: 'convergence' as const };
+		expect(requiredDataText(converged)).toContain('(btc): 446 completed bars');
 	});
 
 	it('validates quote currency, clock, readers, and unknown sources', () => {

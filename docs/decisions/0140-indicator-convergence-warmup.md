@@ -89,8 +89,12 @@ live evaluated as an SMA(100).
    first bar (the probe saw earlier candles; the window starts after the quiet bar until the
    required coverage moves past it); otherwise it guards books started without the check.
 
-Rollout continues in a later change: decision journals record each clock's window start;
-operator reports and the browser catalog show convergence warmup and anchor sensitivity.
+10. **Visible where indicators are chosen.** The indicator catalog (operator `indicators` report and
+    the generated browser catalog) carries each kind's `convergence` class, its default convergence
+    warmup and `anchor_sensitive`; the builder shows both the first-value and the settled bar count,
+    computed by TypeScript formulas cross-checked against schema-computed examples.
+
+Rollout continues in a later change: decision journals record each clock's window start.
 
 ## Consequences
 

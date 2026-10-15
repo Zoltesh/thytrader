@@ -2,7 +2,7 @@
 
 Both render :data:`thytrader.strategies.indicator_catalog.INDICATOR_KIND_SPECS`, so an
 agent reading ``thytrader-operator indicators`` and a person using the builder see the
-same kinds, parameters, bounds, defaults, outputs, and warmup formulas.
+same kinds, parameters, bounds, defaults, outputs, warmup formulas, and convergence warmups.
 """
 
 from __future__ import annotations
@@ -21,6 +21,11 @@ from thytrader.strategies.indicator_catalog import (
     integer_parameter_bounds,
 )
 from thytrader.strategies.models import IndicatorDefinition, IndicatorKind, indicator_min_warmup
+from thytrader.strategies.schema.indicator_convergence import (
+    indicator_anchor_sensitive,
+    indicator_convergence_warmup,
+    indicator_recursive,
+)
 
 if TYPE_CHECKING:
     from thytrader.strategies.indicator_spec_model import IndicatorKindSpec
@@ -52,6 +57,7 @@ class IndicatorWarmupExample(BaseModel):
     parameters: dict[str, int | str]
     offset: int = Field(ge=0)
     warmup_bars: int = Field(ge=1)
+    convergence_warmup_bars: int = Field(ge=1)
 
 
 class WebIndicatorWarmupExamples(WebCatalogDocument):
@@ -69,6 +75,7 @@ def _catalog_entry(spec: IndicatorKindSpec) -> IndicatorCatalogEntry:
     """Render one registry spec as an operator report row."""
     period_min, period_max = integer_parameter_bounds(spec)
     accepts_clock = spec.kind is not IndicatorKind.CONSTANT
+    default = default_indicator_definition(spec)
     return IndicatorCatalogEntry(
         kind=spec.kind.value,
         label=spec.label,
@@ -98,6 +105,9 @@ def _catalog_entry(spec: IndicatorKindSpec) -> IndicatorCatalogEntry:
         outputs=spec.outputs,
         warmup=spec.warmup,
         default_warmup_bars=default_warmup_bars(spec),
+        convergence="recursive" if indicator_recursive(spec.kind) else "exact",
+        default_convergence_warmup_bars=indicator_convergence_warmup(default),
+        anchor_sensitive=indicator_anchor_sensitive(default),
         supports_timeframe=accepts_clock,
         supports_offset=accepts_clock,
         supports_source=accepts_clock,
@@ -114,8 +124,9 @@ def web_indicator_warmup_examples_document() -> WebIndicatorWarmupExamples:
 
     The browser computes warmup locally for instant feedback; these examples (defaults,
     every integer bumped by one, and defaults with a 3-bar offset) come from
-    :func:`thytrader.strategies.models.indicator_min_warmup`, so the unit test proves
-    the TypeScript formulas agree with the schema without a server.
+    :func:`thytrader.strategies.models.indicator_min_warmup` and, for convergence,
+    ``indicator_convergence_warmup`` (ADR 0140), so the unit test proves the TypeScript
+    formulas agree with the schema without a server.
     """
     return WebIndicatorWarmupExamples(
         warmup_examples={spec.kind.value: _warmup_examples(spec) for spec in INDICATOR_KIND_SPECS}
@@ -150,6 +161,7 @@ def _warmup_examples(spec: IndicatorKindSpec) -> tuple[IndicatorWarmupExample, .
                 parameters=parameters,
                 offset=offset or 0,
                 warmup_bars=indicator_min_warmup(definition),
+                convergence_warmup_bars=indicator_convergence_warmup(definition),
             )
         )
     return tuple(examples)
