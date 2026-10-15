@@ -7,21 +7,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 90
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 94
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 93
       }
     ],
     "sma": [
@@ -30,21 +33,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "rsi": [
@@ -53,21 +59,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 109
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 16
+        "warmup_bars": 16,
+        "convergence_warmup_bars": 117
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 18
+        "warmup_bars": 18,
+        "convergence_warmup_bars": 112
       }
     ],
     "atr": [
@@ -76,21 +85,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 108
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 116
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 17
+        "warmup_bars": 17,
+        "convergence_warmup_bars": 111
       }
     ],
     "volume_sma": [
@@ -99,21 +111,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "highest": [
@@ -122,21 +137,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "lowest": [
@@ -145,21 +163,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "stdev": [
@@ -168,21 +189,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "stdev_sample": [
@@ -191,21 +215,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "roc": [
@@ -214,21 +241,24 @@
           "period": 10
         },
         "offset": 0,
-        "warmup_bars": 11
+        "warmup_bars": 11,
+        "convergence_warmup_bars": 11
       },
       {
         "parameters": {
           "period": 11
         },
         "offset": 0,
-        "warmup_bars": 12
+        "warmup_bars": 12,
+        "convergence_warmup_bars": 12
       },
       {
         "parameters": {
           "period": 10
         },
         "offset": 3,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 14
       }
     ],
     "williams_r": [
@@ -237,21 +267,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 14
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 15
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 17
+        "warmup_bars": 17,
+        "convergence_warmup_bars": 17
       }
     ],
     "cci": [
@@ -260,21 +293,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "wma": [
@@ -283,21 +319,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "momentum": [
@@ -306,21 +345,24 @@
           "period": 10
         },
         "offset": 0,
-        "warmup_bars": 11
+        "warmup_bars": 11,
+        "convergence_warmup_bars": 11
       },
       {
         "parameters": {
           "period": 11
         },
         "offset": 0,
-        "warmup_bars": 12
+        "warmup_bars": 12,
+        "convergence_warmup_bars": 12
       },
       {
         "parameters": {
           "period": 10
         },
         "offset": 3,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 14
       }
     ],
     "mfi": [
@@ -329,21 +371,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 15
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 16
+        "warmup_bars": 16,
+        "convergence_warmup_bars": 16
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 18
+        "warmup_bars": 18,
+        "convergence_warmup_bars": 18
       }
     ],
     "macd": [
@@ -354,7 +399,8 @@
           "signal_period": 9
         },
         "offset": 0,
-        "warmup_bars": 34
+        "warmup_bars": 34,
+        "convergence_warmup_bars": 155
       },
       {
         "parameters": {
@@ -363,7 +409,8 @@
           "signal_period": 10
         },
         "offset": 0,
-        "warmup_bars": 36
+        "warmup_bars": 36,
+        "convergence_warmup_bars": 165
       },
       {
         "parameters": {
@@ -372,7 +419,8 @@
           "signal_period": 9
         },
         "offset": 3,
-        "warmup_bars": 37
+        "warmup_bars": 37,
+        "convergence_warmup_bars": 158
       }
     ],
     "bollinger": [
@@ -382,7 +430,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
@@ -390,7 +439,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
@@ -398,7 +448,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "stochastic": [
@@ -408,7 +459,8 @@
           "d_period": 3
         },
         "offset": 0,
-        "warmup_bars": 16
+        "warmup_bars": 16,
+        "convergence_warmup_bars": 16
       },
       {
         "parameters": {
@@ -416,7 +468,8 @@
           "d_period": 4
         },
         "offset": 0,
-        "warmup_bars": 18
+        "warmup_bars": 18,
+        "convergence_warmup_bars": 18
       },
       {
         "parameters": {
@@ -424,7 +477,8 @@
           "d_period": 3
         },
         "offset": 3,
-        "warmup_bars": 19
+        "warmup_bars": 19,
+        "convergence_warmup_bars": 19
       }
     ],
     "adx": [
@@ -433,38 +487,44 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 27
+        "warmup_bars": 27,
+        "convergence_warmup_bars": 215
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 29
+        "warmup_bars": 29,
+        "convergence_warmup_bars": 231
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 30
+        "warmup_bars": 30,
+        "convergence_warmup_bars": 218
       }
     ],
     "identity": [
       {
         "parameters": {},
         "offset": 0,
-        "warmup_bars": 1
+        "warmup_bars": 1,
+        "convergence_warmup_bars": 1
       },
       {
         "parameters": {},
         "offset": 0,
-        "warmup_bars": 1
+        "warmup_bars": 1,
+        "convergence_warmup_bars": 1
       },
       {
         "parameters": {},
         "offset": 3,
-        "warmup_bars": 4
+        "warmup_bars": 4,
+        "convergence_warmup_bars": 4
       }
     ],
     "constant": [
@@ -473,14 +533,16 @@
           "value": "50"
         },
         "offset": 0,
-        "warmup_bars": 1
+        "warmup_bars": 1,
+        "convergence_warmup_bars": 1
       },
       {
         "parameters": {
           "value": "50"
         },
         "offset": 0,
-        "warmup_bars": 1
+        "warmup_bars": 1,
+        "convergence_warmup_bars": 1
       }
     ],
     "dema": [
@@ -489,21 +551,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 39
+        "warmup_bars": 39,
+        "convergence_warmup_bars": 179
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 41
+        "warmup_bars": 41,
+        "convergence_warmup_bars": 187
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 42
+        "warmup_bars": 42,
+        "convergence_warmup_bars": 182
       }
     ],
     "tema": [
@@ -512,21 +577,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 58
+        "warmup_bars": 58,
+        "convergence_warmup_bars": 268
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 61
+        "warmup_bars": 61,
+        "convergence_warmup_bars": 280
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 61
+        "warmup_bars": 61,
+        "convergence_warmup_bars": 271
       }
     ],
     "hma": [
@@ -535,21 +603,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 24
+        "warmup_bars": 24,
+        "convergence_warmup_bars": 24
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 26
+        "warmup_bars": 26,
+        "convergence_warmup_bars": 26
       }
     ],
     "kama": [
@@ -560,7 +631,8 @@
           "slow_period": 30
         },
         "offset": 0,
-        "warmup_bars": 11
+        "warmup_bars": 11,
+        "convergence_warmup_bars": 1668
       },
       {
         "parameters": {
@@ -569,7 +641,8 @@
           "slow_period": 31
         },
         "offset": 0,
-        "warmup_bars": 12
+        "warmup_bars": 12,
+        "convergence_warmup_bars": 1777
       },
       {
         "parameters": {
@@ -578,7 +651,8 @@
           "slow_period": 30
         },
         "offset": 3,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 1671
       }
     ],
     "vwma": [
@@ -587,21 +661,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "supertrend": [
@@ -611,7 +688,8 @@
           "multiplier": "3"
         },
         "offset": 0,
-        "warmup_bars": 10
+        "warmup_bars": 10,
+        "convergence_warmup_bars": 76
       },
       {
         "parameters": {
@@ -619,7 +697,8 @@
           "multiplier": "3"
         },
         "offset": 0,
-        "warmup_bars": 11
+        "warmup_bars": 11,
+        "convergence_warmup_bars": 84
       },
       {
         "parameters": {
@@ -627,7 +706,8 @@
           "multiplier": "3"
         },
         "offset": 3,
-        "warmup_bars": 13
+        "warmup_bars": 13,
+        "convergence_warmup_bars": 79
       }
     ],
     "parabolic_sar": [
@@ -637,7 +717,8 @@
           "max_step": "0.2"
         },
         "offset": 0,
-        "warmup_bars": 2
+        "warmup_bars": 2,
+        "convergence_warmup_bars": 2
       },
       {
         "parameters": {
@@ -645,7 +726,8 @@
           "max_step": "0.2"
         },
         "offset": 0,
-        "warmup_bars": 2
+        "warmup_bars": 2,
+        "convergence_warmup_bars": 2
       },
       {
         "parameters": {
@@ -653,7 +735,8 @@
           "max_step": "0.2"
         },
         "offset": 3,
-        "warmup_bars": 5
+        "warmup_bars": 5,
+        "convergence_warmup_bars": 5
       }
     ],
     "aroon": [
@@ -662,21 +745,24 @@
           "period": 25
         },
         "offset": 0,
-        "warmup_bars": 26
+        "warmup_bars": 26,
+        "convergence_warmup_bars": 26
       },
       {
         "parameters": {
           "period": 26
         },
         "offset": 0,
-        "warmup_bars": 27
+        "warmup_bars": 27,
+        "convergence_warmup_bars": 27
       },
       {
         "parameters": {
           "period": 25
         },
         "offset": 3,
-        "warmup_bars": 29
+        "warmup_bars": 29,
+        "convergence_warmup_bars": 29
       }
     ],
     "ichimoku": [
@@ -687,7 +773,8 @@
           "senkou_b_period": 52
         },
         "offset": 0,
-        "warmup_bars": 52
+        "warmup_bars": 52,
+        "convergence_warmup_bars": 52
       },
       {
         "parameters": {
@@ -696,7 +783,8 @@
           "senkou_b_period": 53
         },
         "offset": 0,
-        "warmup_bars": 53
+        "warmup_bars": 53,
+        "convergence_warmup_bars": 53
       },
       {
         "parameters": {
@@ -705,7 +793,8 @@
           "senkou_b_period": 52
         },
         "offset": 3,
-        "warmup_bars": 55
+        "warmup_bars": 55,
+        "convergence_warmup_bars": 55
       }
     ],
     "vortex": [
@@ -714,21 +803,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 15
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 16
+        "warmup_bars": 16,
+        "convergence_warmup_bars": 16
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 18
+        "warmup_bars": 18,
+        "convergence_warmup_bars": 18
       }
     ],
     "linear_regression": [
@@ -737,21 +829,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "trix": [
@@ -760,21 +855,24 @@
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 44
+        "warmup_bars": 44,
+        "convergence_warmup_bars": 200
       },
       {
         "parameters": {
           "period": 16
         },
         "offset": 0,
-        "warmup_bars": 47
+        "warmup_bars": 47,
+        "convergence_warmup_bars": 215
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 3,
-        "warmup_bars": 47
+        "warmup_bars": 47,
+        "convergence_warmup_bars": 203
       }
     ],
     "stochastic_rsi": [
@@ -786,7 +884,8 @@
           "d_period": 3
         },
         "offset": 0,
-        "warmup_bars": 32
+        "warmup_bars": 32,
+        "convergence_warmup_bars": 126
       },
       {
         "parameters": {
@@ -796,7 +895,8 @@
           "d_period": 4
         },
         "offset": 0,
-        "warmup_bars": 36
+        "warmup_bars": 36,
+        "convergence_warmup_bars": 137
       },
       {
         "parameters": {
@@ -806,7 +906,8 @@
           "d_period": 3
         },
         "offset": 3,
-        "warmup_bars": 35
+        "warmup_bars": 35,
+        "convergence_warmup_bars": 129
       }
     ],
     "ppo": [
@@ -817,7 +918,8 @@
           "signal_period": 9
         },
         "offset": 0,
-        "warmup_bars": 34
+        "warmup_bars": 34,
+        "convergence_warmup_bars": 155
       },
       {
         "parameters": {
@@ -826,7 +928,8 @@
           "signal_period": 10
         },
         "offset": 0,
-        "warmup_bars": 36
+        "warmup_bars": 36,
+        "convergence_warmup_bars": 165
       },
       {
         "parameters": {
@@ -835,7 +938,8 @@
           "signal_period": 9
         },
         "offset": 3,
-        "warmup_bars": 37
+        "warmup_bars": 37,
+        "convergence_warmup_bars": 158
       }
     ],
     "ultimate_oscillator": [
@@ -846,7 +950,8 @@
           "long_period": 28
         },
         "offset": 0,
-        "warmup_bars": 29
+        "warmup_bars": 29,
+        "convergence_warmup_bars": 29
       },
       {
         "parameters": {
@@ -855,7 +960,8 @@
           "long_period": 29
         },
         "offset": 0,
-        "warmup_bars": 30
+        "warmup_bars": 30,
+        "convergence_warmup_bars": 30
       },
       {
         "parameters": {
@@ -864,7 +970,8 @@
           "long_period": 28
         },
         "offset": 3,
-        "warmup_bars": 32
+        "warmup_bars": 32,
+        "convergence_warmup_bars": 32
       }
     ],
     "awesome_oscillator": [
@@ -874,7 +981,8 @@
           "slow_period": 34
         },
         "offset": 0,
-        "warmup_bars": 34
+        "warmup_bars": 34,
+        "convergence_warmup_bars": 34
       },
       {
         "parameters": {
@@ -882,7 +990,8 @@
           "slow_period": 35
         },
         "offset": 0,
-        "warmup_bars": 35
+        "warmup_bars": 35,
+        "convergence_warmup_bars": 35
       },
       {
         "parameters": {
@@ -890,7 +999,8 @@
           "slow_period": 34
         },
         "offset": 3,
-        "warmup_bars": 37
+        "warmup_bars": 37,
+        "convergence_warmup_bars": 37
       }
     ],
     "cmo": [
@@ -899,21 +1009,24 @@
           "period": 9
         },
         "offset": 0,
-        "warmup_bars": 10
+        "warmup_bars": 10,
+        "convergence_warmup_bars": 10
       },
       {
         "parameters": {
           "period": 10
         },
         "offset": 0,
-        "warmup_bars": 11
+        "warmup_bars": 11,
+        "convergence_warmup_bars": 11
       },
       {
         "parameters": {
           "period": 9
         },
         "offset": 3,
-        "warmup_bars": 13
+        "warmup_bars": 13,
+        "convergence_warmup_bars": 13
       }
     ],
     "tsi": [
@@ -924,7 +1037,8 @@
           "signal_period": 13
         },
         "offset": 0,
-        "warmup_bars": 50
+        "warmup_bars": 50,
+        "convergence_warmup_bars": 227
       },
       {
         "parameters": {
@@ -933,7 +1047,8 @@
           "signal_period": 14
         },
         "offset": 0,
-        "warmup_bars": 53
+        "warmup_bars": 53,
+        "convergence_warmup_bars": 241
       },
       {
         "parameters": {
@@ -942,7 +1057,8 @@
           "signal_period": 13
         },
         "offset": 3,
-        "warmup_bars": 53
+        "warmup_bars": 53,
+        "convergence_warmup_bars": 230
       }
     ],
     "keltner": [
@@ -953,7 +1069,8 @@
           "multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 90
       },
       {
         "parameters": {
@@ -962,7 +1079,8 @@
           "multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 94
       },
       {
         "parameters": {
@@ -971,7 +1089,8 @@
           "multiplier": "2"
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 93
       }
     ],
     "donchian": [
@@ -980,21 +1099,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "bollinger_percent_b": [
@@ -1004,7 +1126,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
@@ -1012,7 +1135,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
@@ -1020,7 +1144,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "bollinger_bandwidth": [
@@ -1030,7 +1155,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
@@ -1038,7 +1164,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
@@ -1046,7 +1173,8 @@
           "stdev_multiplier": "2"
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "natr": [
@@ -1055,21 +1183,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 108
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 116
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 17
+        "warmup_bars": 17,
+        "convergence_warmup_bars": 111
       }
     ],
     "choppiness": [
@@ -1078,21 +1209,24 @@
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 14
       },
       {
         "parameters": {
           "period": 15
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 15
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 3,
-        "warmup_bars": 17
+        "warmup_bars": 17,
+        "convergence_warmup_bars": 17
       }
     ],
     "historical_volatility": [
@@ -1101,21 +1235,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 22
+        "warmup_bars": 22,
+        "convergence_warmup_bars": 22
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 24
+        "warmup_bars": 24,
+        "convergence_warmup_bars": 24
       }
     ],
     "obv": [
@@ -1124,21 +1261,24 @@
           "signal_period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "signal_period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "signal_period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "cmf": [
@@ -1147,21 +1287,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "accumulation_distribution": [
@@ -1170,21 +1313,24 @@
           "signal_period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "signal_period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "signal_period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "vwap": [
@@ -1193,21 +1339,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "force_index": [
@@ -1216,21 +1365,24 @@
           "period": 13
         },
         "offset": 0,
-        "warmup_bars": 14
+        "warmup_bars": 14,
+        "convergence_warmup_bars": 59
       },
       {
         "parameters": {
           "period": 14
         },
         "offset": 0,
-        "warmup_bars": 15
+        "warmup_bars": 15,
+        "convergence_warmup_bars": 64
       },
       {
         "parameters": {
           "period": 13
         },
         "offset": 3,
-        "warmup_bars": 17
+        "warmup_bars": 17,
+        "convergence_warmup_bars": 62
       }
     ],
     "zscore": [
@@ -1239,21 +1391,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 20
+        "warmup_bars": 20,
+        "convergence_warmup_bars": 20
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 23
+        "warmup_bars": 23,
+        "convergence_warmup_bars": 23
       }
     ],
     "percent_rank": [
@@ -1262,21 +1417,24 @@
           "period": 20
         },
         "offset": 0,
-        "warmup_bars": 21
+        "warmup_bars": 21,
+        "convergence_warmup_bars": 21
       },
       {
         "parameters": {
           "period": 21
         },
         "offset": 0,
-        "warmup_bars": 22
+        "warmup_bars": 22,
+        "convergence_warmup_bars": 22
       },
       {
         "parameters": {
           "period": 20
         },
         "offset": 3,
-        "warmup_bars": 24
+        "warmup_bars": 24,
+        "convergence_warmup_bars": 24
       }
     ]
   }

@@ -8476,6 +8476,26 @@
           "title": "Default Warmup Bars",
           "type": "integer"
         },
+        "convergence": {
+          "description": "``recursive`` kinds start from a seed that decays over many bars, so they need more history than their first value to converge (ADR 0140); ``exact`` kinds are fixed windows that are settled at their first value.",
+          "enum": [
+            "exact",
+            "recursive"
+          ],
+          "title": "Convergence",
+          "type": "string"
+        },
+        "default_convergence_warmup_bars": {
+          "description": "Closed bars before the seed's weight is at most 1e-3 at the default parameters: the warmup a strategy under the convergence policy declares for this kind.",
+          "minimum": 1,
+          "title": "Default Convergence Warmup Bars",
+          "type": "integer"
+        },
+        "anchor_sensitive": {
+          "description": "Some state (Supertrend direction, Parabolic SAR trend, OBV and A/D levels) depends on where the series starts for any warmup; OBV/A-D crossovers with their own signal line are not affected.",
+          "title": "Anchor Sensitive",
+          "type": "boolean"
+        },
         "supports_timeframe": {
           "title": "Supports Timeframe",
           "type": "boolean"
@@ -8500,6 +8520,9 @@
         "default_input",
         "warmup",
         "default_warmup_bars",
+        "convergence",
+        "default_convergence_warmup_bars",
+        "anchor_sensitive",
         "supports_timeframe",
         "supports_offset",
         "supports_source"

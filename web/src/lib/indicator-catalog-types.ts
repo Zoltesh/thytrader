@@ -137,6 +137,10 @@ export type IndicatorParameterSpec = {
 	help: string;
 };
 
+export type IndicatorConvergence = 'exact' | 'recursive';
+
+export const INDICATOR_CONVERGENCE: readonly IndicatorConvergence[] = ['exact', 'recursive'];
+
 export type IndicatorCatalogEntry = {
 	kind: IndicatorKindValue;
 	label: string;
@@ -154,6 +158,12 @@ export type IndicatorCatalogEntry = {
 	/** Human warmup formula, for example `slow_period + signal_period - 1`. */
 	warmup: string;
 	default_warmup_bars: number;
+	/** `recursive` kinds decay from a seed and need more bars to converge (ADR 0140). */
+	convergence: IndicatorConvergence;
+	/** Bars before the seed weighs at most 1e-3 at the default parameters. */
+	default_convergence_warmup_bars: number;
+	/** Some state depends on where the series starts, for any warmup. */
+	anchor_sensitive: boolean;
 	supports_timeframe: boolean;
 	supports_offset: boolean;
 	/** Whether the kind may read a reference instrument with `source` (ADR 0096). */

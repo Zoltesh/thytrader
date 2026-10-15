@@ -56,6 +56,11 @@ export type BuilderModel = {
 	additional_instruments: CoveredInstrumentDraft[];
 	timeframe: string;
 	warmup_bars: number;
+	/**
+	 * `data_requirements.warmup_policy` (ADR 0140): `convergence` when the saved document seeds
+	 * every indicator until it settles; omitted on documents saved before it. Saving adopts it.
+	 */
+	warmup_policy?: 'convergence';
 	/** Read-only reference series (`data_requirements.reference_instruments`, ADR 0096). */
 	reference_instruments: ReferenceInstrumentDraft[];
 	indicators: IndicatorDraft[];
@@ -240,6 +245,9 @@ export function toBuilderModel(strategy: StrategyDefinition, revision: number): 
 		})),
 		timeframe: strategy.timeframe as string,
 		warmup_bars: (strategy.data_requirements as { warmup_bars: number }).warmup_bars,
+		...((strategy.data_requirements as { warmup_policy?: string }).warmup_policy === 'convergence'
+			? { warmup_policy: 'convergence' as const }
+			: {}),
 		reference_instruments: (
 			(strategy.data_requirements as { reference_instruments?: ReferenceInstrumentDraft[] })
 				.reference_instruments ?? []
@@ -313,6 +321,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 		timeframe: model.timeframe,
 		data_requirements: {
 			warmup_bars: model.warmup_bars,
+			...(model.warmup_policy === undefined ? {} : { warmup_policy: model.warmup_policy }),
 			required_fields: ['open', 'high', 'low', 'close', 'volume'],
 			...(model.reference_instruments.length === 0
 				? {}
@@ -332,6 +341,7 @@ export function fromBuilderModel(model: BuilderModel): StrategyDefinition {
 						timeframe: model.htf_filter.timeframe,
 						data_requirements: {
 							warmup_bars: model.htf_filter.warmup_bars,
+							...(model.warmup_policy === undefined ? {} : { warmup_policy: model.warmup_policy }),
 							required_fields: ['open', 'high', 'low', 'close', 'volume']
 						},
 						indicators: model.htf_filter.indicators.map((indicator) =>

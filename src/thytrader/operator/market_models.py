@@ -250,6 +250,27 @@ class IndicatorCatalogEntry(_FrozenModel):
     outputs: tuple[str, ...] = ()
     warmup: str
     default_warmup_bars: int = Field(ge=1)
+    convergence: Literal["exact", "recursive"] = Field(
+        description=(
+            "``recursive`` kinds start from a seed that decays over many bars, so they need "
+            "more history than their first value to converge (ADR 0140); ``exact`` kinds are "
+            "fixed windows that are settled at their first value."
+        )
+    )
+    default_convergence_warmup_bars: int = Field(
+        ge=1,
+        description=(
+            "Closed bars before the seed's weight is at most 1e-3 at the default parameters: the "
+            "warmup a strategy under the convergence policy declares for this kind."
+        ),
+    )
+    anchor_sensitive: bool = Field(
+        description=(
+            "Some state (Supertrend direction, Parabolic SAR trend, OBV and A/D levels) depends "
+            "on where the series starts for any warmup; OBV/A-D crossovers with their own "
+            "signal line are not affected."
+        )
+    )
     supports_timeframe: bool
     supports_offset: bool
     supports_source: bool = Field(

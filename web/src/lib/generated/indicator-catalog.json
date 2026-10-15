@@ -35,6 +35,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 90,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -73,6 +76,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -107,6 +113,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 15,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 109,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -147,6 +156,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 14,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 108,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -181,6 +193,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -219,6 +234,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -257,6 +275,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -295,6 +316,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -333,6 +357,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -371,6 +398,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 11,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 11,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -411,6 +441,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 14,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 14,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -451,6 +484,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -489,6 +525,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -527,6 +566,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 11,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 11,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -569,6 +611,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 15,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 15,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -631,6 +676,9 @@
       ],
       "warmup": "slow_period + signal_period - 1",
       "default_warmup_bars": 34,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 155,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -680,6 +728,9 @@
       ],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -734,6 +785,9 @@
       ],
       "warmup": "k_period + d_period - 1",
       "default_warmup_bars": 16,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 16,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -778,6 +832,9 @@
       ],
       "warmup": "2 * period - 1",
       "default_warmup_bars": 27,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 215,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -804,6 +861,9 @@
       "outputs": [],
       "warmup": "1",
       "default_warmup_bars": 1,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 1,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -836,6 +896,9 @@
       "outputs": [],
       "warmup": "1",
       "default_warmup_bars": 1,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 1,
+      "anchor_sensitive": false,
       "supports_timeframe": false,
       "supports_offset": false,
       "supports_source": false
@@ -874,6 +937,9 @@
       "outputs": [],
       "warmup": "2 * period - 1",
       "default_warmup_bars": 39,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 179,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -912,6 +978,9 @@
       "outputs": [],
       "warmup": "3 * period - 2",
       "default_warmup_bars": 58,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 268,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -950,6 +1019,9 @@
       "outputs": [],
       "warmup": "period + floor(sqrt(period)) - 1",
       "default_warmup_bars": 23,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 23,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1012,6 +1084,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 11,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 1668,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1050,6 +1125,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1104,6 +1182,9 @@
       ],
       "warmup": "period",
       "default_warmup_bars": 10,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 76,
+      "anchor_sensitive": true,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1155,6 +1236,9 @@
       "outputs": [],
       "warmup": "2",
       "default_warmup_bars": 2,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 2,
+      "anchor_sensitive": true,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1197,6 +1281,9 @@
       ],
       "warmup": "period + 1",
       "default_warmup_bars": 26,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 26,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1264,6 +1351,9 @@
       ],
       "warmup": "max(tenkan_period, kijun_period, senkou_b_period)",
       "default_warmup_bars": 52,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 52,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1307,6 +1397,9 @@
       ],
       "warmup": "period + 1",
       "default_warmup_bars": 15,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 15,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1348,6 +1441,9 @@
       ],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1382,6 +1478,9 @@
       "outputs": [],
       "warmup": "3 * period - 1",
       "default_warmup_bars": 44,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 200,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1452,6 +1551,9 @@
       ],
       "warmup": "rsi_period + stoch_period + k_period + d_period - 2",
       "default_warmup_bars": 32,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 126,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1514,6 +1616,9 @@
       ],
       "warmup": "slow_period + signal_period - 1",
       "default_warmup_bars": 34,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 155,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1578,6 +1683,9 @@
       "outputs": [],
       "warmup": "long_period + 1",
       "default_warmup_bars": 29,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 29,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1629,6 +1737,9 @@
       "outputs": [],
       "warmup": "slow_period",
       "default_warmup_bars": 34,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 34,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1663,6 +1774,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 10,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 10,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1724,6 +1838,9 @@
       ],
       "warmup": "long_period + short_period + signal_period - 1",
       "default_warmup_bars": 50,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 227,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1790,6 +1907,9 @@
       ],
       "warmup": "max(period, atr_period)",
       "default_warmup_bars": 20,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 90,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1832,6 +1952,9 @@
       ],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1877,6 +2000,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1922,6 +2048,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -1962,6 +2091,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 14,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 108,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2002,6 +2134,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 14,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 14,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2047,6 +2182,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 21,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 21,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2088,6 +2226,9 @@
       ],
       "warmup": "signal_period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": true,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2130,6 +2271,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2175,6 +2319,9 @@
       ],
       "warmup": "signal_period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": true,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2217,6 +2364,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2255,6 +2405,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 14,
+      "convergence": "recursive",
+      "default_convergence_warmup_bars": 59,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2293,6 +2446,9 @@
       "outputs": [],
       "warmup": "period",
       "default_warmup_bars": 20,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 20,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true
@@ -2331,6 +2487,9 @@
       "outputs": [],
       "warmup": "period + 1",
       "default_warmup_bars": 21,
+      "convergence": "exact",
+      "default_convergence_warmup_bars": 21,
+      "anchor_sensitive": false,
       "supports_timeframe": true,
       "supports_offset": true,
       "supports_source": true

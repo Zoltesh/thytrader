@@ -8,6 +8,8 @@
 	import {
 		MAX_INDICATOR_OFFSET,
 		findCatalogEntry,
+		MAX_DECLARED_WARMUP_BARS,
+		indicatorConvergenceWarmupBars,
 		indicatorWarmupBars,
 		readParameter,
 		writeParameter,
@@ -44,6 +46,18 @@
 		/** Called after every edit. */
 		onchange: () => void;
 	} = $props();
+
+	/**
+	 * Whether the indicator's warmup is a declared one (decision clock, HTF filter, or an extra
+	 * indicator on the filter's clock), which the 10,000-bar cap limits; extra-timeframe and
+	 * reference warmups are derived for their own clocks (ADR 0140).
+	 */
+	function onDeclaredClock(item: IndicatorDraft): boolean {
+		if (!allowTimeframe) return true;
+		if (item.source !== undefined && item.source !== '') return false;
+		const clock = item.timeframe ?? '';
+		return clock === '' || clock === model.timeframe || clock === model.htf_filter?.timeframe;
+	}
 
 	const entry = $derived(findCatalogEntry(indicator.kind));
 
@@ -205,10 +219,27 @@
 {/if}
 {#if entry !== undefined}
 	{@const warmup = indicatorWarmupBars(indicator)}
+	{@const converged = indicatorConvergenceWarmupBars(indicator)}
+	{@const declared = onDeclaredClock(indicator)}
 	<p class="kind-summary">
 		<span>{entry.summary}</span>
 		{#if Number.isFinite(warmup) && warmup > 0}
-			<span class="warmup">Needs {warmup} completed {warmup === 1 ? 'bar' : 'bars'}.</span>
+			<span class="warmup" data-testid="indicator-warmup">
+				{#if declared && converged > MAX_DECLARED_WARMUP_BARS}
+					First value after {warmup} completed bars, but it settles only after {converged}, more
+					than the {MAX_DECLARED_WARMUP_BARS} a strategy can declare: shorten it, or paper and live cannot
+					start it.
+				{:else if converged > warmup}
+					First value after {warmup} completed bars; settled after {converged}{declared
+						? ', the warmup a saved strategy declares'
+						: ', fetched for its own clock'}.
+				{:else}
+					Needs {warmup} completed {warmup === 1 ? 'bar' : 'bars'}.
+				{/if}
+			</span>
+		{/if}
+		{#if entry.anchor_sensitive}
+			<span class="warmup">Its direction or running level depends on where the data starts.</span>
 		{/if}
 	</p>
 {/if}

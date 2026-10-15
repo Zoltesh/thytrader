@@ -3,7 +3,7 @@
  * the reference-gate and signal-exit sentences, and the data a strategy needs
  * before its first signal. Re-exported by `strategy-insight.ts`.
  */
-import { indicatorWarmupBars } from './indicator-catalog';
+import { indicatorConvergenceWarmupBars, indicatorWarmupBars } from './indicator-catalog';
 import { isComparison, isGroup } from './strategy-insight-conditions';
 import {
 	builderQuoteLabel,
@@ -131,7 +131,10 @@ export function requiredDataText(model: BuilderModel): string {
 	}
 	for (const reference of model.reference_instruments) {
 		const readers = model.indicators.filter((indicator) => indicator.source === reference.id);
-		const warmup = Math.max(1, ...readers.map((indicator) => indicatorWarmupBars(indicator)));
+		// Under the convergence policy the server derives the settled warmup (ADR 0140).
+		const warmupOf =
+			model.warmup_policy === 'convergence' ? indicatorConvergenceWarmupBars : indicatorWarmupBars;
+		const warmup = Math.max(1, ...readers.map((indicator) => warmupOf(indicator)));
 		parts.push(
 			`Reference ${reference.product_id} ${reference.timeframe} (${reference.id}): ${warmup} completed bars, using only the last reference bar that closed by each ${model.timeframe} close.`
 		);

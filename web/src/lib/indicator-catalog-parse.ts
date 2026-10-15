@@ -4,6 +4,7 @@
  */
 import {
 	INDICATOR_CATEGORIES,
+	INDICATOR_CONVERGENCE,
 	INDICATOR_KINDS,
 	INDICATOR_PARAMETER_NAMES,
 	type IndicatorCatalogEntry,
@@ -107,6 +108,12 @@ function parseEntry(raw: unknown, where: string): IndicatorCatalogEntry {
 		outputs: asTextList(item.outputs, `${where}.outputs`),
 		warmup: asText(item.warmup, `${where}.warmup`),
 		default_warmup_bars: asInteger(item.default_warmup_bars, `${where}.default_warmup_bars`),
+		convergence: asOneOf(item.convergence, INDICATOR_CONVERGENCE, `${where}.convergence`),
+		default_convergence_warmup_bars: asInteger(
+			item.default_convergence_warmup_bars,
+			`${where}.default_convergence_warmup_bars`
+		),
+		anchor_sensitive: asBoolean(item.anchor_sensitive, `${where}.anchor_sensitive`),
 		supports_timeframe: asBoolean(item.supports_timeframe, `${where}.supports_timeframe`),
 		supports_offset: asBoolean(item.supports_offset, `${where}.supports_offset`),
 		supports_source: asBoolean(item.supports_source, `${where}.supports_source`)
