@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from thytrader.research import live_evidence as live_evidence_module
+from thytrader.research import live_evidence as live_evidence_module, promotion_sources
 from thytrader.research.catalog import StudyCatalogIntegrityError
 from thytrader.research.live_evidence import (
     LIVE_EVIDENCE_REQUIRED,
@@ -336,3 +336,47 @@ async def test_a_malformed_stored_row_is_unavailable_evidence() -> None:
         now=_NOW,
     )
     assert "paper_books" in gathered.unavailable
+
+
+class _GrowingCatalog(_Catalog):
+    """A catalog in which a new study is published right after the first page is read."""
+
+    async def list_summaries(
+        self, *, kind: str | None = None, strategy_id: object = None, limit: int, offset: int
+    ) -> tuple[object, ...]:
+        rows = await super().list_summaries(
+            kind=kind, strategy_id=strategy_id, limit=limit, offset=offset
+        )
+        if offset == 0:
+            # Newest first: a new study sorts ahead and shifts every later page by one.
+            self.documents["a-new"] = "{}"
+        return rows
+
+
+async def _all_readable(
+    catalog: object, rows: tuple[object, ...], strategy_fingerprint: str
+) -> tuple[list[object], bool]:
+    """Every listed study read fine and none matched: only paging decides completeness."""
+    del catalog, rows, strategy_fingerprint
+    return [], True
+
+
+@pytest.mark.anyio
+async def test_a_study_published_between_pages_is_never_counted_twice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A shifted page repeats a study: the read is incomplete instead of double counting."""
+    monkeypatch.setattr(promotion_sources, "_matching", _all_readable)
+    names = {f"s{index:03}": "{}" for index in range(STUDY_PAGE + 1)}
+    steady = _Catalog(dict(names))
+    _studies, complete = await every_study_of(
+        cast("ResearchStudyCatalog", steady), strategy_fingerprint=_FINGERPRINT, strategy_id=uuid4()
+    )
+    assert complete
+    growing = _GrowingCatalog(dict(names))
+    _studies, complete = await every_study_of(
+        cast("ResearchStudyCatalog", growing),
+        strategy_fingerprint=_FINGERPRINT,
+        strategy_id=uuid4(),
+    )
+    assert not complete

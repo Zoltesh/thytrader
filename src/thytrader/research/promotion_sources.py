@@ -64,14 +64,21 @@ async def every_study_of(
     Reads the strategy's own studies page by page (a process-local catalog, which cannot
     filter by strategy, is read whole). A listing or study that cannot be read, or more pages
     than ``MAX_STUDY_PAGES``, makes the result incomplete: what was found is returned, but it
-    is not the whole record.
+    is not the whole record. A study seen twice (the catalog grew between pages) is
+    incomplete too, so no study is ever counted twice.
     """
     owner: UUID | None = strategy_id
     matched: list[ResearchStudy] = []
+    seen: set[str] = set()
     for page in range(MAX_STUDY_PAGES):
         rows, owner = await _list_page(catalog, owner=owner, page=page)
         if rows is None:
             return tuple(matched), False
+        names = [row.study_fingerprint for row in rows]
+        if seen.intersection(names) or len(set(names)) < len(names):
+            # A study published between pages shifted them: never count one twice.
+            return tuple(matched), False
+        seen.update(names)
         found, complete = await _matching(catalog, rows, strategy_fingerprint)
         matched.extend(found)
         if not complete:

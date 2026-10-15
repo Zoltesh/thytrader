@@ -48,7 +48,8 @@ def add_inventory_read_parsers(
         "Evidence recorded when a live bot started (ADR 0143): out-of-sample study windows, "
         "trades and net result of its exact strategy fingerprint, paper bots and days since "
         "the first, the thresholds, and thin_reasons (empty when it met them). 404 for paper "
-        "bots and live bots started before ADR 0143. Read-only."
+        "bots, live bots started before ADR 0143, and starts that warned "
+        "LIVE_EVIDENCE_NOT_RECORDED. Read-only."
     )
     evidence = subparsers.add_parser(
         "live-evidence", parents=[trailing], help=evidence_help, description=evidence_help

@@ -60,7 +60,11 @@ class LiveStartEvidence(BaseModel):
     paper_days: str = Field(description="Days since the first paper book, one decimal.")
     thresholds: LiveEvidenceThresholds
     unavailable: tuple[EvidenceSource, ...] = Field(
-        default=(), description="Sources that could not be read; each makes the evidence thin."
+        default=(),
+        description=(
+            "Sources that failed, ran out of time or were only partly read; each makes the "
+            "evidence thin when a threshold needs that source."
+        ),
     )
     thin_reasons: tuple[str, ...] = Field(
         default=(), description="Why the evidence is thin; empty when it meets the thresholds."
@@ -68,7 +72,7 @@ class LiveStartEvidence(BaseModel):
 
     @property
     def thin(self) -> bool:
-        """Whether any threshold is unmet or any source unread."""
+        """Whether any threshold is unmet, or a source a threshold needs is unavailable."""
         return bool(self.thin_reasons)
 
 

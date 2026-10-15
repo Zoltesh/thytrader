@@ -478,12 +478,13 @@ resumes put them in each sleeve's outcome `message`.
   strategy fingerprint has shown: out-of-sample study windows (count, trades, summed net result)
   and paper bots of that fingerprint (count, days since the first). The start response carries
   it as `live_evidence`; read it later with `uv run thytrader-runtime live-evidence ID` (HTTP
-  `GET /api/v1/deployments/{id}/live-evidence`; 404 for paper bots and live bots started before
-  ADR 0143). Below the thresholds (default 30 out-of-sample trades, a positive out-of-sample net
+  `GET /api/v1/deployments/{id}/live-evidence`; 404 for paper bots, live bots started before
+  ADR 0143, and starts that warned `LIVE_EVIDENCE_NOT_RECORDED`). Below the thresholds (default 30 out-of-sample trades, a positive out-of-sample net
   result, 14 paper days) the start goes ahead with warning `LIVE_EVIDENCE_THIN: …` naming each
   gap in `thin_reasons`; relay it. Editing a strategy (or the warmup adoption above) makes a new
   fingerprint with its own, initially thin, evidence. `unavailable` lists sources that failed,
-  ran out of time (10 s each) or were only partly readable; they count as thin. Gathering never
+  ran out of time (10 s each) or were only partly readable; they count as thin when a threshold
+  needs that source. Gathering never
   stops a start by itself. `LIVE_EVIDENCE_NOT_RECORDED` means the bot started but the record
   could not be stored (the start response, or the sleeve outcome's `live_evidence`, still holds
   it). To gather evidence: run an out-of-sample study of
