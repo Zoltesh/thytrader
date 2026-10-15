@@ -198,6 +198,32 @@ def test_request_json_404_on_ready_api_hints_rebuild(url: str) -> None:
         request_json(method="GET", url=url)
 
 
+def test_a_route_s_own_404_is_reported_not_mistaken_for_a_stale_image() -> None:
+    """A deployment without a record answers with its own detail; no rebuild hint."""
+    url = "http://127.0.0.1:8200/api/v1/deployments/abc/live-evidence"
+    missing = HTTPError(url, 404, "Not Found", hdrs=Message(), fp=MagicMock())
+    missing.read = MagicMock(
+        return_value=b'{"detail":"No live-start evidence is recorded for this deployment."}'
+    )
+    probes: list[str] = []
+
+    def fake_urlopen(request: _HasFullUrl | str, timeout: object = None) -> MagicMock:
+        del timeout
+        requested_url = request if isinstance(request, str) else request.full_url
+        probes.append(requested_url)
+        raise missing
+
+    with (
+        patch("thytrader.agent_http.urlopen", side_effect=fake_urlopen),
+        pytest.raises(AgentHttpError) as raised,
+    ):
+        request_json(method="GET", url=url)
+    message = str(raised.value)
+    assert "No live-start evidence is recorded" in message
+    assert "make run" not in message
+    assert not any(item.endswith("/health/ready") for item in probes)
+
+
 @pytest.mark.parametrize(
     "ready_payload",
     (
