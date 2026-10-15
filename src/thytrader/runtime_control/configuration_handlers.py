@@ -181,7 +181,18 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_btc_beta_exposure_quote": arguments.max_btc_beta_exposure_quote,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
         "futures": _futures_block(arguments),
+        "start_safeguards": _start_safeguards(arguments),
     }
+
+
+def _start_safeguards(arguments: argparse.Namespace) -> dict[str, object] | None:
+    """Map the opt-in start safeguard flags (ADR 0142); ``None`` when none is set."""
+    fields = {
+        "require_convergence_warmup": arguments.require_convergence_warmup,
+        "require_market_history": arguments.require_market_history,
+    }
+    block: dict[str, object] = {name: True for name, value in fields.items() if value}
+    return block or None
 
 
 def _futures_block(arguments: argparse.Namespace) -> dict[str, object] | None:

@@ -24,6 +24,8 @@ from thytrader.portfolios.proposals import (
     ProposalDecisionRequest,
     ProposalSubmitRequest,
 )
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
@@ -283,9 +285,14 @@ async def test_resume_always_waits_and_live_approval_needs_the_acknowledgement()
 
 
 async def test_an_approved_resume_the_runtime_refuses_settles_as_failed() -> None:
-    """A sleeve running a snapshot saved before ADR 0140 is not resumed; the proposal says why."""
+    """With the warmup safeguard on, a pre-policy sleeve stays paused and the proposal fails."""
     state = world()
     current = await _started(state, permissions=ManagerPermissions(may_pause_sleeves=True))
+    await state.risk.publish(
+        compiled_default_risk_policy().model_copy(
+            update={"start_safeguards": StartSafeguards(require_convergence_warmup=True)}
+        )
+    )
     pid = current.portfolio.portfolio_id
     await state.proposals.submit(pid, _sleeve_change(current, "pause_sleeve"), channel="api")
     strategy_id = current.sleeves[0].sleeve.strategy_id

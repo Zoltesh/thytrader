@@ -21,7 +21,11 @@
 	import DeploymentLifecycleDialog from '$lib/DeploymentLifecycleDialog.svelte';
 	import { fetchCoinbaseCredentialsStatus } from '$lib/credentials';
 	import { declareLiveContext } from '$lib/live-context.svelte';
-	import { lifecycleAcceptedMessage, type LifecycleAction } from '$lib/deployment-detail';
+	import {
+		lifecycleAcceptedMessage,
+		withWarnings,
+		type LifecycleAction
+	} from '$lib/deployment-detail';
 	import {
 		createDeployment,
 		listStrategyDeployments,
@@ -204,8 +208,9 @@
 			deployments = deployments.map((deployment) =>
 				deployment.id === updated.id ? updated : deployment
 			);
-			acceptedMessage = lifecycleAcceptedMessage(
-				stopWithFlatten && action === 'stop' ? 'flatten' : action
+			acceptedMessage = withWarnings(
+				lifecycleAcceptedMessage(stopWithFlatten && action === 'stop' ? 'flatten' : action),
+				updated
 			);
 			dialogAction = null;
 			dialogTarget = null;
@@ -271,15 +276,17 @@
 		);
 		if (result.started !== null) {
 			deployments = [...deployments, result.started];
-			acceptedMessage =
-				'Bot updated: the earlier bot got a managed stop and a new bot started with the current rules.';
+			acceptedMessage = withWarnings(
+				'Bot updated: the earlier bot got a managed stop and a new bot started with the current rules.',
+				result.started
+			);
 		}
 		void loadDeployments();
 	}
 
 	function onPaperStarted(deployment: Deployment): void {
 		deployments = [...deployments, deployment];
-		acceptedMessage = 'Paper deployment started.';
+		acceptedMessage = withWarnings('Paper deployment started.', deployment);
 		void loadDeployments();
 	}
 </script>

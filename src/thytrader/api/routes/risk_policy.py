@@ -25,6 +25,7 @@ from thytrader.risk.models import (
     RiskPolicyWrite,
 )
 from thytrader.risk.service import publish_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.risk.store import RiskPolicyStore, RiskPolicyStoreError, load_effective_policy
 from thytrader.trading.ids import utc_now
 
@@ -74,6 +75,13 @@ class RiskPolicyWriteBody(BaseModel):
     max_btc_beta_exposure_fraction: str | None = None
     max_btc_beta_exposure_quote: str | None = None
     futures: FuturesRiskPolicy | None = None
+    start_safeguards: StartSafeguards | None = Field(
+        default=None,
+        description=(
+            "Opt-in start safeguards (ADR 0142): which start warnings refuse instead. "
+            "Omitted, every start check only warns."
+        ),
+    )
 
 
 class RiskPolicyResponse(BaseModel):
@@ -109,6 +117,13 @@ class RiskPolicyResponse(BaseModel):
     max_btc_beta_exposure_fraction: str | None = None
     max_btc_beta_exposure_quote: str | None = None
     futures: FuturesRiskPolicy | None = None
+    start_safeguards: StartSafeguards | None = Field(
+        default=None,
+        description=(
+            "Opt-in start safeguards (ADR 0142): which start warnings refuse instead. "
+            "Omitted, every start check only warns."
+        ),
+    )
 
 
 @router.get("", response_model=RiskPolicyResponse)
@@ -182,6 +197,7 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         max_btc_beta_exposure_fraction=body.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=body.max_btc_beta_exposure_quote,
         futures=body.futures,
+        start_safeguards=body.start_safeguards,
     )
 
 
@@ -222,4 +238,5 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         max_btc_beta_exposure_fraction=definition.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=definition.max_btc_beta_exposure_quote,
         futures=definition.futures,
+        start_safeguards=definition.start_safeguards,
     )

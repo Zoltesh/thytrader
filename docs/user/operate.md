@@ -463,7 +463,12 @@ to `/deployments/{id}`. **Start paper deployment…** asks for confirmation and 
 deployment from the current saved definition (never a promotion of a backtest). A bot on an
 earlier edit keeps running those rules; **Update bot…** moves it to the current rules by a managed
 stop followed by a new start, confirming each step (live keeps the understand-live checkbox). Pause, resume, stop, and flatten
-use the lifecycle dialog. **Arm live trading…** opens a dialog whose confirm stays disabled until
+use the lifecycle dialog. A start or resume never stops for advice: the confirmation notice adds
+any warning, for example that the market is younger than the strategy's warmup (the bot then
+waits for enough history before it enters) or that a bot started before the convergence warmup
+rule resumed on its old rules. Starting a strategy saved before that rule adopts it
+automatically, as saving would. An operator who wants such starts refused instead turns on the
+risk policy's opt-in start safeguards ([ADR 0142](../decisions/0142-opt-in-start-safeguards.md)). **Arm live trading…** opens a dialog whose confirm stays disabled until
 you tick "I understand this places real orders on Coinbase with real money"; live resume asks the
 same. The Live card's preflight lists, independently, Coinbase credential presence, whether a risk
 policy is published, the available balance in the strategy's quote currency, whether the policy

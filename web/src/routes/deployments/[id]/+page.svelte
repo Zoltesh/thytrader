@@ -48,6 +48,7 @@
 		botTitle,
 		exactVersionEvidenceLinks,
 		lifecycleAcceptedMessage,
+		withWarnings,
 		otherVersionDeployments,
 		quoteAmountLabel,
 		strategyVersionLink,
@@ -309,7 +310,10 @@
 			// Merge the mutation response before the reconciliation refresh.
 			deployment = updated;
 			acceptedRevision = updated.revision;
-			acceptedMessage = lifecycleAcceptedMessage(acceptedAction(action, stopWithFlatten));
+			acceptedMessage = withWarnings(
+				lifecycleAcceptedMessage(acceptedAction(action, stopWithFlatten)),
+				updated
+			);
 			dialogAction = null;
 			await refreshAfterMutation();
 			if (!stale) {

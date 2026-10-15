@@ -43,6 +43,7 @@ class _PlannedSleeve:
     view: SleeveView
     capital: Decimal
     snapshot: StrategySnapshot
+    warnings: tuple[str, ...] = ()
 
 
 def _fee_rates(mode: DeploymentMode, fees: FeeAssumptions) -> tuple[Decimal | None, Decimal | None]:

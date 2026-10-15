@@ -6,7 +6,7 @@ import asyncio
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
@@ -22,6 +22,7 @@ from thytrader.risk.breakers import EntryObservation
 from thytrader.risk.gate import evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
 from thytrader.risk.models import RiskDecision, RiskReasonCode, compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.security.models import INSTALLATION_AUTH_HEADER
 from thytrader.strategies.authoring import create_template_strategy
@@ -482,8 +483,10 @@ def test_duplicate_running_paper_deployment_conflicts() -> None:
     assert second.status_code == 409
 
 
-def test_a_market_younger_than_the_warmup_is_refused_over_http() -> None:
-    """The start reads venue history and answers 409 HISTORY_TOO_SHORT; nothing is created."""
+def _young_market_start(
+    risk: InMemoryRiskPolicyStore | None,
+) -> tuple[int, dict[str, object], InMemoryExecutionStore]:
+    """Start the template over HTTP on a market listed yesterday."""
     publication = InMemoryPublicationStore()
     execution = InMemoryExecutionStore()
     definition = _published_strategy()
@@ -497,10 +500,33 @@ def test_a_market_younger_than_the_warmup_is_refused_over_http() -> None:
         "paper_starting_cash": "10000",
     }
     young = listed_history(listed_at=datetime.now(UTC) - timedelta(days=1))
-    with _client(publication, execution, market_data=young) as client:
+    with _client(publication, execution, market_data=young, risk=risk) as client:
         response = client.post("/api/v1/deployments", json=payload)
-    assert response.status_code == 409
-    assert response.json()["detail"].startswith("HISTORY_TOO_SHORT: ")
+    return response.status_code, response.json(), execution
+
+
+def test_a_market_younger_than_the_warmup_starts_with_a_warning_over_http() -> None:
+    """The start goes ahead; the response's warnings say the bot waits (ADR 0142)."""
+    code, body, execution = _young_market_start(None)
+    assert code == 201
+    (warning,) = cast("list[str]", body["warnings"])
+    assert warning.startswith("HISTORY_TOO_SHORT: ")
+    assert len(asyncio.run(execution.list_deployments())) == 1
+
+
+def test_the_history_safeguard_refuses_a_young_market_over_http() -> None:
+    """With require_market_history the start is a 409 and nothing is created."""
+    risk = InMemoryRiskPolicyStore()
+    asyncio.run(
+        risk.publish(
+            compiled_default_risk_policy().model_copy(
+                update={"start_safeguards": StartSafeguards(require_market_history=True)}
+            )
+        )
+    )
+    code, body, execution = _young_market_start(risk)
+    assert code == 409
+    assert str(body["detail"]).startswith("HISTORY_TOO_SHORT: ")
     assert asyncio.run(execution.list_deployments()) == ()
 
 

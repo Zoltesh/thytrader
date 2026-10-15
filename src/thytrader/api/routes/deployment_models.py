@@ -240,6 +240,13 @@ class DeploymentLedgerSummaryResponse(BaseModel):
 class DeploymentResponse(BaseModel):
     """One deployment plus every product book, runtime overlay, and related evidence."""
 
+    warnings: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Start or resume warnings that did not refuse it (ADR 0142), each prefixed by its "
+            "code, for example WARMUP_POLICY_MISSING or HISTORY_TOO_SHORT. Empty otherwise."
+        ),
+    )
     id: UUID
     strategy_fingerprint: str | None
     strategy_id: UUID | None

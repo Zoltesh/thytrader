@@ -6,11 +6,12 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tests.market_history import listed_history
-from tests.portfolios.runtime_support import operator, portfolio, world
+from tests.portfolios.runtime_support import World, operator, portfolio, world
 from thytrader.execution.service import create_deployment
 from thytrader.portfolios.errors import (
     PortfolioConflictError,
@@ -21,9 +22,14 @@ from thytrader.portfolios.errors import (
 from thytrader.portfolios.models import SetWeightsRequest
 from thytrader.portfolios.runtime import PortfolioRuntimeService
 from thytrader.portfolios.runtime_start import FeeAssumptions
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
+
+if TYPE_CHECKING:
+    from thytrader.strategies.library import StrategyRecord
 
 pytestmark = pytest.mark.anyio
 
@@ -106,8 +112,36 @@ async def test_a_busy_strategy_refuses_the_whole_start() -> None:
     assert await state.tagged(current.portfolio.portfolio_id) == ()
 
 
-async def test_a_sleeve_saved_before_the_warmup_policy_refuses_the_start() -> None:
-    """A strategy stored before ADR 0140 names the re-save; nothing starts."""
+async def _enforce(state: World, **safeguards: bool) -> None:
+    """Publish a policy whose opt-in start safeguards refuse instead of warning (ADR 0142)."""
+    await state.risk.publish(
+        compiled_default_risk_policy().model_copy(
+            update={"start_safeguards": StartSafeguards(**safeguards)}
+        )
+    )
+
+
+async def _with_slow_kama(state: World, record: StrategyRecord) -> None:
+    """Re-save one sleeve's strategy with a KAMA too slow to declare its convergence warmup."""
+    assert record.definition is not None
+    document = json.loads(canonical_strategy_bytes(record.definition))
+    document["indicators"].append(
+        {
+            "id": "slow_kama",
+            "kind": "kama",
+            "input": "close",
+            "parameters": {"period": 10, "fast_period": 2, "slow_period": 500},
+        }
+    )
+    saved = await state.strategies.save(
+        record.strategy_id, document, expected_revision=record.revision
+    )
+    assert saved.definition is not None
+    assert saved.definition.data_requirements.warmup_policy is None
+
+
+async def test_a_sleeve_saved_before_the_warmup_policy_adopts_it_on_start() -> None:
+    """Starting re-saves a pre-policy strategy, as any save would; nothing is refused."""
     state = world()
     current, records = await portfolio(state)
     stored = records[0]
@@ -116,6 +150,35 @@ async def test_a_sleeve_saved_before_the_warmup_policy_refuses_the_start() -> No
     legacy = StrategyDefinition.model_validate(without_warmup_policy(document))
     # PostgreSQL keeps such rows from before the policy; the memory store always converges.
     state.strategies._records[stored.strategy_id] = replace(stored, definition=legacy)
+    result = await state.runtime.start(
+        current.portfolio.portfolio_id, revision=current.portfolio.revision, context=operator()
+    )
+    assert {item.outcome for item in result.outcomes} == {"started"}
+    adopted = await state.strategies.get(stored.strategy_id)
+    assert adopted.definition is not None
+    assert adopted.definition.data_requirements.warmup_policy == "convergence"
+    assert adopted.revision == stored.revision + 1
+
+
+async def test_a_sleeve_that_cannot_adopt_the_policy_starts_with_a_warning() -> None:
+    """A strategy whose convergence cannot be declared starts, its outcome saying why."""
+    state = world()
+    current, records = await portfolio(state)
+    await _with_slow_kama(state, records[0])
+    result = await state.runtime.start(
+        current.portfolio.portfolio_id, revision=current.portfolio.revision, context=operator()
+    )
+    outcome = next(item for item in result.outcomes if item.strategy_id == records[0].strategy_id)
+    assert outcome.outcome == "started"
+    assert (outcome.message or "").startswith("WARMUP_POLICY_MISSING: ")
+
+
+async def test_the_opt_in_safeguard_refuses_a_sleeve_without_the_policy() -> None:
+    """Under require_convergence_warmup, nothing starts and the sleeve's problem names it."""
+    state = world()
+    await _enforce(state, require_convergence_warmup=True)
+    current, records = await portfolio(state)
+    await _with_slow_kama(state, records[0])
     with pytest.raises(PortfolioStartRejectedError) as raised:
         await state.runtime.start(
             current.portfolio.portfolio_id,
@@ -123,15 +186,14 @@ async def test_a_sleeve_saved_before_the_warmup_policy_refuses_the_start() -> No
             context=operator(),
         )
     (problem,) = raised.value.problems
-    assert (problem.code, problem.strategy_id) == ("warmup_policy_required", stored.strategy_id)
+    assert (problem.code, problem.strategy_id) == ("warmup_policy_required", records[0].strategy_id)
     assert problem.message.startswith("WARMUP_POLICY_REQUIRED: ")
     assert await state.tagged(current.portfolio.portfolio_id) == ()
 
 
-async def test_a_sleeve_on_a_market_younger_than_its_warmup_refuses_the_start() -> None:
-    """Planning checks venue history for every sleeve before any sleeve starts (ADR 0140)."""
-    state = world()
-    young = PortfolioRuntimeService(
+def _young_runtime(state: World) -> PortfolioRuntimeService:
+    """The world's runtime reading a venue whose markets listed two days ago."""
+    return PortfolioRuntimeService(
         portfolios=state.portfolios,
         execution=state.execution,
         strategies=state.strategies,
@@ -141,9 +203,27 @@ async def test_a_sleeve_on_a_market_younger_than_its_warmup_refuses_the_start() 
         audit=state.audit,
         market_data=listed_history(listed_at=datetime.now(UTC) - timedelta(days=2)),
     )
+
+
+async def test_a_sleeve_on_a_market_younger_than_its_warmup_starts_with_a_warning() -> None:
+    """Every sleeve starts; each outcome carries the history warning (ADR 0142)."""
+    state = world()
+    current, records = await portfolio(state)
+    result = await _young_runtime(state).start(
+        current.portfolio.portfolio_id, revision=current.portfolio.revision, context=operator()
+    )
+    assert {item.outcome for item in result.outcomes} == {"started"}
+    assert all((item.message or "").startswith("HISTORY_TOO_SHORT: ") for item in result.outcomes)
+    assert len(await state.tagged(current.portfolio.portfolio_id)) == len(records)
+
+
+async def test_the_opt_in_safeguard_refuses_sleeves_on_young_markets() -> None:
+    """Under require_market_history, planning refuses every short sleeve; nothing starts."""
+    state = world()
+    await _enforce(state, require_market_history=True)
     current, records = await portfolio(state)
     with pytest.raises(PortfolioStartRejectedError) as raised:
-        await young.start(
+        await _young_runtime(state).start(
             current.portfolio.portfolio_id,
             revision=current.portfolio.revision,
             context=operator(),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Annotated, Literal
@@ -76,14 +77,15 @@ from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
 from thytrader.memory.store import ExperientialMemoryStore
-from thytrader.risk.store import RiskPolicyStore
+from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.runtime import RuntimeState
-from thytrader.strategies.library import StrategyStore
+from thytrader.strategies.library import StrategyLibraryError, StrategyStore
 from thytrader.strategies.models import covered_product_ids
 from thytrader.strategies.snapshots import (
     StrategySnapshotError,
     StrategySnapshotStore,
 )
+from thytrader.strategies.start_adoption import adopt_warmup_policy_for_start
 from thytrader.trading.ledger import ledger_from_snapshot
 from thytrader.trading.models import (
     Deployment,
@@ -155,7 +157,11 @@ async def post_deployment(
     ``HISTORY_UNCONFIRMED`` (ADR 0140).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
+    # The snapshot below reports a missing or unavailable strategy precisely.
+    with suppress(StrategyLibraryError):
+        await adopt_warmup_policy_for_start(strategies, body.strategy_id)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
+    warnings: list[str] = []
     if body.mode is DeploymentMode.LIVE and snapshot.definition.instrument.is_future:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -183,6 +189,7 @@ async def post_deployment(
                     market_data=market_data,
                     quote_reader=quote_reader,
                     memory_store=memory_store,
+                    warnings=warnings,
                 )
         else:
             deployment = await create_deployment(
@@ -202,6 +209,7 @@ async def post_deployment(
                 ),
                 futures_start=futures_start,
                 market_data=market_data,
+                warnings=warnings,
             )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
@@ -219,11 +227,12 @@ async def post_deployment(
     )
     snapshot = await store.get_deployment(deployment.id)
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return await snapshot_response(
+    response = await snapshot_response(
         snapshot,
         publication_store,
         extra_product_ids=extra,
     )
+    return response.model_copy(update={"warnings": warnings})
 
 
 @router.get("", response_model=DeploymentListResponse)
@@ -482,9 +491,15 @@ async def resume_deployment(
     store: Annotated[ExecutionStore, Depends(get_execution_store)],
     publication_store: Annotated[StrategySnapshotStore, Depends(get_strategy_snapshot_store)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    risk_store: Annotated[RiskPolicyStore, Depends(get_risk_policy_store)],
     body: Annotated[ResumeDeploymentRequest | None, Body()] = None,
 ) -> DeploymentResponse:
-    """Resume a paused deployment; a live book also needs ``i_understand_live=true``."""
+    """Resume a paused deployment; a live book also needs ``i_understand_live=true``.
+
+    A book whose snapshot predates the convergence warmup policy resumes with a
+    ``WARMUP_POLICY_MISSING`` warning, or is refused (409 ``WARMUP_POLICY_REQUIRED``) when the
+    risk policy's opt-in ``start_safeguards.require_convergence_warmup`` is set (ADR 0142).
+    """
     acknowledged = body.i_understand_live if body is not None else False
     try:
         current = await store.get_deployment(deployment_id)
@@ -492,8 +507,16 @@ async def resume_deployment(
         current = None
     if current is not None:
         require_live_acknowledgement(current.deployment.mode, acknowledged=acknowledged)
+    safeguards = (await load_effective_policy(risk_store)).definition.start_safeguards
     return await _set_status(
-        store, audit, deployment_id, DeploymentStatus.RUNNING, publication_store
+        store,
+        audit,
+        deployment_id,
+        DeploymentStatus.RUNNING,
+        publication_store,
+        require_convergence_warmup=(
+            safeguards is not None and safeguards.require_convergence_warmup
+        ),
     )
 
 
@@ -564,8 +587,10 @@ async def _set_status(
     publication_store: StrategySnapshotStore,
     *,
     flatten: bool = False,
+    require_convergence_warmup: bool = False,
 ) -> DeploymentResponse:
-    """Apply one status change and return the resulting snapshot."""
+    """Apply one status change and return the resulting snapshot with any warnings."""
+    warnings: list[str] = []
     try:
         snapshot = await set_deployment_status(
             store=store,
@@ -573,6 +598,8 @@ async def _set_status(
             status=status_value,
             publication_store=publication_store,
             flatten=flatten,
+            require_convergence_warmup=require_convergence_warmup,
+            warnings=warnings,
         )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None
@@ -589,11 +616,12 @@ async def _set_status(
         deployment=snapshot.deployment,
     )
     extra = await _covered_products(publication_store, snapshot.deployment)
-    return await snapshot_response(
+    response = await snapshot_response(
         snapshot,
         publication_store,
         extra_product_ids=extra,
     )
+    return response.model_copy(update={"warnings": warnings})
 
 
 def _status_action(status_value: DeploymentStatus) -> str:

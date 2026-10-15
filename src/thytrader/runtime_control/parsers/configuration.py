@@ -220,6 +220,24 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--require-convergence-warmup",
+        action="store_true",
+        help=(
+            "Opt-in start safeguard (ADR 0142): refuse to start or resume a strategy snapshot "
+            "without the convergence warmup policy (WARMUP_POLICY_REQUIRED). Omitted, such a "
+            "start or resume only warns."
+        ),
+    )
+    set_policy.add_argument(
+        "--require-market-history",
+        action="store_true",
+        help=(
+            "Opt-in start safeguard (ADR 0142): refuse a start whose market is younger than "
+            "the strategy's warmup (HISTORY_TOO_SHORT) or unreadable (HISTORY_UNCONFIRMED). "
+            "Omitted, the start only warns and the bot waits until it has the history."
+        ),
+    )
+    set_policy.add_argument(
         "--futures-live-spot-collateral-reserve-quote",
         default=None,
         help=(

@@ -103,6 +103,11 @@ export type DeploymentFill = {
 };
 
 export type Deployment = {
+	/**
+	 * Start or resume warnings that did not refuse it (ADR 0142), each prefixed by its code,
+	 * for example WARMUP_POLICY_MISSING or HISTORY_TOO_SHORT. Only on a start/resume response.
+	 */
+	warnings?: string[];
 	id: string;
 	/** Snapshot of the rules this deployment runs (fixed at start). */
 	strategy_fingerprint: string | null;

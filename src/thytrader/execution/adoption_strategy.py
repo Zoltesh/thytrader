@@ -96,6 +96,7 @@ async def start_with_adoption(
     risk_store: RiskPolicyStore | None = None,
     reference_watches: ReferenceWatchlist | None = None,
     origin: IntentOrigin = IntentOrigin.HUMAN,
+    warnings: list[str] | None = None,
 ) -> DeploymentSnapshot:
     """Start the strategy live with ``quantity`` (None: all) held coins already adopted.
 
@@ -114,6 +115,8 @@ async def start_with_adoption(
         reference_watches=reference_watches,
         market_data=venue.market_data,
     )
+    if warnings is not None:
+        warnings.extend(prepared.warnings)
     definition = prepared.definition
     require_adoptable_strategy(definition)
     book = prepared.deployment

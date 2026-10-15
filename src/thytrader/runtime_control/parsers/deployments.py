@@ -116,8 +116,9 @@ _STATUS_HELP = {
     "pause": "Pause one deployment.",
     "resume": (
         "Resume one paused deployment. A bot running a snapshot saved before the convergence "
-        "warmup policy is refused (409 WARMUP_POLICY_REQUIRED, ADR 0140): stop it and start the "
-        "re-saved strategy instead."
+        "warmup policy resumes with a WARMUP_POLICY_MISSING entry in the response's warnings "
+        "(ADR 0142); the risk policy's opt-in --require-convergence-warmup refuses it (409 "
+        "WARMUP_POLICY_REQUIRED) instead."
     ),
     "stop": "Stop one deployment.",
 }
@@ -134,10 +135,11 @@ def add_start_parser(
         help=(
             "Start one paper or live deployment from a strategy's current (valid) rules. "
             "The response's strategy_fingerprint names the snapshot the bot runs. A strategy "
-            "saved before the convergence warmup policy is refused (409 "
-            "WARMUP_POLICY_REQUIRED; re-save it, ADR 0140), and so is a market younger than the "
-            "strategy's warmup (409 HISTORY_TOO_SHORT; HISTORY_UNCONFIRMED when Coinbase "
-            "cannot be read, retry). A strategy with reference "
+            "saved before the convergence warmup policy adopts it on start (ADR 0140, 0142). "
+            "The response's warnings list anything that did not stop the start, such as "
+            "HISTORY_TOO_SHORT for a market younger than the strategy's warmup (the bot then "
+            "waits for its history); the risk policy's opt-in --require-market-history and "
+            "--require-convergence-warmup turn those into 409 refusals. A strategy with reference "
             "instruments starts only when each reference series is on the enabled market-data "
             "watchlist with a lookback covering its warmup (409 names the thytrader-data "
             "watch-add command). "

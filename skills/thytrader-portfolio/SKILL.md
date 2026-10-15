@@ -169,8 +169,8 @@ There is no "may place orders" permission and none can be added.
 **Proposal states.** `pending` → `applied` (a person approved and the change was made) /
 `declined` / `failed` (approved, but the change could not be made; `failure_code` says why:
 it no longer fits the portfolio, or `portfolio_sleeve_action_failed` when the sleeve's book refused
-it, with the refusal in `failure_message`, for example `WARMUP_POLICY_REQUIRED` for a sleeve saved
-before ADR 0140, see "Convergence warmup gate" in `skills/thytrader-runtime/SKILL.md`) /
+it, with the refusal in `failure_message`, for example `WARMUP_POLICY_REQUIRED` under the opt-in
+warmup safeguard, see "Start warnings and opt-in safeguards" in `skills/thytrader-runtime/SKILL.md`) /
 `expired` (7 days unanswered); a proposal inside the permissions is `applied` at once with
 `auto_applied: true`. Only `pending` proposals can be decided (`portfolio_proposal_not_pending`,
 409). Submission refusals: `portfolio_sleeve_not_running` (pause), `portfolio_sleeve_not_paused`

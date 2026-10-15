@@ -37,5 +37,6 @@ async def publish_risk_policy(store: RiskPolicyStore, write: RiskPolicyWrite) ->
         max_btc_beta_exposure_fraction=write.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=write.max_btc_beta_exposure_quote,
         futures=write.futures,
+        start_safeguards=write.start_safeguards,
     )
     return await store.publish(definition)

@@ -147,6 +147,12 @@ export function lifecycleDialog(deployment: Deployment, action: LifecycleAction)
 	}
 }
 
+/** An accepted-action sentence followed by the response's start/resume warnings (ADR 0142). */
+export function withWarnings(message: string, response: { warnings?: string[] }): string {
+	const warnings = response.warnings ?? [];
+	return warnings.length === 0 ? message : `${message} ${warnings.join(' ')}`;
+}
+
 /** Outcome sentence for an accepted lifecycle mutation, before refresh confirms it. */
 export function lifecycleAcceptedMessage(action: LifecycleAction): string {
 	switch (action) {

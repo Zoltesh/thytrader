@@ -9,6 +9,7 @@ import {
 	exactVersionEvidenceLinks,
 	fingerprintText,
 	lifecycleAcceptedMessage,
+	withWarnings,
 	lifecycleDialog,
 	lastEvaluatedText,
 	latestBarHeadline,
@@ -737,5 +738,21 @@ describe('bot detail KPIs', () => {
 		);
 		expect(rows?.[0]).toEqual({ label: 'Allocated capital', value: '100 USDC' });
 		expect(rows?.[1]).toEqual({ label: 'Venue available quote', value: 'unknown' });
+	});
+});
+
+describe('accepted messages with warnings (ADR 0142)', () => {
+	it('appends a start or resume warning to the accepted sentence', () => {
+		expect(withWarnings('Paper deployment started.', {})).toBe('Paper deployment started.');
+		expect(withWarnings('Paper deployment started.', { warnings: [] })).toBe(
+			'Paper deployment started.'
+		);
+		expect(
+			withWarnings('Deployment resumed.', {
+				warnings: ['WARMUP_POLICY_MISSING: predates the policy.', 'HISTORY_TOO_SHORT: young.']
+			})
+		).toBe(
+			'Deployment resumed. WARMUP_POLICY_MISSING: predates the policy. HISTORY_TOO_SHORT: young.'
+		);
 	});
 });

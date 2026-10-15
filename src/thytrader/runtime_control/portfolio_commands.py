@@ -69,9 +69,10 @@ def add_portfolio_parsers(
         parents=[trailing],
         help=(
             "Start (or attach) one bot per sleeve: paper cash or live allocated capital is "
-            "weight x capital. Nothing starts if any sleeve is refused (for example "
-            "warmup_policy_required for a strategy saved before ADR 0140, history_too_short "
-            "for a market younger than its warmup)."
+            "weight x capital. Nothing starts if any sleeve is refused. Start warnings such as "
+            "HISTORY_TOO_SHORT appear on each sleeve's outcome message; under the risk policy's "
+            "opt-in start safeguards they refuse instead (warmup_policy_required, "
+            "history_too_short; ADR 0142)."
         ),
     )
     start.add_argument("--portfolio-id", required=True)

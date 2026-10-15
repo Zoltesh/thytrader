@@ -32,6 +32,7 @@ from thytrader.execution.service import (
 from thytrader.execution.start_history import (
     history_shortfall_message,
     start_history_shortfalls,
+    start_history_warning,
 )
 from thytrader.execution.warmup_gate import convergence_policy_message
 from thytrader.market_data.models import parse_candle_interval
@@ -89,9 +90,11 @@ from thytrader.portfolios.runtime_start import (
 )
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.library import StrategyLibraryError
 from thytrader.strategies.models import covered_product_ids
+from thytrader.strategies.start_adoption import adopt_warmup_policy_for_start
 from thytrader.trading.ids import utc_now
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import (
@@ -425,6 +428,7 @@ class PortfolioRuntimeService:
         attached: list[SleeveOutcome] = []
         planned: list[_PlannedSleeve] = []
         problems: list[StartProblem] = []
+        safeguards = await self._start_safeguards()
         for view in targets:
             mine = next(
                 (
@@ -439,7 +443,7 @@ class PortfolioRuntimeService:
                     _outcome(view.strategy.name, view, mine, "attached", "Already deployed.")
                 )
                 continue
-            outcome = await self._plan_sleeve(aggregate, view, deployments, mode)
+            outcome = await self._plan_sleeve(aggregate, view, deployments, mode, safeguards)
             if isinstance(outcome, StartProblem):
                 problems.append(outcome)
             else:
@@ -455,8 +459,14 @@ class PortfolioRuntimeService:
         view: SleeveView,
         deployments: Sequence[Deployment],
         mode: DeploymentMode,
+        safeguards: StartSafeguards,
     ) -> _PlannedSleeve | StartProblem:
-        """Check one sleeve and snapshot its strategy's current rules."""
+        """Check one sleeve and snapshot its strategy's current rules.
+
+        A strategy saved before the convergence warmup policy adopts it first, as any start
+        does; a missing policy or short market history refuses the sleeve only under the opt-in
+        start safeguards, and otherwise travels as a warning on its outcome (ADR 0142).
+        """
         issues = sleeve_issues(view, aggregate.portfolio.quote_currency)
         if issues:
             return _problem(view, "sleeve_issue", f"Fix the sleeve first: {', '.join(issues)}.")
@@ -481,6 +491,7 @@ class PortfolioRuntimeService:
                 "it first, or remove this sleeve.",
             )
         try:
+            await adopt_warmup_policy_for_start(self._strategies, view.sleeve.strategy_id)
             snapshot = await self._strategies.snapshot(view.sleeve.strategy_id)
         except StrategyLibraryError as error:
             return _problem(view, "strategy_invalid", str(error) or "The strategy cannot start.")
@@ -490,24 +501,37 @@ class PortfolioRuntimeService:
                 "timeframe_not_executable",
                 f"{snapshot.definition.timeframe} is not an ingested venue clock.",
             )
-        if snapshot.definition.data_requirements.warmup_policy != "convergence":
+        if (
+            safeguards.require_convergence_warmup
+            and snapshot.definition.data_requirements.warmup_policy != "convergence"
+        ):
             return _problem(
                 view,
                 "warmup_policy_required",
                 convergence_policy_message(snapshot.definition, action="started"),
             )
-        history = await self._history_problem(view, snapshot.definition)
-        if history is not None:
+        history = await self._history_check(view, snapshot.definition, safeguards)
+        if isinstance(history, StartProblem):
             return history
         capital = _sleeve_capital(aggregate, view)
-        return _PlannedSleeve(view=view, capital=capital, snapshot=snapshot)
+        return _PlannedSleeve(
+            view=view,
+            capital=capital,
+            snapshot=snapshot,
+            warnings=() if history is None else (history,),
+        )
 
-    async def _history_problem(
-        self, view: SleeveView, definition: StrategyDefinition
-    ) -> StartProblem | None:
-        """Refuse a sleeve whose market is younger than its warmup, or whose history is unread."""
+    async def _history_check(
+        self, view: SleeveView, definition: StrategyDefinition, safeguards: StartSafeguards
+    ) -> StartProblem | str | None:
+        """A sleeve whose market is younger than its warmup, or whose history is unread.
+
+        Refused under the opt-in ``require_market_history`` safeguard; otherwise a warning.
+        """
         if self._market_data is None:
             return None
+        if not safeguards.require_market_history:
+            return await start_history_warning(self._market_data, definition, now=utc_now())
         try:
             shortfalls = await start_history_shortfalls(
                 self._market_data, definition, now=utc_now()
@@ -517,6 +541,11 @@ class PortfolioRuntimeService:
         if shortfalls:
             return _problem(view, "history_too_short", history_shortfall_message(shortfalls))
         return None
+
+    async def _start_safeguards(self) -> StartSafeguards:
+        """The effective risk policy's opt-in start safeguards (all off when unset)."""
+        policy = await load_effective_policy(self._risk_store)
+        return policy.definition.start_safeguards or StartSafeguards()
 
     async def _admission_problems(
         self,
@@ -570,7 +599,8 @@ class PortfolioRuntimeService:
         mode: DeploymentMode,
         fees: tuple[Decimal | None, Decimal | None],
     ) -> SleeveOutcome:
-        """Create one sleeve's tagged book."""
+        """Create one sleeve's tagged book; its start warnings become the outcome message."""
+        warnings = list(item.warnings)
         try:
             deployment = await create_deployment(
                 store=self._execution,
@@ -586,6 +616,7 @@ class PortfolioRuntimeService:
                     portfolio_id=aggregate.portfolio.portfolio_id, allocated_capital=item.capital
                 ),
                 reference_watches=self._reference_watches,
+                warnings=warnings,
             )
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(item.view.strategy.name, item.view, None, "failed", str(error))
@@ -593,7 +624,9 @@ class PortfolioRuntimeService:
         await self._audit_event(
             action, aggregate.portfolio.portfolio_id, detail=_deployment_audit(deployment)
         )
-        return _outcome(item.view.strategy.name, item.view, deployment, "started", None)
+        return _outcome(
+            item.view.strategy.name, item.view, deployment, "started", " ".join(warnings) or None
+        )
 
     async def _set_status(
         self,
@@ -605,7 +638,15 @@ class PortfolioRuntimeService:
         *,
         flatten: bool = False,
     ) -> SleeveOutcome:
-        """Apply one single-deployment status change to one sleeve's book."""
+        """Apply one single-deployment status change to one sleeve's book.
+
+        A resume's warnings (ADR 0142) become the outcome message.
+        """
+        warnings: list[str] = []
+        enforce = (
+            status is DeploymentStatus.RUNNING
+            and (await self._start_safeguards()).require_convergence_warmup
+        )
         try:
             snapshot = await set_deployment_status(
                 store=self._execution,
@@ -613,6 +654,8 @@ class PortfolioRuntimeService:
                 status=status,
                 publication_store=self._publication,
                 flatten=flatten,
+                require_convergence_warmup=enforce,
+                warnings=warnings,
             )
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(name, view, deployment, "failed", str(error))
@@ -622,7 +665,7 @@ class PortfolioRuntimeService:
                 deployment.portfolio_id,
                 detail=_deployment_audit(snapshot.deployment),
             )
-        return _outcome(name, view, snapshot.deployment, outcome, None)
+        return _outcome(name, view, snapshot.deployment, outcome, " ".join(warnings) or None)
 
     async def _journal_action(
         self,

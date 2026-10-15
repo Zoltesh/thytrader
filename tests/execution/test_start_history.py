@@ -18,8 +18,12 @@ from thytrader.execution.start_history import (
     HISTORY_UNCONFIRMED,
     require_start_history,
     start_history_shortfalls,
+    start_history_warning,
 )
 from thytrader.market_data.service import MarketDataService
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
+from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.warmup_policy import with_convergence_warmup
@@ -122,10 +126,38 @@ async def test_a_young_reference_series_is_named() -> None:
     assert short.role == "reference btc"
 
 
-async def test_create_deployment_refuses_a_young_market_and_creates_nothing() -> None:
-    """With market data, a start checks history after every other start check."""
+async def test_a_young_market_starts_with_a_warning_by_default() -> None:
+    """The user's start goes ahead; the warning says the bot waits for its history (ADR 0142)."""
     strategy = _ema200_2h()
     store = InMemoryExecutionStore()
+    warnings: list[str] = []
+    await create_deployment(
+        store=store,
+        publication_store=Catalog(strategy),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        mode=DeploymentMode.PAPER,
+        paper_starting_cash=Decimal("10000"),
+        live_allowed=False,
+        market_data=listed_history(listed_at=datetime.now(UTC) - timedelta(days=30)),
+        warnings=warnings,
+    )
+    assert len(await store.list_deployments()) == 1
+    (warning,) = warnings
+    assert warning.startswith(f"{HISTORY_TOO_SHORT}: ")
+    assert "Started anyway" in warning
+    assert "require_market_history" in warning
+
+
+async def test_the_opt_in_safeguard_refuses_a_young_market_and_creates_nothing() -> None:
+    """With require_market_history, a start checks history after every other start check."""
+    strategy = _ema200_2h()
+    store = InMemoryExecutionStore()
+    risk_store = InMemoryRiskPolicyStore()
+    await risk_store.publish(
+        compiled_default_risk_policy().model_copy(
+            update={"start_safeguards": StartSafeguards(require_market_history=True)}
+        )
+    )
     with pytest.raises(ExecutionConflictError, match=HISTORY_TOO_SHORT):
         await create_deployment(
             store=store,
@@ -134,9 +166,20 @@ async def test_create_deployment_refuses_a_young_market_and_creates_nothing() ->
             mode=DeploymentMode.PAPER,
             paper_starting_cash=Decimal("10000"),
             live_allowed=False,
+            risk_store=risk_store,
             market_data=listed_history(listed_at=datetime.now(UTC) - timedelta(days=30)),
         )
     assert await store.list_deployments() == ()
+
+
+async def test_unreadable_history_warns_or_refuses_without_contradiction() -> None:
+    """The unconfirmed message names the outcome of each path exactly once."""
+    unreadable = MarketDataService(_Unreadable())
+    warning = await start_history_warning(unreadable, _ema200_2h(), now=_NOW)
+    assert warning is not None
+    assert warning.startswith(f"{HISTORY_UNCONFIRMED}: ")
+    assert "Started anyway" in warning
+    assert "Nothing was started" not in warning
 
 
 async def test_a_thin_market_quiet_for_the_whole_short_read_is_still_listed() -> None:
