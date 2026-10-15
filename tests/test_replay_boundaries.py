@@ -148,3 +148,8 @@ async def test_a_cancel_captured_before_its_time_was_recorded_round_trips() -> N
     assert comparable(actual, expected) == expected
     recorded = outcome(replace(captured, orders=tuple(replace(o, canceled_at=NOW) for o in orders)))
     assert comparable(actual, recorded) == actual
+    working = outcome(replace(captured, orders=book.orders))
+    stamped_working = outcome(
+        replace(captured, orders=tuple(replace(o, canceled_at=NOW) for o in book.orders))
+    )
+    assert comparable(stamped_working, working) != working

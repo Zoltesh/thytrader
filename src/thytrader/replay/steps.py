@@ -128,7 +128,7 @@ ReplayStep.model_rebuild(
 )
 
 
-_CANCEL_STATES = frozenset({OrderStatus.CANCELED, OrderStatus.UNKNOWN})
+_WORKING_STATES = frozenset({OrderStatus.PENDING, OrderStatus.OPEN})
 
 
 def comparable(actual: ExecutionOutcome, expected: ExecutionOutcome) -> ExecutionOutcome:
@@ -136,13 +136,16 @@ def comparable(actual: ExecutionOutcome, expected: ExecutionOutcome) -> Executio
 
     Orders gained their cancel time and settlement in ADR 0141. A package captured earlier has
     neither; the replayed engine records them, so they are dropped from an actual order only
-    when the expected order with the same id is canceled or unknown and has them unset. Any
-    other order keeps them, so a stamp on a working order is still a mismatch.
+    when the expected order with the same id has them unset and is no longer working: a cancel
+    may be followed by fills that make the order filled, or by a failed read that leaves it
+    unknown. A working order keeps them, so a stamp on one is still a mismatch.
     """
     unset = {
         order.id
         for order in expected.orders
-        if order.status in _CANCEL_STATES and order.canceled_at is None and order.settled_at is None
+        if order.status not in _WORKING_STATES
+        and order.canceled_at is None
+        and order.settled_at is None
     }
     orders = tuple(
         replace(order, canceled_at=None, settled_at=None) if order.id in unset else order
