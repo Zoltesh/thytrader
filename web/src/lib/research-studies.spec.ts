@@ -6,7 +6,10 @@ import {
 	listStrategyTemplates,
 	parametersForTarget,
 	parseParameterAxisValues,
-	submitResearchStudy
+	studyHeadline,
+	submitResearchStudy,
+	type ResearchStudy,
+	type StudyWindowResult
 } from './research-studies';
 
 describe('parseParameterAxisValues', () => {
@@ -143,5 +146,59 @@ describe('study summary presentation (ADR 0094)', () => {
 		expect(summary.kind).toBe('walk_forward_optimization');
 		expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/research/studies/sha256%3A');
 		vi.unstubAllGlobals();
+	});
+});
+
+describe('study headline labels', () => {
+	const window = (role: StudyWindowResult['role']): StudyWindowResult =>
+		({ role }) as unknown as StudyWindowResult;
+	const study = (
+		roles: StudyWindowResult['role'][],
+		aggregate: Partial<ResearchStudy['aggregate']>
+	): ResearchStudy =>
+		({
+			windows: roles.map(window),
+			aggregate: {
+				oos_window_count: 0,
+				oos_trade_count: 0,
+				mean_oos_return_fraction: null,
+				mean_is_return_fraction: null,
+				is_oos_return_gap: null,
+				...aggregate
+			}
+		}) as unknown as ResearchStudy;
+
+	it('names cross-market full windows as full-window, not OOS', () => {
+		expect(
+			studyHeadline(
+				study(['full_window', 'full_window'], {
+					full_window_count: 2,
+					mean_full_window_return_fraction: '0.02'
+				})
+			)
+		).toEqual({ label: 'full-window', windowCount: 2, meanReturnFraction: '0.02', isOosGap: null });
+	});
+
+	it('relabels an older cross-market study that reported full windows under oos_*', () => {
+		expect(
+			studyHeadline(
+				study(['full_window', 'full_window'], {
+					oos_window_count: 2,
+					mean_oos_return_fraction: '0.02'
+				})
+			)
+		).toEqual({ label: 'full-window', windowCount: 2, meanReturnFraction: '0.02', isOosGap: null });
+	});
+
+	it('keeps genuine out-of-sample headlines with their IS−OOS gap', () => {
+		expect(
+			studyHeadline(
+				study(['in_sample', 'out_of_sample'], {
+					oos_window_count: 1,
+					mean_oos_return_fraction: '0.05',
+					is_oos_return_gap: '0.15'
+				})
+			)
+		).toEqual({ label: 'OOS', windowCount: 1, meanReturnFraction: '0.05', isOosGap: '0.15' });
 	});
 });

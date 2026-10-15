@@ -305,7 +305,10 @@ class StudyAggregate(_FrozenStudyModel):
     ``oos_*`` fields carry genuine out-of-sample windows only. Parameter sweeps
     score ``sweep_candidate`` full windows on one shared evaluation range; their
     aggregates use the ``candidate_*`` aliases so the naming cannot imply an
-    out-of-sample claim (ADR 0044 aggregate honesty).
+    out-of-sample claim (ADR 0044 aggregate honesty). Cross-market studies score
+    ``full_window`` results on one range per market; theirs use the ``full_window_*``
+    aliases for the same reason. Studies assembled before those aliases existed
+    counted full windows under ``oos_*``; their windows' roles show which.
     """
 
     window_count: int = Field(ge=1)
@@ -322,6 +325,11 @@ class StudyAggregate(_FrozenStudyModel):
     candidate_winning_trade_count: int | None = Field(default=None, ge=0)
     mean_candidate_return_fraction: str | None = None
     mean_candidate_drawdown_fraction: str | None = None
+    full_window_count: int | None = Field(default=None, ge=0)
+    full_window_trade_count: int | None = Field(default=None, ge=0)
+    full_window_winning_trade_count: int | None = Field(default=None, ge=0)
+    mean_full_window_return_fraction: str | None = None
+    mean_full_window_drawdown_fraction: str | None = None
 
 
 class ResearchStudy(_FrozenStudyModel):
