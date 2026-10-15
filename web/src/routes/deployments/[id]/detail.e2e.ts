@@ -1645,6 +1645,13 @@ test.describe('deployment detail', () => {
 		await expect(noSignal.getByTestId('condition-chip').first()).toContainText(
 			'RSI(14) 47.21 ≥ 50 ✗ (not met)'
 		);
+		// The data windows the bar read (ADR 0140); a late first returned bar is called out.
+		const windows = noSignal.getByTestId('decision-windows');
+		await expect(windows).toContainText('decision clock: UNI-USDC 2h, 223-bar warmup from');
+		await expect(windows).toContainText('reference btc: BTC-USDC 1d, 446-bar warmup from');
+		await expect(windows.getByRole('listitem')).toHaveCount(2);
+		await expect(windows.getByRole('listitem').first()).not.toContainText('first bar returned at');
+		await expect(windows.getByRole('listitem').last()).toContainText('first bar returned at');
 		const failed = timeline.locator('[data-testid="decision-row"][data-outcome="error"]');
 		await failed.getByRole('button').first().click();
 		await expect(failed.getByTestId('decision-rule-outcome')).toContainText(

@@ -95,8 +95,14 @@ class StrategyBarJournal(Protocol):
         candles: tuple[Candle, ...],
         advance: Callable[[], Awaitable[DeploymentSnapshot]],
         require_activity: bool,
+        htf_candles: Sequence[Candle] = (),
+        indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+        reference_candles: Mapping[str, Sequence[Candle]] | None = None,
     ) -> None:
-        """Run ``advance`` and journal it when the worker has a decision store."""
+        """Run ``advance`` and journal it when the worker has a decision store.
+
+        The signal-exit clocks the bar read, when any, let the journal record its windows.
+        """
         ...
 
 
@@ -442,6 +448,9 @@ async def _maintain_strategy_book(
         candles=context.candles,
         advance=_advance,
         require_activity=False,
+        htf_candles=htf,
+        indicator_timeframe_candles=extra,
+        reference_candles=references,
     )
 
 

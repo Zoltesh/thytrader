@@ -94,7 +94,12 @@ live evaluated as an SMA(100).
     warmup and `anchor_sensitive`; the builder shows both the first-value and the settled bar count,
     computed by TypeScript formulas cross-checked against schema-computed examples.
 
-Rollout continues in a later change: decision journals record each clock's window start.
+11. **Decision rows record their windows.** Each evaluated strategy bar journals, per clock it read
+    (its product's decision clock, HTF filter and extra timeframes, plus the references), the role,
+    series, warmup, the deploy-anchored window start and the first bar the venue returned, so a seed
+    can be reproduced and a window whose history starts late (a younger market, or no trades at
+    first) is visible on every row, managed-stopped signal exits included. Journaling is evidence
+    only: a failure to build the windows is logged and never interrupts the cycle.
 
 ## Consequences
 

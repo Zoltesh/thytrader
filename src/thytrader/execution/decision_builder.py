@@ -93,6 +93,7 @@ def build_bar_decision(context: BarContext) -> BarDecision:
         position=_position(after.position),
         no_trade_bar=context.no_trade_bar,
         protection_update=_protection_update(context, window),
+        windows=() if context.observations is None else context.observations.windows,
     )
 
 

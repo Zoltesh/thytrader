@@ -239,6 +239,24 @@
 			<p>Current: {decision.protection_update.active_order_ids.join(', ') || 'none'}.</p>
 		</section>
 	{/if}
+	{#if decision.windows && decision.windows.length > 0}
+		<section class="block" aria-label="Data windows" data-testid="decision-windows">
+			<h3>Data windows</h3>
+			<ul>
+				{#each decision.windows as window (`${window.role} ${window.product_id} ${window.timeframe}`)}
+					<li>
+						{window.role}: {window.product_id}
+						{window.timeframe}, {window.warmup_bars}-bar warmup from {formatUtcTimestamp(
+							window.starts_at
+						)}{#if window.first_bar_at === null}
+							— no bars returned{:else if window.first_bar_at !== window.starts_at}
+							— first bar returned at {formatUtcTimestamp(window.first_bar_at)} (a younger market, or
+							no trades at first){/if}
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
 	{#if decision.orders.length > 0}
 		<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 		<div class="table-scroll" tabindex="0" role="region" aria-label="Orders linked to this bar">

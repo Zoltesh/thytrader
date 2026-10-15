@@ -13,15 +13,17 @@ from thytrader.evaluation.models import warmup_starts_at
 from thytrader.evaluation.multi_timeframe import ltf_close
 from thytrader.execution.candle_wait import newest_bar_settling
 from thytrader.execution.clock_windows import (
+    ClockWindow,
+    deployment_clock_windows,
     required_clock_warmup_bars,
     shared_clock_union_warmup,
     windows_hold_warmup,
 )
 from thytrader.execution.closed_windows import _closed_window_for
-from thytrader.execution.decisions import DecisionSkipReason
+from thytrader.execution.decisions import DecisionSkipReason, DecisionWindow
 from thytrader.execution.references import ReferenceGate, reference_gate
 from thytrader.execution_worker.ports import _logger
-from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
@@ -342,3 +344,75 @@ def _covered_seed_gate(
         if gate is not None:
             return gate
     return None
+
+
+def _decision_windows(
+    strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+    decision_by_product: Mapping[str, Sequence[Candle]],
+    htf_by_product: Mapping[str, Sequence[Candle]],
+    extra_by_product: Mapping[str, Mapping[str, Sequence[Candle]] | None],
+    reference_candles: Mapping[str, Sequence[Candle]],
+) -> dict[str, tuple[DecisionWindow, ...]]:
+    """Each product's planned windows and the shared references, with each first bar fetched.
+
+    Journaled on the product's decision rows (ADR 0140), so a seed can be reproduced and a
+    window whose first returned bar is after its start (a younger market, or no trades at
+    first) is visible. Built once per cycle. The journal is evidence, never a trading input:
+    any failure here is logged and the rows record no windows; the cycle carries on.
+    """
+    try:
+        plan = deployment_clock_windows(strategy, deploy_anchor=deploy_anchor)
+        return {
+            product_id: _product_windows(
+                plan,
+                product_id=product_id,
+                decision_candles=decision_candles,
+                htf_candles=htf_by_product.get(product_id, ()),
+                extra_candles=extra_by_product.get(product_id),
+                reference_candles=reference_candles,
+            )
+            for product_id, decision_candles in decision_by_product.items()
+        }
+    except Exception:  # noqa: BLE001 - journal evidence must never interrupt trading.
+        _logger.warning(
+            "decision_windows_unavailable timeframe=%s", strategy.timeframe, exc_info=True
+        )
+        return {}
+
+
+def _product_windows(
+    plan: Sequence[ClockWindow],
+    *,
+    product_id: str,
+    decision_candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    extra_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]],
+) -> tuple[DecisionWindow, ...]:
+    """Pair one product's planned windows (and the references) with their first bars."""
+    rows: list[DecisionWindow] = []
+    for window in plan:
+        reference = window.role.removeprefix("reference ")
+        if reference != window.role:
+            fetched: Sequence[Candle] = reference_candles.get(reference, ())
+        elif window.product_id != product_id:
+            continue
+        elif window.role == "decision clock":
+            fetched = decision_candles
+        elif window.role == "HTF filter":
+            fetched = htf_candles
+        else:
+            fetched = dict(extra_candles or {}).get(window.timeframe, ())
+        rows.append(
+            DecisionWindow(
+                role=window.role,
+                product_id=window.product_id,
+                timeframe=as_dataset_timeframe(parse_candle_interval(window.timeframe)),
+                warmup_bars=window.warmup_bars,
+                starts_at=window.starts_at,
+                first_bar_at=fetched[0].starts_at if fetched else None,
+            )
+        )
+    return tuple(rows)

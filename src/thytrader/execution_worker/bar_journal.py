@@ -9,11 +9,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.decision_journal import observe_bar, record_bar_decision
-from thytrader.execution.decision_scope import note_reference_gate
+from thytrader.execution.decision_scope import note_reference_gate, note_windows
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
+    from thytrader.execution.decisions import DecisionWindow
     from thytrader.execution.references import ReferenceGate
     from thytrader.market_data.models import Candle
     from thytrader.strategies.models import StrategyDefinition
@@ -30,6 +31,7 @@ async def _journaled_bar(
     advance: Callable[[], Awaitable[DeploymentSnapshot]],
     require_activity: bool = False,
     reference_gate: ReferenceGate | None = None,
+    windows: tuple[DecisionWindow, ...] = (),
 ) -> DeploymentSnapshot:
     """Run one closed-bar call and journal what it decided (ADR 0087).
 
@@ -38,13 +40,15 @@ async def _journaled_bar(
     passes, priced on the latest closed bar) journals only when the call created
     intents or fills, even on an already evaluated bar. A raised call is journaled
     as an error and re-raised unchanged. ``reference_gate`` records why a stale or
-    missing reference instrument blocked entries on this bar (ADR 0096).
+    missing reference instrument blocked entries on this bar (ADR 0096); ``windows`` the
+    data windows the bar read (ADR 0140).
     """
     if not require_activity and before.deployment.last_evaluated_bar == candle.starts_at:
         return await advance()
     with observe_bar() as observations:
         if reference_gate is not None:
             note_reference_gate(reference_gate)
+        note_windows(windows)
         try:
             after = await advance()
         except Exception as error:

@@ -154,8 +154,24 @@ export type DecisionFill = {
 	filled_at: string;
 };
 
+/**
+ * One data window a strategy bar read (ADR 0140): it starts a full warmup before the bot
+ * started; `first_bar_at` is later only when the market had no candles that early.
+ */
+export type DecisionWindow = {
+	/** `decision clock`, `HTF filter`, `indicator timeframe`, or `reference <id>`. */
+	role: string;
+	product_id: string;
+	timeframe: string;
+	warmup_bars: number;
+	starts_at: string;
+	first_bar_at: string | null;
+};
+
 /** One journaled bar decision (`thytrader-bar-decision-v1`). */
 export type BarDecision = {
+	/** Data windows the decision read; absent on rows written before ADR 0140 and gate skips. */
+	windows?: DecisionWindow[];
 	protection_update?: {
 		kind: 'replacement' | 'canceled_without_replacement';
 		canceled_order_ids: string[];

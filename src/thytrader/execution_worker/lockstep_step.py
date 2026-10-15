@@ -32,6 +32,7 @@ from thytrader.execution_worker.windows import (
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
     _covered_seed_gate,
+    _decision_windows,
     new_closed_bars,
 )
 from thytrader.market_data.models import parse_candle_interval
@@ -43,13 +44,14 @@ from thytrader.trading.models import DeploymentMode, DeploymentStatus, with_runt
 from thytrader.trading.overlay import InstrumentScopedStore
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from datetime import datetime
     from decimal import Decimal
     from uuid import UUID
 
     from thytrader.exchanges.fees import FeeProfile
     from thytrader.execution.broker import Broker
+    from thytrader.execution.decisions import DecisionWindow
     from thytrader.execution_worker.ports import QuoteBalanceReader
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.market_data.service import MarketDataService
@@ -196,11 +198,20 @@ async def _advance_multi_instrument(
             quote_reader=quote_reader,
         )
         return
+    data_windows = _decision_windows(
+        strategy,
+        deploy_anchor=deployment.created_at,
+        decision_by_product={product_id: windows[product_id][1] for product_id in covered},
+        htf_by_product=htf_by_product,
+        extra_by_product=extra_by_product,
+        reference_candles=reference_candles,
+    )
     for index, candle in enumerate(due):
         stopped = await _evaluate_lockstep_bar(
             candle,
             covered=covered,
             windows=windows,
+            data_windows=data_windows,
             htf_by_product=htf_by_product,
             extra_by_product=extra_by_product,
             reference_candles=reference_candles,
@@ -350,6 +361,7 @@ async def _evaluate_lockstep_bar(
     htf_by_product: dict[str, tuple[Candle, ...]],
     extra_by_product: dict[str, dict[str, tuple[Candle, ...]]],
     reference_candles: dict[str, tuple[Candle, ...]],
+    data_windows: Mapping[str, tuple[DecisionWindow, ...]],
     deployment_id: UUID,
     strategy: StrategyDefinition,
     store: ExecutionStore,
@@ -429,6 +441,7 @@ async def _evaluate_lockstep_bar(
                 candle=bar,
                 allow_new_entries=allow_new_entries,
                 reference_gate=gate,
+                windows=data_windows.get(product_id, ()),
                 advance=partial(
                     process_closed_bar,
                     focused,

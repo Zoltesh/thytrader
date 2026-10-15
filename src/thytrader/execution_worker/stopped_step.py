@@ -13,6 +13,7 @@ from thytrader.execution.stopped import supervise_stopped_deployment
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.windows import (
     _closed_reference_windows,
+    _decision_windows,
     _signal_exit_windows,
 )
 from thytrader.strategies.models import signal_exit_condition
@@ -20,7 +21,7 @@ from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentKind, DeploymentStatus, with_runtime
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
     from datetime import datetime
 
     from thytrader.execution.broker import Broker
@@ -78,16 +79,29 @@ async def _journal_stopped_bar(
     candles: tuple[Candle, ...],
     advance: Callable[[], Awaitable[DeploymentSnapshot]],
     require_activity: bool,
+    htf_candles: Sequence[Candle] = (),
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+    reference_candles: Mapping[str, Sequence[Candle]] | None = None,
 ) -> None:
-    """Journal one stopped strategy bar without allowing a new entry."""
+    """Journal one stopped strategy bar, with the windows it read, without a new entry."""
+    product_id = product.product_id
+    windows = _decision_windows(
+        strategy,
+        deploy_anchor=snapshot.deployment.created_at,
+        decision_by_product={product_id: candles},
+        htf_by_product={product_id: htf_candles},
+        extra_by_product={product_id: indicator_timeframe_candles},
+        reference_candles=reference_candles or {},
+    ).get(product_id, ())
     await _journaled_bar(
         snapshot,
         strategy=strategy,
-        product_id=product.product_id,
+        product_id=product_id,
         candle=candles[-1],
         allow_new_entries=False,
         require_activity=require_activity,
         advance=advance,
+        windows=windows,
     )
 
 
