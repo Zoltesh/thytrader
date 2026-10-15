@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from decimal import ROUND_DOWN, Decimal, InvalidOperation, localcontext
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
@@ -23,7 +23,7 @@ from thytrader.risk.start_safeguards import LiveEvidenceThresholds
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -37,8 +37,8 @@ LIVE_EVIDENCE_THIN = "LIVE_EVIDENCE_THIN"
 LIVE_EVIDENCE_REQUIRED = "LIVE_EVIDENCE_REQUIRED"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DAY = timedelta(days=1)
-_EXACT_PRECISION = 1000
-"""Digits for summing net results exactly (stored results carry at most 64)."""
+_EXPONENT_LIMIT = 100
+"""Decimal exponents a result may have to be summed (far beyond any real profit or loss)."""
 EVIDENCE_READ_SECONDS = 10.0
 """Time each evidence source may take before it is reported unavailable."""
 
@@ -89,44 +89,34 @@ def assess_live_start_evidence(
     """Summarize ``evidence`` for a live start and name every unmet threshold."""
     windows = evidence.out_of_sample
     trades = sum(window.trade_count for window in windows)
-    net = _exact_sum(_decimal(window.total_net_pnl) for window in windows)
+    exact = _exact_sum([window.total_net_pnl for window in windows])
+    if exact is None and "studies" not in unavailable:
+        unavailable = (*unavailable, "studies")
+    net = Decimal(0) if exact is None else exact
     first_paper = min(paper_created_at, default=None)
     elapsed = timedelta(0) if first_paper is None else max(now - first_paper, timedelta(0))
     # Shown rounded down, so a display of 14.0 never stands for 13 days 23 hours.
     paper_days = Decimal(elapsed.total_seconds() / _DAY.total_seconds()).quantize(
         Decimal("0.1"), rounding=ROUND_DOWN
     )
-    studies_required = (
-        thresholds.min_out_of_sample_trades > 0 or thresholds.require_positive_out_of_sample
-    )
-    reasons: list[str] = []
-    if studies_required and "studies" in unavailable:
-        reasons.append("studies could not be read")
-    elif studies_required and not windows:
-        reasons.append("no out-of-sample study window for this exact strategy fingerprint")
-    elif windows:
-        if trades < thresholds.min_out_of_sample_trades:
-            reasons.append(
-                f"{trades} out-of-sample trades, fewer than {thresholds.min_out_of_sample_trades}"
-            )
-        if thresholds.require_positive_out_of_sample and net <= 0:
-            reasons.append(f"out-of-sample net result {net} is not positive")
-    if thresholds.min_paper_days > 0:
-        if "paper_books" in unavailable:
-            reasons.append("paper books could not be read")
-        elif first_paper is None:
-            reasons.append("no paper book of this exact strategy fingerprint")
-        elif elapsed < timedelta(days=thresholds.min_paper_days):
-            reasons.append(
-                f"{paper_days} days since its first paper book, fewer than "
-                f"{thresholds.min_paper_days}"
-            )
+    reasons = [
+        *_research_reasons(
+            windows, trades=trades, net=net, thresholds=thresholds, unread="studies" in unavailable
+        ),
+        *_paper_reasons(
+            first_paper,
+            elapsed=elapsed,
+            paper_days=paper_days,
+            thresholds=thresholds,
+            unread="paper_books" in unavailable,
+        ),
+    ]
     return LiveStartEvidence(
         strategy_fingerprint=evidence.strategy_fingerprint,
         assessed_at=now,
         out_of_sample_windows=len(windows),
         out_of_sample_trades=trades,
-        out_of_sample_net_pnl=str(net) if windows else None,
+        out_of_sample_net_pnl=str(net) if windows and exact is not None else None,
         paper_deployments=len(paper_created_at),
         paper_days=str(paper_days),
         thresholds=thresholds,
@@ -194,19 +184,89 @@ async def gather_live_start_evidence(
     )
 
 
-def _exact_sum(values: Iterable[Decimal]) -> Decimal:
-    """Sum without rounding: near-cancelling results must keep their true sign."""
-    with localcontext() as context:
-        context.prec = _EXACT_PRECISION
-        return sum(values, Decimal(0))
+def _research_reasons(
+    windows: Sequence[object],
+    *,
+    trades: int,
+    net: Decimal,
+    thresholds: LiveEvidenceThresholds,
+    unread: bool,
+) -> list[str]:
+    """Why the out-of-sample research is thin, if the thresholds need research at all."""
+    required = thresholds.min_out_of_sample_trades > 0 or thresholds.require_positive_out_of_sample
+    if not required:
+        return []
+    if unread:
+        return ["studies could not be read"]
+    if not windows:
+        return ["no out-of-sample study window for this exact strategy fingerprint"]
+    reasons: list[str] = []
+    if trades < thresholds.min_out_of_sample_trades:
+        reasons.append(
+            f"{trades} out-of-sample trades, fewer than {thresholds.min_out_of_sample_trades}"
+        )
+    if thresholds.require_positive_out_of_sample and net <= 0:
+        reasons.append(f"out-of-sample net result {net} is not positive")
+    return reasons
 
 
-def _decimal(text: str) -> Decimal:
-    """A window's net result; an unreadable one counts as zero (never positive evidence)."""
-    try:
-        return Decimal(text)
-    except InvalidOperation:
+def _paper_reasons(
+    first_paper: datetime | None,
+    *,
+    elapsed: timedelta,
+    paper_days: Decimal,
+    thresholds: LiveEvidenceThresholds,
+    unread: bool,
+) -> list[str]:
+    """Why the paper record is thin, if the thresholds need paper days at all."""
+    if thresholds.min_paper_days <= 0:
+        return []
+    if unread:
+        return ["paper books could not be read"]
+    if first_paper is None:
+        return ["no paper book of this exact strategy fingerprint"]
+    if elapsed < timedelta(days=thresholds.min_paper_days):
+        return [
+            f"{paper_days} days since its first paper book, fewer than {thresholds.min_paper_days}"
+        ]
+    return []
+
+
+def _exact_sum(texts: Sequence[str]) -> Decimal | None:
+    """The exact sum of decimal results; None when one is unreadable or out of range.
+
+    Summed as integers at the smallest exponent, so near-cancelling results keep their true
+    sign at any precision. A result whose exponent is beyond ``_EXPONENT_LIMIT`` (no real
+    profit or loss looks like that) makes the research unreadable rather than risk a wrong sign.
+    """
+    values: list[Decimal] = []
+    for text in texts:
+        try:
+            value = Decimal(text)
+        except InvalidOperation:
+            return None
+        exponent = value.as_tuple().exponent
+        if (
+            not value.is_finite()
+            or not isinstance(exponent, int)
+            or exponent < -_EXPONENT_LIMIT
+            or value.adjusted() > _EXPONENT_LIMIT
+        ):
+            return None
+        values.append(value)
+    if not values:
         return Decimal(0)
+    smallest = min(int(value.as_tuple().exponent) for value in values)
+    total = sum(_scaled(value, smallest) for value in values)
+    digits = tuple(int(digit) for digit in str(abs(total)))
+    return Decimal((int(total < 0), digits, smallest))
+
+
+def _scaled(value: Decimal, exponent: int) -> int:
+    """``value`` as an integer count of ``10**exponent`` (exact: its exponent is not smaller)."""
+    sign, digits, own = value.as_tuple()
+    magnitude = int("".join(str(digit) for digit in digits) or "0") * 10 ** (int(own) - exponent)
+    return -magnitude if sign else magnitude
 
 
 def live_evidence_message(evidence: LiveStartEvidence, *, refused: bool) -> str:

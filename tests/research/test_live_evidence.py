@@ -395,3 +395,32 @@ def test_near_cancelling_results_keep_their_true_sign() -> None:
     )
     assert assessed.out_of_sample_net_pnl == "-1E-29"
     assert assessed.thin_reasons == ("out-of-sample net result -1E-29 is not positive",)
+
+
+def test_results_are_summed_exactly_at_any_precision() -> None:
+    """Results ten orders apart still cancel exactly: -1E-100 is not positive."""
+    assessed = assess_live_start_evidence(
+        _evidence(
+            _window(20, "100"), _window(10, "1E-100"), _window(10, "-100.0"), _window(10, "-2E-100")
+        ),
+        paper_created_at=(_NOW - timedelta(days=30),),
+        thresholds=LiveEvidenceThresholds(),
+        now=_NOW,
+    )
+    assert assessed.out_of_sample_net_pnl == "-1E-100"
+    assert assessed.thin_reasons == ("out-of-sample net result -1E-100 is not positive",)
+
+
+def test_an_absurd_exponent_makes_the_research_unreadable() -> None:
+    """A result like 1E-1001 is never summed into positive evidence; the research is unread."""
+    assessed = assess_live_start_evidence(
+        _evidence(
+            _window(20, "100"), _window(10, "-1E-1000"), _window(10, "-100"), _window(10, "1E-1001")
+        ),
+        paper_created_at=(_NOW - timedelta(days=30),),
+        thresholds=LiveEvidenceThresholds(),
+        now=_NOW,
+    )
+    assert assessed.unavailable == ("studies",)
+    assert assessed.out_of_sample_net_pnl is None
+    assert assessed.thin_reasons == ("studies could not be read",)
