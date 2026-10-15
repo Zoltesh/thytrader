@@ -497,7 +497,13 @@ test('the kind picker searches the catalog and shows the chosen kind’s paramet
 	await expect(row.getByText('Wilder ATR period.')).toBeVisible();
 	await expect(row.getByText(/ATR band that trails the trend/)).toBeVisible();
 	await row.getByLabel('Offset (bars ago)').fill('1');
-	await expect(row.getByText('Needs 21 completed bars.')).toBeVisible();
+	// Supertrend's Wilder ATR keeps settling after its first value (ADR 0140).
+	await expect(row.getByTestId('indicator-warmup')).toHaveText(
+		'First value after 21 completed bars; settled after 156, the warmup a saved strategy declares.'
+	);
+	await expect(
+		row.getByText('Its direction or running level depends on where the data starts.')
+	).toBeVisible();
 
 	await page.getByRole('button', { name: 'Entry conditions' }).click();
 	const firstLeft = page.getByLabel('Left operand').first();
