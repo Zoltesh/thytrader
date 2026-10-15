@@ -374,7 +374,12 @@ async def test_signal_evaluation_error_is_journaled_as_error() -> None:
     payload = draft.model_dump(mode="python", by_alias=True)
     payload["htf_filter"] = {
         "timeframe": "4h",
-        "data_requirements": {"warmup_bars": 2, "required_fields": ["close"]},
+        # The HTF filter follows the template's convergence policy (ADR 0140); SMA is exact.
+        "data_requirements": {
+            "warmup_bars": 2,
+            "warmup_policy": "convergence",
+            "required_fields": ["close"],
+        },
         "indicators": [
             {"id": "htf_sma", "kind": "sma", "input": "close", "parameters": {"period": 2}}
         ],
