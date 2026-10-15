@@ -363,8 +363,9 @@ class ProposalService:
 def _require_sleeve_changed(result: PortfolioActionResult) -> None:
     """Raise when the runtime refused the sleeve's change, so its proposal settles ``failed``.
 
-    A refused resume (for example ``WARMUP_POLICY_REQUIRED``, ADR 0140) leaves the book as it
-    was; recording the proposal ``applied`` would hide that and its remediation.
+    A refused resume (for example ``WARMUP_POLICY_REQUIRED`` under an opt-in safeguard, ADR
+    0142) leaves the book as it was; recording the proposal ``applied`` would hide that and its
+    remediation.
     """
     failed = next((item for item in result.outcomes if item.outcome == "failed"), None)
     if failed is not None:

@@ -150,11 +150,13 @@ async def post_deployment(
 
     A strategy that reads reference instruments (ADR 0096) starts only when every
     reference series is on the enabled market-data watchlist with a lookback covering its
-    warmup (409 otherwise, naming the ``thytrader-data watch-add`` command). A snapshot
-    saved before the convergence warmup policy is refused with 409
-    ``WARMUP_POLICY_REQUIRED``, one whose market is younger than its warmup with 409
-    ``HISTORY_TOO_SHORT``, and one whose venue history cannot be read with 409
-    ``HISTORY_UNCONFIRMED`` (ADR 0140).
+    warmup (409 otherwise, naming the ``thytrader-data watch-add`` command). A strategy
+    saved before the convergence warmup policy is re-saved unchanged first, adopting it; a
+    snapshot that still lacks it starts with a ``WARMUP_POLICY_MISSING`` warning, a market
+    younger than its warmup with ``HISTORY_TOO_SHORT`` and unreadable venue history with
+    ``HISTORY_UNCONFIRMED`` (ADR 0140, 0142). The risk policy's opt-in ``start_safeguards``
+    turn these into 409 refusals of the same codes (``WARMUP_POLICY_REQUIRED`` for the
+    policy).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     # The snapshot below reports a missing or unavailable strategy precisely.
