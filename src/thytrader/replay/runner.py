@@ -13,7 +13,7 @@ from thytrader.replay.models import FrozenModel, ReplayPackage, canonical_bytes
 from thytrader.replay.numeric import financial_arithmetic, validate_decimal
 from thytrader.replay.signals import compare_signals
 from thytrader.replay.source import installed_source_identity
-from thytrader.replay.steps import ExecutionOutcome
+from thytrader.replay.steps import ExecutionOutcome, comparable
 from thytrader.replay.timing_report import StepTimingReport, timing_report
 from thytrader.trading.ledger import LedgerFill, mark_deployment_ledger
 from thytrader.trading.models import OrderSide
@@ -142,7 +142,11 @@ async def run(package: ReplayPackage) -> ReplayReport:
                     StepResult(
                         actual=actual,
                         expected=step.expected,
-                        status="match" if actual == step.expected else "mismatch",
+                        status=(
+                            "match"
+                            if comparable(actual, step.expected) == step.expected
+                            else "mismatch"
+                        ),
                     )
                 )
                 record, matched = compare_signals(step, package.strategy)

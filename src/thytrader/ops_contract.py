@@ -126,7 +126,9 @@ ADR 0134, P2-3, with live futures starts still refused), or durable futures safe
 (``futures_derisk_pending`` / ``futures_flat_confirmation_after`` on deployment/runtime and
 futures-book reports; Alembic 0076, ADR 0135), or research study aggregate honesty
 (cross-market ``full_window_*`` aggregate aliases and the catalog's cleared out-of-sample mean
-for cross-market studies; Alembic 0077, ADR 0044) change.
+for cross-market studies; Alembic 0077, ADR 0044), or canceled-order bookkeeping (first cancel
+time counted by ``CANCEL_RATE_LIMIT`` and the settlement watermark that ends venue reads;
+Alembic 0078, ADR 0141) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -155,8 +157,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v100"
-EXPECTED_SCHEMA_REVISION = "0077"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v101"
+EXPECTED_SCHEMA_REVISION = "0078"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",

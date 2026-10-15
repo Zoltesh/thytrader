@@ -21,7 +21,6 @@ from thytrader.trading.models import (
     DeploymentStatus,
     IntentPurpose,
     OrderKind,
-    OrderStatus,
     resolved_product_id,
     snapshot_positions,
 )
@@ -355,7 +354,9 @@ def _rate_verdict(
                 venue_actions += 1
                 if _is_entry_purpose(order.intent_id, entry_intent_ids, snapshot.intents):
                     entry_orders += 1
-            if order.status is OrderStatus.CANCELED and order.updated_at >= since:
+            # The first cancel time, not the last write: reconciliation re-saves a canceled
+            # order every cycle until it settles (ADR 0141).
+            if order.canceled_at is not None and order.canceled_at >= since:
                 cancels += 1
                 venue_actions += 1
     if entry_orders >= policy.max_entry_orders_per_minute:

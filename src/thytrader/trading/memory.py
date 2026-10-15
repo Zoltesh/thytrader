@@ -43,6 +43,7 @@ from thytrader.trading.models import (
     mirrors_primary_runtime,
     resolved_product_id,
     runtime_from_deployment,
+    with_cancel_time,
 )
 from thytrader.trading.pagination import (
     decode_cursor,
@@ -522,6 +523,25 @@ class InMemoryExecutionStore:
         snapshot = await gate.read_inhibition()
         return {"paper": snapshot.paper_inhibited, "live": snapshot.live_inhibited}
 
+    async def restore_order(self, order: Order) -> Order:
+        """Write one captured order exactly as observed (replay seeding).
+
+        Unlike ``save_order`` it stamps no cancel time: a replay restores evidence from before
+        ADR 0141 as it was, without inventing fields the capture never had.
+        """
+        existing = next(
+            (
+                item
+                for item in self.orders.values()
+                if item.client_order_id == order.client_order_id
+            ),
+            None,
+        )
+        if existing is not None:
+            self.orders.pop(existing.id, None)
+        self.orders[order.id] = order
+        return order
+
     async def save_order(self, order: Order) -> Order:
         """Insert or replace one venue-visible order snapshot."""
         existing = next(
@@ -534,6 +554,7 @@ class InMemoryExecutionStore:
         )
         if existing is not None:
             self.orders.pop(existing.id, None)
+        order = with_cancel_time(order, existing)
         self.orders[order.id] = order
         return order
 
@@ -614,7 +635,7 @@ class InMemoryExecutionStore:
         )
         if existing_order is not None:
             self.orders.pop(existing_order.id, None)
-        self.orders[applied_fill.id] = applied_fill
+        self.orders[applied_fill.id] = with_cancel_time(applied_fill, existing_order)
         parent = fill_projection_deployment(snapshot, projected)
         saved = replace(parent, revision=snapshot.deployment.revision + 1)
         self.deployments[saved.id] = saved

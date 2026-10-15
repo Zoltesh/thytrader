@@ -991,8 +991,11 @@ The worker never re-submits an order automatically
 - **Failed reconcile reads.** A failed GET order or fill-page read pauses the book with
   `Order reconciliation is unconfirmed: order read failed.` or `…: fill read failed.` and makes the
   order `unknown` until a read succeeds, so exits, flatten settlement and exposure stay fail-closed
-  while late fills are unknown. Canceled orders stay watched for late fills, so this can come from
-  an old canceled stop. When the venue had already reported the order canceled or fully filled,
+  while late fills are unknown. Canceled orders stay watched for late fills until they settle: a
+  successful read shows the order canceled, its applied fills cover every executed quantity the
+  venue reported, and at least 15 minutes have passed since it was canceled; after that it is no
+  longer read ([ADR 0141](../../docs/decisions/0141-cancel-time-and-settlement-watermark.md)). So
+  this can come from a recently canceled stop, or an old one that has not settled yet. When the venue had already reported the order canceled or fully filled,
   its `reject_reason` is `terminal_read_unconfirmed`: it cannot trigger, so supervision never
   reports it as a triggered-but-unfilled live stop. Resuming does not clear a retained fault;
   report it with the order's status and reason.

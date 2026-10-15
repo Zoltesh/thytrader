@@ -39,6 +39,7 @@ from thytrader.trading.models import (
     PositionSide,
     RuntimePhase,
     runtime_from_deployment,
+    with_cancel_time,
 )
 from thytrader.trading.twins import DeploymentTwinLink
 
@@ -236,6 +237,9 @@ def _order_values(order: Order) -> dict[str, object]:
         "pyramid_add": order.pyramid_add,
         "created_at": order.created_at,
         "updated_at": order.updated_at,
+        # The upserts keep a stored cancel time and settlement (ADR 0141).
+        "canceled_at": with_cancel_time(order).canceled_at,
+        "settled_at": order.settled_at,
     }
 
 
@@ -320,6 +324,8 @@ def _order_from_row(row: RowMapping) -> Order:
         parent_order_id=row.get("parent_order_id"),
         attached_child_venue_order_id=row.get("attached_child_venue_order_id"),
         venue_observed_at=row.get("venue_observed_at"),
+        canceled_at=row.get("canceled_at"),
+        settled_at=row.get("settled_at"),
         pyramid_add=bool(row.get("pyramid_add", False)),
         created_at=row["created_at"],
         updated_at=row["updated_at"],

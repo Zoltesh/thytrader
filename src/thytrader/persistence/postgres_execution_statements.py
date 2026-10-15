@@ -212,6 +212,13 @@ def _order_upsert(order: Order) -> Insert:
             "attached_child_venue_order_id": statement.excluded.attached_child_venue_order_id,
             "venue_observed_at": statement.excluded.venue_observed_at,
             "pyramid_add": statement.excluded.pyramid_add,
+            # First cancel time and settlement are never moved or cleared (ADR 0141).
+            "canceled_at": func.coalesce(
+                execution_orders.c.canceled_at, statement.excluded.canceled_at
+            ),
+            "settled_at": func.coalesce(
+                execution_orders.c.settled_at, statement.excluded.settled_at
+            ),
         },
     )
 
@@ -227,6 +234,9 @@ def _applied_order_upsert(order_values: dict[str, object]) -> Insert:
                 "status": order_values["status"],
                 "filled_quantity": order_values["filled_quantity"],
                 "updated_at": order_values["updated_at"],
+                "canceled_at": func.coalesce(
+                    execution_orders.c.canceled_at, order_values["canceled_at"]
+                ),
             },
         )
     )

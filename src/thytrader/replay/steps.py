@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
@@ -20,6 +21,7 @@ from thytrader.trading.models import (
     DeploymentStatus,
     Fill,
     Order,
+    OrderStatus,
     Position,
     RuntimePhase,
 )
@@ -124,3 +126,29 @@ ReplayStep.model_rebuild(
         "UUID": UUID,
     }
 )
+
+
+_WORKING_STATES = frozenset({OrderStatus.PENDING, OrderStatus.OPEN})
+
+
+def comparable(actual: ExecutionOutcome, expected: ExecutionOutcome) -> ExecutionOutcome:
+    """``actual`` without order fields a capture from before they existed never recorded.
+
+    Orders gained their cancel time and settlement in ADR 0141. A package captured earlier has
+    neither; the replayed engine records them, so they are dropped from an actual order only
+    when the expected order with the same id has them unset and is no longer working: a cancel
+    may be followed by fills that make the order filled, or by a failed read that leaves it
+    unknown. A working order keeps them, so a stamp on one is still a mismatch.
+    """
+    unset = {
+        order.id
+        for order in expected.orders
+        if order.status not in _WORKING_STATES
+        and order.canceled_at is None
+        and order.settled_at is None
+    }
+    orders = tuple(
+        replace(order, canceled_at=None, settled_at=None) if order.id in unset else order
+        for order in actual.orders
+    )
+    return actual.model_copy(update={"orders": orders})

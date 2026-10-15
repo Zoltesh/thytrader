@@ -6,8 +6,10 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime  # noqa: TC003 - dataclass fields resolve at type-check and runtime.
 from decimal import Decimal
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 from uuid import UUID  # noqa: TC003 - dataclass fields resolve at type-check and runtime.
+
+from pydantic import Field
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -189,6 +191,15 @@ class OrderIntent:
     product_id: str = ""
 
 
+def _unset(value: object) -> bool:
+    """Serialization predicate: omit an optional field that was never set."""
+    return value is None
+
+
+ORDER_FIELDS_OMITTED_WHEN_UNSET = frozenset({"canceled_at", "settled_at"})
+"""Order fields serialized only when set, so earlier canonical replay bytes are unchanged."""
+
+
 @dataclass(frozen=True, slots=True)
 class Order:
     """One venue-visible order derived from a persisted intent."""
@@ -216,6 +227,30 @@ class Order:
     # Successful venue order-state read, not an ordinary local write or a geometry audit.
     # Legacy rows remain unknown until reconciliation actually observes them.
     venue_observed_at: datetime | None = None
+    # When the store first saved it CANCELED; kept through UNKNOWN read failures (ADR 0141).
+    # Omitted from serialized orders while unset, so replay packages captured before these
+    # fields keep their canonical bytes.
+    canceled_at: Annotated[datetime | None, Field(exclude_if=_unset)] = None
+    # A consistent terminal read ended venue reads of this canceled order (ADR 0141).
+    settled_at: Annotated[datetime | None, Field(exclude_if=_unset)] = None
+
+
+def with_cancel_time(order: Order, previous: Order | None = None) -> Order:
+    """Keep an order's first cancel time and settlement; stamp the cancel when first seen.
+
+    Stores call this on every order write with the stored row as ``previous``: a stored value
+    always wins, so no writer can move or clear the cancel time the cancel-rate breaker counts
+    and the settlement delay starts from (ADR 0141), matching the database upsert.
+    """
+    stored_cancel = previous.canceled_at if previous is not None else None
+    canceled_at = stored_cancel or order.canceled_at
+    if canceled_at is None and order.status is OrderStatus.CANCELED:
+        canceled_at = order.updated_at
+    stored_settlement = previous.settled_at if previous is not None else None
+    settled_at = stored_settlement or order.settled_at
+    if canceled_at == order.canceled_at and settled_at == order.settled_at:
+        return order
+    return replace(order, canceled_at=canceled_at, settled_at=settled_at)
 
 
 @dataclass(frozen=True, slots=True)
