@@ -14,7 +14,10 @@ import pytest
 from tests.persistence.test_postgres_fill_transaction import _NOW, _pending_entry_book
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.trading.fill_ledger import ingest_fill
+from thytrader.trading.ids import uuid7
 from thytrader.trading.models import (
+    Fill,
     IntentPurpose,
     Order,
     OrderIntent,
@@ -39,35 +42,7 @@ async def test_postgres_keeps_the_first_cancel_time_and_the_settlement() -> None
     engine = create_engine(SecretStr(_TEST_DATABASE_URL))
     store = PostgresExecutionStore(engine)
     try:
-        created = await store.create_deployment(_pending_entry_book())
-        intent = OrderIntent(
-            id=uuid4(),
-            deployment_id=created.id,
-            client_order_id=f"entry-{created.id}",
-            purpose=IntentPurpose.ENTRY,
-            side=OrderSide.BUY,
-            kind=OrderKind.POST_ONLY_LIMIT,
-            quantity=Decimal("1"),
-            created_at=_NOW,
-            candle_starts_at=_NOW,
-            price=Decimal("100"),
-            product_id="BTC-USDC",
-        )
-        await store.save_intent(intent)
-        order = Order(
-            id=uuid4(),
-            deployment_id=created.id,
-            intent_id=intent.id,
-            client_order_id=intent.client_order_id,
-            side=OrderSide.BUY,
-            kind=OrderKind.POST_ONLY_LIMIT,
-            quantity=Decimal("1"),
-            status=OrderStatus.OPEN,
-            created_at=_NOW,
-            updated_at=_NOW,
-            price=Decimal("100"),
-            product_id="BTC-USDC",
-        )
+        order = await _open_entry(store)
         await store.save_order(order)
         assert (await _stored(store, order)).canceled_at is None
 
@@ -92,6 +67,79 @@ async def test_postgres_keeps_the_first_cancel_time_and_the_settlement() -> None
         assert final.canceled_at == canceled_at
     finally:
         await dispose(engine)
+
+
+@pytest.mark.anyio
+async def test_postgres_fill_transaction_keeps_the_first_cancel_time() -> None:
+    """A late fill on a canceled order, applied atomically, leaves its cancel time alone."""
+    if _TEST_DATABASE_URL is None:
+        raise AssertionError("PostgreSQL integration URL was not configured.")
+    engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+    store = PostgresExecutionStore(engine)
+    try:
+        order = await _open_entry(store)
+        await store.save_order(order)
+        canceled_at = _NOW + timedelta(minutes=1)
+        await store.save_order(replace(order, status=OrderStatus.CANCELED, updated_at=canceled_at))
+        late = canceled_at + timedelta(minutes=3)
+        partial = replace(
+            order,
+            status=OrderStatus.CANCELED,
+            filled_quantity=Decimal("0.4"),
+            updated_at=late,
+            canceled_at=late,
+        )
+        fill = Fill(
+            id=uuid7(late),
+            deployment_id=order.deployment_id,
+            order_id=order.id,
+            venue_fill_id=f"venue-fill-{order.id}",
+            price=Decimal("100"),
+            quantity=Decimal("0.4"),
+            fee=Decimal("0.04"),
+            filled_at=late,
+        )
+        snapshot = await store.get_deployment(order.deployment_id)
+        await ingest_fill(snapshot, fill=fill, order=partial, store=store)
+        stored = await _stored(store, order)
+        assert stored.filled_quantity == Decimal("0.4")
+        assert stored.canceled_at == canceled_at
+        assert stored.settled_at is None
+    finally:
+        await dispose(engine)
+
+
+async def _open_entry(store: PostgresExecutionStore) -> Order:
+    """An open entry order on a new book, its intent saved and the order itself not yet."""
+    created = await store.create_deployment(_pending_entry_book())
+    intent = OrderIntent(
+        id=uuid4(),
+        deployment_id=created.id,
+        client_order_id=f"entry-{created.id}",
+        purpose=IntentPurpose.ENTRY,
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("1"),
+        created_at=_NOW,
+        candle_starts_at=_NOW,
+        price=Decimal("100"),
+        product_id="BTC-USDC",
+    )
+    await store.save_intent(intent)
+    return Order(
+        id=uuid4(),
+        deployment_id=created.id,
+        intent_id=intent.id,
+        client_order_id=intent.client_order_id,
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("1"),
+        status=OrderStatus.OPEN,
+        created_at=_NOW,
+        updated_at=_NOW,
+        price=Decimal("100"),
+        product_id="BTC-USDC",
+    )
 
 
 async def _stored(store: PostgresExecutionStore, order: Order) -> Order:

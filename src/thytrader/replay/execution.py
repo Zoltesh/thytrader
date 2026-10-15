@@ -80,7 +80,7 @@ async def seed_store(snapshot: DeploymentSnapshot) -> InMemoryExecutionStore:
     for intent in snapshot.intents:
         await store.save_intent(intent)
     for order in snapshot.orders:
-        await store.save_order(order)
+        await store.restore_order(order)
     for fill in snapshot.fills:
         await store.save_fill(fill)
     for position in snapshot_positions(snapshot):

@@ -30,11 +30,16 @@ into `CANCELED`, which a timestamp of the last change would also count again.
    between an order's terminal state and its published fills; the fill check is what makes a
    settled order's economics complete.
 3. **Existing rows.** The real cancel time of orders canceled before this change is unknown, so
-   they get `canceled_at` 61 seconds before the upgrade: just outside every one-minute
-   cancel-rate window, so never counted as new cancellations, and still read for 13 minutes 59
-   seconds after the upgrade before they may settle. That is shorter than the full delay for an
-   order canceled just before the upgrade, and still far longer than the venue takes to publish
-   an order's fills; the fill check applies as always.
+   they get their last save time, which is never earlier than the cancel: settlement still waits
+   the full delay after the real cancel, and with no synthetic offset there is no clock-skew
+   edge. Only an order saved in the minute before the upgrade can fall inside the cancel-rate
+   window, for at most that minute, which is how the breaker counted it before. Orders a failed
+   read left `UNKNOWN` after the venue reported them canceled (`terminal_read_unconfirmed`, not
+   fully filled) are backfilled too, so their first good read after the upgrade is not counted as
+   a new cancellation.
+4. **Replay.** Both fields are serialized only when set, so packages captured earlier keep their
+   canonical bytes; replay restores captured orders exactly (no cancel time is invented) and
+   compares a replayed order without these fields when the captured order predates them.
 
 ## Consequences
 

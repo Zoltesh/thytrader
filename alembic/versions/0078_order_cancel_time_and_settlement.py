@@ -4,10 +4,11 @@ Revision ID: 0078
 Revises: 0077
 ADR 0141. ``canceled_at`` is when an order was first saved canceled (the cancel-rate breaker
 counts it); ``settled_at`` ends venue reads of a canceled order after a consistent terminal
-read. The real cancel time of orders canceled before this revision is unknown, so they get 61
-seconds before the upgrade: just outside every one-minute cancel-rate window, so never counted
-as a new cancellation, and still read for 13 minutes 59 seconds after the upgrade before they
-may settle, far longer than the venue takes to publish an order's fills.
+read. Orders canceled before this revision get their last save time: no earlier than the real
+cancel, so settlement still waits the full delay after it, and a cancel the old breaker counted by
+that time is counted the same way for at most a minute. That covers canceled orders and those a
+failed read left UNKNOWN after the venue had reported them canceled (``terminal_read_unconfirmed``
+and not fully filled), so their first good read after the upgrade is not a new cancellation.
 """
 
 import sqlalchemy as sa
@@ -44,8 +45,10 @@ def upgrade() -> None:
     )
     op.execute(
         sa.text(
-            "UPDATE execution_orders SET canceled_at = now() - interval '61 seconds' "
-            "WHERE status = 'canceled'"
+            "UPDATE execution_orders SET canceled_at = LEAST(updated_at, now()) "
+            "WHERE status = 'canceled' OR (status = 'unknown' "
+            "AND reject_reason = 'terminal_read_unconfirmed' "
+            "AND CAST(filled_quantity AS numeric) < CAST(quantity AS numeric))"
         )
     )
 

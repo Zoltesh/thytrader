@@ -186,17 +186,17 @@ async def test_settlement_keeps_fill_progress_applied_by_the_same_read(
     assert settled.filled_quantity == Decimal("0.004")
 
 
-async def test_a_backfilled_cancel_is_still_read_until_nearly_14_minutes_after_the_upgrade(
+async def test_a_cancel_just_before_the_upgrade_is_read_for_the_full_delay(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Migration 0078 dates unknown cancels 61 s back; they stay watched through +13:58."""
+    """Migration 0078 dates a cancel by its last save; it stays watched through +14:58."""
     store = InMemoryExecutionStore()
     order, book_id = await _canceled_stop(store)
     upgrade = order.updated_at
     (stored,) = store.orders.values()
-    store.orders[stored.id] = replace(stored, canceled_at=upgrade - timedelta(seconds=61))
+    store.orders[stored.id] = replace(stored, canceled_at=upgrade - timedelta(seconds=1))
     venue = _Venue(statuses={"stop-1": [OrderStatus.CANCELED]})
-    now = upgrade + timedelta(minutes=13, seconds=58)
+    now = upgrade + timedelta(minutes=14, seconds=58)
     monkeypatch.setattr(reconcile_module, "utc_now", lambda: now)
     watched = await _reconcile(store, book_id, venue)
     assert watched.settled_at is None

@@ -9,12 +9,14 @@ from pathlib import Path
 import pytest
 
 from tests.test_replay_cli import cli
+from tests.test_replay_partial_exits import EXIT, NOW, starting_book
 from thytrader.replay.codec import validate_no_coercion
-from thytrader.replay.execution import outcome
+from thytrader.replay.execution import outcome, seed_store
 from thytrader.replay.packages import read_input
 from thytrader.replay.runner import run
+from thytrader.replay.steps import comparable
 from thytrader.strategies.models import StrategyDefinition
-from thytrader.trading.models import DeploymentStatus
+from thytrader.trading.models import DeploymentStatus, OrderStatus
 
 FIXTURES = Path(__file__).parent / "replay" / "fixtures"
 
@@ -121,3 +123,28 @@ def test_only_declared_unset_order_timestamps_may_vanish_from_input() -> None:
         validate_no_coercion({"bogus_at": None}, {})
     with pytest.raises(ValueError, match="unknown replay field"):
         validate_no_coercion({"canceled_at": "2026-10-15T00:00:00Z"}, {})
+
+
+@pytest.mark.anyio
+async def test_a_cancel_captured_before_its_time_was_recorded_round_trips() -> None:
+    """Replay restores a pre-0141 cancel exactly and compares it without the newer fields."""
+    book = starting_book()
+    orders = tuple(
+        replace(order, status=OrderStatus.CANCELED) if order.id == EXIT else order
+        for order in book.orders
+    )
+    captured = replace(book, orders=orders)
+    store = await seed_store(captured)
+    restored = await store.get_deployment(captured.deployment.id)
+    assert {order.id: order for order in restored.orders} == {
+        order.id: order for order in captured.orders
+    }
+    expected = outcome(captured)
+    stamped = tuple(
+        replace(order, canceled_at=NOW, settled_at=NOW) if order.id == EXIT else order
+        for order in orders
+    )
+    actual = outcome(replace(captured, orders=stamped))
+    assert comparable(actual, expected) == expected
+    recorded = outcome(replace(captured, orders=tuple(replace(o, canceled_at=NOW) for o in orders)))
+    assert comparable(actual, recorded) == actual
