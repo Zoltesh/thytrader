@@ -33,22 +33,23 @@ def require_convergence_policy(definition: StrategyDefinition, *, action: str) -
 def convergence_policy_message(definition: StrategyDefinition, *, action: str) -> str:
     """Explain one refusal and name the way out."""
     subject = f"Strategy “{definition.name}” ({definition.strategy_id})"
+    restart = " as a new bot after stopping this one" if action == "resumed" else ""
     decision, htf = convergence_warmups(definition)
     if max(decision, htf or 0) > MAX_DECLARED_WARMUP_BARS:
         return (
             f"{WARMUP_POLICY_REQUIRED}: {subject} needs {max(decision, htf or 0)} warmup bars "
             f"for its indicators to converge, more than the {MAX_DECLARED_WARMUP_BARS} a strategy "
             f"can declare (ADR 0140). Nothing was {action}. Shorten its slowest indicator (for "
-            "example a KAMA slow constant), save it, re-check its backtests, then start it."
+            "example a KAMA slow constant), save it, re-check its backtests, then start it"
+            f"{restart}."
         )
     remedy = (
         "Re-save the strategy unchanged to adopt the policy (`uv run thytrader-research "
-        f"show-strategy --strategy-id {definition.strategy_id}`, then `save-strategy "
-        "--strategy-id … --file document.json --revision N --confirm`), re-check its backtests "
-        "under the longer warmup, then start it"
+        f"show-strategy --strategy-id {definition.strategy_id}`, then pass its `document`, "
+        f"unchanged, to `save-strategy --strategy-id {definition.strategy_id} --file "
+        "document.json --revision N --confirm` with its current revision), re-check its "
+        f"backtests under the longer warmup, then start it{restart}"
     )
-    if action == "resumed":
-        remedy += " as a new bot after stopping this one"
     return (
         f"{WARMUP_POLICY_REQUIRED}: {subject} was saved before the convergence warmup policy "
         "(ADR 0140), so its indicators would be seeded on their minimum warmup and its signals "

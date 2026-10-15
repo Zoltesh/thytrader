@@ -25,6 +25,7 @@ from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
     ExecutionConflictError,
+    ExecutionStoreError,
 )
 
 pytestmark = pytest.mark.anyio
@@ -167,3 +168,29 @@ def test_an_unreachable_convergence_warmup_says_to_shorten_the_indicator() -> No
     assert "more than the 10000 a strategy can declare" in message
     assert "Shorten its slowest indicator" in message
     assert "save-strategy" not in message
+    resumed = convergence_policy_message(definition, action="resumed")
+    assert resumed.endswith("then start it as a new bot after stopping this one.")
+
+
+async def test_a_resume_whose_snapshot_cannot_load_fails_closed() -> None:
+    """Without its snapshot the policy cannot be confirmed, so the book stays paused."""
+    definition = with_convergence_warmup(_plain())
+    store = InMemoryExecutionStore()
+    await _start(definition, store)
+    (deployment,) = await store.list_deployments()
+    await store.save_deployment(
+        replace(
+            deployment,
+            status=DeploymentStatus.PAUSED,
+            strategy_fingerprint="sha256:" + "0" * 64,
+        )
+    )
+    with pytest.raises(ExecutionStoreError, match="not found"):
+        await set_deployment_status(
+            store=store,
+            deployment_id=deployment.id,
+            status=DeploymentStatus.RUNNING,
+            publication_store=Catalog(definition),
+        )
+    current = await store.get_deployment(deployment.id)
+    assert current.deployment.status is DeploymentStatus.PAUSED

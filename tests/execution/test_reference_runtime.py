@@ -248,6 +248,19 @@ def test_suggested_lookback_covers_reference_warmup_and_is_capped() -> None:
     assert reference_watch_lookback_hours(small) == 168
 
 
+def test_a_converged_daily_ema_reference_needs_its_convergence_history() -> None:
+    """Under the policy a daily EMA(100) reference needs 446 bars, so 447 days of watch."""
+    payload = reference_payload()
+    indicators = cast("list[dict[str, object]]", payload["indicators"])
+    indicators[2]["kind"] = "ema"
+    indicators[2]["parameters"] = {"period": 100}
+    definition = with_convergence_warmup(StrategyDefinition.model_validate(payload))
+    (requirement,) = reference_data_requirements(definition)
+    assert requirement.warmup_bars == 446
+    assert reference_warmup_hours(requirement) == reference_watch_lookback_hours(requirement)
+    assert reference_watch_lookback_hours(requirement) == 447 * 24
+
+
 async def _journaled(
     definition: StrategyDefinition,
     *,
