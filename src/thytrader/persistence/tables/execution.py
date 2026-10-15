@@ -256,6 +256,18 @@ execution_orders = Table(
     Column("parent_order_id", UUID(), nullable=True),
     Column("attached_child_venue_order_id", String(128), nullable=True),
     Column("venue_observed_at", DateTime(timezone=True), nullable=True),
+    Column(
+        "canceled_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="First time the order was saved canceled; never cleared (ADR 0141).",
+    ),
+    Column(
+        "settled_at",
+        DateTime(timezone=True),
+        nullable=True,
+        comment="A consistent terminal read ended venue reads of the canceled order (ADR 0141).",
+    ),
     Column("pyramid_add", Boolean(), nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),

@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.test_replay_cli import cli
+from thytrader.replay.codec import validate_no_coercion
 from thytrader.replay.execution import outcome
 from thytrader.replay.packages import read_input
 from thytrader.replay.runner import run
@@ -111,3 +112,12 @@ async def test_original_rule_mismatch_keeps_missing_economics_build_visible() ->
     assert (
         "ORIGINAL_CAPITAL_COST_BUILD_EVIDENCE_MISSING" in report.original_research_deployed.reasons
     )
+
+
+def test_only_declared_unset_order_timestamps_may_vanish_from_input() -> None:
+    """An explicit null cancel time or settlement is fine (ADR 0141); other unknowns are not."""
+    validate_no_coercion({"canceled_at": None, "settled_at": None}, {})
+    with pytest.raises(ValueError, match="unknown replay field"):
+        validate_no_coercion({"bogus_at": None}, {})
+    with pytest.raises(ValueError, match="unknown replay field"):
+        validate_no_coercion({"canceled_at": "2026-10-15T00:00:00Z"}, {})

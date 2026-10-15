@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
@@ -341,7 +342,42 @@ async def _reconcile_venue_order(
         return await _record_reconcile_fault(
             current, store=store, detail=f"{RECONCILE_UNCONFIRMED_PREFIX}: venue status is unknown."
         )
-    return current
+    return await _settle_canceled(current, order=updated, store=store)
+
+
+CANCELED_SETTLE_DELAY = timedelta(minutes=15)
+"""How long after its cancel a canceled order keeps being read before it may settle."""
+
+
+async def _settle_canceled(
+    current: DeploymentSnapshot, *, order: Order, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """End venue reads of a canceled order once a consistent terminal read is old enough.
+
+    Called after a successful read whose fills were applied: the venue shows the order
+    canceled, and the applied REST fills already cover every executed quantity it reported.
+    Once that holds at least ``CANCELED_SETTLE_DELAY`` after the order's first cancel time,
+    the order is settled and leaves the watch set (ADR 0141). Until then it is read every
+    cycle; a failed read never reaches here. The settlement is written onto the order as the
+    store now holds it, so fill progress applied by this very read is never overwritten.
+    """
+    if order.status is not OrderStatus.CANCELED or order.settled_at is not None:
+        return current
+    now = utc_now()
+    # ``order`` keeps the stored cancel time; none yet means it was canceled by this read.
+    if order.canceled_at is None or now - order.canceled_at < CANCELED_SETTLE_DELAY:
+        return current
+    fresh = await store.get_deployment(current.deployment.id)
+    stored = next((item for item in fresh.orders if item.id == order.id), None)
+    if stored is None or stored.status is not OrderStatus.CANCELED or stored.canceled_at is None:
+        return fresh
+    if now - stored.canceled_at < CANCELED_SETTLE_DELAY:
+        return fresh
+    reported = max(stored.filled_quantity, order.filled_quantity)
+    if applied_fill_quantity(fresh, order.id) < reported:
+        return fresh
+    await store.save_order(replace(stored, settled_at=now))
+    return await store.get_deployment(current.deployment.id)
 
 
 async def _recover_unconfirmed_submit(
@@ -457,9 +493,10 @@ def _needs_reconcile(order: Order, snapshot: DeploymentSnapshot) -> bool:
     ):
         return True
     # A cancel acknowledgement is not a fill-visibility watermark. Keep learning
-    # late fills even when the currently reported partial fills already applied.
+    # late fills even when the currently reported partial fills already applied,
+    # until a consistent terminal read settles the order (ADR 0141).
     if order.status is OrderStatus.CANCELED:
-        return True
+        return order.settled_at is None
     if fill_economics_complete(snapshot, order):
         return False
     if order.status is not OrderStatus.FILLED:

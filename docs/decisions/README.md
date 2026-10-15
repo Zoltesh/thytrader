@@ -146,6 +146,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0138](0138-live-alert-delivery.md) | `alert_delivery` is degraded while live books hold risk (running, paused, or stopped with residual exposure) without external delivery (also in operator health); optional HMAC-signed webhooks; Compose passes webhook env; ops contract v98 | Accepted |
 | [0139](0139-quiet-alert-delivery.md) | `notify_min_severity` (YAML, live) sends only alerts at or above it; lower ones are skipped without spending retries; `set-settings` rewrites a bind-mounted `thytrader.yaml` in place on `EBUSY`; ops contract v99 | Accepted |
 | [0140](0140-indicator-convergence-warmup.md) | Per-indicator convergence warmup (seed weight ≤ 1e-3); snapshotted `warmup_policy: convergence` adopted on save and by templates/sweeps, covering declared and derived clocks; absent keeps historical meaning; paper/live starts and resumes require it, reference watches must cover the warmup, starts refuse markets younger than it, the catalog and builder show it, and decision rows record each window | Accepted |
+| [0141](0141-cancel-time-and-settlement-watermark.md) | Orders keep their first cancel time (the cancel-rate breaker counts it, not re-saves); a canceled order stops being read once a read shows it canceled with all reported fills applied, 15 minutes after its cancel | Accepted |
 
 ## Status values
 

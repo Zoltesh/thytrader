@@ -43,6 +43,7 @@ from thytrader.trading.models import (
     mirrors_primary_runtime,
     resolved_product_id,
     runtime_from_deployment,
+    with_cancel_time,
 )
 from thytrader.trading.pagination import (
     decode_cursor,
@@ -534,6 +535,7 @@ class InMemoryExecutionStore:
         )
         if existing is not None:
             self.orders.pop(existing.id, None)
+        order = with_cancel_time(order, existing)
         self.orders[order.id] = order
         return order
 
@@ -614,7 +616,7 @@ class InMemoryExecutionStore:
         )
         if existing_order is not None:
             self.orders.pop(existing_order.id, None)
-        self.orders[applied_fill.id] = applied_fill
+        self.orders[applied_fill.id] = with_cancel_time(applied_fill, existing_order)
         parent = fill_projection_deployment(snapshot, projected)
         saved = replace(parent, revision=snapshot.deployment.revision + 1)
         self.deployments[saved.id] = saved

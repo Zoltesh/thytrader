@@ -10,6 +10,7 @@ from uuid import UUID
 
 from thytrader.decimal_text import canonical_decimal
 from thytrader.replay.numeric import validate_decimal
+from thytrader.trading.models import ORDER_FIELDS_OMITTED_WHEN_UNSET
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
@@ -47,6 +48,10 @@ def validate_no_coercion(source: JsonValue, checked: JsonValue) -> None:
     if isinstance(source, dict) and isinstance(checked, dict):
         for key, value in source.items():
             if key not in checked:
+                # A declared optional order timestamp left unset is omitted on output
+                # (ADR 0141), so an explicit null for it is not an unknown field.
+                if value is None and key in ORDER_FIELDS_OMITTED_WHEN_UNSET:
+                    continue
                 raise ValueError("unknown replay field")
             validate_no_coercion(value, checked[key])
     elif isinstance(source, list) and isinstance(checked, list):

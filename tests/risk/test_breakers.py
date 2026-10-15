@@ -29,6 +29,7 @@ from thytrader.trading.models import (
     OrderStatus,
     Position,
     RuntimePhase,
+    with_cancel_time,
 )
 
 _STRATEGY = UUID("01978a3e-5f2c-7d10-b3a4-0000000000b1")
@@ -72,7 +73,7 @@ def _deployment(
 
 def _order(*, created_at: datetime, status: OrderStatus = OrderStatus.OPEN) -> Order:
     """One venue-visible order in the rolling rate window."""
-    return Order(
+    order = Order(
         id=uuid4(),
         deployment_id=uuid4(),
         intent_id=uuid4(),
@@ -85,6 +86,8 @@ def _order(*, created_at: datetime, status: OrderStatus = OrderStatus.OPEN) -> O
         updated_at=created_at,
         price=Decimal("100"),
     )
+    # Stores stamp the first cancel time on every write (ADR 0141).
+    return with_cancel_time(order)
 
 
 def _round_trip_loss_snapshot(*, mode: DeploymentMode = DeploymentMode.PAPER) -> DeploymentSnapshot:
@@ -365,6 +368,24 @@ def test_cancel_rate_limit_denies_further_entries() -> None:
         observation=_observation(),
     )
     assert verdict.reason_code is RiskReasonCode.CANCEL_RATE_LIMIT
+
+
+def test_a_re_saved_old_cancel_does_not_count_as_a_new_one() -> None:
+    """Reconciliation re-saves canceled orders; only the first cancel time counts (ADR 0141)."""
+    policy = compiled_default_risk_policy().model_copy(update={"max_cancellations_per_minute": 1})
+    old = _order(created_at=_NOW - timedelta(hours=2), status=OrderStatus.CANCELED)
+    re_saved = replace(old, updated_at=_NOW - timedelta(seconds=5))
+    snapshot = DeploymentSnapshot(
+        deployment=_deployment(), orders=(re_saved,), fills=(), position=None
+    )
+    verdict = evaluate_new_entry(
+        policy,
+        mode=DeploymentMode.PAPER,
+        proposed=_proposed(),
+        snapshots=(snapshot,),
+        observation=_observation(),
+    )
+    assert verdict.reason_code is not RiskReasonCode.CANCEL_RATE_LIMIT
 
 
 def test_reference_price_collar_denies_fat_finger_limits() -> None:
