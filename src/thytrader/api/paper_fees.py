@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from fastapi import Request  # noqa: TC002 - FastAPI resolves dependency annotations at runtime.
 
 from thytrader.api.dependencies import get_portfolio_service
-from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.exchanges.fee_suggestions import suggest_research_fee_rates
 from thytrader.execution.paper_fees import paper_fees_unavailable
 
 if TYPE_CHECKING:

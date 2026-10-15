@@ -119,6 +119,7 @@ async def test_original_rule_mismatch_keeps_missing_economics_build_visible() ->
 def test_only_declared_unset_order_timestamps_may_vanish_from_input() -> None:
     """An explicit null cancel time or settlement is fine (ADR 0141); other unknowns are not."""
     validate_no_coercion({"canceled_at": None, "settled_at": None}, {})
+    validate_no_coercion({"next_tier": None, "qualification": None}, {})
     with pytest.raises(ValueError, match="unknown replay field"):
         validate_no_coercion({"bogus_at": None}, {})
     with pytest.raises(ValueError, match="unknown replay field"):

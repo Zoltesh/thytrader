@@ -9,11 +9,15 @@ from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
 from thytrader.decimal_text import canonical_decimal
+from thytrader.exchanges.fees import FEE_PROFILE_FIELDS_OMITTED_WHEN_UNSET
 from thytrader.replay.numeric import validate_decimal
 from thytrader.trading.models import ORDER_FIELDS_OMITTED_WHEN_UNSET
 
 if TYPE_CHECKING:
     from pydantic import JsonValue
+
+
+_OMITTED_WHEN_UNSET = ORDER_FIELDS_OMITTED_WHEN_UNSET | FEE_PROFILE_FIELDS_OMITTED_WHEN_UNSET
 
 
 def wire_value(value: object) -> JsonValue:
@@ -48,9 +52,10 @@ def validate_no_coercion(source: JsonValue, checked: JsonValue) -> None:
     if isinstance(source, dict) and isinstance(checked, dict):
         for key, value in source.items():
             if key not in checked:
-                # A declared optional order timestamp left unset is omitted on output
-                # (ADR 0141), so an explicit null for it is not an unknown field.
-                if value is None and key in ORDER_FIELDS_OMITTED_WHEN_UNSET:
+                # A declared optional field left unset is omitted on output (order
+                # timestamps, ADR 0141; fee tier ladder, ADR 0144), so an explicit null for
+                # it is not an unknown field.
+                if value is None and key in _OMITTED_WHEN_UNSET:
                     continue
                 raise ValueError("unknown replay field")
             validate_no_coercion(value, checked[key])

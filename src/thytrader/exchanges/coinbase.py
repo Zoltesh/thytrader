@@ -10,9 +10,11 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from pydantic import ValidationError
 from requests import HTTPError, RequestException, Timeout
 
 from thytrader.exchanges.coinbase_cfm_preview import CoinbaseCfmFeePreview, FuturesFeePreview
+from thytrader.exchanges.coinbase_fee_tiers import tier_ladder
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.exchanges.read_errors import (
@@ -454,14 +456,20 @@ class CoinbaseAccount:
         if not all(value.is_finite() for value in (taker_rate, maker_rate, total_volume)):
             raise ValueError("Coinbase fee response contains a non-finite decimal.")
 
-        return FeeProfile(
-            taker_fee_rate=taker_rate,
-            maker_fee_rate=maker_rate,
-            usd_volume_30d=total_volume,
-            fee_tier=pricing_tier,
-            as_of=datetime.now(UTC),
-            source="coinbase",
-        )
+        billed = {
+            "taker_fee_rate": taker_rate,
+            "maker_fee_rate": maker_rate,
+            "usd_volume_30d": total_volume,
+            "fee_tier": pricing_tier,
+            "as_of": datetime.now(UTC),
+            "source": "coinbase",
+        }
+        try:
+            return FeeProfile.model_validate({**billed, **tier_ladder(payload)})
+        except ValidationError:
+            # The tier ladder is optional context: a ladder Coinbase reports in a shape we
+            # cannot validate never costs the billed rates (ADR 0144).
+            return FeeProfile.model_validate(billed)
 
     @staticmethod
     def _account_items(payload: dict[str, Any]) -> tuple[dict[str, Any], ...]:

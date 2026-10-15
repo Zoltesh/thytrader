@@ -1,6 +1,7 @@
 # 0090: Optional take-profit, named entry skips, backtest diagnostics, account-rate fees, HTTP signal trace
 
-- Status: Accepted — amended by [0093](0093-signal-based-exits.md)
+- Status: Accepted — amended by [0093](0093-signal-based-exits.md); its pinned fee-schedule
+  context superseded by [0144](0144-fee-tiers-from-coinbase.md)
 - Date: 2026-10-02
 - Amends: [0036](0036-phase-13-live-extras.md) (live protection is an OCO **or**, without a
   take-profit, a venue stop-limit), [0045](0045-spot-shorting-and-attached-entry-brackets.md)

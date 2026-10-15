@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal
 from thytrader import __version__
 from thytrader.config import Settings
 from thytrader.credentials.service import credentials_are_configured
-from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.exchanges.fee_suggestions import suggest_research_fee_rates
 from thytrader.execution.futures_paper import FuturesRuntime
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import storage_label
@@ -71,6 +71,7 @@ from thytrader.operator.models import (
 from thytrader.operator.portfolio_models import (
     FeesPayload,
     FeesReport,
+    FeeTierPayload,
     OperatorMoneyPayload,
     OperatorPortfolioAssetPayload,
     PortfolioPayload,
@@ -112,6 +113,7 @@ if TYPE_CHECKING:
     from thytrader.audit_events import AuditEventStore
     from thytrader.backtest.results import BacktestResultReader
     from thytrader.config import Settings
+    from thytrader.exchanges.fees import FeeTierBand
     from thytrader.exchanges.futures_models import (
         FuturesAccountHistoryStore,
         FuturesAccountSnapshotStore,
@@ -325,16 +327,12 @@ class OperatorDiagnostics:
                 suggestion_source=suggestion.source,
                 suggestion_unavailable_reason=suggestion.unavailable_reason,
                 suggestion_fee_tier=suggestion.fee_tier,
-                suggestion_schedule_tier_id=suggestion.schedule_tier_id,
-                suggestion_schedule_version=suggestion.schedule_version,
-                suggestion_schedule_as_of=(
-                    suggestion.schedule_as_of.isoformat()
-                    if suggestion.schedule_as_of is not None
-                    else None
-                ),
-                schedule_maker_fee_rate=_optional_rate(suggestion.schedule_maker_fee_rate),
-                schedule_taker_fee_rate=_optional_rate(suggestion.schedule_taker_fee_rate),
                 suggestion_fetched_at=suggestion.fetched_at,
+                current_tier=_tier_payload(profile.current_tier),
+                next_tier=_tier_payload(profile.next_tier),
+                qualification=profile.qualification,
+                qualification_value=_optional_rate(profile.qualification_value),
+                next_tier_threshold=_optional_rate(profile.next_tier_threshold),
                 futures=futures,
             ),
         )
@@ -712,3 +710,18 @@ def _operator_portfolio_asset(asset: PortfolioAsset) -> OperatorPortfolioAssetPa
 def _optional_rate(value: Decimal | None) -> str | None:
     """Render one optional fee rate as plain decimal text."""
     return None if value is None else format(value, "f")
+
+
+def _tier_payload(band: FeeTierBand | None) -> FeeTierPayload | None:
+    """One reported Coinbase tier as decimal-text report fields (ADR 0144)."""
+    if band is None:
+        return None
+    return FeeTierPayload(
+        pricing_tier=band.pricing_tier,
+        maker_fee_rate=format(band.maker_fee_rate, "f"),
+        taker_fee_rate=format(band.taker_fee_rate, "f"),
+        spot_volume_from=_optional_rate(band.spot_volume_from),
+        spot_volume_to=_optional_rate(band.spot_volume_to),
+        assets_from=_optional_rate(band.assets_from),
+        assets_to=_optional_rate(band.assets_to),
+    )

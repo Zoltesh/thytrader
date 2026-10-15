@@ -1625,12 +1625,23 @@
     },
     "FeeProfile": {
       "additionalProperties": false,
-      "description": "Normalized, exact fee tier rates and 30-day volume from Coinbase.",
+      "description": "Normalized, exact fee tier rates and 30-day volume from Coinbase.\n\n``maker_fee_rate`` / ``taker_fee_rate`` are what fills are billed at (promotions\nincluded). ``current_tier`` / ``next_tier`` and the qualification progress come from the\nsame response's tier ladder without promotion, when Coinbase reports it (ADR 0144); no\nschedule is pinned in ThyTrader.",
       "properties": {
         "as_of": {
           "format": "date-time",
           "title": "As Of",
           "type": "string"
+        },
+        "current_tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeeTierBand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "fee_tier": {
           "maxLength": 64,
@@ -1642,6 +1653,56 @@
           "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
           "title": "Maker Fee Rate",
           "type": "string"
+        },
+        "next_tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeeTierBand"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "next_tier_threshold": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Tier Threshold"
+        },
+        "qualification": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qualification"
+        },
+        "qualification_value": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qualification Value"
         },
         "source": {
           "const": "coinbase",
@@ -1668,6 +1729,87 @@
         "as_of"
       ],
       "title": "FeeProfile",
+      "type": "object"
+    },
+    "FeeTierBand": {
+      "additionalProperties": false,
+      "description": "One Coinbase pricing tier exactly as the account's transaction summary reports it.\n\nA tier is reached by trailing 30-day spot volume or by assets held on the platform\n(``qualification`` says which applies to this account); either range may be open-ended\n(None) at the top tier (ADR 0144).",
+      "properties": {
+        "assets_from": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assets From"
+        },
+        "assets_to": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assets To"
+        },
+        "maker_fee_rate": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Maker Fee Rate",
+          "type": "string"
+        },
+        "pricing_tier": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Pricing Tier",
+          "type": "string"
+        },
+        "spot_volume_from": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spot Volume From"
+        },
+        "spot_volume_to": {
+          "anyOf": [
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spot Volume To"
+        },
+        "taker_fee_rate": {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "title": "Taker Fee Rate",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pricing_tier",
+        "maker_fee_rate",
+        "taker_fee_rate"
+      ],
+      "title": "FeeTierBand",
       "type": "object"
     },
     "Fill": {

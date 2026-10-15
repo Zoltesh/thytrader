@@ -643,9 +643,13 @@ does not match the result is `bar_explanations_unavailable`, not a guessed expla
 reported Coinbase rates** (`suggestion_source=coinbase_account`; for example 0.005 / 0.009 on an
 Intro tier) — what live fills are billed at
 ([ADR 0090](../../docs/decisions/0090-research-correctness-optional-take-profit-diagnostics.md)).
-`schedule_maker_fee_rate` / `schedule_taker_fee_rate` with `suggestion_schedule_tier_id` and
-`suggestion_schedule_version` are the pinned public band for the same volume, **context only**:
-never copy them as defaults. Copy `suggested_*` into `submit-backtest` / `submit-study` JSON unless
+`next_tier` (`pricing_tier`, `maker_fee_rate`, `taker_fee_rate`, `spot_volume_from` / `_to`,
+`assets_from` / `_to`), `current_tier`, `qualification` (e.g. `spot_volume`, trailing 30-day),
+`qualification_value` and `next_tier_threshold` are Coinbase's own tier ladder for this account
+([ADR 0144](../../docs/decisions/0144-fee-tiers-from-coinbase.md)); ThyTrader pins no schedule.
+To answer "what would this strategy do at the next tier", run the same study again with
+`next_tier`'s rates as an explicit what-if, labelled as such; never use them as defaults (fills are
+billed at the account rates). Copy `suggested_*` into `submit-backtest` / `submit-study` JSON unless
 the operator supplied custom rates. Paper starts that omit rates take the same account rates
 automatically ([ADR 0122](../../docs/decisions/0122-paper-fees-default-to-account-rates.md)).
 Demo or missing credentials set `suggestion_source=unavailable` — do **not** use dashboard demo

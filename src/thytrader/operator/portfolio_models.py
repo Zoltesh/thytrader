@@ -237,8 +237,23 @@ class FuturesFeesPayload(_FrozenModel):
         return value.astimezone(UTC)
 
 
+class FeeTierPayload(_FrozenModel):
+    """One Coinbase pricing tier as the account's transaction summary reports it (ADR 0144).
+
+    Volume and asset bounds are decimal strings; a null upper bound is open-ended.
+    """
+
+    pricing_tier: str
+    maker_fee_rate: str
+    taker_fee_rate: str
+    spot_volume_from: str | None = None
+    spot_volume_to: str | None = None
+    assets_from: str | None = None
+    assets_to: str | None = None
+
+
 class FeesPayload(_FrozenModel):
-    """Coinbase fee tier plus the research/paper prefill (account rates) and schedule context.
+    """Coinbase fee tier, the research/paper prefill (account rates) and the tier ladder.
 
     ``futures`` is the separate futures fee evidence (never merged into the spot rates).
     """
@@ -254,12 +269,12 @@ class FeesPayload(_FrozenModel):
     suggestion_source: Literal["coinbase_account", "unavailable"]
     suggestion_unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
     suggestion_fee_tier: str | None = None
-    suggestion_schedule_tier_id: str | None = None
-    suggestion_schedule_version: str | None = None
-    suggestion_schedule_as_of: str | None = None
-    schedule_maker_fee_rate: str | None = None
-    schedule_taker_fee_rate: str | None = None
     suggestion_fetched_at: datetime | None = None
+    current_tier: FeeTierPayload | None = None
+    next_tier: FeeTierPayload | None = None
+    qualification: str | None = None
+    qualification_value: str | None = None
+    next_tier_threshold: str | None = None
     futures: FuturesFeesPayload | None = None
 
     @field_validator("as_of", "suggestion_fetched_at")

@@ -147,7 +147,7 @@ book from a deployment's primary `product_id`: read `positions[]` and `book_tota
    `show-strategy`; an invalid saved definition fails the backtest with HTTP 422 `strategy_invalid`.
 7. Build `request.json` with `strategy_id`, `initial_quote_balance`, maker/taker fee rates (copy
    `suggested_maker_fee_rate` / `suggested_taker_fee_rate` from `thytrader-operator fees` — the
-   account's reported Coinbase rates; `schedule_*` is context only, ADR 0090),
+   account's reported Coinbase rates, ADR 0090; `next_tier` is a what-if only, ADR 0144),
    `fixed_slippage_bps`, and optional `spread_bps` → `submit-backtest --file request.json --confirm`.
    Dataset fingerprints are optional: omitted ones bind the newest complete catalog dataset for each
    clock and the response echoes `bound_datasets`
