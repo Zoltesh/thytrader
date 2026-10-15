@@ -2,22 +2,29 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pytest
 
 from tests.execution.decision_support import Catalog
 from tests.execution.test_htf_filter import _startable_htf_strategy
-from tests.execution.test_reference_runtime import _watchlist
+from tests.execution.test_reference_runtime import _eth, _watchlist
 from tests.execution_worker.test_window_longevity import _pin, _union_strategy
 from tests.market_history import listed_history
-from tests.strategies.reference_support import candle, reference_strategy
+from tests.strategies.reference_support import (
+    candle,
+    daily_bars,
+    hourly_bars,
+    reference_strategy,
+)
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.evaluation.multi_timeframe import closed_bar_required_coverage, ltf_close
+from thytrader.execution import stopped as stopped_module
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.clock_windows import (
+    ClockWindow,
     deployment_clock_windows,
     extra_timeframe_warmup,
     windows_hold_warmup,
@@ -27,7 +34,7 @@ from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import ReferenceWatchlist, create_deployment
-from thytrader.execution_worker import service, windows as windows_module
+from thytrader.execution_worker import service, stopped_step, windows as windows_module
 from thytrader.execution_worker.windows import SHORT_HISTORY_DETAIL
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
@@ -35,7 +42,12 @@ from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
-from thytrader.trading.models import DeploymentMode, DeploymentStatus
+from thytrader.trading.models import DeploymentMode, DeploymentSnapshot, DeploymentStatus
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+
+    from thytrader.market_data.models import Candle, MarketProduct
 
 pytestmark = pytest.mark.anyio
 
@@ -231,26 +243,134 @@ def test_an_empty_decision_window_never_holds_under_the_policy() -> None:
     assert not windows_hold_warmup(_startable_htf_strategy(), (), (), None)
 
 
-def test_a_window_that_fails_to_validate_never_interrupts_the_cycle(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("failure", [ValueError, TypeError, RuntimeError])
+async def test_a_window_failure_never_interrupts_the_cycle(
+    monkeypatch: pytest.MonkeyPatch, failure: type[Exception]
 ) -> None:
-    """The journal's windows are evidence: a bad one is logged and the row records none."""
-    strategy = _startable_htf_strategy()
-    anchor = _ANCHORS[0]
-    (decision, *_rest) = deployment_clock_windows(strategy, deploy_anchor=anchor)
-    broken = replace(decision, role="")
-    monkeypatch.setattr(
-        windows_module, "deployment_clock_windows", lambda *_args, **_kwargs: (broken,)
+    """Windows are evidence: if planning them fails, the bar is still evaluated and journaled."""
+
+    def _broken(*_args: object, **_kwargs: object) -> tuple[ClockWindow, ...]:
+        raise failure("planning failed")
+
+    monkeypatch.setattr(windows_module, "deployment_clock_windows", _broken)
+    strategy = create_template_strategy(product_id="BTC-USD", timeframe="1h")
+    store = InMemoryExecutionStore()
+    await create_deployment(
+        store=store,
+        publication_store=Catalog(strategy),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        mode=DeploymentMode.PAPER,
+        paper_starting_cash=Decimal("10000"),
+        live_allowed=False,
     )
-    assert (
-        windows_module._decision_windows(
-            strategy,
-            deploy_anchor=anchor,
-            product_id=decision.product_id,
-            decision_candles=(),
-            htf_candles=(),
-            extra_candles=None,
-            reference_candles={},
+    journal = InMemoryDecisionJournalStore()
+    with execution_audit_scope(InMemoryAuditEventStore()), decision_journal_scope(journal):
+        await service._run_cycle(
+            store=store,
+            publication_store=Catalog(strategy),
+            market_data=listed_history(),
+            paper_broker=PaperBroker(),
+            live_broker=None,
+            quote_reader=None,
+            risk_store=None,
         )
-        == ()
+    (row,) = journal.rows()
+    assert row.windows == ()
+    assert row.skip_reason is not DecisionSkipReason.WARMUP
+    (deployment,) = await store.list_deployments()
+    after = await store.get_deployment(deployment.id)
+    assert after.deployment.status is DeploymentStatus.RUNNING
+    assert after.deployment.last_evaluated_bar == row.bar_starts_at
+
+
+async def _reference_book(
+    strategy: StrategyDefinition,
+) -> tuple[InMemoryExecutionStore, DeploymentSnapshot]:
+    """One running paper book of a reference strategy, its BTC 1d series watched."""
+    store = InMemoryExecutionStore()
+    created = await create_deployment(
+        store=store,
+        publication_store=Catalog(strategy),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        mode=DeploymentMode.PAPER,
+        paper_starting_cash=Decimal("10000"),
+        live_allowed=False,
+        reference_watches=ReferenceWatchlist(store=await _watchlist(), provider="demo"),
     )
+    return store, await store.get_deployment(created.id)
+
+
+async def test_a_stopped_book_passes_its_signal_exit_windows_to_the_journal() -> None:
+    """Managed-stopped signal exits are evaluated bars: their windows reach the journal."""
+    strategy = with_convergence_warmup(reference_strategy())
+    store, snapshot = await _reference_book(strategy)
+    decision = hourly_bars(datetime(2026, 10, 6, tzinfo=UTC), 3)
+    htf: tuple[Candle, ...] = ()
+    references = {"btc": daily_bars(datetime(2026, 10, 1, tzinfo=UTC), "100", "101")}
+    seen: dict[str, object] = {}
+
+    async def _signal_windows(
+        strategy: StrategyDefinition, *, product_id: str, deploy_anchor: datetime
+    ) -> tuple[tuple[Candle, ...], Mapping[str, Sequence[Candle]], Mapping[str, Sequence[Candle]]]:
+        del strategy, product_id, deploy_anchor
+        return htf, {}, references
+
+    async def _journal(
+        snapshot: DeploymentSnapshot,
+        *,
+        strategy: StrategyDefinition,
+        product: MarketProduct,
+        candles: tuple[Candle, ...],
+        advance: Callable[[], Awaitable[DeploymentSnapshot]],
+        require_activity: bool,
+        htf_candles: Sequence[Candle] = (),
+        indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None = None,
+        reference_candles: Mapping[str, Sequence[Candle]] | None = None,
+    ) -> None:
+        del snapshot, strategy, product, candles, advance, require_activity
+        seen.update(
+            htf_candles=htf_candles,
+            indicator_timeframe_candles=indicator_timeframe_candles,
+            reference_candles=reference_candles,
+        )
+
+    await stopped_module._maintain_strategy_book(
+        snapshot,
+        strategy=strategy,
+        context=stopped_module._ExitContext(product=_eth(), candles=decision),
+        store=store,
+        broker=PaperBroker(),
+        load_signal_windows=_signal_windows,
+        journal_strategy_bar=_journal,
+        deploy_anchor=snapshot.deployment.created_at,
+    )
+    assert seen["reference_candles"] == references
+    assert seen["htf_candles"] == htf
+
+
+async def test_the_stopped_journal_records_the_windows_it_was_given() -> None:
+    """The worker's stopped-bar journal turns those windows into the row's evidence."""
+    strategy = with_convergence_warmup(reference_strategy())
+    _store, snapshot = await _reference_book(strategy)
+    decision = hourly_bars(datetime(2026, 10, 6, tzinfo=UTC), 3)
+    references = {"btc": daily_bars(datetime(2026, 10, 1, tzinfo=UTC), "100", "101")}
+    journal = InMemoryDecisionJournalStore()
+
+    async def _advance() -> DeploymentSnapshot:
+        return snapshot
+
+    with decision_journal_scope(journal):
+        await stopped_step._journal_stopped_bar(
+            snapshot,
+            strategy=strategy,
+            product=_eth(),
+            candles=decision,
+            advance=_advance,
+            require_activity=False,
+            reference_candles=references,
+        )
+    (row,) = journal.rows()
+    assert [(item.role, item.first_bar_at) for item in row.windows] == [
+        ("decision clock", decision[0].starts_at),
+        ("reference btc", references["btc"][0].starts_at),
+    ]

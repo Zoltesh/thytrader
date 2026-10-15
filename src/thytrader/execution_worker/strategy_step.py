@@ -356,12 +356,11 @@ async def _evaluate_strategy_due_bars(
     data_windows = _decision_windows(
         strategy,
         deploy_anchor=deployment.created_at,
-        product_id=product.product_id,
-        decision_candles=candles,
-        htf_candles=htf_candles,
-        extra_candles=extra_candles,
+        decision_by_product={product.product_id: candles},
+        htf_by_product={product.product_id: htf_candles},
+        extra_by_product={product.product_id: extra_candles},
         reference_candles=reference_candles,
-    )
+    ).get(product.product_id, ())
     broker: Broker = paper_broker
     fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:

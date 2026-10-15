@@ -2796,7 +2796,7 @@
     },
     "DecisionWindow": {
       "additionalProperties": false,
-      "description": "One deploy-anchored data window the bar's decision read (ADR 0140).\n\n``starts_at`` is where the window starts (a full warmup before the deployment); the\nfirst bar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the\nmarket had no candles that early. ``role`` names the clock: ``decision clock``,\n``HTF filter``, ``indicator timeframe`` or ``reference <id>``.",
+      "description": "One deploy-anchored data window the bar's decision read (ADR 0140).\n\n``starts_at`` is where the window starts (a full warmup before the deployment); the first\nbar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the venue\nreturned nothing earlier (a younger market, or no trades at the window's start). ``role``\nnames the clock: ``decision clock``, ``HTF filter``, ``indicator timeframe`` or ``reference\n<id>``.",
       "properties": {
         "role": {
           "maxLength": 64,

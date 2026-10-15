@@ -817,8 +817,8 @@ offset like "Highest(3, high) (1 bar ago)", showing the lagged value), the risk 
 and the bar's trade reason when it persisted an order intent (trade reasons are merged into their
 bar, not listed twice; reasons with no journaled bar, such as those recorded before the journal
 existed, stay below as **Earlier trade reasons**). **Data windows** lists the history each clock read:
-where it starts (a full warmup before the bot started) and, for a market younger than that, the
-date its history actually begins ([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
+where it starts (a full warmup before the bot started) and, when the venue returned nothing that
+early (a younger market, or no trades at first), the first bar it did return ([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
 **Load more** pages older bars. The journal keeps the newest 20,000 decisions per
 bot for up to 180 days; "Decision history is unavailable" means the API has no database. A latched breaker shows
 a banner with **Reset breaker latches…** (its own confirmation). Positions & protection, evidence

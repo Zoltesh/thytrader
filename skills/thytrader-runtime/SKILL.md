@@ -393,8 +393,9 @@ close price, and the end-of-bar position. `windows` lists the data windows an ev
 read ([ADR 0140](../../docs/decisions/0140-indicator-convergence-warmup.md)): each `role`
 (`decision clock`, `HTF filter`, `indicator timeframe`, `reference <id>`), `product_id`, `timeframe`,
 `warmup_bars`, `starts_at` (a full warmup before the bot's creation) and `first_bar_at`, the first
-bar the venue returned; `first_bar_at` after `starts_at` means the market is younger than that
-warmup, and `null` means no bars came back. Rows written earlier and gate skips have none. `no_trade_bar: true` marks a flat zero-volume bar for an
+bar the venue returned; `first_bar_at` after `starts_at` means the venue returned nothing earlier
+(a market younger than that warmup, or no trades at the window's start), and `null` means no bars
+came back. Rows written earlier and gate skips have none; managed-stopped signal exits carry theirs. `no_trade_bar: true` marks a flat zero-volume bar for an
 interval without trades (its summary ends "(no-trade bar: no trades, flat at the prior close)"):
 paper and live fill a bar Coinbase omitted between two traded bars exactly as research datasets do,
 then evaluate it like any bar. A missing **newest** decision candle is never filled. When only

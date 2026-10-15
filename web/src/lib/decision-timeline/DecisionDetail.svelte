@@ -250,7 +250,8 @@
 							window.starts_at
 						)}{#if window.first_bar_at === null}
 							— no bars returned{:else if window.first_bar_at !== window.starts_at}
-							— history only from {formatUtcTimestamp(window.first_bar_at)}{/if}
+							— first bar returned at {formatUtcTimestamp(window.first_bar_at)} (a younger market, or
+							no trades at first){/if}
 					</li>
 				{/each}
 			</ul>

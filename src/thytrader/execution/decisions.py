@@ -280,10 +280,11 @@ class DecisionProtectionUpdate(_FrozenDecisionModel):
 class DecisionWindow(_FrozenDecisionModel):
     """One deploy-anchored data window the bar's decision read (ADR 0140).
 
-    ``starts_at`` is where the window starts (a full warmup before the deployment); the
-    first bar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the
-    market had no candles that early. ``role`` names the clock: ``decision clock``,
-    ``HTF filter``, ``indicator timeframe`` or ``reference <id>``.
+    ``starts_at`` is where the window starts (a full warmup before the deployment); the first
+    bar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the venue
+    returned nothing earlier (a younger market, or no trades at the window's start). ``role``
+    names the clock: ``decision clock``, ``HTF filter``, ``indicator timeframe`` or ``reference
+    <id>``.
     """
 
     role: str = Field(min_length=1, max_length=64)

@@ -13,6 +13,7 @@ from thytrader.evaluation.models import warmup_starts_at
 from thytrader.evaluation.multi_timeframe import ltf_close
 from thytrader.execution.candle_wait import newest_bar_settling
 from thytrader.execution.clock_windows import (
+    ClockWindow,
     deployment_clock_windows,
     required_clock_warmup_bars,
     shared_clock_union_warmup,
@@ -349,52 +350,50 @@ def _decision_windows(
     strategy: StrategyDefinition,
     *,
     deploy_anchor: datetime,
-    product_id: str,
-    decision_candles: Sequence[Candle],
-    htf_candles: Sequence[Candle],
-    extra_candles: Mapping[str, Sequence[Candle]] | None,
+    decision_by_product: Mapping[str, Sequence[Candle]],
+    htf_by_product: Mapping[str, Sequence[Candle]],
+    extra_by_product: Mapping[str, Mapping[str, Sequence[Candle]] | None],
     reference_candles: Mapping[str, Sequence[Candle]],
-) -> tuple[DecisionWindow, ...]:
-    """One product's planned windows and shared references, with each first bar fetched.
+) -> dict[str, tuple[DecisionWindow, ...]]:
+    """Each product's planned windows and the shared references, with each first bar fetched.
 
     Journaled on the product's decision rows (ADR 0140), so a seed can be reproduced and a
-    market younger than a window shows as a ``first_bar_at`` after its ``starts_at``. The
-    journal is evidence, never a trading input: a window that fails to validate is logged and
-    the row records none, rather than interrupting the cycle.
+    window whose first returned bar is after its start (a younger market, or no trades at
+    first) is visible. Built once per cycle. The journal is evidence, never a trading input:
+    any failure here is logged and the rows record no windows; the cycle carries on.
     """
     try:
-        return _planned_windows(
-            strategy,
-            deploy_anchor=deploy_anchor,
-            product_id=product_id,
-            decision_candles=decision_candles,
-            htf_candles=htf_candles,
-            extra_candles=extra_candles,
-            reference_candles=reference_candles,
-        )
-    except ValueError:
+        plan = deployment_clock_windows(strategy, deploy_anchor=deploy_anchor)
+        return {
+            product_id: _product_windows(
+                plan,
+                product_id=product_id,
+                decision_candles=decision_candles,
+                htf_candles=htf_by_product.get(product_id, ()),
+                extra_candles=extra_by_product.get(product_id),
+                reference_candles=reference_candles,
+            )
+            for product_id, decision_candles in decision_by_product.items()
+        }
+    except Exception:  # noqa: BLE001 - journal evidence must never interrupt trading.
         _logger.warning(
-            "decision_windows_unavailable product_id=%s timeframe=%s",
-            product_id,
-            strategy.timeframe,
-            exc_info=True,
+            "decision_windows_unavailable timeframe=%s", strategy.timeframe, exc_info=True
         )
-        return ()
+        return {}
 
 
-def _planned_windows(
-    strategy: StrategyDefinition,
+def _product_windows(
+    plan: Sequence[ClockWindow],
     *,
-    deploy_anchor: datetime,
     product_id: str,
     decision_candles: Sequence[Candle],
     htf_candles: Sequence[Candle],
     extra_candles: Mapping[str, Sequence[Candle]] | None,
     reference_candles: Mapping[str, Sequence[Candle]],
 ) -> tuple[DecisionWindow, ...]:
-    """Pair each planned window of one product (and the references) with its first bar."""
+    """Pair one product's planned windows (and the references) with their first bars."""
     rows: list[DecisionWindow] = []
-    for window in deployment_clock_windows(strategy, deploy_anchor=deploy_anchor):
+    for window in plan:
         reference = window.role.removeprefix("reference ")
         if reference != window.role:
             fetched: Sequence[Candle] = reference_candles.get(reference, ())
