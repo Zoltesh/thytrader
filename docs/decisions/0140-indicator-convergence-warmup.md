@@ -81,13 +81,13 @@ live evaluated as an SMA(100).
    `HISTORY_TOO_SHORT` when the series has not traded by then, or
    `HISTORY_UNCONFIRMED` when the venue cannot be read. The worker sizes its windows with the
    same functions, so the check and the fetch agree.
-9. **The worker never enters on a short window.** Under the policy, an entry-eligible bar is
-   skipped as `warmup`, with that reason, while its decision window holds fewer bars than its
-   warmup or an HTF or extra-timeframe window starts after the evaluator's required coverage
-   for that bar (which includes the previous mapped bar at a rollover) (references already require theirs). After a passed start
-   check it happens only briefly, when an established market had no trade on a window's first
-   bar (the probe saw earlier candles; the window starts after the quiet bar until the required
-   coverage moves past it); otherwise it guards books started without the check.
+9. **The worker never enters on a short window.** Under the policy, an entry-eligible bar is skipped
+   as `warmup`, with that reason, while its decision window holds fewer bars than its warmup or an
+   HTF or extra-timeframe window starts after the evaluator's required coverage for that bar, which
+   includes the previous mapped bar at a rollover (references already require theirs). After a
+   passed start check it happens only briefly, when an established market had no trade on a window's
+   first bar (the probe saw earlier candles; the window starts after the quiet bar until the
+   required coverage moves past it); otherwise it guards books started without the check.
 
 Rollout continues in a later change: decision journals record each clock's window start;
 operator reports and the browser catalog show convergence warmup and anchor sensitivity.
