@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from thytrader.fleet_control.models import SUMMARY_LEDGER_OMISSION
+from thytrader.research.live_evidence import LiveStartEvidence
 from thytrader.trading.day_open import DailyOpeningEvidence
 from thytrader.trading.models import DeploymentMode
 from thytrader.trading.protection_models import ProtectionEvidenceResponse
@@ -245,6 +246,14 @@ class DeploymentResponse(BaseModel):
         description=(
             "Start or resume warnings that did not refuse it (ADR 0142), each prefixed by its "
             "code, for example WARMUP_POLICY_MISSING or HISTORY_TOO_SHORT. Empty otherwise."
+        ),
+    )
+    live_evidence: LiveStartEvidence | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "On a live start's response only: the evidence recorded with the bot (ADR 0143). "
+            "Read it later with GET /api/v1/deployments/{id}/live-evidence."
         ),
     )
     id: UUID

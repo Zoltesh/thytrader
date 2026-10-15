@@ -27,11 +27,13 @@ from thytrader.api.dependencies import (
     get_market_data_watchlist_store,
     get_optional_decision_journal_store,
     get_portfolio_storage,
+    get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_snapshot_store,
     get_strategy_store,
 )
+from thytrader.api.live_evidence_wiring import get_live_evidence_store
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.portfolios import mutation_context, portfolio_http_error
 from thytrader.audit_events import AuditEventStore  # noqa: TC001 - FastAPI Depends.
@@ -52,6 +54,7 @@ from thytrader.portfolios.briefing import (
     build_manager_briefing,
 )
 from thytrader.portfolios.errors import PortfolioError
+from thytrader.portfolios.live_evidence_check import LiveEvidenceSources
 from thytrader.portfolios.manager import ProposalService
 from thytrader.portfolios.proposals import (
     ProposalDecisionRequest,
@@ -70,6 +73,10 @@ from thytrader.portfolios.runtime_views import (
 )
 from thytrader.portfolios.store import PortfolioStorage
 from thytrader.portfolios.values import RevisionNumber
+from thytrader.research.catalog import ResearchStudyCatalog  # noqa: TC001 - FastAPI Depends.
+from thytrader.research.live_evidence_store import (
+    LiveEvidenceStore,  # noqa: TC001 - FastAPI Depends.
+)
 from thytrader.research.pagination import decode_offset_cursor, encode_offset_cursor
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001 - FastAPI Depends.
 from thytrader.runtime import RuntimeState  # noqa: TC001 - FastAPI Depends.
@@ -123,6 +130,8 @@ def runtime_service(
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
     market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    evidence_store: Annotated[LiveEvidenceStore, Depends(get_live_evidence_store)],
 ) -> PortfolioRuntimeService:
     """The portfolio runtime service over this request's stores."""
     return PortfolioRuntimeService(
@@ -137,6 +146,7 @@ def runtime_service(
             store=watchlist, provider=ingestion_provider(runtime.settings)
         ),
         market_data=market_data,
+        live_evidence=LiveEvidenceSources(catalog=catalog, store=evidence_store),
     )
 
 

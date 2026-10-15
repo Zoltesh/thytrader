@@ -13,6 +13,7 @@ from thytrader.runtime_control.client import (
     list_deployments,
     show_deployment,
     show_deployment_futures,
+    show_live_evidence,
 )
 
 if TYPE_CHECKING:
@@ -101,6 +102,8 @@ def run_inventory_read(arguments: argparse.Namespace, base_url: str) -> object:
     if command == "show":
         payload = show_deployment(base_url, arguments.deployment_id, detail=arguments.detail)
         return _with_futures_view(payload, base_url, arguments.deployment_id)
+    if command == "live-evidence":
+        return show_live_evidence(base_url, arguments.deployment_id)
     if command == "orders":
         return list_deployment_orders(
             base_url,

@@ -20,14 +20,17 @@ from thytrader.api.dependencies import (
     get_memory_store,
     get_optional_decision_journal_store,
     get_quote_reader,
+    get_research_study_catalog,
     get_risk_policy_store,
     get_runtime_state,
     get_strategy_snapshot_store,
     get_strategy_store,
 )
 from thytrader.api.live_ack import require_live_acknowledgement
+from thytrader.api.live_evidence_wiring import get_live_evidence_store
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_adoption import start_adopting
+from thytrader.api.routes.deployment_live_evidence import assess_live_start
 from thytrader.api.routes.deployment_models import (
     CreateDeploymentRequest,
     DeploymentListResponse,
@@ -77,6 +80,8 @@ from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
 )
 from thytrader.memory.store import ExperientialMemoryStore
+from thytrader.research.catalog import ResearchStudyCatalog
+from thytrader.research.live_evidence_store import LiveEvidenceStore, record_started_evidence
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.library import StrategyLibraryError, StrategyStore
@@ -134,6 +139,8 @@ async def post_deployment(
     quote_reader: Annotated[ExchangeAccount | None, Depends(get_quote_reader)],
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
     futures_start: Annotated[FuturesStart | None, Depends(get_futures_start)],
+    catalog: Annotated[ResearchStudyCatalog, Depends(get_research_study_catalog)],
+    evidence_store: Annotated[LiveEvidenceStore, Depends(get_live_evidence_store)],
 ) -> DeploymentResponse:
     """Snapshot the strategy's current rules and start a running paper or live book.
 
@@ -157,6 +164,11 @@ async def post_deployment(
     ``HISTORY_UNCONFIRMED`` (ADR 0140, 0142). The risk policy's opt-in ``start_safeguards``
     turn these into 409 refusals of the same codes (``WARMUP_POLICY_REQUIRED`` for the
     policy).
+
+    A live start records the evidence its exact strategy fingerprint has shown
+    (``live_evidence``; ADR 0143) and warns with ``LIVE_EVIDENCE_THIN`` when it is below the
+    risk policy's thresholds, or is refused with 409 ``LIVE_EVIDENCE_REQUIRED`` under the
+    opt-in ``require_live_evidence`` safeguard.
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     # The snapshot below reports a missing or unavailable strategy precisely.
@@ -172,6 +184,13 @@ async def post_deployment(
                 "is no live futures order path. Start it with mode paper."
             ),
         )
+    live_evidence = (
+        await assess_live_start(
+            snapshot, risk_store=risk_store, catalog=catalog, execution=store, warnings=warnings
+        )
+        if body.mode is DeploymentMode.LIVE
+        else None
+    )
     reference_watches = ReferenceWatchlist(
         store=watchlist, provider=ingestion_provider(runtime.settings)
     )
@@ -227,6 +246,10 @@ async def post_deployment(
         action="start_live" if deployment.mode is DeploymentMode.LIVE else "start_paper",
         deployment=deployment,
     )
+    if live_evidence is not None:
+        await record_started_evidence(
+            evidence_store, deployment.id, live_evidence, warnings=warnings
+        )
     snapshot = await store.get_deployment(deployment.id)
     extra = await _covered_products(publication_store, snapshot.deployment)
     response = await snapshot_response(
@@ -234,7 +257,7 @@ async def post_deployment(
         publication_store,
         extra_product_ids=extra,
     )
-    return response.model_copy(update={"warnings": warnings})
+    return response.model_copy(update={"warnings": warnings, "live_evidence": live_evidence})
 
 
 @router.get("", response_model=DeploymentListResponse)

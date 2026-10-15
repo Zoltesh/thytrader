@@ -30,6 +30,7 @@ from thytrader.risk.models import (
     MAX_FLEET_ENTRIES_PER_WINDOW,
     MAX_FLEET_ENTRY_WINDOW_MINUTES,
 )
+from thytrader.risk.start_safeguards import LiveEvidenceThresholds
 from thytrader.trading.protection_models import ProtectionEvidenceResponse
 
 
@@ -282,10 +283,14 @@ class RiskPayload(_FrozenModel):
 
 
 class StartSafeguardsPayload(_FrozenModel):
-    """The risk policy's opt-in start refusals, each reported explicitly (ADR 0142)."""
+    """The risk policy's opt-in start refusals, each reported explicitly (ADR 0142, 0143)."""
 
     require_convergence_warmup: bool
     require_market_history: bool
+    require_live_evidence: bool
+    live_evidence: LiveEvidenceThresholds = Field(
+        description="Where thin live-start evidence begins (the defaults when the policy omits it)."
+    )
 
 
 class RiskReport(OperatorEnvelope):

@@ -21,9 +21,11 @@ from thytrader.portfolios.errors import (
     PortfolioRevisionConflictError,
     PortfolioStartRejectedError,
 )
+from thytrader.portfolios.live_evidence_check import LiveEvidenceSources
 from thytrader.portfolios.models import SetWeightsRequest
 from thytrader.portfolios.runtime import PortfolioRuntimeService
 from thytrader.portfolios.runtime_start import FeeAssumptions
+from thytrader.research.live_evidence_store import InMemoryLiveEvidenceStore
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.strategies.library import StrategyStorageUnavailableError
@@ -32,6 +34,9 @@ from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from thytrader.research.live_evidence import LiveStartEvidence
     from thytrader.strategies.library import StrategyRecord
 
 pytestmark = pytest.mark.anyio
@@ -119,7 +124,7 @@ async def _enforce(state: World, **safeguards: bool) -> None:
     """Publish a policy whose opt-in start safeguards refuse instead of warning (ADR 0142)."""
     await state.risk.publish(
         compiled_default_risk_policy().model_copy(
-            update={"start_safeguards": StartSafeguards(**safeguards)}
+            update={"start_safeguards": StartSafeguards.model_validate(safeguards)}
         )
     )
 
@@ -498,3 +503,98 @@ async def test_the_opt_in_safeguard_refuses_unreadable_history_saying_nothing_st
     assert problem.code == "history_unconfirmed"
     assert problem.message.startswith("HISTORY_UNCONFIRMED: ")
     assert problem.message.endswith("Nothing was started; retry the start.")
+
+
+def _evidence_runtime(state: World, store: InMemoryLiveEvidenceStore) -> PortfolioRuntimeService:
+    """The world's runtime with live-start evidence sources (ADR 0143)."""
+    return PortfolioRuntimeService(
+        portfolios=state.portfolios,
+        execution=state.execution,
+        strategies=state.strategies,
+        publication=state.strategies,
+        risk_store=state.risk,
+        live_allowed=True,
+        audit=state.audit,
+        live_evidence=LiveEvidenceSources(catalog=None, store=store),
+    )
+
+
+async def test_a_thin_live_sleeve_starts_warns_and_records_its_evidence() -> None:
+    """Every live sleeve starts; each outcome warns and each book keeps its evidence."""
+    state = world()
+    await state.risk.publish(compiled_default_risk_policy())
+    current, _records = await portfolio(state, mode="live")
+    store = InMemoryLiveEvidenceStore()
+    result = await _evidence_runtime(state, store).start(
+        current.portfolio.portfolio_id,
+        revision=current.portfolio.revision,
+        context=operator(),
+        live_acknowledged=True,
+    )
+    assert {item.outcome for item in result.outcomes} == {"started"}
+    assert all("LIVE_EVIDENCE_THIN: " in (item.message or "") for item in result.outcomes)
+    books = await state.tagged(current.portfolio.portfolio_id)
+    recorded = [store.records[book.id] for book in books]
+    assert [item.strategy_fingerprint for item in recorded] == [
+        book.strategy_fingerprint for book in books
+    ]
+    assert all(item.thin for item in recorded)
+
+
+async def test_the_opt_in_safeguard_refuses_thin_live_sleeves() -> None:
+    """Under require_live_evidence, planning refuses every thin sleeve; nothing starts."""
+    state = world()
+    await _enforce(state, require_live_evidence=True)
+    current, records = await portfolio(state, mode="live")
+    store = InMemoryLiveEvidenceStore()
+    with pytest.raises(PortfolioStartRejectedError) as raised:
+        await _evidence_runtime(state, store).start(
+            current.portfolio.portfolio_id,
+            revision=current.portfolio.revision,
+            context=operator(),
+            live_acknowledged=True,
+        )
+    problems = raised.value.problems
+    assert {item.code for item in problems} == {"live_evidence_required"}
+    assert {item.strategy_id for item in problems} == {item.strategy_id for item in records}
+    assert problems[0].message.startswith("LIVE_EVIDENCE_REQUIRED: ")
+    assert await state.tagged(current.portfolio.portfolio_id) == ()
+    assert store.records == {}
+
+
+async def test_paper_sleeves_gather_no_live_evidence() -> None:
+    """A paper portfolio never reads or records live-start evidence."""
+    state = world()
+    current, _records = await portfolio(state)
+    store = InMemoryLiveEvidenceStore()
+    result = await _evidence_runtime(state, store).start(
+        current.portfolio.portfolio_id, revision=current.portfolio.revision, context=operator()
+    )
+    assert {item.outcome for item in result.outcomes} == {"started"}
+    assert not any("LIVE_EVIDENCE" in (item.message or "") for item in result.outcomes)
+    assert store.records == {}
+
+
+class _RefusingEvidenceStore(InMemoryLiveEvidenceStore):
+    """An evidence store whose connection is refused on every write."""
+
+    async def record(self, deployment_id: UUID, evidence: LiveStartEvidence) -> None:
+        """Fail like a database that is down."""
+        del deployment_id, evidence
+        raise ConnectionRefusedError("database is down")
+
+
+async def test_a_failed_evidence_record_never_stops_the_other_sleeves() -> None:
+    """Each live sleeve starts, warns that its record was not stored, and keeps the evidence."""
+    state = world()
+    await state.risk.publish(compiled_default_risk_policy())
+    current, records = await portfolio(state, mode="live")
+    result = await _evidence_runtime(state, _RefusingEvidenceStore()).start(
+        current.portfolio.portfolio_id,
+        revision=current.portfolio.revision,
+        context=operator(),
+        live_acknowledged=True,
+    )
+    assert [item.outcome for item in result.outcomes] == ["started"] * len(records)
+    assert all("LIVE_EVIDENCE_NOT_RECORDED: " in (item.message or "") for item in result.outcomes)
+    assert all(item.live_evidence is not None for item in result.outcomes)

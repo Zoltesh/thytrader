@@ -44,6 +44,17 @@ def add_inventory_read_parsers(
     show = subparsers.add_parser("show", parents=[trailing], help=show_help, description=show_help)
     show.add_argument("deployment_id", help="Deployment UUID.")
     add_show_arguments(show)
+    evidence_help = (
+        "Evidence recorded when a live bot started (ADR 0143): out-of-sample study windows, "
+        "trades and net result of its exact strategy fingerprint, paper bots and days since "
+        "the first, the thresholds, and thin_reasons (empty when it met them). 404 for paper "
+        "bots, live bots started before ADR 0143, and starts that warned "
+        "LIVE_EVIDENCE_NOT_RECORDED. Read-only."
+    )
+    evidence = subparsers.add_parser(
+        "live-evidence", parents=[trailing], help=evidence_help, description=evidence_help
+    )
+    evidence.add_argument("deployment_id", help="Deployment UUID.")
 
 
 def _add_decisions_parser(
@@ -143,6 +154,10 @@ def add_start_parser(
             "instruments starts only when each reference series is on the enabled market-data "
             "watchlist with a lookback covering its warmup (409 names the thytrader-data "
             "watch-add command). "
+            "A live start records the strategy's evidence (live_evidence: out-of-sample "
+            "studies and paper bots of the exact fingerprint; read it later with live-evidence "
+            "ID) and warns LIVE_EVIDENCE_THIN when it is thin; the opt-in "
+            "--require-live-evidence policy flag refuses instead (LIVE_EVIDENCE_REQUIRED). "
             "A futures strategy starts in paper only, with --cash (USD), --maker-fee-rate, "
             "--taker-fee-rate and --fee-per-contract."
         ),

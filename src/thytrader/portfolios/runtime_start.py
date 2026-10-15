@@ -25,6 +25,7 @@ from thytrader.trading.models import Deployment, DeploymentMode, DeploymentStatu
 if TYPE_CHECKING:
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
+    from thytrader.research.live_evidence import LiveStartEvidence
     from thytrader.strategies.snapshots import StrategySnapshot
 
 
@@ -44,6 +45,7 @@ class _PlannedSleeve:
     capital: Decimal
     snapshot: StrategySnapshot
     warnings: tuple[str, ...] = ()
+    live_evidence: LiveStartEvidence | None = None
 
 
 def _fee_rates(mode: DeploymentMode, fees: FeeAssumptions) -> tuple[Decimal | None, Decimal | None]:

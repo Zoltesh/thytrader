@@ -443,7 +443,7 @@ is this lane's job and needs the user's request. After deletion, stopped live bo
 their referenced snapshots are likewise retained as risk evidence (ADR 0111). Deletion output
 `counts.paper_deployments` counts removals and is zero, not a count of retained books.
 
-## Start warnings and opt-in safeguards (ADR 0140, ADR 0142)
+## Start warnings and opt-in safeguards (ADR 0140, ADR 0142, ADR 0143)
 
 Starts and resumes **warn, they do not refuse**, unless the operator turned a safeguard on. The
 `start` and `resume` responses (HTTP `POST /api/v1/deployments`, `…/{id}/resume`) carry
@@ -473,13 +473,34 @@ resumes put them in each sleeve's outcome `message`.
   summary "Skipped: warming up — the market's history is shorter than the strategy's warmup …"
   until each window holds its warmup (also a bar or two after a quiet first bar). Protection,
   exits and reconciliation keep running; the bot is not paused.
+- **Live-start evidence** ([ADR 0143](../../docs/decisions/0143-live-start-evidence.md)). Every
+  live start (single bot, adopt into bot, live portfolio sleeve) records what its **exact**
+  strategy fingerprint has shown: out-of-sample study windows (count, trades, summed net result)
+  and paper bots of that fingerprint (count, days since the first). The start response carries
+  it as `live_evidence`; read it later with `uv run thytrader-runtime live-evidence ID` (HTTP
+  `GET /api/v1/deployments/{id}/live-evidence`; 404 for paper bots, live bots started before
+  ADR 0143, and starts that warned `LIVE_EVIDENCE_NOT_RECORDED`). Below the thresholds (default 30 out-of-sample trades, a positive out-of-sample net
+  result, 14 paper days) the start goes ahead with warning `LIVE_EVIDENCE_THIN: …` naming each
+  gap in `thin_reasons`; relay it. Editing a strategy (or the warmup adoption above) makes a new
+  fingerprint with its own, initially thin, evidence. `unavailable` lists sources that failed,
+  ran out of time (10 s each) or were only partly readable; they count as thin when a threshold
+  needs that source. Gathering never
+  stops a start by itself. `LIVE_EVIDENCE_NOT_RECORDED` means the bot started but the record
+  could not be stored (the start response, or the sleeve outcome's `live_evidence`, still holds
+  it). To gather evidence: run an out-of-sample study of
+  the exact strategy (`skills/thytrader-research`) and a paper bot of it.
 - **Opt-in safeguards.** The risk policy's `start_safeguards` turns a warning into a refusal:
   `set-risk-policy … --require-convergence-warmup` refuses starts and resumes without the policy
   (HTTP 409 `WARMUP_POLICY_REQUIRED: …`; portfolio problem `warmup_policy_required`, a portfolio
   resume reports that sleeve `failed`), and `--require-market-history` refuses young or
   unreadable markets (409 `HISTORY_TOO_SHORT` / `HISTORY_UNCONFIRMED`; portfolio problems
-  `history_too_short` / `history_unconfirmed`; nothing starts). Both are off unless the operator
-  sets them, and like every optional policy flag they must be resupplied on each
+  `history_too_short` / `history_unconfirmed`; nothing starts), and `--require-live-evidence`
+  refuses thin live starts (409 `LIVE_EVIDENCE_REQUIRED: …`; portfolio problem
+  `live_evidence_required`; nothing starts). `--live-evidence-min-oos-trades N`,
+  `--live-evidence-min-paper-days N` and `--live-evidence-allow-non-positive-oos` set where thin
+  begins (zero trades with a non-positive result allowed, and zero days, need no research or
+  paper). All are off unless the operator sets them, and like every optional policy flag they
+  must be resupplied on each
   `set-risk-policy` (omitted means off); `show-risk-policy` shows `start_safeguards`, and the
   operator `risk` report's `payload.start_safeguards` lists both flags explicitly (all `false`
   means every start check only warns). Never turn one on without the user.
@@ -631,8 +652,11 @@ portfolio are `attached`, not duplicated. Every sleeve is planned before anythin
 refusal starts nothing: HTTP 422 `portfolio_start_rejected` lists `problems[]` (`sleeve_issue`,
 `strategy_busy` when the strategy already runs standalone or in another portfolio — stop that bot
 first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required` and
-`history_too_short` / `history_unconfirmed` (only under the opt-in start safeguards; see "Start
-warnings and opt-in safeguards"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
+`history_too_short` / `history_unconfirmed`, and for a live portfolio `live_evidence_required`
+(only under the opt-in start safeguards; see "Start warnings and opt-in safeguards"),
+`risk_policy_refused` with the policy's reason code). Each live sleeve records its live-start
+evidence like a single live bot (ADR 0143); a thin one starts with `LIVE_EVIDENCE_THIN` in its
+outcome `message`. A live portfolio needs `--i-understand-live` on start and resume, configured
 credentials (`live_credentials_missing`), and a published risk policy; **a live portfolio's sleeve
 allocations count as risk-policy allocation membership for its own bots**, so an allocations
 allowlist does not need to list sleeve strategies (standalone bots keep the allowlist; every other
@@ -790,6 +814,7 @@ uv run thytrader-runtime start --strategy-id UUID --mode live --adopt-holdings a
 | One inventory page (`has_more` is explicit) | `uv run thytrader-runtime list --limit 50 --offset 0` |
 | Show summary (labels omitted history) | `uv run thytrader-runtime show UUID` |
 | Show full orders and fills | `uv run thytrader-runtime show UUID --detail full` |
+| Evidence recorded when a live bot started (ADR 0143) | `uv run thytrader-runtime live-evidence UUID` |
 | Page orders or fills | `uv run thytrader-runtime orders UUID` / `fills UUID` |
 | Preview a fleet action | `uv run thytrader-runtime fleet-preview --action disarm --mode paper` |
 | Disarm entries (no flatten) | `uv run thytrader-runtime fleet-disarm --mode paper --idempotency-key KEY --expect-inhibition paper:REV --confirm` |

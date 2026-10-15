@@ -148,6 +148,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0140](0140-indicator-convergence-warmup.md) | Per-indicator convergence warmup (seed weight ≤ 1e-3); snapshotted `warmup_policy: convergence` adopted on save and by templates/sweeps, covering declared and derived clocks; absent keeps historical meaning; paper/live starts and resumes require it, reference watches must cover the warmup, starts refuse markets younger than it (refusals made opt-in by [0142](0142-opt-in-start-safeguards.md)), the catalog and builder show it, and decision rows record each window | Accepted |
 | [0141](0141-cancel-time-and-settlement-watermark.md) | Orders keep their first cancel time (the cancel-rate breaker counts it, not re-saves); a canceled order stops being read once a read shows it canceled with all reported fills applied, 15 minutes after its cancel | Accepted |
 | [0142](0142-opt-in-start-safeguards.md) | Start checks warn by default: starts adopt the convergence warmup policy by re-saving, missing-policy and young-market starts/resumes carry warnings; refusal is the risk policy's opt-in `start_safeguards` | Accepted |
+| [0143](0143-live-start-evidence.md) | Every live start records what its exact strategy fingerprint had shown (out-of-sample study windows, paper bots); thin evidence warns `LIVE_EVIDENCE_THIN`, refusal is the opt-in `require_live_evidence` safeguard | Accepted |
 
 ## Status values
 

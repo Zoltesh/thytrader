@@ -16,6 +16,7 @@ from fastapi.exceptions import RequestValidationError
 
 from thytrader import __version__
 from thytrader.alerts.store import AlertStore, DisabledAlertStore
+from thytrader.api.live_evidence_wiring import live_evidence_store
 from thytrader.api.routes.agent_orchestration import router as agent_orchestration_router
 from thytrader.api.routes.audit_events import router as audit_events_router
 from thytrader.api.routes.backtests import router as backtests_router
@@ -27,6 +28,7 @@ from thytrader.api.routes.credentials import (
 from thytrader.api.routes.data import router as data_router
 from thytrader.api.routes.decisions import router as decisions_router
 from thytrader.api.routes.deployment_futures import router as deployment_futures_router
+from thytrader.api.routes.deployment_live_evidence import router as live_evidence_router
 from thytrader.api.routes.deployment_twins import router as deployment_twins_router
 from thytrader.api.routes.deployments import router as deployments_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
@@ -364,6 +366,7 @@ def create_app(
         )
         _app.state.memory_store = memory or DisabledExperientialMemoryStore()
         _app.state.research_study_catalog = study_catalog or InMemoryResearchStudyCatalog()
+        _app.state.live_evidence_store = live_evidence_store(engine)
         _app.state.notification_sender = notifier or _notification_sender(
             resolved_settings,
             settings_store=runtime.settings_store,
@@ -445,6 +448,7 @@ def create_app(
     app.include_router(execution_quality_router)
     app.include_router(discretionary_orders_router)
     app.include_router(inventory_adoption_router)
+    app.include_router(live_evidence_router)
     app.include_router(risk_policy_router)
     app.include_router(portfolios_router)
     app.include_router(portfolio_runtime_router)

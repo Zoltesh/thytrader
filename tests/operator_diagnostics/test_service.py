@@ -295,6 +295,12 @@ def test_risk_report_is_available_without_dollar_amounts() -> None:
     assert report.payload.start_safeguards.model_dump() == {
         "require_convergence_warmup": False,
         "require_market_history": False,
+        "require_live_evidence": False,
+        "live_evidence": {
+            "min_out_of_sample_trades": 30,
+            "require_positive_out_of_sample": True,
+            "min_paper_days": 14,
+        },
     }
     dumped = report.model_dump(mode="json")
     assert "paper_capital_quote" not in dumped
