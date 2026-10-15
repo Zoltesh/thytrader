@@ -480,8 +480,9 @@ resumes put them in each sleeve's outcome `message`.
   unreadable markets (409 `HISTORY_TOO_SHORT` / `HISTORY_UNCONFIRMED`; portfolio problems
   `history_too_short` / `history_unconfirmed`; nothing starts). Both are off unless the operator
   sets them, and like every optional policy flag they must be resupplied on each
-  `set-risk-policy` (omitted means off); `show-risk-policy` shows `start_safeguards`. Never turn
-  one on without the user.
+  `set-risk-policy` (omitted means off); `show-risk-policy` shows `start_safeguards`, and the
+  operator `risk` report's `payload.start_safeguards` lists both flags explicitly (all `false`
+  means every start check only warns). Never turn one on without the user.
 
 ## Signal exits (paper and live)
 

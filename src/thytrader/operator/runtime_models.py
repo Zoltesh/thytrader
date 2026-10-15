@@ -265,6 +265,12 @@ class RiskPayload(_FrozenModel):
     max_btc_beta_exposure_quote: str | None = None
     futures: FuturesRiskPolicy | None = None
     futures_collateral: FuturesCollateralPayload | None = None
+    start_safeguards: StartSafeguardsPayload = Field(
+        description=(
+            "Which start warnings the policy turns into refusals (ADR 0142); all false means "
+            "every start check only warns."
+        )
+    )
     findings: tuple[RiskFinding, ...]
     fleet_entries: FleetEntriesPayload | None = Field(
         default=None,
@@ -273,6 +279,13 @@ class RiskPayload(_FrozenModel):
             "gate admits any new entry, and the blocking codes and books."
         ),
     )
+
+
+class StartSafeguardsPayload(_FrozenModel):
+    """The risk policy's opt-in start refusals, each reported explicitly (ADR 0142)."""
+
+    require_convergence_warmup: bool
+    require_market_history: bool
 
 
 class RiskReport(OperatorEnvelope):
