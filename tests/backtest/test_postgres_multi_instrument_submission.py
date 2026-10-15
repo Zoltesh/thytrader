@@ -68,7 +68,7 @@ def _request(
             "additional_instrument_datasets": [
                 {"product_id": extra[0], "dataset_fingerprint": extra[1]}
             ],
-            "evaluation_start": DATA_START + timedelta(hours=150),
+            "evaluation_start": DATA_START + timedelta(hours=250),  # converged warmup
             "evaluation_end": DATA_START + timedelta(hours=_BARS - 2),
             "initial_quote_balance": "1000",
             "maker_fee_rate": "0.005",

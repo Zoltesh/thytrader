@@ -80,6 +80,10 @@ class ReferenceInstrument(_FrozenModel):
         return parse_spot_product_id(self.product_id)[1]
 
 
+WarmupPolicy = Literal["convergence"]
+"""Warmup policy named on ``DataRequirements`` (ADR 0140)."""
+
+
 class DataRequirements(_FrozenModel):
     """Historical inputs required before strategy evaluation can begin.
 
@@ -91,6 +95,15 @@ class DataRequirements(_FrozenModel):
     """
 
     warmup_bars: int = Field(ge=1, le=10_000)
+    warmup_policy: WarmupPolicy | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "`convergence` (ADR 0140): every clock's warmup, declared or derived, covers its "
+            "indicators' convergence warmup, so seeds have decayed before decisions. Omitted "
+            "keeps the historical minimum-warmup meaning of older documents."
+        ),
+    )
     required_fields: tuple[Literal["open", "high", "low", "close", "volume"], ...] = Field(
         min_length=1,
         max_length=5,

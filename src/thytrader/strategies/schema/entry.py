@@ -21,7 +21,7 @@ from thytrader.strategies.schema.indicator_definition import (
 )
 from thytrader.strategies.schema.market import DataRequirements
 from thytrader.strategies.schema.primitives import _FrozenModel
-from thytrader.strategies.schema.timeframes import extra_indicator_timeframe_warmup
+from thytrader.strategies.schema.timeframes import extra_indicator_timeframe_warmup, warmup_need
 
 
 class IntraStrategyPyramiding(_FrozenModel):
@@ -100,9 +100,14 @@ class HigherTimeframeFilter(_FrozenModel):
         if not required_fields.issubset(self.data_requirements.required_fields):
             raise ValueError("HTF required_fields must include every HTF indicator input")
         required_warmup = extra_indicator_timeframe_warmup(
-            self.indicators, operands=condition_indicator_operands(self.when)
+            self.indicators,
+            operands=condition_indicator_operands(self.when),
+            policy=self.data_requirements.warmup_policy,
         )
         if self.data_requirements.warmup_bars < required_warmup:
-            raise ValueError("HTF warmup_bars must cover the longest HTF indicator period")
+            raise ValueError(
+                "HTF warmup_bars must cover the longest HTF indicator period"
+                f"{warmup_need(required_warmup, self.data_requirements.warmup_policy)}"
+            )
         _require_bounded_condition_tree(self.when)
         return self

@@ -129,7 +129,9 @@ def reference_data_requirements(
             product_id=reference.product_id,
             timeframe=reference.timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
-                indicators, operands=strategy_indicator_operands(definition)
+                indicators,
+                operands=strategy_indicator_operands(definition),
+                policy=definition.data_requirements.warmup_policy,
             ),
             required_fields=extra_indicator_required_fields(indicators),
         )
@@ -211,7 +213,9 @@ def expanded_data_requirements(
             TimeframeDataRequirement(
                 timeframe=timeframe,
                 warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators, operands=strategy_indicator_operands(definition)
+                    indicators,
+                    operands=strategy_indicator_operands(definition),
+                    policy=definition.data_requirements.warmup_policy,
                 ),
                 required_fields=extra_indicator_required_fields(indicators),
                 role="indicator",

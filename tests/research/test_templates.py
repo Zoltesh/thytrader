@@ -79,7 +79,9 @@ def test_blueprints_describe_the_built_document(template: StrategyTemplateId) ->
     declared = {indicator.id for indicator in draft.indicators}
     assert blueprint["warmup_bars"] == draft.data_requirements.warmup_bars
     assert blueprint["warmup_bars"] == extra_indicator_timeframe_warmup(
-        decision_clock_indicators(draft), operands=strategy_indicator_operands(draft)
+        decision_clock_indicators(draft),
+        operands=strategy_indicator_operands(draft),
+        policy=draft.data_requirements.warmup_policy,
     )
     assert set(blueprint["indicator_ids"]) == declared
     for key in blueprint["defaults"]:

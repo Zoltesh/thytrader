@@ -23,11 +23,14 @@ from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     AllCondition,
     ComparisonCondition,
+    IndicatorDefinition,
     IndicatorParameters,
     LiteralOperand,
     StrategyDefinition,
     strategy_fingerprint,
 )
+from thytrader.strategies.schema.indicator_convergence import indicator_convergence_warmup
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 
 _REFERENCE = Path(__file__).parents[1] / "strategies" / "golden" / "reference_strategy_v1.json"
 
@@ -418,7 +421,12 @@ def test_offset_axis_lags_a_declaration_and_recomputes_warmup() -> None:
     ]
     assert offsets == [1, 3]
     warmups = [candidate.definition.data_requirements.warmup_bars for candidate in candidates]
-    assert warmups == [21, 23]
+    # The converged template's ATR(14) needs 108 bars (ADR 0140), which already covers the
+    # channel's 20 bars plus either lag; candidates never drop below the base's warmup.
+    assert warmups == [base.data_requirements.warmup_bars] * 2
+    assert all(
+        warmup >= 20 + 1 + (offset or 0) for warmup, offset in zip(warmups, offsets, strict=True)
+    )
 
 
 def test_offset_axis_zero_drops_the_lag_and_constants_reject_it() -> None:
@@ -452,3 +460,27 @@ def test_new_catalog_parameters_are_sweepable_axes() -> None:
         assert axis.parameter == parameter
     with pytest.raises(ValueError, match=r"parameter_axes\.parameter must be one of"):
         ParameterAxis(indicator_id="x", parameter="lookahead", values=("1", "2"))
+
+
+def test_sweep_candidates_of_a_converged_base_cover_their_own_convergence() -> None:
+    """Raising a period on a convergence-policy base keeps candidates converged (ADR 0140)."""
+    base = with_convergence_warmup(
+        StrategyDefinition.model_validate_json(_REFERENCE.read_text(encoding="utf-8"))
+    )
+    axes = (ParameterAxis(indicator_id="ema_slow", parameter="period", values=("50", "200")),)
+    derived = derive_parameter_candidates(base, axes, base_fingerprint=strategy_fingerprint(base))
+    by_period = {
+        next(
+            item.parameters.period
+            for item in snapshot.definition.indicators
+            if item.id == "ema_slow" and isinstance(item.parameters, IndicatorParameters)
+        ): snapshot.definition
+        for snapshot in derived
+    }
+    assert by_period[200].data_requirements.warmup_policy == "convergence"
+    assert by_period[200].data_requirements.warmup_bars >= indicator_convergence_warmup(
+        IndicatorDefinition.model_validate(
+            {"id": "e", "kind": "ema", "input": "close", "parameters": {"period": 200}}
+        )
+    )
+    assert by_period[50].data_requirements.warmup_bars == base.data_requirements.warmup_bars

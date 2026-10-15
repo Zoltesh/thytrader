@@ -27,6 +27,7 @@ from thytrader.strategies.models import (
     canonical_strategy_bytes,
     strategy_fingerprint,
 )
+from thytrader.strategies.warmup_policy import converge_draft
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -419,7 +420,9 @@ def evaluate_document(
     normalized["strategy_id"] = str(strategy_id)
     normalized["created_at"] = created_at.isoformat().replace("+00:00", "Z")
     try:
-        definition = StrategyDefinition.model_validate(normalized)
+        # Saving adopts the convergence warmup policy (ADR 0140), recomputing declared warmups
+        # when an edit lengthened an indicator; loading never does.
+        definition = converge_draft(normalized)
     except ValidationError as error:
         return _invalid_evaluation(normalized, error, fallback_name)
     retired = authoring_issues(definition)

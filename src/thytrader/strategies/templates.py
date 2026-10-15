@@ -24,6 +24,7 @@ from thytrader.strategies.template_trend import (
     _macd_trend,
     _supertrend_trend,
 )
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -45,8 +46,10 @@ def build_template_definition(
     instrument: Instrument,
     timeframe: DatasetTimeframe,
 ) -> StrategyDefinition:
-    """Return one validated draft for the selected template."""
-    return _TEMPLATE_BUILDERS[template_id](strategy_id, created_at, instrument, timeframe)
+    """Return one validated draft for the selected template, under convergence warmup (ADR 0140)."""
+    return with_convergence_warmup(
+        _TEMPLATE_BUILDERS[template_id](strategy_id, created_at, instrument, timeframe)
+    )
 
 
 _TEMPLATE_BUILDERS: dict[

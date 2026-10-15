@@ -470,6 +470,29 @@ decision/filter warmup. Save/import with the existing confirmation gates; health
 `indicator_operand_offset_runtimes`. New squeeze templates expose `bands.period`, `bands.stdev_multiplier`,
 `channel.period`, `channel.atr_period`, and `channel.multiplier` axes using these shared reads.
 Do not invent unlisted kinds or pass through a TA library.
+
+### Convergence warmup (ADR 0140)
+
+Recursive indicators (EMA family, Wilder RSI/ATR/ADX) start from a seed and only approach their
+established value over many bars, so a short warmup makes signals depend on where a backtest or a
+deployment started. Saving, creating, importing or cloning a strategy (and every template draft)
+therefore adopts `data_requirements.warmup_policy: "convergence"` and **raises** the declared
+decision and HTF `warmup_bars` to the convergence warmup (never lowers them). The saved document,
+fingerprint and `summary` returned by the call show the new values; you do not edit them by hand.
+
+- Per indicator: minimum warmup plus enough bars that the seed's remaining weight is at most 1e-3.
+  EMA(50) needs 223 bars, EMA(100) 446, EMA(200) 891, RSI/ATR(14) about 109, ADX(14) 215. Exact
+  rolling windows (SMA, Bollinger, Donchian, percent rank, CMO, …) need only their minimum. KAMA
+  uses its squared slow constant (default slow 30 needs ~1,700 bars); a requirement above 10,000
+  bars cannot be declared, so such a document keeps no policy.
+- Under the policy, derived warmups follow too: extra indicator timeframes and reference instruments
+  use convergence warmup (a BTC 1d EMA(100) reference needs 446 daily bars). Datasets, watch
+  lookbacks and backtest windows must cover that history; coverage errors name it.
+- Snapshots saved before this keep their historical minimum-warmup meaning and fingerprints; re-save
+  a strategy to adopt the policy. Do not compare results across the two policies as if identical.
+- The guarantee is a bound on the seed's weight, not identical signals at an exact threshold or
+  crossover. Supertrend direction, Parabolic SAR trend and OBV/A-D *levels* stay anchor-sensitive
+  (crossovers of OBV/A-D with their own signal line are not affected).
 Optional per-indicator `timeframe` on LTF-list indicators must be a coarser integer-multiple venue
 clock; omit it to keep the decision clock. `constant` and HTF-filter indicators omit `timeframe`.
 `crosses_above` / `crosses_below` need two indicator operands. Compare an indicator to a

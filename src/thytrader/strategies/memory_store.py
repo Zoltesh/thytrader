@@ -198,10 +198,12 @@ class InMemoryStrategyStore:
         Test and fixture helper: equivalent to ``create`` followed by ``snapshot``.
         """
         document = parse_document_text(canonical_strategy_bytes(definition).decode("utf-8"))
-        self._records[definition.strategy_id] = _record(
+        record = _record(
             document, definition.strategy_id, definition.created_at, revision=1, fallback=None
         )
-        return self._store(definition)
+        self._records[definition.strategy_id] = record
+        # The record holds what saving stored (ADR 0140 may raise warmups); snapshot that.
+        return self._store(record.definition or definition)
 
     def snapshot_fingerprints(self) -> tuple[str, ...]:
         """Return every stored snapshot fingerprint (test and diagnostics helper)."""

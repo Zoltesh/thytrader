@@ -9,12 +9,14 @@ from thytrader.market_data.models import (
     DatasetTimeframe,
     parse_candle_interval,
 )
+from thytrader.strategies.schema.indicator_convergence import indicator_convergence_warmup
 from thytrader.strategies.schema.indicator_definition import _indicator_input_fields
 from thytrader.strategies.schema.indicator_warmup import _indicator_min_warmup
 
 if TYPE_CHECKING:
     from thytrader.strategies.schema.conditions import IndicatorOperand
     from thytrader.strategies.schema.indicator_definition import IndicatorDefinition
+    from thytrader.strategies.schema.market import WarmupPolicy
 
 
 STRATEGY_DECISION_TIMEFRAMES: tuple[DatasetTimeframe, ...] = EXECUTION_TIMEFRAMES
@@ -59,11 +61,19 @@ def extra_indicator_timeframe_warmup(
     indicators: tuple[IndicatorDefinition, ...],
     *,
     operands: tuple[IndicatorOperand, ...] = (),
+    policy: WarmupPolicy | None = None,
 ) -> int:
-    """Return native-clock warmup including the largest operand lag for each indicator."""
+    """Return native-clock warmup including the largest operand lag for each indicator.
+
+    ``policy="convergence"`` (ADR 0140) uses each indicator's convergence warmup instead of
+    the bar of its first value; omitted keeps the historical minimum.
+    """
+    per_indicator = (
+        indicator_convergence_warmup if policy == "convergence" else _indicator_min_warmup
+    )
     return max(
         (
-            _indicator_min_warmup(indicator)
+            per_indicator(indicator)
             + max(
                 (operand.offset or 0 for operand in operands if operand.indicator == indicator.id),
                 default=0,
@@ -72,6 +82,13 @@ def extra_indicator_timeframe_warmup(
         ),
         default=1,
     )
+
+
+def warmup_need(required: int, policy: WarmupPolicy | None) -> str:
+    """Suffix for a warmup validation error naming the bars required (ADR 0140)."""
+    if policy == "convergence":
+        return f" (convergence warmup needs {required} bars; ADR 0140)"
+    return f" (needs {required} bars)"
 
 
 def extra_indicator_required_fields(

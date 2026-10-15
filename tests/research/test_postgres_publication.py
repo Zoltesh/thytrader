@@ -121,12 +121,16 @@ def _specification(
 
 
 async def _ensure_snapshot(store: PostgresStrategyStore, definition: StrategyDefinition) -> None:
-    """Create the fixed test strategy when missing, then snapshot it."""
+    """Create the fixed test strategy when missing, then record its exact snapshot.
+
+    Saving adopts convergence warmup (ADR 0140) and would change the golden fingerprint; this
+    test binds a run to the golden snapshot itself, so it records that snapshot directly.
+    """
     try:
         await store.get(definition.strategy_id)
     except StrategyNotFoundError:
         await create_strategy_from_definition(store, definition)
-    await store.snapshot(definition.strategy_id)
+    await store.record_snapshot(definition)
 
 
 async def _cleanup(

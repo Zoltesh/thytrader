@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 _TEST_DATABASE_URL = os.environ.get("THYTRADER_TEST_DATABASE_URL")
 _LISTING = Path("tests/exchanges/fixtures/coinbase_futures_listing.json")
 _BARS = 400
-_STARTS = DATA_START + timedelta(hours=150)
+_STARTS = DATA_START + timedelta(hours=250)  # after the converged warmup (ADR 0140)
 _ENDS = DATA_START + timedelta(hours=_BARS - 2)
 
 pytestmark = pytest.mark.skipif(

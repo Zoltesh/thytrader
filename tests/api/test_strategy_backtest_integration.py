@@ -114,9 +114,12 @@ def test_browser_strategy_workflow_snapshots_backtests_and_deletes(tmp_path: Pat
 
 
 def _write_dataset(root: Path) -> str:
-    """Publish enough verified hourly coverage for warmup and a ten-day evaluation window."""
-    starts_at = datetime(2026, 7, 7, 22, tzinfo=UTC)
-    candle_count = 291
+    """Publish enough verified hourly coverage for warmup and a ten-day evaluation window.
+
+    Templates adopt convergence warmup (ADR 0140): 223 hourly bars before July 10.
+    """
+    starts_at = datetime(2026, 6, 30, tzinfo=UTC)
+    candle_count = 482
     candles = tuple(
         Candle(
             starts_at=starts_at + timedelta(hours=index),

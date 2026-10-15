@@ -80,7 +80,7 @@ class Datasets:
         self.root = root
         self.heavy = write_dataset(root, "BTC-USDC", "1h", start=DATA_START, count=_HEAVY_BARS)
         self.eth = write_dataset(
-            root, "ETH-USDC", "4h", start=DATA_START + timedelta(days=1), count=120, base=50
+            root, "ETH-USDC", "4h", start=DATA_START + timedelta(days=1), count=400, base=50
         )
 
 
