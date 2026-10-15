@@ -33,6 +33,10 @@ from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
+    from thytrader.portfolios.manager import ProposalOutcome
+    from thytrader.trading.models import Deployment
+
+if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.portfolios.models import PortfolioAggregate
@@ -284,15 +288,16 @@ async def test_resume_always_waits_and_live_approval_needs_the_acknowledgement()
     assert {book.status for book in await state.tagged(pid)} == {DeploymentStatus.RUNNING}
 
 
-async def test_an_approved_resume_the_runtime_refuses_settles_as_failed() -> None:
-    """With the warmup safeguard on, a pre-policy sleeve stays paused and the proposal fails."""
+async def _approve_pre_policy_resume(*, enforce: bool) -> tuple[ProposalOutcome, Deployment]:
+    """Pause a sleeve, give its book a pre-policy snapshot, and approve resuming it."""
     state = world()
     current = await _started(state, permissions=ManagerPermissions(may_pause_sleeves=True))
-    await state.risk.publish(
-        compiled_default_risk_policy().model_copy(
-            update={"start_safeguards": StartSafeguards(require_convergence_warmup=True)}
+    if enforce:
+        await state.risk.publish(
+            compiled_default_risk_policy().model_copy(
+                update={"start_safeguards": StartSafeguards(require_convergence_warmup=True)}
+            )
         )
-    )
     pid = current.portfolio.portfolio_id
     await state.proposals.submit(pid, _sleeve_change(current, "pause_sleeve"), channel="api")
     strategy_id = current.sleeves[0].sleeve.strategy_id
@@ -312,11 +317,26 @@ async def test_an_approved_resume_the_runtime_refuses_settles_as_failed() -> Non
     decided = await state.proposals.approve(
         pid, resume.proposal.proposal_id, ProposalDecisionRequest(), context=operator()
     )
+    after = next(item for item in await state.tagged(pid) if item.id == book.id)
+    return decided, after
+
+
+async def test_an_approved_resume_the_runtime_refuses_settles_as_failed() -> None:
+    """With the warmup safeguard on, a pre-policy sleeve stays paused and the proposal fails."""
+    decided, book = await _approve_pre_policy_resume(enforce=True)
     assert decided.proposal.status == "failed"
     assert decided.proposal.failure_code == "portfolio_sleeve_action_failed"
     assert str(decided.proposal.failure_message).startswith("WARMUP_POLICY_REQUIRED: ")
-    still = next(item for item in await state.tagged(pid) if item.id == book.id)
-    assert still.status is DeploymentStatus.PAUSED
+    assert book.status is DeploymentStatus.PAUSED
+
+
+async def test_an_approved_resume_reports_the_sleeve_warning() -> None:
+    """Without the safeguard the sleeve resumes and the approval carries its warning."""
+    decided, book = await _approve_pre_policy_resume(enforce=False)
+    assert decided.proposal.status == "applied"
+    assert book.status is DeploymentStatus.RUNNING
+    assert len(decided.warnings) == 1
+    assert decided.warnings[0].startswith("WARMUP_POLICY_MISSING: ")
 
 
 async def test_add_sleeve_needs_the_permission_to_propose_and_then_approval() -> None:

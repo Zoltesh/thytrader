@@ -260,8 +260,10 @@
 			});
 			deployments = [...deployments, created];
 			liveOpen = false;
-			acceptedMessage =
-				'Live deployment armed. It places real Coinbase orders from the next eligible completed bar.';
+			acceptedMessage = withWarnings(
+				'Live deployment armed. It places real Coinbase orders from the next eligible completed bar.',
+				created
+			);
 			void loadDeployments();
 		} catch (caught) {
 			armError = caught instanceof Error ? caught.message : 'Could not arm live trading.';

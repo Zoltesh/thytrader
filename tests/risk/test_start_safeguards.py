@@ -33,7 +33,8 @@ def test_a_policy_without_safeguards_keeps_its_bytes_and_fingerprint() -> None:
     policy = compiled_default_risk_policy()
     off = policy.model_copy(update={"start_safeguards": StartSafeguards()})
     assert "start_safeguards" not in json.loads(canonical_risk_policy_bytes(policy))
-    assert json.loads(canonical_risk_policy_bytes(off))["start_safeguards"] == {}
+    assert canonical_risk_policy_bytes(off) == canonical_risk_policy_bytes(policy)
+    assert risk_policy_fingerprint(off) == risk_policy_fingerprint(policy)
     on = policy.model_copy(
         update={"start_safeguards": StartSafeguards(require_market_history=True)}
     )

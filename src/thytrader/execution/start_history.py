@@ -40,9 +40,14 @@ async def require_start_history(
     try:
         shortfalls = await start_history_shortfalls(market_data, strategy, now=now)
     except ExecutionConflictError as error:
-        raise ExecutionConflictError(f"{error} Nothing was started; retry the start.") from error
+        raise ExecutionConflictError(history_unconfirmed_refusal(error)) from error
     if shortfalls:
         raise ExecutionConflictError(history_shortfall_message(shortfalls))
+
+
+def history_unconfirmed_refusal(error: ExecutionConflictError) -> str:
+    """The ``HISTORY_UNCONFIRMED`` message of a refused start: nothing started, retry it."""
+    return f"{error} Nothing was started; retry the start."
 
 
 async def start_history_shortfalls(

@@ -121,9 +121,15 @@ def _strategy() -> StrategyDefinition:
         **payload["portfolio_limits"],
         "max_strategy_exposure_fraction": "1",
     }
-    # A book running from before ADR 0140: these short fixture windows exercise futures
-    # mechanics, not the convergence warmup a policy document would wait for.
+    # A book running from before ADR 0140 whose declared warmup fits these short fixture
+    # windows: they exercise futures mechanics, not warmup (every snapshot still waits for its
+    # declared warmup, ADR 0142).
     payload["data_requirements"].pop("warmup_policy", None)
+    payload["indicators"] = [
+        {**indicator, "parameters": {"period": 25}} if indicator["id"] == "slow" else indicator
+        for indicator in payload["indicators"]
+    ]
+    payload["data_requirements"]["warmup_bars"] = 30
     return StrategyDefinition.model_validate(payload)
 
 

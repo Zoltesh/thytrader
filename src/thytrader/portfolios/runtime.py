@@ -12,6 +12,7 @@ semantics (managed stop or flatten) per sleeve. Every action is journaled.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -31,6 +32,7 @@ from thytrader.execution.service import (
 )
 from thytrader.execution.start_history import (
     history_shortfall_message,
+    history_unconfirmed_refusal,
     start_history_shortfalls,
     start_history_warning,
 )
@@ -490,8 +492,11 @@ class PortfolioRuntimeService:
                 f"“{view.strategy.name}” already runs as {owner} (deployment {busy.id}). Stop "
                 "it first, or remove this sleeve.",
             )
-        try:
+        # Adoption is best effort: a failed save leaves the strategy as saved, and the checks
+        # below then warn about, or refuse, the snapshot taken of it.
+        with suppress(StrategyLibraryError):
             await adopt_warmup_policy_for_start(self._strategies, view.sleeve.strategy_id)
+        try:
             snapshot = await self._strategies.snapshot(view.sleeve.strategy_id)
         except StrategyLibraryError as error:
             return _problem(view, "strategy_invalid", str(error) or "The strategy cannot start.")
@@ -537,7 +542,7 @@ class PortfolioRuntimeService:
                 self._market_data, definition, now=utc_now()
             )
         except ExecutionConflictError as error:
-            return _problem(view, "history_unconfirmed", str(error))
+            return _problem(view, "history_unconfirmed", history_unconfirmed_refusal(error))
         if shortfalls:
             return _problem(view, "history_too_short", history_shortfall_message(shortfalls))
         return None

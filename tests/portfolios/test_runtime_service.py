@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from tests.execution.test_start_history import _Unreadable
 from tests.market_history import listed_history
 from tests.portfolios.runtime_support import World, operator, portfolio, world
 from thytrader.execution.service import create_deployment
+from thytrader.market_data.service import MarketDataService
 from thytrader.portfolios.errors import (
     PortfolioConflictError,
     PortfolioLiveAcknowledgementError,
@@ -24,6 +26,7 @@ from thytrader.portfolios.runtime import PortfolioRuntimeService
 from thytrader.portfolios.runtime_start import FeeAssumptions
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.start_safeguards import StartSafeguards
+from thytrader.strategies.library import StrategyStorageUnavailableError
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
@@ -443,3 +446,55 @@ async def test_a_weight_change_moves_the_sleeve_target_capital() -> None:
         Decimal("400"),
     ]
     assert snapshot.books.state == "running"
+
+
+async def test_a_failed_adoption_save_still_starts_the_sleeve_with_a_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Adoption is best effort: a save outage leaves the strategy as saved, and it warns."""
+    state = world()
+    current, records = await portfolio(state)
+    stored = records[0]
+    assert stored.definition is not None
+    document = json.loads(canonical_strategy_bytes(stored.definition))
+    legacy = StrategyDefinition.model_validate(without_warmup_policy(document))
+    state.strategies._records[stored.strategy_id] = replace(stored, definition=legacy)
+
+    async def _unavailable(*_args: object, **_kwargs: object) -> None:
+        raise StrategyStorageUnavailableError("Strategy storage is unavailable.")
+
+    monkeypatch.setattr(type(state.strategies), "save", _unavailable)
+    result = await state.runtime.start(
+        current.portfolio.portfolio_id, revision=current.portfolio.revision, context=operator()
+    )
+    outcome = next(item for item in result.outcomes if item.strategy_id == stored.strategy_id)
+    assert outcome.outcome == "started"
+    assert (outcome.message or "").startswith("WARMUP_POLICY_MISSING: ")
+    assert (await state.strategies.get(stored.strategy_id)).revision == stored.revision
+
+
+async def test_the_opt_in_safeguard_refuses_unreadable_history_saying_nothing_started() -> None:
+    """A sleeve whose venue history cannot be read is refused with the start's own wording."""
+    state = world()
+    await _enforce(state, require_market_history=True)
+    current, _records = await portfolio(state)
+    runtime = PortfolioRuntimeService(
+        portfolios=state.portfolios,
+        execution=state.execution,
+        strategies=state.strategies,
+        publication=state.strategies,
+        risk_store=state.risk,
+        live_allowed=True,
+        audit=state.audit,
+        market_data=MarketDataService(_Unreadable()),
+    )
+    with pytest.raises(PortfolioStartRejectedError) as raised:
+        await runtime.start(
+            current.portfolio.portfolio_id,
+            revision=current.portfolio.revision,
+            context=operator(),
+        )
+    problem = raised.value.problems[0]
+    assert problem.code == "history_unconfirmed"
+    assert problem.message.startswith("HISTORY_UNCONFIRMED: ")
+    assert problem.message.endswith("Nothing was started; retry the start.")

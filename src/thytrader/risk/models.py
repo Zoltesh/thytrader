@@ -276,9 +276,11 @@ class RiskPolicyDefinition(_FrozenModel):
     )
     # Optional futures block (ADR 0129). Unset keeps today's behaviour and fingerprints.
     futures: FuturesRiskPolicy | None = Field(default=None, exclude_if=lambda v: v is None)
-    # Optional start safeguards (ADR 0142): which start warnings refuse instead. Unset keeps
-    # today's warn-only starts and the canonical bytes of every existing policy.
-    start_safeguards: StartSafeguards | None = Field(default=None, exclude_if=lambda v: v is None)
+    # Optional start safeguards (ADR 0142): which start warnings refuse instead. Unset or all
+    # off keeps today's warn-only starts and the canonical bytes of every existing policy.
+    start_safeguards: StartSafeguards | None = Field(
+        default=None, exclude_if=lambda v: v is None or v == StartSafeguards()
+    )
 
     @field_validator("product_allowlist")
     @classmethod

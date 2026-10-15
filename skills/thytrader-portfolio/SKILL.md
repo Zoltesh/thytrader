@@ -172,7 +172,9 @@ it no longer fits the portfolio, or `portfolio_sleeve_action_failed` when the sl
 it, with the refusal in `failure_message`, for example `WARMUP_POLICY_REQUIRED` under the opt-in
 warmup safeguard, see "Start warnings and opt-in safeguards" in `skills/thytrader-runtime/SKILL.md`) /
 `expired` (7 days unanswered); a proposal inside the permissions is `applied` at once with
-`auto_applied: true`. Only `pending` proposals can be decided (`portfolio_proposal_not_pending`,
+`auto_applied: true`. An approved resume that went ahead with a warning (for example
+`WARMUP_POLICY_MISSING`, ADR 0142) is `applied`, and the approve response's `warnings` carries it:
+relay it to the person. Only `pending` proposals can be decided (`portfolio_proposal_not_pending`,
 409). Submission refusals: `portfolio_sleeve_not_running` (pause), `portfolio_sleeve_not_paused`
 (resume), `portfolio_breaker_latched` (resume while a breaker is latched — only a person resets
 it), `portfolio_proposal_no_change`, `portfolio_weights_incomplete` (name every sleeve), plus the

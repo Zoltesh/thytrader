@@ -414,7 +414,9 @@ async def approve_proposal(
     except ExecutionStoreError:
         raise _execution_unavailable() from None
     return ProposalResponse(
-        proposal=outcome.proposal, portfolio_revision=outcome.aggregate.portfolio.revision
+        proposal=outcome.proposal,
+        portfolio_revision=outcome.aggregate.portfolio.revision,
+        warnings=outcome.warnings,
     )
 
 
