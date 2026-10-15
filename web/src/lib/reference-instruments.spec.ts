@@ -146,13 +146,11 @@ describe('reference instruments in the builder', () => {
 	});
 
 	it('round-trips the convergence warmup policy into both requirement blocks (ADR 0140)', () => {
-		const converged = toBuilderModel(
-			{
-				...definition,
-				data_requirements: { ...definition.data_requirements, warmup_policy: 'convergence' }
-			} as unknown as StrategyDefinition,
-			0
-		);
+		const document = structuredClone(definition) as unknown as {
+			data_requirements: Record<string, unknown>;
+		};
+		document.data_requirements.warmup_policy = 'convergence';
+		const converged = toBuilderModel(document as unknown as StrategyDefinition, 0);
 		expect(converged.warmup_policy).toBe('convergence');
 		const saved = fromBuilderModel(converged) as unknown as {
 			data_requirements: { warmup_policy?: string };

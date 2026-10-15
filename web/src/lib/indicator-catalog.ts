@@ -49,7 +49,10 @@ export {
 	writeParameter
 } from './indicator-catalog-entries';
 export { indicatorWarmupBars, isValidOffset, offsetOf } from './indicator-catalog-warmup';
-export { indicatorConvergenceWarmupBars } from './indicator-catalog-convergence';
+export {
+	MAX_DECLARED_WARMUP_BARS,
+	indicatorConvergenceWarmupBars
+} from './indicator-catalog-convergence';
 export {
 	inputMatchesKind,
 	isValidParameterValue,

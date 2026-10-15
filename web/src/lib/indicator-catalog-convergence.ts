@@ -10,6 +10,9 @@ import { indicatorWarmupBars, offsetOf } from './indicator-catalog-warmup';
 
 const RESIDUAL_SEED_WEIGHT = 1e-3;
 
+/** Largest `warmup_bars` a strategy may declare; a longer convergence keeps no policy. */
+export const MAX_DECLARED_WARMUP_BARS = 10_000;
+
 /** Updates after a seed until its weight is at most the residual. */
 function updates(alpha: number): number {
 	if (alpha >= 1) return 0;

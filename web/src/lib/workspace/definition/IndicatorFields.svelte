@@ -8,6 +8,7 @@
 	import {
 		MAX_INDICATOR_OFFSET,
 		findCatalogEntry,
+		MAX_DECLARED_WARMUP_BARS,
 		indicatorConvergenceWarmupBars,
 		indicatorWarmupBars,
 		readParameter,
@@ -211,7 +212,11 @@
 		<span>{entry.summary}</span>
 		{#if Number.isFinite(warmup) && warmup > 0}
 			<span class="warmup" data-testid="indicator-warmup">
-				{#if converged > warmup}
+				{#if converged > MAX_DECLARED_WARMUP_BARS}
+					First value after {warmup} completed bars, but it settles only after {converged}, more
+					than the {MAX_DECLARED_WARMUP_BARS} a strategy can declare: shorten it, or paper and live cannot
+					start it.
+				{:else if converged > warmup}
 					First value after {warmup} completed bars; settled after {converged}, the warmup a saved
 					strategy declares.
 				{:else}

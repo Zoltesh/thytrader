@@ -357,9 +357,11 @@ multi-series indicator's outputs under its name, for example `Supertrend(10, 3) 
 Under each indicator, the builder says how many completed bars it needs. Smoothed indicators (EMA,
 RSI, ATR, MACD and similar) have a first value early but keep settling for longer, for example "First
 value after 200 completed bars; settled after 891". Saving raises **Warmup bars** to the settled
-count, so results do not depend on where the data starts. Supertrend, Parabolic SAR, OBV and A/D also
-note that their direction or running level depends on where the data starts
-([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
+count, so where the data starts barely moves indicator values; a value sitting exactly at a threshold
+or crossover can still differ. An indicator that would need more than 10,000 bars (a very slow KAMA)
+cannot be declared: the builder says so, and paper and live will not start it until it is shortened.
+Supertrend, Parabolic SAR, OBV and A/D also note that their direction or running level depends on
+where the data starts ([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
 **Position sizing** labels use the product's quote currency (`Minimum USDC notional` for a USDC
 market). New templates in the library — **Donchian breakout**, **Supertrend trend**, **Squeeze
 breakout**, and **Z-score mean reversion** — start from these kinds.

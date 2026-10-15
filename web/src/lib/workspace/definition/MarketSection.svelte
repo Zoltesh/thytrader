@@ -146,8 +146,9 @@
 		>Warmup bars (required history before signals)
 		<input type="number" min="1" bind:value={model.warmup_bars} oninput={markDirty} />
 		<small class="field-help"
-			>Saving raises this until every indicator has settled (an EMA(200) needs 891 bars), so results
-			do not depend on where the data starts.</small
+			>Saving raises this until every indicator has settled (an EMA(200) needs 891 bars), so where
+			the data starts barely moves its values; a value sitting exactly at a threshold can still
+			differ.</small
 		></label
 	>
 	<div class="reference-block" data-testid="reference-instruments">
