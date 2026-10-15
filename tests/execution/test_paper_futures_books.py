@@ -121,6 +121,9 @@ def _strategy() -> StrategyDefinition:
         **payload["portfolio_limits"],
         "max_strategy_exposure_fraction": "1",
     }
+    # A book running from before ADR 0140: these short fixture windows exercise futures
+    # mechanics, not the convergence warmup a policy document would wait for.
+    payload["data_requirements"].pop("warmup_policy", None)
     return StrategyDefinition.model_validate(payload)
 
 

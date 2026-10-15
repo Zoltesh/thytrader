@@ -33,6 +33,7 @@ from thytrader.execution_worker.supervision import (
 )
 from thytrader.execution_worker.windows import (
     _bar_reference_gate,
+    _bar_seed_gate,
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
@@ -399,6 +400,8 @@ async def _evaluate_strategy_due_bars(
         )
         gate = _bar_reference_gate(
             strategy, reference_candles, candle, allow_new_entries=allow_new_entries
+        ) or _bar_seed_gate(
+            strategy, window, htf_candles, extra_candles, allow_new_entries=allow_new_entries
         )
         if gate is not None:
             allow_new_entries = False

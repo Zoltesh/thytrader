@@ -112,6 +112,7 @@ async def start_with_adoption(
         live_allowed=live_allowed,
         risk_store=risk_store,
         reference_watches=reference_watches,
+        market_data=venue.market_data,
     )
     definition = prepared.definition
     require_adoptable_strategy(definition)

@@ -10,9 +10,15 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.evaluation.models import warmup_starts_at
-from thytrader.evaluation.multi_timeframe import closed_bar_required_coverage, ltf_close
+from thytrader.evaluation.multi_timeframe import ltf_close
 from thytrader.execution.candle_wait import newest_bar_settling
+from thytrader.execution.clock_windows import (
+    required_clock_warmup_bars,
+    shared_clock_union_warmup,
+    windows_hold_warmup,
+)
 from thytrader.execution.closed_windows import _closed_window_for
+from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.references import ReferenceGate, reference_gate
 from thytrader.execution_worker.ports import _logger
 from thytrader.market_data.models import parse_candle_interval
@@ -28,7 +34,7 @@ from thytrader.strategies.models import (
 from thytrader.trading.geometry import entry_bar_bucket
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from thytrader.market_data.models import Candle
     from thytrader.market_data.service import MarketDataService
@@ -132,37 +138,6 @@ def htf_coverage_ready(
     return candles[-1].starts_at == expected_last_start
 
 
-def _shared_clock_union_warmup(
-    strategy: StrategyDefinition, *, timeframe: str, warmup_bars: int, deploy_anchor: datetime
-) -> int:
-    """Cover the filter clock and every extra-timeframe indicator sharing it (ADR 0113).
-
-    The shared window is fetched once at the union length. Each consumer's indicator rows
-    are still selected from its own exact required bars, so the longer window does not move
-    a seeded indicator value.
-    """
-    needed = _required_clock_warmup_bars(
-        strategy, timeframe=timeframe, warmup_bars=warmup_bars, deploy_anchor=deploy_anchor
-    )
-    for clock, indicators in extra_indicator_timeframe_groups(strategy):
-        if clock != timeframe:
-            continue
-        needed = max(
-            needed,
-            _required_clock_warmup_bars(
-                strategy,
-                timeframe=timeframe,
-                warmup_bars=extra_indicator_timeframe_warmup(
-                    indicators,
-                    operands=strategy_indicator_operands(strategy),
-                    policy=strategy.data_requirements.warmup_policy,
-                ),
-                deploy_anchor=deploy_anchor,
-            ),
-        )
-    return needed
-
-
 async def _closed_htf_window(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
@@ -184,7 +159,7 @@ async def _closed_htf_window(
         market_data,
         product_id=product_id or strategy.instrument.product_id,
         timeframe=htf_filter.timeframe,
-        warmup_bars=_shared_clock_union_warmup(
+        warmup_bars=shared_clock_union_warmup(
             strategy,
             timeframe=htf_filter.timeframe,
             warmup_bars=htf_filter.data_requirements.warmup_bars,
@@ -217,7 +192,7 @@ async def _closed_indicator_timeframe_windows(
     htf_timeframe = strategy.htf_filter.timeframe if strategy.htf_filter is not None else None
     covered_product = product_id or strategy.instrument.product_id
     for timeframe, indicators in extra_indicator_timeframe_groups(strategy):
-        warmup = _required_clock_warmup_bars(
+        warmup = required_clock_warmup_bars(
             strategy,
             timeframe=timeframe,
             warmup_bars=extra_indicator_timeframe_warmup(
@@ -263,35 +238,6 @@ async def _closed_indicator_timeframe_windows(
     return windows
 
 
-def _required_clock_warmup_bars(
-    strategy: StrategyDefinition,
-    *,
-    timeframe: str,
-    warmup_bars: int,
-    deploy_anchor: datetime,
-) -> int:
-    """Cover the first decision's previous mapped bar without moving the deploy anchor.
-
-    The first evaluated decision is the bar completed at deployment's decision-clock
-    bucket. At a required-clock rollover, its previous close maps one bar earlier than
-    the deployment bucket's normal warmup. Use the evaluator's coverage contract to
-    extend that fixed window only when necessary; later cycles retain the same start.
-    """
-    decision_interval = parse_candle_interval(strategy.timeframe)
-    first_decision = (
-        entry_bar_bucket(deploy_anchor, strategy.timeframe) - decision_interval.duration
-    )
-    required_start, _required_end = closed_bar_required_coverage(
-        evaluation_starts_at=first_decision,
-        evaluation_ends_at=ltf_close(first_decision, strategy.timeframe),
-        timeframe=timeframe,
-        warmup_bars=warmup_bars,
-    )
-    interval = parse_candle_interval(timeframe)
-    deploy_bucket = entry_bar_bucket(deploy_anchor, timeframe)
-    return max(warmup_bars, (deploy_bucket - required_start) // interval.duration)
-
-
 async def _closed_reference_windows(
     market_data: MarketDataService,
     strategy: StrategyDefinition,
@@ -314,7 +260,7 @@ async def _closed_reference_windows(
                 market_data,
                 product_id=requirement.product_id,
                 timeframe=requirement.timeframe,
-                warmup_bars=_required_clock_warmup_bars(
+                warmup_bars=required_clock_warmup_bars(
                     strategy,
                     timeframe=requirement.timeframe,
                     warmup_bars=requirement.warmup_bars,
@@ -352,3 +298,47 @@ def _bar_reference_gate(
         reference_candles,
         decision_close=ltf_close(candle.starts_at, strategy.timeframe),
     )
+
+
+SHORT_HISTORY_DETAIL = (
+    "the market's history is shorter than the strategy's warmup, so its indicators have not "
+    "converged (ADR 0140); no entry until it has accumulated that history"
+)
+
+
+def _bar_seed_gate(
+    strategy: StrategyDefinition,
+    window: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    indicator_timeframe_candles: Mapping[str, Sequence[Candle]] | None,
+    *,
+    allow_new_entries: bool,
+) -> ReferenceGate | None:
+    """Gate one entry-eligible decision bar whose windows are short of warmup; else None."""
+    if not allow_new_entries or windows_hold_warmup(
+        strategy, window, htf_candles, indicator_timeframe_candles
+    ):
+        return None
+    return ReferenceGate(reason=DecisionSkipReason.WARMUP, detail=SHORT_HISTORY_DETAIL)
+
+
+def _covered_seed_gate(
+    strategy: StrategyDefinition,
+    windows: Mapping[str, Sequence[Candle]],
+    htf_by_product: Mapping[str, Sequence[Candle]],
+    extra_by_product: Mapping[str, Mapping[str, Sequence[Candle]]],
+    *,
+    allow_new_entries: bool,
+) -> ReferenceGate | None:
+    """The short-history gate of a shared bar: any covered product short of warmup gates all."""
+    for product_id, window in windows.items():
+        gate = _bar_seed_gate(
+            strategy,
+            window,
+            htf_by_product[product_id],
+            extra_by_product[product_id],
+            allow_new_entries=allow_new_entries,
+        )
+        if gate is not None:
+            return gate
+    return None

@@ -22,6 +22,7 @@ from thytrader.evaluation.signal_evaluator import (
     calculate_htf_indicator_rows,
 )
 from thytrader.exchanges.coinbase_market_data import CoinbaseMarketDataError
+from thytrader.execution.clock_windows import required_clock_warmup_bars, shared_clock_union_warmup
 from thytrader.execution.references import reference_gate
 from thytrader.execution.signals import (
     evaluate_latest_entry_evidence,
@@ -103,13 +104,13 @@ async def test_shared_clock_window_covers_the_longer_indicator_without_reseeding
 
     htf_filter = definition.htf_filter
     assert htf_filter is not None
-    union = service._shared_clock_union_warmup(
+    union = shared_clock_union_warmup(
         definition,
         timeframe="4h",
         warmup_bars=htf_filter.data_requirements.warmup_bars,
         deploy_anchor=_ANCHOR,
     )
-    htf_only = service._required_clock_warmup_bars(
+    htf_only = required_clock_warmup_bars(
         definition,
         timeframe="4h",
         warmup_bars=50,
@@ -154,7 +155,7 @@ async def test_shared_clock_window_covers_the_longer_indicator_without_reseeding
     )
     own_start = warmup_starts_at(
         bucket,
-        service._required_clock_warmup_bars(
+        required_clock_warmup_bars(
             definition,
             timeframe="4h",
             warmup_bars=80,
@@ -418,7 +419,7 @@ async def test_signal_exit_windows_reuse_the_union_window(
     assert extra == {"4h": htf}
     assert htf[0].starts_at == warmup_starts_at(
         entry_bar_bucket(_ANCHOR, "4h"),
-        service._shared_clock_union_warmup(
+        shared_clock_union_warmup(
             definition,
             timeframe="4h",
             warmup_bars=htf_filter.data_requirements.warmup_bars,

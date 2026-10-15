@@ -150,7 +150,8 @@ async def post_deployment(
     reference series is on the enabled market-data watchlist with a lookback covering its
     warmup (409 otherwise, naming the ``thytrader-data watch-add`` command). A snapshot
     saved before the convergence warmup policy is refused with 409
-    ``WARMUP_POLICY_REQUIRED`` (ADR 0140).
+    ``WARMUP_POLICY_REQUIRED``, and one whose market is younger than its warmup with 409
+    ``HISTORY_TOO_SHORT`` (ADR 0140).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
@@ -199,6 +200,7 @@ async def post_deployment(
                     body.paper_fee_per_contract, field="paper_fee_per_contract"
                 ),
                 futures_start=futures_start,
+                market_data=market_data,
             )
     except ExecutionConflictError as error:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error)) from None

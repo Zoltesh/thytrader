@@ -12,6 +12,7 @@ from thytrader.execution.service import create_deployment
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.models import strategy_fingerprint
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError
 
@@ -59,7 +60,7 @@ def test_live_policy_round_trips_http_and_operator_report() -> None:
 @pytest.mark.anyio
 async def test_service_start_still_refuses_live_futures_without_writes() -> None:
     """The service safety boundary survives independently of HTTP and CLI refusal tests."""
-    strategy = _strategy()
+    strategy = with_convergence_warmup(_strategy())
     execution = InMemoryExecutionStore()
     with pytest.raises(ExecutionConflictError, match="FUTURES_LIVE_UNSUPPORTED"):
         await create_deployment(

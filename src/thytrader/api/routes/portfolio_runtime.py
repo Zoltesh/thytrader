@@ -23,6 +23,7 @@ from thytrader.api.dependencies import (
     get_audit_event_store,
     get_decision_journal_store,
     get_execution_store,
+    get_market_data_service,
     get_market_data_watchlist_store,
     get_optional_decision_journal_store,
     get_portfolio_storage,
@@ -40,6 +41,7 @@ from thytrader.execution.decision_store import (
     DecisionJournalStore,
 )
 from thytrader.execution.service import ReferenceWatchlist, parse_decimal
+from thytrader.market_data.service import MarketDataService  # noqa: TC001 - FastAPI Depends.
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,  # noqa: TC001 - FastAPI Depends.
 )
@@ -120,6 +122,7 @@ def runtime_service(
     runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
     watchlist: Annotated[MarketDataWatchlistStore, Depends(get_market_data_watchlist_store)],
+    market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
 ) -> PortfolioRuntimeService:
     """The portfolio runtime service over this request's stores."""
     return PortfolioRuntimeService(
@@ -133,6 +136,7 @@ def runtime_service(
         reference_watches=ReferenceWatchlist(
             store=watchlist, provider=ingestion_provider(runtime.settings)
         ),
+        market_data=market_data,
     )
 
 

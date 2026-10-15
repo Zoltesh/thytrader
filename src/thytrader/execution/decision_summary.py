@@ -209,6 +209,8 @@ def _skip_summary(
     if reason is DecisionSkipReason.PENDING_ENTRY:
         return _pending_summary(context, window, classified)
     if reason is DecisionSkipReason.WARMUP:
+        if classified.detail:
+            return f"Skipped: warming up — {classified.detail}"
         node = first_unmet(rule.entry) if rule is not None else None
         if node is not None:
             return f"Skipped: warming up — {unmet_text(node)}"

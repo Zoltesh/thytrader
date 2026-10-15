@@ -463,6 +463,22 @@ same message while other sleeves resume.
 - Bots already running keep running, and an automatic recovery (the user-feed pause clearing
   itself) is not a resume. Pause and stop are never refused. Discretionary books are exempt.
 
+**History check at start.** A bot fetches each window it reads (the decision clock of every
+covered product, the HTF filter, extra indicator timeframes, reference instruments) from Coinbase
+on demand, starting a full warmup before it was created, so an established market is warmed up
+from the first decision; there is nothing to backfill or wait for. Only a market **younger than
+the warmup** has no candles that early (an EMA(200) on 2h needs about 74 days). Every start
+(single, `--adopt-holdings`, each portfolio sleeve) checks this with one request per series and
+is refused with HTTP 409 `HISTORY_TOO_SHORT: …` naming each short series and the date its window
+needs; nothing starts. Choose shorter indicators or a market with longer history (research lane).
+`HISTORY_UNCONFIRMED: …` means Coinbase could not be read; retry the start. Portfolio starts list
+them as problems `history_too_short` / `history_unconfirmed` (nothing starts).
+
+A bot that somehow runs on such a market anyway never enters on unconverged indicators: its
+decision rows read `outcome: skipped`, `skip_reason: warmup`, summary "Skipped: warming up — the
+market's history is shorter than the strategy's warmup …" until each window holds its warmup.
+Protection, exits and reconciliation keep running; the bot is not paused.
+
 ## Signal exits (paper and live)
 
 A strategy whose snapshot declares `exits.signal_exit` ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md))
@@ -609,8 +625,8 @@ id: a paper sleeve starts with `weight × capital_quote` of paper cash, a live s
 portfolio are `attached`, not duplicated. Every sleeve is planned before anything starts, so one
 refusal starts nothing: HTTP 422 `portfolio_start_rejected` lists `problems[]` (`sleeve_issue`,
 `strategy_busy` when the strategy already runs standalone or in another portfolio — stop that bot
-first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required` (see
-"Convergence warmup gate"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
+first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required`,
+`history_too_short` / `history_unconfirmed` (see "Convergence warmup gate"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
 credentials (`live_credentials_missing`), and a published risk policy; **a live portfolio's sleeve
 allocations count as risk-policy allocation membership for its own bots**, so an allocations
 allowlist does not need to list sleeve strategies (standalone bots keep the allowlist; every other

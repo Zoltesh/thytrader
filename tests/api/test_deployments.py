@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from tests.market_history import listed_history
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api.app import create_app
 from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
@@ -77,6 +78,7 @@ def _client(
         execution_store=execution,
         audit_event_store=audit,
         risk_policy_store=risk,
+        market_data_service=listed_history(),
     )
     return TestClient(app)
 

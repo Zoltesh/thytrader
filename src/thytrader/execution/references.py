@@ -31,11 +31,13 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class ReferenceGate:
-    """Why one decision bar may not open risk: a reference series is stale or missing.
+    """Why one decision bar may not open risk: a data window it reads is not ready.
 
     ``reason`` is ``REFERENCE_DATA_STALE`` (the newest closed reference bar is older than
     the bar the decision close needs) or ``REFERENCE_DATA_MISSING`` (no bars, a gap, or
-    not enough history for the reference warmup). ``detail`` names the series.
+    not enough history for the reference warmup), and ``detail`` names the series; or
+    ``WARMUP`` when a market younger than the strategy's warmup has not yet accumulated it
+    under the convergence policy (ADR 0140).
     """
 
     reason: DecisionSkipReason

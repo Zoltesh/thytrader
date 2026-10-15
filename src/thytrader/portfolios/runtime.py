@@ -29,6 +29,10 @@ from thytrader.execution.service import (
     create_deployment,
     set_deployment_status,
 )
+from thytrader.execution.start_history import (
+    history_shortfall_message,
+    start_history_shortfalls,
+)
 from thytrader.execution.warmup_gate import convergence_policy_message
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.portfolios.allocation import quote_text
@@ -88,6 +92,7 @@ from thytrader.risk.models import RiskDecision
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.library import StrategyLibraryError
 from thytrader.strategies.models import covered_product_ids
+from thytrader.trading.ids import utc_now
 from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import (
     Deployment,
@@ -104,11 +109,13 @@ if TYPE_CHECKING:
 
     from thytrader.audit_events import AuditEventStore
     from thytrader.execution.paper_fees import PaperFeeSource
+    from thytrader.market_data.service import MarketDataService
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
     from thytrader.portfolios.store import PortfolioStorage
     from thytrader.portfolios.vocabulary import JournalKind, JournalReason
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.library import StrategyStore
+    from thytrader.strategies.models import StrategyDefinition
     from thytrader.strategies.snapshots import StrategySnapshotReader
     from thytrader.trading.store import ExecutionStore
 
@@ -141,11 +148,14 @@ class PortfolioRuntimeService:
         live_allowed: bool,
         audit: AuditEventStore | None = None,
         reference_watches: ReferenceWatchlist | None = None,
+        market_data: MarketDataService | None = None,
     ) -> None:
         """Bind the stores the actions read and write.
 
         ``reference_watches`` lets a sleeve whose strategy reads reference instruments
         (ADR 0096) start only when those series are watched, like a single bot.
+        ``market_data`` lets planning refuse a sleeve whose market is younger than its
+        strategy's warmup (ADR 0140), before any sleeve starts.
         """
         self._portfolios = portfolios
         self._execution = execution
@@ -155,6 +165,7 @@ class PortfolioRuntimeService:
         self._live_allowed = live_allowed
         self._audit = audit
         self._reference_watches = reference_watches
+        self._market_data = market_data
 
     async def snapshot(self, portfolio_id: UUID) -> PortfolioDeploymentSnapshot:
         """Read the portfolio, its runtime state, and every sleeve's book."""
@@ -485,8 +496,27 @@ class PortfolioRuntimeService:
                 "warmup_policy_required",
                 convergence_policy_message(snapshot.definition, action="started"),
             )
+        history = await self._history_problem(view, snapshot.definition)
+        if history is not None:
+            return history
         capital = _sleeve_capital(aggregate, view)
         return _PlannedSleeve(view=view, capital=capital, snapshot=snapshot)
+
+    async def _history_problem(
+        self, view: SleeveView, definition: StrategyDefinition
+    ) -> StartProblem | None:
+        """Refuse a sleeve whose market is younger than its warmup, or whose history is unread."""
+        if self._market_data is None:
+            return None
+        try:
+            shortfalls = await start_history_shortfalls(
+                self._market_data, definition, now=utc_now()
+            )
+        except ExecutionConflictError as error:
+            return _problem(view, "history_unconfirmed", str(error))
+        if shortfalls:
+            return _problem(view, "history_too_short", history_shortfall_message(shortfalls))
+        return None
 
     async def _admission_problems(
         self,
