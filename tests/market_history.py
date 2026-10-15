@@ -2,8 +2,10 @@
 
 ``ListedHistory`` serves the demo's deterministic candles for any product id, futures
 contracts included, from an optional listing instant onward: before it the venue has no
-candles, as for a market younger than a strategy's warmup. Bars in ``quiet`` had no trades,
-so the venue returns no candle for them either.
+candles, as for a market younger than a strategy's warmup. A bar exists once any of it lies
+after the listing (the venue returns the bar a trade falls in, so a daily bar starts at the
+midnight before an intraday listing). Bars in ``quiet`` had no trades, so the venue returns
+no candle for them either.
 """
 
 from __future__ import annotations
@@ -39,14 +41,15 @@ class ListedHistory(DemoMarketData):
         ends_at: datetime,
         now: datetime,
     ) -> CandleRangeReport:
-        """Return the range's demo candles at or after the listing."""
+        """Return the range's demo candles of bars that end after the listing."""
         del product_id
         count = (ends_at - starts_at) // interval.duration
         bars = (starts_at + interval.duration * offset for offset in range(count))
         candles = tuple(
             _candle(bar)
             for bar in bars
-            if (self.listed_at is None or bar >= self.listed_at) and bar not in self.quiet
+            if (self.listed_at is None or bar + interval.duration > self.listed_at)
+            and bar not in self.quiet
         )
         return analyze_range(candles, interval, starts_at, ends_at, now)
 

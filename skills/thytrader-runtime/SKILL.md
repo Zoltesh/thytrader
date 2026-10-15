@@ -469,7 +469,8 @@ on demand, starting a full warmup before it was created, so an established marke
 from the first decision; there is nothing to backfill or wait for (except a bar or two of
 `warmup` skips when the very first bar of a window had no trades). Only a market **younger than
 the warmup** has no candles that early (an EMA(200) on 2h needs about 74 days). Every start
-(single, `--adopt-holdings`, each portfolio sleeve) checks this with one request per series and
+(single, `--adopt-holdings`, each portfolio sleeve) checks that each series traded by its window
+start (one request per series, plus a daily read for a thin market) and
 is refused with HTTP 409 `HISTORY_TOO_SHORT: …` naming each short series and the date its window
 needs; nothing starts. Choose shorter indicators or a market with longer history (research lane).
 `HISTORY_UNCONFIRMED: …` means Coinbase could not be read; retry the start. Portfolio starts list
