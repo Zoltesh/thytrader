@@ -380,3 +380,18 @@ async def test_a_study_published_between_pages_is_never_counted_twice(
         strategy_id=uuid4(),
     )
     assert not complete
+
+
+def test_near_cancelling_results_keep_their_true_sign() -> None:
+    """A net of -1E-29 is not positive, whatever the default decimal precision."""
+    assessed = assess_live_start_evidence(
+        _evidence(
+            _window(20, "-100.00000000000000000000000000002"),
+            _window(20, "100.00000000000000000000000000001"),
+        ),
+        paper_created_at=(_NOW - timedelta(days=30),),
+        thresholds=LiveEvidenceThresholds(),
+        now=_NOW,
+    )
+    assert assessed.out_of_sample_net_pnl == "-1E-29"
+    assert assessed.thin_reasons == ("out-of-sample net result -1E-29 is not positive",)

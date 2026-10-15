@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
-from decimal import ROUND_DOWN, Decimal, InvalidOperation
+from decimal import ROUND_DOWN, Decimal, InvalidOperation, localcontext
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
@@ -23,7 +23,7 @@ from thytrader.risk.start_safeguards import LiveEvidenceThresholds
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
     from datetime import datetime
     from uuid import UUID
 
@@ -37,6 +37,8 @@ LIVE_EVIDENCE_THIN = "LIVE_EVIDENCE_THIN"
 LIVE_EVIDENCE_REQUIRED = "LIVE_EVIDENCE_REQUIRED"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DAY = timedelta(days=1)
+_EXACT_PRECISION = 1000
+"""Digits for summing net results exactly (stored results carry at most 64)."""
 EVIDENCE_READ_SECONDS = 10.0
 """Time each evidence source may take before it is reported unavailable."""
 
@@ -87,7 +89,7 @@ def assess_live_start_evidence(
     """Summarize ``evidence`` for a live start and name every unmet threshold."""
     windows = evidence.out_of_sample
     trades = sum(window.trade_count for window in windows)
-    net = sum((_decimal(window.total_net_pnl) for window in windows), Decimal(0))
+    net = _exact_sum(_decimal(window.total_net_pnl) for window in windows)
     first_paper = min(paper_created_at, default=None)
     elapsed = timedelta(0) if first_paper is None else max(now - first_paper, timedelta(0))
     # Shown rounded down, so a display of 14.0 never stands for 13 days 23 hours.
@@ -190,6 +192,13 @@ async def gather_live_start_evidence(
         now=now,
         unavailable=unavailable,
     )
+
+
+def _exact_sum(values: Iterable[Decimal]) -> Decimal:
+    """Sum without rounding: near-cancelling results must keep their true sign."""
+    with localcontext() as context:
+        context.prec = _EXACT_PRECISION
+        return sum(values, Decimal(0))
 
 
 def _decimal(text: str) -> Decimal:
