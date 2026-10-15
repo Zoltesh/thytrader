@@ -9,7 +9,7 @@ from thytrader.risk.models import (
     compiled_default_risk_policy,
     risk_policy_fingerprint,
 )
-from thytrader.risk.start_safeguards import StartSafeguards
+from thytrader.risk.start_safeguards import LiveEvidenceThresholds, StartSafeguards
 from thytrader.runtime_control.configuration_handlers import _risk_policy_payload
 from thytrader.runtime_control.parsers.root import _parser as build_parser
 
@@ -55,4 +55,55 @@ def test_set_risk_policy_maps_the_safeguard_flags() -> None:
     assert both["start_safeguards"] == {
         "require_convergence_warmup": True,
         "require_market_history": True,
+    }
+
+
+def test_default_live_evidence_thresholds_keep_the_policy_bytes() -> None:
+    """Thresholds equal to the defaults are omitted; only a real change is canonical."""
+    policy = compiled_default_risk_policy()
+    default = policy.model_copy(
+        update={"start_safeguards": StartSafeguards(live_evidence=LiveEvidenceThresholds())}
+    )
+    assert canonical_risk_policy_bytes(default) == canonical_risk_policy_bytes(policy)
+    stricter = policy.model_copy(
+        update={
+            "start_safeguards": StartSafeguards(
+                require_live_evidence=True,
+                live_evidence=LiveEvidenceThresholds(min_paper_days=30),
+            )
+        }
+    )
+    assert json.loads(canonical_risk_policy_bytes(stricter))["start_safeguards"] == {
+        "require_live_evidence": True,
+        "live_evidence": {
+            "min_out_of_sample_trades": 30,
+            "require_positive_out_of_sample": True,
+            "min_paper_days": 30,
+        },
+    }
+
+
+def test_set_risk_policy_maps_the_live_evidence_flags() -> None:
+    """The opt-in refusal and each threshold flag land in the safeguards block."""
+    parser = build_parser()
+    mapped = _risk_policy_payload(
+        parser.parse_args(
+            [
+                *_REQUIRED,
+                "--require-live-evidence",
+                "--live-evidence-min-oos-trades",
+                "10",
+                "--live-evidence-min-paper-days",
+                "0",
+                "--live-evidence-allow-non-positive-oos",
+            ]
+        )
+    )
+    assert mapped["start_safeguards"] == {
+        "require_live_evidence": True,
+        "live_evidence": {
+            "min_out_of_sample_trades": 10,
+            "min_paper_days": 0,
+            "require_positive_out_of_sample": False,
+        },
     }

@@ -2816,6 +2816,36 @@
       "title": "LiteralOperand",
       "type": "object"
     },
+    "LiveEvidenceThresholds": {
+      "additionalProperties": false,
+      "description": "What a live start's evidence must show not to be called thin (ADR 0143).\n\nThe evidence is always recorded and a thin one always warns; these numbers only say\nwhere \"thin\" begins. Unset, the defaults apply.",
+      "properties": {
+        "min_out_of_sample_trades": {
+          "default": 30,
+          "description": "Trades the exact strategy fingerprint made across out-of-sample study windows.",
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Min Out Of Sample Trades",
+          "type": "integer"
+        },
+        "min_paper_days": {
+          "default": 14,
+          "description": "Days since the exact fingerprint's first paper book was created.",
+          "maximum": 3650,
+          "minimum": 0,
+          "title": "Min Paper Days",
+          "type": "integer"
+        },
+        "require_positive_out_of_sample": {
+          "default": true,
+          "description": "Whether the out-of-sample windows' summed net result must be above zero.",
+          "title": "Require Positive Out Of Sample",
+          "type": "boolean"
+        }
+      },
+      "title": "LiveEvidenceThresholds",
+      "type": "object"
+    },
     "MacdIndicatorParameters": {
       "additionalProperties": false,
       "description": "Close-locked EMA windows shared by MACD and PPO: fast, slow, and signal smoothing.",
@@ -4156,10 +4186,28 @@
       "additionalProperties": false,
       "description": "Which start warnings refuse the start instead (all off by default).",
       "properties": {
+        "live_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveEvidenceThresholds"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Where thin live-start evidence begins; unset uses 30 out-of-sample trades, a positive out-of-sample net result and 14 paper days."
+        },
         "require_convergence_warmup": {
           "default": false,
           "description": "Refuse to start or resume a strategy snapshot without the convergence warmup policy (WARMUP_POLICY_REQUIRED) instead of warning (ADR 0140).",
           "title": "Require Convergence Warmup",
+          "type": "boolean"
+        },
+        "require_live_evidence": {
+          "default": false,
+          "description": "Refuse a live start whose recorded evidence is thin (LIVE_EVIDENCE_REQUIRED) instead of warning with LIVE_EVIDENCE_THIN (ADR 0143).",
+          "title": "Require Live Evidence",
           "type": "boolean"
         },
         "require_market_history": {

@@ -85,7 +85,16 @@ def _run(arguments: argparse.Namespace) -> str:
 def _dispatch(arguments: argparse.Namespace, base_url: str, settings: Settings) -> object:
     """Route one parsed command to the HTTP helper."""
     command = arguments.command
-    if command in {"list", "show", "decisions", "orders", "fills", "fleet-preview", "fleet-status"}:
+    if command in {
+        "list",
+        "show",
+        "live-evidence",
+        "decisions",
+        "orders",
+        "fills",
+        "fleet-preview",
+        "fleet-status",
+    }:
         return _read_only_command(arguments, base_url)
     if command == "start":
         return _start(arguments, base_url, settings)

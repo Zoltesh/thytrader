@@ -238,6 +238,41 @@ def add_risk_policy_parsers(
         ),
     )
     set_policy.add_argument(
+        "--require-live-evidence",
+        action="store_true",
+        help=(
+            "Opt-in start safeguard (ADR 0143): refuse a live start whose recorded evidence is "
+            "thin (LIVE_EVIDENCE_REQUIRED). Omitted, the start warns with LIVE_EVIDENCE_THIN; "
+            "the evidence is recorded with every live bot either way."
+        ),
+    )
+    set_policy.add_argument(
+        "--live-evidence-min-oos-trades",
+        type=int,
+        default=None,
+        help=(
+            "Out-of-sample study trades of the exact strategy fingerprint below which live "
+            "evidence is thin (default 30)."
+        ),
+    )
+    set_policy.add_argument(
+        "--live-evidence-min-paper-days",
+        type=int,
+        default=None,
+        help=(
+            "Days since the exact fingerprint's first paper bot below which live evidence is "
+            "thin (default 14)."
+        ),
+    )
+    set_policy.add_argument(
+        "--live-evidence-allow-non-positive-oos",
+        action="store_true",
+        help=(
+            "Do not call live evidence thin when the out-of-sample net result is zero or "
+            "negative (by default it must be positive)."
+        ),
+    )
+    set_policy.add_argument(
         "--futures-live-spot-collateral-reserve-quote",
         default=None,
         help=(

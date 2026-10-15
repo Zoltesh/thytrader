@@ -186,12 +186,22 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
 
 
 def _start_safeguards(arguments: argparse.Namespace) -> dict[str, object] | None:
-    """Map the opt-in start safeguard flags (ADR 0142); ``None`` when none is set."""
+    """Map the opt-in start safeguard flags (ADR 0142, 0143); ``None`` when none is set."""
     fields = {
         "require_convergence_warmup": arguments.require_convergence_warmup,
         "require_market_history": arguments.require_market_history,
+        "require_live_evidence": arguments.require_live_evidence,
     }
     block: dict[str, object] = {name: True for name, value in fields.items() if value}
+    thresholds: dict[str, object] = {}
+    if arguments.live_evidence_min_oos_trades is not None:
+        thresholds["min_out_of_sample_trades"] = arguments.live_evidence_min_oos_trades
+    if arguments.live_evidence_min_paper_days is not None:
+        thresholds["min_paper_days"] = arguments.live_evidence_min_paper_days
+    if arguments.live_evidence_allow_non_positive_oos:
+        thresholds["require_positive_out_of_sample"] = False
+    if thresholds:
+        block["live_evidence"] = thresholds
     return block or None
 
 

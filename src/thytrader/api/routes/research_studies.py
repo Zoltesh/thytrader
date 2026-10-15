@@ -60,6 +60,7 @@ from thytrader.research.jobs import (
     ResearchJobStore,
 )
 from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
+from thytrader.research.promotion_sources import studies_for_strategy
 from thytrader.research.studies import (
     SYNC_STUDY_BUDGET,
     ResearchStudy,
@@ -568,7 +569,7 @@ async def get_promotion_evidence(
         )
     except Exception:  # noqa: BLE001
         backtests = ()
-    studies = await _studies_for_strategy(catalog, strategy_fingerprint)
+    studies = await studies_for_strategy(catalog, strategy_fingerprint) or ()
     try:
         deployments = await execution.list_by_strategy(str(published.definition.strategy_id))
     except ExecutionStoreError:
@@ -579,23 +580,3 @@ async def get_promotion_evidence(
         studies=studies,
         deployments=deployments,
     )
-
-
-async def _studies_for_strategy(
-    catalog: ResearchStudyCatalog,
-    strategy_fingerprint: str,
-) -> tuple[ResearchStudy, ...]:
-    """Load catalog studies that mention the requested strategy fingerprint."""
-    try:
-        rows = await catalog.list_summaries(limit=100, offset=0)
-    except StudyCatalogUnavailableError:
-        return ()
-    matched: list[ResearchStudy] = []
-    for row in rows:
-        try:
-            study = ResearchStudy.model_validate_json(await catalog.load(row.study_fingerprint))
-        except StudyCatalogUnavailableError, StudyCatalogNotFoundError, ValidationError:
-            continue
-        if any(window.strategy_fingerprint == strategy_fingerprint for window in study.windows):
-            matched.append(study)
-    return tuple(matched)

@@ -452,4 +452,6 @@ def _start_safeguards(policy: RiskPolicyDefinition) -> StartSafeguardsPayload:
     return StartSafeguardsPayload(
         require_convergence_warmup=safeguards.require_convergence_warmup,
         require_market_history=safeguards.require_market_history,
+        require_live_evidence=safeguards.require_live_evidence,
+        live_evidence=safeguards.live_evidence_thresholds,
     )

@@ -8944,6 +8944,36 @@
       "title": "LessonOutcome",
       "type": "string"
     },
+    "LiveEvidenceThresholds": {
+      "additionalProperties": false,
+      "description": "What a live start's evidence must show not to be called thin (ADR 0143).\n\nThe evidence is always recorded and a thin one always warns; these numbers only say\nwhere \"thin\" begins. Unset, the defaults apply.",
+      "properties": {
+        "min_out_of_sample_trades": {
+          "default": 30,
+          "description": "Trades the exact strategy fingerprint made across out-of-sample study windows.",
+          "maximum": 100000,
+          "minimum": 0,
+          "title": "Min Out Of Sample Trades",
+          "type": "integer"
+        },
+        "require_positive_out_of_sample": {
+          "default": true,
+          "description": "Whether the out-of-sample windows' summed net result must be above zero.",
+          "title": "Require Positive Out Of Sample",
+          "type": "boolean"
+        },
+        "min_paper_days": {
+          "default": 14,
+          "description": "Days since the exact fingerprint's first paper book was created.",
+          "maximum": 3650,
+          "minimum": 0,
+          "title": "Min Paper Days",
+          "type": "integer"
+        }
+      },
+      "title": "LiveEvidenceThresholds",
+      "type": "object"
+    },
     "LiveFuturesBookPayload": {
       "additionalProperties": false,
       "description": "Timestamped account facts; account totals are never attributed to one book.",
@@ -15386,7 +15416,7 @@
     },
     "StartSafeguardsPayload": {
       "additionalProperties": false,
-      "description": "The risk policy's opt-in start refusals, each reported explicitly (ADR 0142).",
+      "description": "The risk policy's opt-in start refusals, each reported explicitly (ADR 0142, 0143).",
       "properties": {
         "require_convergence_warmup": {
           "title": "Require Convergence Warmup",
@@ -15395,11 +15425,21 @@
         "require_market_history": {
           "title": "Require Market History",
           "type": "boolean"
+        },
+        "require_live_evidence": {
+          "title": "Require Live Evidence",
+          "type": "boolean"
+        },
+        "live_evidence": {
+          "$ref": "#/$defs/LiveEvidenceThresholds",
+          "description": "Where thin live-start evidence begins (the defaults when the policy omits it)."
         }
       },
       "required": [
         "require_convergence_warmup",
-        "require_market_history"
+        "require_market_history",
+        "require_live_evidence",
+        "live_evidence"
       ],
       "title": "StartSafeguardsPayload",
       "type": "object"

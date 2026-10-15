@@ -57,6 +57,11 @@ from thytrader.portfolios.errors import (
     StartProblem,
 )
 from thytrader.portfolios.journal_changes import journal_entry
+from thytrader.portfolios.live_evidence_check import (
+    LiveEvidenceSources,
+    record_sleeve_evidence,
+    sleeve_live_evidence,
+)
 from thytrader.portfolios.models import (
     JournalDetail,
     MutationContext,
@@ -90,6 +95,7 @@ from thytrader.portfolios.runtime_start import (
     _problem,
     _sleeve_capital,
 )
+from thytrader.research.live_evidence import live_evidence_message
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.start_safeguards import StartSafeguards
@@ -154,13 +160,15 @@ class PortfolioRuntimeService:
         audit: AuditEventStore | None = None,
         reference_watches: ReferenceWatchlist | None = None,
         market_data: MarketDataService | None = None,
+        live_evidence: LiveEvidenceSources | None = None,
     ) -> None:
         """Bind the stores the actions read and write.
 
         ``reference_watches`` lets a sleeve whose strategy reads reference instruments
         (ADR 0096) start only when those series are watched, like a single bot.
         ``market_data`` lets planning refuse a sleeve whose market is younger than its
-        strategy's warmup (ADR 0140), before any sleeve starts.
+        strategy's warmup (ADR 0140), before any sleeve starts. ``live_evidence`` lets a live
+        sleeve record, warn about, or (opt-in) refuse on its live-start evidence (ADR 0143).
         """
         self._portfolios = portfolios
         self._execution = execution
@@ -171,6 +179,7 @@ class PortfolioRuntimeService:
         self._audit = audit
         self._reference_watches = reference_watches
         self._market_data = market_data
+        self._live_evidence = live_evidence
 
     async def snapshot(self, portfolio_id: UUID) -> PortfolioDeploymentSnapshot:
         """Read the portfolio, its runtime state, and every sleeve's book."""
@@ -518,12 +527,23 @@ class PortfolioRuntimeService:
         history = await self._history_check(view, snapshot.definition, safeguards)
         if isinstance(history, StartProblem):
             return history
-        capital = _sleeve_capital(aggregate, view)
+        warnings = [] if history is None else [history]
+        evidence = None
+        if mode is DeploymentMode.LIVE and self._live_evidence is not None:
+            evidence = await sleeve_live_evidence(
+                self._live_evidence, snapshot, execution=self._execution, safeguards=safeguards
+            )
+            if evidence.thin and safeguards.require_live_evidence:
+                message = live_evidence_message(evidence, refused=True)
+                return _problem(view, "live_evidence_required", message)
+            if evidence.thin:
+                warnings.append(live_evidence_message(evidence, refused=False))
         return _PlannedSleeve(
             view=view,
-            capital=capital,
+            capital=_sleeve_capital(aggregate, view),
             snapshot=snapshot,
-            warnings=() if history is None else (history,),
+            warnings=tuple(warnings),
+            live_evidence=evidence,
         )
 
     async def _history_check(
@@ -625,6 +645,10 @@ class PortfolioRuntimeService:
             )
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(item.view.strategy.name, item.view, None, "failed", str(error))
+        if item.live_evidence is not None and self._live_evidence is not None:
+            await record_sleeve_evidence(
+                self._live_evidence, deployment.id, item.live_evidence, warnings=warnings
+            )
         action = "portfolio_start_live" if mode is DeploymentMode.LIVE else "portfolio_start_paper"
         await self._audit_event(
             action, aggregate.portfolio.portfolio_id, detail=_deployment_audit(deployment)

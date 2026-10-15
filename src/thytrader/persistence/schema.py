@@ -92,6 +92,7 @@ from thytrader.persistence.tables.futures_books import (
     futures_funding_entries,
 )
 from thytrader.persistence.tables.execution_cycles import execution_cycles
+from thytrader.persistence.tables.live_start_evidence import live_start_evidence
 # isort: on
 
 __all__ = [
@@ -119,6 +120,7 @@ __all__ = [
     "futures_funding_rates",
     "futures_instrument_observations",
     "futures_position_snapshots",
+    "live_start_evidence",
     "market_data_watchlist",
     "market_data_worker_state",
     "market_feed_state",

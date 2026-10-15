@@ -70,6 +70,14 @@ def show_deployment(base_url: str, deployment_id: str, *, detail: str = "summary
     )
 
 
+def show_live_evidence(base_url: str, deployment_id: str) -> object:
+    """Return the evidence recorded when a live bot started (ADR 0143)."""
+    return request_json(
+        method="GET",
+        url=f"{base_url}{_DEPLOYMENTS_PREFIX}/{quote(deployment_id, safe='')}/live-evidence",
+    )
+
+
 def show_deployment_futures(base_url: str, deployment_id: str) -> object:
     """Return the futures view of one paper futures bot (ADR 0129, P1-6)."""
     return request_json(

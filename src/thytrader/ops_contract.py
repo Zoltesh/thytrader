@@ -130,7 +130,10 @@ for cross-market studies; Alembic 0077, ADR 0044), or canceled-order bookkeeping
 time counted by ``CANCEL_RATE_LIMIT`` and the settlement watermark that ends venue reads;
 Alembic 0078, ADR 0141), or start checks (``WARMUP_POLICY_MISSING`` / ``HISTORY_TOO_SHORT`` /
 ``HISTORY_UNCONFIRMED`` start and resume ``warnings``, adoption of the warmup policy on start,
-and the risk policy's opt-in ``start_safeguards``; ADR 0142) change.
+and the risk policy's opt-in ``start_safeguards``; ADR 0142), or live-start evidence (the
+``live_start_evidence`` table of Alembic 0079, ``live_evidence`` on live start responses,
+``GET /deployments/{id}/live-evidence``, ``LIVE_EVIDENCE_THIN`` / ``LIVE_EVIDENCE_REQUIRED``
+and the ``require_live_evidence`` / ``live_evidence`` safeguards; ADR 0143) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -159,8 +162,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v102"
-EXPECTED_SCHEMA_REVISION = "0078"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v103"
+EXPECTED_SCHEMA_REVISION = "0079"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",

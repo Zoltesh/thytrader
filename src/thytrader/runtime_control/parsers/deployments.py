@@ -44,6 +44,16 @@ def add_inventory_read_parsers(
     show = subparsers.add_parser("show", parents=[trailing], help=show_help, description=show_help)
     show.add_argument("deployment_id", help="Deployment UUID.")
     add_show_arguments(show)
+    evidence_help = (
+        "Evidence recorded when a live bot started (ADR 0143): out-of-sample study windows, "
+        "trades and net result of its exact strategy fingerprint, paper bots and days since "
+        "the first, the thresholds, and thin_reasons (empty when it met them). 404 for paper "
+        "bots and live bots started before ADR 0143. Read-only."
+    )
+    evidence = subparsers.add_parser(
+        "live-evidence", parents=[trailing], help=evidence_help, description=evidence_help
+    )
+    evidence.add_argument("deployment_id", help="Deployment UUID.")
 
 
 def _add_decisions_parser(
