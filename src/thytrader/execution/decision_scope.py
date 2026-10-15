@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from thytrader.execution.decisions import DecisionSkipReason
+    from thytrader.execution.decisions import DecisionSkipReason, DecisionWindow
     from thytrader.execution.references import ReferenceGate
     from thytrader.execution.signals import LatestEntryEvaluation, LatestExitEvaluation
     from thytrader.risk.models import RiskVerdict
@@ -39,6 +39,7 @@ class DecisionObservations:
     entry_block_detail: str | None = None
     entry_skip: EntrySkipReason | None = None
     reference_gate: ReferenceGate | None = None
+    windows: tuple[DecisionWindow, ...] = ()
 
 
 _SCOPE: ContextVar[DecisionObservations | None] = ContextVar(
@@ -79,6 +80,14 @@ def note_reference_gate(gate: ReferenceGate) -> None:
     if observations is None:
         return
     observations.reference_gate = gate
+
+
+def note_windows(windows: tuple[DecisionWindow, ...]) -> None:
+    """Record the data windows the bar's decision read (ADR 0140)."""
+    observations = _SCOPE.get()
+    if observations is None:
+        return
+    observations.windows = windows
 
 
 def note_evaluation(evaluation: LatestEntryEvaluation) -> None:

@@ -37,6 +37,7 @@ from thytrader.execution_worker.windows import (
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
+    _decision_windows,
     new_closed_bars,
 )
 from thytrader.market_data.instrument_ids import is_futures_product_id
@@ -352,6 +353,15 @@ async def _evaluate_strategy_due_bars(
     reference_candles = await _closed_reference_windows(
         market_data, strategy, deploy_anchor=deployment.created_at
     )
+    data_windows = _decision_windows(
+        strategy,
+        deploy_anchor=deployment.created_at,
+        product_id=product.product_id,
+        decision_candles=candles,
+        htf_candles=htf_candles,
+        extra_candles=extra_candles,
+        reference_candles=reference_candles,
+    )
     broker: Broker = paper_broker
     fee_profile: FeeProfile | None = None
     if deployment.mode is DeploymentMode.LIVE:
@@ -420,6 +430,7 @@ async def _evaluate_strategy_due_bars(
                 candle=candle,
                 allow_new_entries=allow_new_entries,
                 reference_gate=gate,
+                windows=data_windows,
                 advance=partial(
                     captured_closed_bar,
                     current,

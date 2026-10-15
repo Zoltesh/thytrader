@@ -28,7 +28,7 @@ from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import DecisionStoreError
-from thytrader.execution.decisions import DecisionOutcome
+from thytrader.execution.decisions import DecisionOutcome, DecisionWindow
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import create_deployment
 from thytrader.execution_worker.service import _run_cycle
@@ -204,6 +204,46 @@ def test_repository_upserts_pages_filters_and_cascades(migrated_database: str) -
                 await connection.execute(delete(deployments).where(deployments.c.id == live))
             gone = await journal.list_for_deployment(live, limit=10)
             assert gone.decisions == ()
+        finally:
+            await dispose(engine)
+
+    asyncio.run(scenario())
+
+
+def test_decision_windows_round_trip(migrated_database: str) -> None:
+    """A row's data windows (ADR 0140) are stored and read back exactly."""
+
+    async def scenario() -> None:
+        engine = create_engine(SecretStr(migrated_database))
+        execution = PostgresExecutionStore(engine)
+        journal = PostgresDecisionJournalStore(engine)
+        paper = uuid4()
+        windows = (
+            DecisionWindow(
+                role="decision clock",
+                product_id="BTC-USD",
+                timeframe="1h",
+                warmup_bars=223,
+                starts_at=_NOW - timedelta(hours=223),
+                first_bar_at=_NOW - timedelta(hours=100),
+            ),
+            DecisionWindow(
+                role="reference btc",
+                product_id="BTC-USD",
+                timeframe="1d",
+                warmup_bars=446,
+                starts_at=_NOW - timedelta(days=446),
+                first_bar_at=None,
+            ),
+        )
+        try:
+            await execution.create_deployment(_deployment(paper))
+            decision = make_decision(deployment_id=paper, hour=1).model_copy(
+                update={"windows": windows}
+            )
+            await journal.upsert(decision)
+            (stored,) = (await journal.list_for_deployment(paper, limit=5)).decisions
+            assert stored.windows == windows
         finally:
             await dispose(engine)
 

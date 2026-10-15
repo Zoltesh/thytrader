@@ -830,7 +830,7 @@
     },
     "BarDecision": {
       "additionalProperties": false,
-      "description": "What one paper/live strategy bot decided on one completed bar, and why.\n\nIdentity is ``(deployment_id, product_id, bar_starts_at)``; writes are upserts, so\na restart replay rewrites the same row instead of duplicating it. ``no_trade_bar``\nis true when the bar was a flat zero-volume bar for an interval without trades\n(ADR 0095): it was evaluated like any bar, and records written before that ADR\nread as false.",
+      "description": "What one paper/live strategy bot decided on one completed bar, and why.\n\nIdentity is ``(deployment_id, product_id, bar_starts_at)``; writes are upserts, so\na restart replay rewrites the same row instead of duplicating it. ``no_trade_bar``\nis true when the bar was a flat zero-volume bar for an interval without trades\n(ADR 0095): it was evaluated like any bar, and records written before that ADR\nread as false. ``windows`` lists the data windows an evaluated strategy bar read\n(ADR 0140); rows written before it, and gate skips, carry none.",
       "properties": {
         "schema_version": {
           "const": "thytrader-bar-decision-v1",
@@ -1061,6 +1061,15 @@
             }
           ],
           "default": null
+        },
+        "windows": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/DecisionWindow"
+          },
+          "maxItems": 32,
+          "title": "Windows",
+          "type": "array"
         }
       },
       "required": [
@@ -2784,6 +2793,70 @@
       ],
       "title": "DecisionSkipReason",
       "type": "string"
+    },
+    "DecisionWindow": {
+      "additionalProperties": false,
+      "description": "One deploy-anchored data window the bar's decision read (ADR 0140).\n\n``starts_at`` is where the window starts (a full warmup before the deployment); the\nfirst bar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the\nmarket had no candles that early. ``role`` names the clock: ``decision clock``,\n``HTF filter``, ``indicator timeframe`` or ``reference <id>``.",
+      "properties": {
+        "role": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Role",
+          "type": "string"
+        },
+        "product_id": {
+          "pattern": "^(?:[A-Z0-9]{2,20}-(?:USD|USDC|USDT)|[A-Z0-9]{2,6}-\\d{2}[A-Z]{3}\\d{2}-CDE)$",
+          "title": "Product Id",
+          "type": "string"
+        },
+        "timeframe": {
+          "enum": [
+            "1h",
+            "5m",
+            "15m",
+            "30m",
+            "6h",
+            "1d",
+            "1m",
+            "2h",
+            "4h"
+          ],
+          "title": "Timeframe",
+          "type": "string"
+        },
+        "warmup_bars": {
+          "minimum": 0,
+          "title": "Warmup Bars",
+          "type": "integer"
+        },
+        "starts_at": {
+          "format": "date-time",
+          "title": "Starts At",
+          "type": "string"
+        },
+        "first_bar_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Bar At"
+        }
+      },
+      "required": [
+        "role",
+        "product_id",
+        "timeframe",
+        "warmup_bars",
+        "starts_at"
+      ],
+      "title": "DecisionWindow",
+      "type": "object"
     },
     "DecisionsPayload": {
       "additionalProperties": false,

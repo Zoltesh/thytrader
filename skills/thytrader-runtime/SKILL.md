@@ -389,7 +389,12 @@ runtime compared are in `rule.signal.indicator_values` ([ADR 0094](../../docs/de
 A false crossover says where the lines are: `EMA(9) is above EMA(21); no new cross this bar (…)`
 when fast already sits above slow, `EMA(9) is below EMA(21); no cross above yet (…)` when it has
 not reached it. Then come the `risk` verdict, `action` with `intent_id`/`orders`/`fills`, `skip_reason`/`exit_reason`, the
-close price, and the end-of-bar position. `no_trade_bar: true` marks a flat zero-volume bar for an
+close price, and the end-of-bar position. `windows` lists the data windows an evaluated strategy bar
+read ([ADR 0140](../../docs/decisions/0140-indicator-convergence-warmup.md)): each `role`
+(`decision clock`, `HTF filter`, `indicator timeframe`, `reference <id>`), `product_id`, `timeframe`,
+`warmup_bars`, `starts_at` (a full warmup before the bot's creation) and `first_bar_at`, the first
+bar the venue returned; `first_bar_at` after `starts_at` means the market is younger than that
+warmup, and `null` means no bars came back. Rows written earlier and gate skips have none. `no_trade_bar: true` marks a flat zero-volume bar for an
 interval without trades (its summary ends "(no-trade bar: no trades, flat at the prior close)"):
 paper and live fill a bar Coinbase omitted between two traded bars exactly as research datasets do,
 then evaluate it like any bar. A missing **newest** decision candle is never filled. When only

@@ -39,6 +39,7 @@ DECISION_PAGE_MAX_LIMIT = 200
 _FINGERPRINT = r"^sha256:[0-9a-f]{64}$"
 _REASON_CODE = r"^[A-Z][A-Z0-9_]{0,63}$"
 _MAX_LINKED = 50
+_MAX_WINDOWS = 32
 
 DecisionDecimal = Annotated[
     str,
@@ -276,6 +277,29 @@ class DecisionProtectionUpdate(_FrozenDecisionModel):
     fully_covered: bool
 
 
+class DecisionWindow(_FrozenDecisionModel):
+    """One deploy-anchored data window the bar's decision read (ADR 0140).
+
+    ``starts_at`` is where the window starts (a full warmup before the deployment); the
+    first bar the venue returned is ``first_bar_at``, later than ``starts_at`` only when the
+    market had no candles that early. ``role`` names the clock: ``decision clock``,
+    ``HTF filter``, ``indicator timeframe`` or ``reference <id>``.
+    """
+
+    role: str = Field(min_length=1, max_length=64)
+    product_id: str = Field(pattern=MARKET_PRODUCT_ID_PATTERN)
+    timeframe: DatasetTimeframe
+    warmup_bars: int = Field(ge=0)
+    starts_at: datetime
+    first_bar_at: datetime | None = None
+
+    @field_validator("starts_at", "first_bar_at")
+    @classmethod
+    def require_utc_timestamps(cls, value: datetime | None) -> datetime | None:
+        """Keep window timestamps UTC."""
+        return None if value is None else _require_utc(value)
+
+
 class BarDecision(_FrozenDecisionModel):
     """What one paper/live strategy bot decided on one completed bar, and why.
 
@@ -283,7 +307,8 @@ class BarDecision(_FrozenDecisionModel):
     a restart replay rewrites the same row instead of duplicating it. ``no_trade_bar``
     is true when the bar was a flat zero-volume bar for an interval without trades
     (ADR 0095): it was evaluated like any bar, and records written before that ADR
-    read as false.
+    read as false. ``windows`` lists the data windows an evaluated strategy bar read
+    (ADR 0140); rows written before it, and gate skips, carry none.
     """
 
     schema_version: Literal["thytrader-bar-decision-v1"] = DECISION_SCHEMA_VERSION
@@ -313,6 +338,7 @@ class BarDecision(_FrozenDecisionModel):
     position: DecisionPosition | None = None
     no_trade_bar: bool = False
     protection_update: DecisionProtectionUpdate | None = None
+    windows: tuple[DecisionWindow, ...] = Field(default=(), max_length=_MAX_WINDOWS)
 
     @field_validator("bar_starts_at", "bar_closes_at", "evaluated_at")
     @classmethod

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -9,6 +10,7 @@ import pytest
 
 from tests.execution.decision_support import Catalog
 from tests.execution.test_htf_filter import _startable_htf_strategy
+from tests.execution.test_reference_runtime import _watchlist
 from tests.execution_worker.test_window_longevity import _pin, _union_strategy
 from tests.market_history import listed_history
 from tests.strategies.reference_support import candle, reference_strategy
@@ -24,8 +26,8 @@ from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionSkipReason
 from thytrader.execution.paper import PaperBroker
-from thytrader.execution.service import create_deployment
-from thytrader.execution_worker import service
+from thytrader.execution.service import ReferenceWatchlist, create_deployment
+from thytrader.execution_worker import service, windows as windows_module
 from thytrader.execution_worker.windows import SHORT_HISTORY_DETAIL
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
@@ -166,6 +168,46 @@ async def test_a_young_market_journals_warmup_and_keeps_running() -> None:
     after = await store.get_deployment(deployment.id)
     assert after.deployment.status is DeploymentStatus.RUNNING
     assert after.intents == ()
+    # The row records the decision window and that the venue's history began after its start.
+    (window,) = row.windows
+    planned = deployment_clock_windows(strategy, deploy_anchor=deployment.created_at)[0]
+    assert (window.role, window.product_id, window.timeframe) == ("decision clock", "BTC-USD", "1h")
+    assert window.starts_at == planned.starts_at
+    assert window.warmup_bars == strategy.data_requirements.warmup_bars
+    assert window.first_bar_at is not None
+    assert window.first_bar_at > window.starts_at
+
+
+async def test_decision_rows_record_each_window_from_its_start() -> None:
+    """An established market's windows begin exactly at their planned starts (ADR 0140)."""
+    strategy = with_convergence_warmup(reference_strategy())
+    store = InMemoryExecutionStore()
+    await create_deployment(
+        store=store,
+        publication_store=Catalog(strategy),
+        strategy_fingerprint=strategy_fingerprint(strategy),
+        mode=DeploymentMode.PAPER,
+        paper_starting_cash=Decimal("10000"),
+        live_allowed=False,
+        reference_watches=ReferenceWatchlist(store=await _watchlist(), provider="demo"),
+    )
+    journal = InMemoryDecisionJournalStore()
+    with execution_audit_scope(InMemoryAuditEventStore()), decision_journal_scope(journal):
+        await service._run_cycle(
+            store=store,
+            publication_store=Catalog(strategy),
+            market_data=listed_history(),
+            paper_broker=PaperBroker(),
+            live_broker=None,
+            quote_reader=None,
+            risk_store=None,
+        )
+    (row,) = journal.rows()
+    assert [(item.role, item.product_id, item.timeframe) for item in row.windows] == [
+        ("decision clock", "ETH-USD", "1h"),
+        ("reference btc", "BTC-USD", "1d"),
+    ]
+    assert all(item.first_bar_at == item.starts_at for item in row.windows)
 
 
 def test_an_htf_window_must_also_cover_the_previous_mapped_bar_at_a_rollover() -> None:
@@ -187,3 +229,28 @@ def test_an_htf_window_must_also_cover_the_previous_mapped_bar_at_a_rollover() -
 def test_an_empty_decision_window_never_holds_under_the_policy() -> None:
     """No decision bars is not a warmed-up window."""
     assert not windows_hold_warmup(_startable_htf_strategy(), (), (), None)
+
+
+def test_a_window_that_fails_to_validate_never_interrupts_the_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The journal's windows are evidence: a bad one is logged and the row records none."""
+    strategy = _startable_htf_strategy()
+    anchor = _ANCHORS[0]
+    (decision, *_rest) = deployment_clock_windows(strategy, deploy_anchor=anchor)
+    broken = replace(decision, role="")
+    monkeypatch.setattr(
+        windows_module, "deployment_clock_windows", lambda *_args, **_kwargs: (broken,)
+    )
+    assert (
+        windows_module._decision_windows(
+            strategy,
+            deploy_anchor=anchor,
+            product_id=decision.product_id,
+            decision_candles=(),
+            htf_candles=(),
+            extra_candles=None,
+            reference_candles={},
+        )
+        == ()
+    )

@@ -13,15 +13,16 @@ from thytrader.evaluation.models import warmup_starts_at
 from thytrader.evaluation.multi_timeframe import ltf_close
 from thytrader.execution.candle_wait import newest_bar_settling
 from thytrader.execution.clock_windows import (
+    deployment_clock_windows,
     required_clock_warmup_bars,
     shared_clock_union_warmup,
     windows_hold_warmup,
 )
 from thytrader.execution.closed_windows import _closed_window_for
-from thytrader.execution.decisions import DecisionSkipReason
+from thytrader.execution.decisions import DecisionSkipReason, DecisionWindow
 from thytrader.execution.references import ReferenceGate, reference_gate
 from thytrader.execution_worker.ports import _logger
-from thytrader.market_data.models import parse_candle_interval
+from thytrader.market_data.models import as_dataset_timeframe, parse_candle_interval
 from thytrader.market_data.window_state import WindowCacheWarmingError
 from thytrader.strategies.models import (
     extra_indicator_timeframe_groups,
@@ -342,3 +343,77 @@ def _covered_seed_gate(
         if gate is not None:
             return gate
     return None
+
+
+def _decision_windows(
+    strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+    product_id: str,
+    decision_candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    extra_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]],
+) -> tuple[DecisionWindow, ...]:
+    """One product's planned windows and shared references, with each first bar fetched.
+
+    Journaled on the product's decision rows (ADR 0140), so a seed can be reproduced and a
+    market younger than a window shows as a ``first_bar_at`` after its ``starts_at``. The
+    journal is evidence, never a trading input: a window that fails to validate is logged and
+    the row records none, rather than interrupting the cycle.
+    """
+    try:
+        return _planned_windows(
+            strategy,
+            deploy_anchor=deploy_anchor,
+            product_id=product_id,
+            decision_candles=decision_candles,
+            htf_candles=htf_candles,
+            extra_candles=extra_candles,
+            reference_candles=reference_candles,
+        )
+    except ValueError:
+        _logger.warning(
+            "decision_windows_unavailable product_id=%s timeframe=%s",
+            product_id,
+            strategy.timeframe,
+            exc_info=True,
+        )
+        return ()
+
+
+def _planned_windows(
+    strategy: StrategyDefinition,
+    *,
+    deploy_anchor: datetime,
+    product_id: str,
+    decision_candles: Sequence[Candle],
+    htf_candles: Sequence[Candle],
+    extra_candles: Mapping[str, Sequence[Candle]] | None,
+    reference_candles: Mapping[str, Sequence[Candle]],
+) -> tuple[DecisionWindow, ...]:
+    """Pair each planned window of one product (and the references) with its first bar."""
+    rows: list[DecisionWindow] = []
+    for window in deployment_clock_windows(strategy, deploy_anchor=deploy_anchor):
+        reference = window.role.removeprefix("reference ")
+        if reference != window.role:
+            fetched: Sequence[Candle] = reference_candles.get(reference, ())
+        elif window.product_id != product_id:
+            continue
+        elif window.role == "decision clock":
+            fetched = decision_candles
+        elif window.role == "HTF filter":
+            fetched = htf_candles
+        else:
+            fetched = dict(extra_candles or {}).get(window.timeframe, ())
+        rows.append(
+            DecisionWindow(
+                role=window.role,
+                product_id=window.product_id,
+                timeframe=as_dataset_timeframe(parse_candle_interval(window.timeframe)),
+                warmup_bars=window.warmup_bars,
+                starts_at=window.starts_at,
+                first_bar_at=fetched[0].starts_at if fetched else None,
+            )
+        )
+    return tuple(rows)

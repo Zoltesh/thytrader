@@ -32,6 +32,7 @@ from thytrader.execution_worker.windows import (
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
     _covered_seed_gate,
+    _decision_windows,
     new_closed_bars,
 )
 from thytrader.market_data.models import parse_candle_interval
@@ -429,6 +430,15 @@ async def _evaluate_lockstep_bar(
                 candle=bar,
                 allow_new_entries=allow_new_entries,
                 reference_gate=gate,
+                windows=_decision_windows(
+                    strategy,
+                    deploy_anchor=current.deployment.created_at,
+                    product_id=product_id,
+                    decision_candles=windows[product_id][1],
+                    htf_candles=htf_by_product[product_id],
+                    extra_candles=extra_by_product[product_id],
+                    reference_candles=reference_candles,
+                ),
                 advance=partial(
                     process_closed_bar,
                     focused,

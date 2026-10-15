@@ -302,7 +302,25 @@ export function everyOutcome(deploymentId: string): Json[] {
 		barDecision(deploymentId, {
 			...at(10),
 			outcome: 'no_signal',
-			summary: 'No trade: RSI(14) 47.21 needs ≥ 50'
+			summary: 'No trade: RSI(14) 47.21 needs ≥ 50',
+			windows: [
+				{
+					role: 'decision clock',
+					product_id: 'UNI-USDC',
+					timeframe: '2h',
+					warmup_bars: 223,
+					starts_at: '2026-08-02T00:00:00Z',
+					first_bar_at: '2026-08-02T00:00:00Z'
+				},
+				{
+					role: 'reference btc',
+					product_id: 'BTC-USDC',
+					timeframe: '1d',
+					warmup_bars: 446,
+					starts_at: '2025-06-01T00:00:00Z',
+					first_bar_at: '2025-09-01T00:00:00Z'
+				}
+			]
 		}),
 		barDecision(deploymentId, {
 			...at(12),
