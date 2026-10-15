@@ -6,12 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from thytrader.research.live_evidence import gather_live_start_evidence
-from thytrader.research.live_evidence_store import LiveEvidenceStoreUnavailableError
 from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from thytrader.research.catalog import ResearchStudyCatalog
     from thytrader.research.live_evidence import LiveStartEvidence
     from thytrader.research.live_evidence_store import LiveEvidenceStore
@@ -44,20 +41,3 @@ async def sleeve_live_evidence(
         thresholds=safeguards.live_evidence_thresholds,
         now=utc_now(),
     )
-
-
-async def record_sleeve_evidence(
-    sources: LiveEvidenceSources,
-    deployment_id: UUID,
-    evidence: LiveStartEvidence,
-    *,
-    warnings: list[str],
-) -> None:
-    """Keep the evidence with the started sleeve book; a storage failure only warns."""
-    try:
-        await sources.store.record(deployment_id, evidence)
-    except LiveEvidenceStoreUnavailableError:
-        warnings.append(
-            "LIVE_EVIDENCE_NOT_RECORDED: the sleeve started, but its live-start evidence "
-            "could not be stored."
-        )

@@ -28,20 +28,20 @@ class PostgresLiveEvidenceStore:
 
     async def record(self, deployment_id: UUID, evidence: LiveStartEvidence) -> None:
         """Store the evidence unless the deployment already has a record."""
-        statement = (
-            insert(live_start_evidence)
-            .values(
-                deployment_id=deployment_id,
-                strategy_fingerprint=evidence.strategy_fingerprint,
-                assessed_at=evidence.assessed_at,
-                evidence_json=evidence.model_dump_json(),
-            )
-            .on_conflict_do_nothing(index_elements=["deployment_id"])
-        )
         try:
+            statement = (
+                insert(live_start_evidence)
+                .values(
+                    deployment_id=deployment_id,
+                    strategy_fingerprint=evidence.strategy_fingerprint,
+                    assessed_at=evidence.assessed_at,
+                    evidence_json=evidence.model_dump_json(),
+                )
+                .on_conflict_do_nothing(index_elements=["deployment_id"])
+            )
             async with self._engine.begin() as connection:
                 await connection.execute(statement)
-        except SQLAlchemyError as error:
+        except (SQLAlchemyError, OSError, ValueError) as error:
             raise LiveEvidenceStoreUnavailableError(
                 "Live-start evidence storage is unavailable."
             ) from error
@@ -54,7 +54,7 @@ class PostgresLiveEvidenceStore:
         try:
             async with self._engine.connect() as connection:
                 stored = (await connection.execute(statement)).scalar_one_or_none()
-        except SQLAlchemyError as error:
+        except (SQLAlchemyError, OSError) as error:
             raise LiveEvidenceStoreUnavailableError(
                 "Live-start evidence storage is unavailable."
             ) from error

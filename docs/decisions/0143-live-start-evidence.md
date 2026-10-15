@@ -28,14 +28,21 @@ user whether they may trade.
    (`thytrader-runtime live-evidence ID`).
 2. **Thin evidence warns.** Below the thresholds (default: 30 out-of-sample trades, a positive
    out-of-sample net result, 14 days since the first paper bot) the start goes ahead with
-   `LIVE_EVIDENCE_THIN: …` naming each gap; a sleeve carries it in its outcome message. A
-   source that cannot be read counts as thin when a threshold needs it. Thresholds the operator
-   sets to zero (and a non-positive result allowed) need no research or paper at all.
+   `LIVE_EVIDENCE_THIN: …` naming each gap; a sleeve carries it in its outcome message and its
+   evidence as the outcome's `live_evidence`. Thresholds the operator sets to zero (and a
+   non-positive result allowed) need no research or paper at all.
+4. **Gathering is advisory and bounded.** It never stops a start by itself: each source (the
+   strategy's catalog studies, read page by page; its paper bots) has 10 seconds, and a source
+   that fails, runs out of time, or is only partly readable (a study that cannot be loaded could
+   hold losses) is `unavailable`, which is thin when a threshold needs it. Recording the
+   evidence after the bot starts has 5 seconds; any failure warns `LIVE_EVIDENCE_NOT_RECORDED`
+   and never undoes the start. Paper days compare the exact elapsed time and are shown rounded
+   down.
 3. **Refusing is opt-in.** The risk policy's `start_safeguards.require_live_evidence` refuses a
    thin live start with 409 `LIVE_EVIDENCE_REQUIRED` (portfolio problem
    `live_evidence_required`) before anything is created; `start_safeguards.live_evidence` sets
    the thresholds. Both are omitted from the policy's canonical bytes while off or default.
-4. **Exact fingerprint only.** Evidence of another revision of the strategy is not this
+5. **Exact fingerprint only.** Evidence of another revision of the strategy is not this
    strategy's evidence: an edit, or the warmup adoption of ADR 0142, starts a new record.
 
 ## Consequences

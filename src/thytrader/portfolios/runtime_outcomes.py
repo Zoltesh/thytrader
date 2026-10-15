@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.portfolios.models import PortfolioAggregate, SleeveView
+    from thytrader.research.live_evidence import LiveStartEvidence
 
 
 SleeveOutcomeKind = Literal[
@@ -35,6 +36,8 @@ class SleeveOutcome:
     outcome: SleeveOutcomeKind
     deployment_id: UUID | None = None
     message: str | None = None
+    live_evidence: LiveStartEvidence | None = None
+    """A live sleeve's start evidence (ADR 0143), also when it could not be stored."""
 
 
 @dataclass(frozen=True, slots=True)

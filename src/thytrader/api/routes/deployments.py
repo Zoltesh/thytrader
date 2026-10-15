@@ -30,7 +30,7 @@ from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.live_evidence_wiring import get_live_evidence_store
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_adoption import start_adopting
-from thytrader.api.routes.deployment_live_evidence import assess_live_start, record_live_start
+from thytrader.api.routes.deployment_live_evidence import assess_live_start
 from thytrader.api.routes.deployment_models import (
     CreateDeploymentRequest,
     DeploymentListResponse,
@@ -81,7 +81,7 @@ from thytrader.market_data.watchlist import (
 )
 from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.research.catalog import ResearchStudyCatalog
-from thytrader.research.live_evidence_store import LiveEvidenceStore
+from thytrader.research.live_evidence_store import LiveEvidenceStore, record_started_evidence
 from thytrader.risk.store import RiskPolicyStore, load_effective_policy
 from thytrader.runtime import RuntimeState
 from thytrader.strategies.library import StrategyLibraryError, StrategyStore
@@ -247,7 +247,9 @@ async def post_deployment(
         deployment=deployment,
     )
     if live_evidence is not None:
-        await record_live_start(evidence_store, deployment.id, live_evidence, warnings=warnings)
+        await record_started_evidence(
+            evidence_store, deployment.id, live_evidence, warnings=warnings
+        )
     snapshot = await store.get_deployment(deployment.id)
     extra = await _covered_products(publication_store, snapshot.deployment)
     response = await snapshot_response(

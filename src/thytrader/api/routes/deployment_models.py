@@ -250,6 +250,7 @@ class DeploymentResponse(BaseModel):
     )
     live_evidence: LiveStartEvidence | None = Field(
         default=None,
+        exclude_if=lambda value: value is None,
         description=(
             "On a live start's response only: the evidence recorded with the bot (ADR 0143). "
             "Read it later with GET /api/v1/deployments/{id}/live-evidence."

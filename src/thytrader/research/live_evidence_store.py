@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -10,8 +11,32 @@ if TYPE_CHECKING:
     from thytrader.research.live_evidence import LiveStartEvidence
 
 
+RECORD_SECONDS = 5.0
+"""Time recording a started bot's evidence may take before the start only warns."""
+
+NOT_RECORDED = "LIVE_EVIDENCE_NOT_RECORDED"
+
+
 class LiveEvidenceStoreUnavailableError(RuntimeError):
     """The live-start evidence store could not be read or written."""
+
+
+async def record_started_evidence(
+    store: LiveEvidenceStore,
+    deployment_id: UUID,
+    evidence: LiveStartEvidence,
+    *,
+    warnings: list[str],
+) -> None:
+    """Keep the evidence with a started bot; any failure or delay warns, never undoes it."""
+    try:
+        async with asyncio.timeout(RECORD_SECONDS):
+            await store.record(deployment_id, evidence)
+    except Exception:  # noqa: BLE001 - the bot already started; recording is advisory.
+        warnings.append(
+            f"{NOT_RECORDED}: the bot started, but its live-start evidence could not be "
+            "stored; the evidence is in this response."
+        )
 
 
 class LiveEvidenceStore(Protocol):

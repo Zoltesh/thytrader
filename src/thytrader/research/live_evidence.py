@@ -10,16 +10,17 @@ threshold needs it, since nothing is known from it.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
-from thytrader.research.promotion import assemble_promotion_evidence
-from thytrader.research.promotion_sources import studies_for_strategy
+from thytrader.research.promotion import PromotionEvidence, assemble_promotion_evidence
+from thytrader.research.promotion_sources import every_study_of
 from thytrader.risk.start_safeguards import LiveEvidenceThresholds
-from thytrader.trading.models import DeploymentMode, ExecutionStoreError
+from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.research.catalog import ResearchStudyCatalog
-    from thytrader.research.promotion import PromotionEvidence
+    from thytrader.research.studies import ResearchStudy
     from thytrader.trading.models import Deployment
     from thytrader.trading.store import ExecutionStore
 
@@ -36,6 +37,8 @@ LIVE_EVIDENCE_THIN = "LIVE_EVIDENCE_THIN"
 LIVE_EVIDENCE_REQUIRED = "LIVE_EVIDENCE_REQUIRED"
 _FINGERPRINT_PATTERN = r"^sha256:[0-9a-f]{64}$"
 _DAY = timedelta(days=1)
+EVIDENCE_READ_SECONDS = 10.0
+"""Time each evidence source may take before it is reported unavailable."""
 
 EvidenceSource = Literal["studies", "paper_books"]
 
@@ -80,10 +83,13 @@ def assess_live_start_evidence(
     """Summarize ``evidence`` for a live start and name every unmet threshold."""
     windows = evidence.out_of_sample
     trades = sum(window.trade_count for window in windows)
-    net = sum((Decimal(window.total_net_pnl) for window in windows), Decimal(0))
+    net = sum((_decimal(window.total_net_pnl) for window in windows), Decimal(0))
     first_paper = min(paper_created_at, default=None)
-    days = Decimal(0) if first_paper is None else Decimal((now - first_paper) / _DAY)
-    paper_days = days.quantize(Decimal("0.1")) if days > 0 else Decimal(0)
+    elapsed = timedelta(0) if first_paper is None else max(now - first_paper, timedelta(0))
+    # Shown rounded down, so a display of 14.0 never stands for 13 days 23 hours.
+    paper_days = Decimal(elapsed.total_seconds() / _DAY.total_seconds()).quantize(
+        Decimal("0.1"), rounding=ROUND_DOWN
+    )
     studies_required = (
         thresholds.min_out_of_sample_trades > 0 or thresholds.require_positive_out_of_sample
     )
@@ -104,7 +110,7 @@ def assess_live_start_evidence(
             reasons.append("paper books could not be read")
         elif first_paper is None:
             reasons.append("no paper book of this exact strategy fingerprint")
-        elif paper_days < thresholds.min_paper_days:
+        elif elapsed < timedelta(days=thresholds.min_paper_days):
             reasons.append(
                 f"{paper_days} days since its first paper book, fewer than "
                 f"{thresholds.min_paper_days}"
@@ -132,22 +138,41 @@ async def gather_live_start_evidence(
     thresholds: LiveEvidenceThresholds,
     now: datetime,
 ) -> LiveStartEvidence:
-    """Read the fingerprint's studies and paper books and assess them; never raises on reads."""
+    """Read the fingerprint's studies and paper books and assess them; never raises.
+
+    Gathering is advisory: each source has ``EVIDENCE_READ_SECONDS``, and a source that fails,
+    is incomplete, or runs out of time is reported unavailable instead of stopping the start.
+    """
     unavailable: list[EvidenceSource] = []
-    studies = None if catalog is None else await studies_for_strategy(catalog, strategy_fingerprint)
-    if studies is None:
+    studies: tuple[ResearchStudy, ...] = ()
+    complete = False
+    if catalog is not None:
+        try:
+            async with asyncio.timeout(EVIDENCE_READ_SECONDS):
+                studies, complete = await every_study_of(
+                    catalog, strategy_fingerprint=strategy_fingerprint, strategy_id=strategy_id
+                )
+        except Exception:  # noqa: BLE001 - advisory evidence never stops a start.
+            complete = False
+    if not complete:
         unavailable.append("studies")
     deployments: tuple[Deployment, ...] = ()
     try:
-        deployments = await execution.list_by_strategy(str(strategy_id))
-    except ExecutionStoreError:
+        async with asyncio.timeout(EVIDENCE_READ_SECONDS):
+            deployments = await execution.list_by_strategy(str(strategy_id))
+    except Exception:  # noqa: BLE001 - advisory evidence never stops a start.
         unavailable.append("paper_books")
-    evidence = assemble_promotion_evidence(
-        strategy_fingerprint=strategy_fingerprint,
-        full_window_backtests=(),
-        studies=studies or (),
-        deployments=deployments,
-    )
+    try:
+        evidence = assemble_promotion_evidence(
+            strategy_fingerprint=strategy_fingerprint,
+            full_window_backtests=(),
+            studies=studies,
+            deployments=deployments,
+        )
+    except ValidationError:
+        evidence = PromotionEvidence(strategy_fingerprint=strategy_fingerprint)
+        if "studies" not in unavailable:
+            unavailable.append("studies")
     paper = [
         deployment.created_at
         for deployment in deployments
@@ -161,6 +186,14 @@ async def gather_live_start_evidence(
         now=now,
         unavailable=unavailable,
     )
+
+
+def _decimal(text: str) -> Decimal:
+    """A window's net result; an unreadable one counts as zero (never positive evidence)."""
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return Decimal(0)
 
 
 def live_evidence_message(evidence: LiveStartEvidence, *, refused: bool) -> str:

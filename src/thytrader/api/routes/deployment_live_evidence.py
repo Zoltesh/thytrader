@@ -37,8 +37,6 @@ if TYPE_CHECKING:
 
 router = APIRouter(prefix="/api/v1/deployments", tags=["deployments"])
 
-NOT_RECORDED = "LIVE_EVIDENCE_NOT_RECORDED"
-
 
 async def assess_live_start(
     snapshot: StrategySnapshot,
@@ -69,23 +67,6 @@ async def assess_live_start(
     return evidence
 
 
-async def record_live_start(
-    store: LiveEvidenceStore,
-    deployment_id: UUID,
-    evidence: LiveStartEvidence,
-    *,
-    warnings: list[str],
-) -> None:
-    """Keep the evidence with the started bot; a storage failure warns, never undoes it."""
-    try:
-        await store.record(deployment_id, evidence)
-    except LiveEvidenceStoreUnavailableError:
-        warnings.append(
-            f"{NOT_RECORDED}: the bot started, but its live-start evidence could not be "
-            "stored; it is still in this response."
-        )
-
-
 @router.get("/{deployment_id}/live-evidence", response_model=LiveStartEvidence)
 async def get_live_evidence(
     deployment_id: UUID,
@@ -114,7 +95,8 @@ async def get_live_evidence(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=(
                 "No live-start evidence is recorded for this deployment: it is a paper bot, "
-                "or it started live before ADR 0143."
+                "it started live before ADR 0143, or its start warned "
+                "LIVE_EVIDENCE_NOT_RECORDED."
             ),
         )
     return evidence

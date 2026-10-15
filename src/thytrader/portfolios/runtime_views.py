@@ -27,6 +27,7 @@ from thytrader.portfolios.deployment import (
 from thytrader.portfolios.models import sleeve_issues, utc_text
 from thytrader.portfolios.proposals import Proposal
 from thytrader.portfolios.vocabulary import PortfolioMode, SleeveIssueCode
+from thytrader.research.live_evidence import LiveStartEvidence
 from thytrader.trading.exposure import product_exposure, risk_bearing_snapshots
 from thytrader.trading.ledger import ledger_from_snapshot
 from thytrader.trading.lifecycle import occupies_running_slot
@@ -240,6 +241,11 @@ class SleeveOutcomeResponse(BaseModel):
     outcome: Literal["started", "attached", "paused", "resumed", "stopped", "unchanged", "failed"]
     deployment_id: UUID | None
     message: str | None
+    live_evidence: LiveStartEvidence | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="A started live sleeve's recorded start evidence (ADR 0143).",
+    )
 
 
 class PortfolioActionResponse(BaseModel):
@@ -335,6 +341,7 @@ def action_response(
                 outcome=item.outcome,
                 deployment_id=item.deployment_id,
                 message=item.message,
+                live_evidence=item.live_evidence,
             )
             for item in result.outcomes
         ),

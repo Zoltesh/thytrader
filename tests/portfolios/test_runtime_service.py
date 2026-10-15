@@ -34,6 +34,9 @@ from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
+    from thytrader.research.live_evidence import LiveStartEvidence
     from thytrader.strategies.library import StrategyRecord
 
 pytestmark = pytest.mark.anyio
@@ -121,7 +124,7 @@ async def _enforce(state: World, **safeguards: bool) -> None:
     """Publish a policy whose opt-in start safeguards refuse instead of warning (ADR 0142)."""
     await state.risk.publish(
         compiled_default_risk_policy().model_copy(
-            update={"start_safeguards": StartSafeguards(**safeguards)}
+            update={"start_safeguards": StartSafeguards.model_validate(safeguards)}
         )
     )
 
@@ -570,3 +573,28 @@ async def test_paper_sleeves_gather_no_live_evidence() -> None:
     assert {item.outcome for item in result.outcomes} == {"started"}
     assert not any("LIVE_EVIDENCE" in (item.message or "") for item in result.outcomes)
     assert store.records == {}
+
+
+class _RefusingEvidenceStore(InMemoryLiveEvidenceStore):
+    """An evidence store whose connection is refused on every write."""
+
+    async def record(self, deployment_id: UUID, evidence: LiveStartEvidence) -> None:
+        """Fail like a database that is down."""
+        del deployment_id, evidence
+        raise ConnectionRefusedError("database is down")
+
+
+async def test_a_failed_evidence_record_never_stops_the_other_sleeves() -> None:
+    """Each live sleeve starts, warns that its record was not stored, and keeps the evidence."""
+    state = world()
+    await state.risk.publish(compiled_default_risk_policy())
+    current, records = await portfolio(state, mode="live")
+    result = await _evidence_runtime(state, _RefusingEvidenceStore()).start(
+        current.portfolio.portfolio_id,
+        revision=current.portfolio.revision,
+        context=operator(),
+        live_acknowledged=True,
+    )
+    assert [item.outcome for item in result.outcomes] == ["started"] * len(records)
+    assert all("LIVE_EVIDENCE_NOT_RECORDED: " in (item.message or "") for item in result.outcomes)
+    assert all(item.live_evidence is not None for item in result.outcomes)

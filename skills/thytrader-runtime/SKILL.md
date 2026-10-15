@@ -482,8 +482,11 @@ resumes put them in each sleeve's outcome `message`.
   ADR 0143). Below the thresholds (default 30 out-of-sample trades, a positive out-of-sample net
   result, 14 paper days) the start goes ahead with warning `LIVE_EVIDENCE_THIN: …` naming each
   gap in `thin_reasons`; relay it. Editing a strategy (or the warmup adoption above) makes a new
-  fingerprint with its own, initially thin, evidence. `LIVE_EVIDENCE_NOT_RECORDED` means the bot
-  started but the record could not be stored. To gather evidence: run an out-of-sample study of
+  fingerprint with its own, initially thin, evidence. `unavailable` lists sources that failed,
+  ran out of time (10 s each) or were only partly readable; they count as thin. Gathering never
+  stops a start by itself. `LIVE_EVIDENCE_NOT_RECORDED` means the bot started but the record
+  could not be stored (the start response, or the sleeve outcome's `live_evidence`, still holds
+  it). To gather evidence: run an out-of-sample study of
   the exact strategy (`skills/thytrader-research`) and a paper bot of it.
 - **Opt-in safeguards.** The risk policy's `start_safeguards` turns a warning into a refusal:
   `set-risk-policy … --require-convergence-warmup` refuses starts and resumes without the policy

@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from tests.api.test_deployments import _client, _published_strategy
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
+from thytrader.research.live_evidence_store import InMemoryLiveEvidenceStore
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.risk.start_safeguards import LiveEvidenceThresholds, StartSafeguards
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
 from thytrader.trading.memory import InMemoryExecutionStore
+
+if TYPE_CHECKING:
+    from uuid import UUID
+
+    from fastapi import FastAPI
+
+    from thytrader.research.live_evidence import LiveStartEvidence
 
 
 def _policy(safeguards: StartSafeguards | None) -> InMemoryRiskPolicyStore:
@@ -106,6 +114,41 @@ def test_a_paper_start_records_no_live_evidence() -> None:
     """Paper bots carry no live-start evidence; reading it is a 404."""
     started, read, _execution = _start("paper")
     assert started.status_code == 201, started.text
-    assert started.json()["live_evidence"] is None
+    assert "live_evidence" not in started.json()
     assert read is not None
     assert read.status_code == 404
+
+
+class _RefusingStore(InMemoryLiveEvidenceStore):
+    """An evidence store whose writes time out."""
+
+    async def record(self, deployment_id: UUID, evidence: LiveStartEvidence) -> None:
+        """Fail like a database that does not answer."""
+        del deployment_id, evidence
+        raise TimeoutError("database did not answer")
+
+
+def test_a_failed_record_keeps_the_started_bot_and_its_evidence() -> None:
+    """The bot starts (201), warns LIVE_EVIDENCE_NOT_RECORDED, and still returns the evidence."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = StrategySnapshot(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    with _client(publication, execution, live_credentials=True, risk=_policy(None)) as client:
+        app = cast("FastAPI", client.app)
+        app.state.live_evidence_store = _RefusingStore()
+        started = client.post(
+            "/api/v1/deployments",
+            json={
+                "strategy_id": str(definition.strategy_id),
+                "mode": "live",
+                "i_understand_live": True,
+            },
+        )
+    assert started.status_code == 201, started.text
+    payload = started.json()
+    assert any(item.startswith("LIVE_EVIDENCE_NOT_RECORDED: ") for item in payload["warnings"])
+    assert payload["live_evidence"]["strategy_fingerprint"] == payload["strategy_fingerprint"]

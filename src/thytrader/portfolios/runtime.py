@@ -59,7 +59,6 @@ from thytrader.portfolios.errors import (
 from thytrader.portfolios.journal_changes import journal_entry
 from thytrader.portfolios.live_evidence_check import (
     LiveEvidenceSources,
-    record_sleeve_evidence,
     sleeve_live_evidence,
 )
 from thytrader.portfolios.models import (
@@ -96,6 +95,7 @@ from thytrader.portfolios.runtime_start import (
     _sleeve_capital,
 )
 from thytrader.research.live_evidence import live_evidence_message
+from thytrader.research.live_evidence_store import record_started_evidence
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision
 from thytrader.risk.start_safeguards import StartSafeguards
@@ -646,16 +646,17 @@ class PortfolioRuntimeService:
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(item.view.strategy.name, item.view, None, "failed", str(error))
         if item.live_evidence is not None and self._live_evidence is not None:
-            await record_sleeve_evidence(
-                self._live_evidence, deployment.id, item.live_evidence, warnings=warnings
+            await record_started_evidence(
+                self._live_evidence.store, deployment.id, item.live_evidence, warnings=warnings
             )
         action = "portfolio_start_live" if mode is DeploymentMode.LIVE else "portfolio_start_paper"
         await self._audit_event(
             action, aggregate.portfolio.portfolio_id, detail=_deployment_audit(deployment)
         )
-        return _outcome(
+        started = _outcome(
             item.view.strategy.name, item.view, deployment, "started", " ".join(warnings) or None
         )
+        return replace(started, live_evidence=item.live_evidence)
 
     async def _set_status(
         self,

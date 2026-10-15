@@ -153,6 +153,10 @@ def add_start_parser(
             "instruments starts only when each reference series is on the enabled market-data "
             "watchlist with a lookback covering its warmup (409 names the thytrader-data "
             "watch-add command). "
+            "A live start records the strategy's evidence (live_evidence: out-of-sample "
+            "studies and paper bots of the exact fingerprint; read it later with live-evidence "
+            "ID) and warns LIVE_EVIDENCE_THIN when it is thin; the opt-in "
+            "--require-live-evidence policy flag refuses instead (LIVE_EVIDENCE_REQUIRED). "
             "A futures strategy starts in paper only, with --cash (USD), --maker-fee-rate, "
             "--taker-fee-rate and --fee-per-contract."
         ),
