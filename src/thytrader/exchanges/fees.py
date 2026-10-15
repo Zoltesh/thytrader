@@ -15,6 +15,12 @@ class _FrozenModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+FEE_PROFILE_FIELDS_OMITTED_WHEN_UNSET = frozenset(
+    {"current_tier", "next_tier", "qualification", "qualification_value", "next_tier_threshold"}
+)
+"""Fee profile fields serialized only when Coinbase reported them (ADR 0144)."""
+
+
 def _unset(value: object) -> bool:
     """Whether an optional tier field is absent."""
     return value is None

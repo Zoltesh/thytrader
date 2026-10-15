@@ -91,3 +91,24 @@ def test_a_missing_or_malformed_ladder_is_simply_absent() -> None:
     assert broken["current_tier"] is None
     assert broken["next_tier"] is None
     assert broken["qualification_value"] is None
+
+
+def test_hostile_ladder_shapes_never_raise() -> None:
+    """Non-list types, oversized labels and odd objects leave the ladder empty or partial."""
+    weird = {
+        "fee_tier_without_promotion": {
+            "qualification_type": "FEE_TIER_QUALIFICATION_TYPE_" + "X" * 200,
+            "current_tier": {
+                "pricing_tier": "Intro",
+                "maker_fee_rate": "0.005",
+                "taker_fee_rate": "0.009",
+                "volume_types_and_range": [{"volume_types": 1, "vol_from": "0"}],
+            },
+            "next_tier": {"pricing_tier": "Advanced 1", "volume_types_and_range": 5},
+        }
+    }
+    ladder = tier_ladder(weird)
+    assert ladder["qualification"] is None
+    assert ladder["current_tier"] is not None
+    assert ladder["next_tier"] is None
+    assert tier_ladder({"fee_tier_without_promotion": 42}) == {}

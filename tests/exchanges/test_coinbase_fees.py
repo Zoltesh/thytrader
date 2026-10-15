@@ -138,3 +138,33 @@ def test_coinbase_adapter_rejects_whitespace_only_fee_tier() -> None:
 
     with pytest.raises(ValueError, match="fee tier name"):
         asyncio.run(adapter.get_fee_profile())
+
+
+def test_a_broken_tier_ladder_never_costs_the_billed_rates() -> None:
+    """ADR 0144: the ladder is optional context; the billed rates are always read."""
+    adapter = CoinbaseAccount(
+        FeeStubCoinbaseClient(
+            {
+                "total_volume": 710.4,
+                "fee_tier": {
+                    "pricing_tier": "Intro",
+                    "maker_fee_rate": "0.005",
+                    "taker_fee_rate": "0.009",
+                },
+                "fee_tier_without_promotion": {
+                    "qualification_type": "FEE_TIER_QUALIFICATION_TYPE_" + "X" * 200,
+                    "current_tier": {"volume_types_and_range": [{"volume_types": 1}]},
+                    "next_tier": "garbage",
+                    "current_value": "not-a-number",
+                },
+            }
+        )
+    )
+    profile = asyncio.run(adapter.get_fee_profile())
+    assert (profile.fee_tier, profile.maker_fee_rate, profile.taker_fee_rate) == (
+        "Intro",
+        Decimal("0.005"),
+        Decimal("0.009"),
+    )
+    assert profile.next_tier is None
+    assert profile.qualification is None

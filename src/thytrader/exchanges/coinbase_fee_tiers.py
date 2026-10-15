@@ -18,22 +18,32 @@ from pydantic import ValidationError
 from thytrader.exchanges.fees import FeeTierBand
 
 _QUALIFICATION_PREFIX = "FEE_TIER_QUALIFICATION_TYPE_"
+_MAX_LABEL = 64
 
 
 def tier_ladder(payload: dict[str, Any]) -> dict[str, Any]:
-    """``current_tier``, ``next_tier`` and qualification fields for ``FeeProfile``."""
+    """``current_tier``, ``next_tier`` and qualification fields for ``FeeProfile``; never raises."""
+    try:
+        return _ladder(payload)
+    except Exception:  # noqa: BLE001 - optional context must never fail the billed-rate read.
+        return {}
+
+
+def _ladder(payload: dict[str, Any]) -> dict[str, Any]:
+    """Every reported ladder field, each None when absent or malformed."""
     ladder = _mapping(payload.get("fee_tier_without_promotion"))
     if ladder is None:
         return {}
     qualification = ladder.get("qualification_type")
+    name = (
+        qualification.removeprefix(_QUALIFICATION_PREFIX).lower()
+        if isinstance(qualification, str)
+        else ""
+    )
     return {
         "current_tier": _band(ladder.get("current_tier")),
         "next_tier": _band(ladder.get("next_tier")),
-        "qualification": (
-            qualification.removeprefix(_QUALIFICATION_PREFIX).lower()
-            if isinstance(qualification, str) and qualification
-            else None
-        ),
+        "qualification": name if 0 < len(name) <= _MAX_LABEL else None,
         "qualification_value": _decimal(ladder.get("current_value")),
         "next_tier_threshold": _decimal(ladder.get("next_tier_threshold")),
     }
@@ -44,8 +54,8 @@ def _band(raw: object) -> FeeTierBand | None:
     tier = _mapping(raw)
     if tier is None:
         return None
-    spot = _spot_volume_range(tier)
     try:
+        spot = _spot_volume_range(tier)
         return FeeTierBand(
             pricing_tier=str(tier.get("pricing_tier") or "").strip(),
             maker_fee_rate=_required(tier.get("maker_fee_rate")),
@@ -55,7 +65,7 @@ def _band(raw: object) -> FeeTierBand | None:
             assets_from=_decimal(tier.get("aop_from")),
             assets_to=_upper(tier.get("aop_to")),
         )
-    except ValidationError, ValueError, TypeError:
+    except ValidationError, ValueError, TypeError, AttributeError:
         return None
 
 
@@ -65,7 +75,8 @@ def _spot_volume_range(tier: dict[str, Any]) -> tuple[Decimal | None, Decimal | 
     if isinstance(ranges, list):
         for item in ranges:
             entry = _mapping(item)
-            if entry is not None and "VOLUME_TYPE_SPOT" in (entry.get("volume_types") or []):
+            types = entry.get("volume_types") if entry is not None else None
+            if entry is not None and isinstance(types, list) and "VOLUME_TYPE_SPOT" in types:
                 return _decimal(entry.get("vol_from")), _upper(entry.get("vol_to"))
     return _decimal(tier.get("usd_from")), _upper(tier.get("usd_to"))
 
