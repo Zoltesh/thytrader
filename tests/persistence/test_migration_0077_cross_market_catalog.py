@@ -70,12 +70,13 @@ def test_0077_clears_only_the_cross_market_oos_mean(scratch_database: str) -> No
         )
     upgraded = _alembic(scratch_database, "0077")
     assert upgraded.returncode == 0, upgraded.stderr
-    rows = dict(
-        _execute(
+    rows = {
+        row[0]: row[1]
+        for row in _execute(
             scratch_database,
             "SELECT kind, mean_oos_return_fraction FROM published_research_studies",
         )
-    )
+    }
     assert rows == {"cross_market": None, "walk_forward": "0.02"}
     documents = _execute(
         scratch_database, "SELECT DISTINCT canonical_study FROM published_research_studies"

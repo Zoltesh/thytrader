@@ -205,7 +205,13 @@ def _summary_from_row(row: RowMapping) -> StudyCatalogSummary:
             timeframe=cast("DatasetTimeframe", row["timeframe"]),
             window_count=cast("int", row["window_count"]),
             selected_strategy_fingerprint=cast("str | None", row["selected_strategy_fingerprint"]),
-            mean_oos_return_fraction=cast("str | None", row["mean_oos_return_fraction"]),
+            # Cross-market studies score full windows, never out-of-sample ones (ADR 0044);
+            # a worker built before 0077 could still write its full-window mean here.
+            mean_oos_return_fraction=(
+                None
+                if row["kind"] == "cross_market"
+                else cast("str | None", row["mean_oos_return_fraction"])
+            ),
             stitched_oos_available=cast("bool | None", row["stitched_oos_available"]),
             selection_metric=SelectionMetric(metric) if isinstance(metric, str) else None,
         )

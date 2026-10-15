@@ -124,7 +124,9 @@ policy and admission gate (``futures.live_enabled``, ``live_capital_usd``,
 ``product_allowlist``, ``live_derisk_margin_ratio`` and ``live_funding_drift_tolerance_usd``;
 ADR 0134, P2-3, with live futures starts still refused), or durable futures safety duties
 (``futures_derisk_pending`` / ``futures_flat_confirmation_after`` on deployment/runtime and
-futures-book reports; Alembic 0076, ADR 0135) change.
+futures-book reports; Alembic 0076, ADR 0135), or research study aggregate honesty
+(cross-market ``full_window_*`` aggregate aliases and the catalog's cleared out-of-sample mean
+for cross-market studies; Alembic 0077, ADR 0044) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -153,8 +155,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v99"
-EXPECTED_SCHEMA_REVISION = "0076"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v100"
+EXPECTED_SCHEMA_REVISION = "0077"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
