@@ -128,7 +128,9 @@ futures-book reports; Alembic 0076, ADR 0135), or research study aggregate hones
 (cross-market ``full_window_*`` aggregate aliases and the catalog's cleared out-of-sample mean
 for cross-market studies; Alembic 0077, ADR 0044), or canceled-order bookkeeping (first cancel
 time counted by ``CANCEL_RATE_LIMIT`` and the settlement watermark that ends venue reads;
-Alembic 0078, ADR 0141) change.
+Alembic 0078, ADR 0141), or start checks (``WARMUP_POLICY_MISSING`` / ``HISTORY_TOO_SHORT`` /
+``HISTORY_UNCONFIRMED`` start and resume ``warnings``, adoption of the warmup policy on start,
+and the risk policy's opt-in ``start_safeguards``; ADR 0142) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -157,7 +159,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v101"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v102"
 EXPECTED_SCHEMA_REVISION = "0078"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

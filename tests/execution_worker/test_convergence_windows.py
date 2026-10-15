@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -39,8 +40,12 @@ from thytrader.execution_worker.windows import SHORT_HISTORY_DETAIL
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.strategies.authoring import create_template_strategy
-from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
-from thytrader.strategies.warmup_policy import with_convergence_warmup
+from thytrader.strategies.models import (
+    StrategyDefinition,
+    canonical_strategy_bytes,
+    strategy_fingerprint,
+)
+from thytrader.strategies.warmup_policy import with_convergence_warmup, without_warmup_policy
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentSnapshot, DeploymentStatus
 
@@ -374,3 +379,19 @@ async def test_the_stopped_journal_records_the_windows_it_was_given() -> None:
         ("decision clock", decision[0].starts_at),
         ("reference btc", references["btc"][0].starts_at),
     ]
+
+
+def test_a_snapshot_saved_before_the_policy_never_enters_on_a_short_window() -> None:
+    """ADR 0142 lets it start with a warning; its own declared warmup still gates entries."""
+    current = create_template_strategy(product_id="BTC-USD", timeframe="1h")
+    legacy = StrategyDefinition.model_validate(
+        without_warmup_policy(json.loads(canonical_strategy_bytes(current)))
+    )
+    assert legacy.data_requirements.warmup_policy is None
+    warmup = legacy.data_requirements.warmup_bars
+    last = datetime(2026, 10, 6, 3, tzinfo=UTC)
+    decision = tuple(
+        candle(last - timedelta(hours=1) * offset, "100") for offset in reversed(range(warmup))
+    )
+    assert windows_hold_warmup(legacy, decision, (), None)
+    assert not windows_hold_warmup(legacy, decision[1:], (), None)

@@ -8,6 +8,7 @@
 	 * and hands the recorded outcome back through `ondecision`.
 	 */
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
+	import { withWarnings } from '$lib/deployment-detail';
 	import { askAgent } from '$lib/agent-request.svelte';
 	import {
 		approvalNeedsLiveAck,
@@ -60,13 +61,20 @@
 		deciding = true;
 		decisionError = null;
 		try {
-			await decideProposal(portfolio.portfolio_id, proposal.proposal_id, decision, {
-				note: decision === 'approve' ? approveNote.trim() : undefined,
-				liveAcknowledged: decision === 'approve' && approvalNeedsAck && liveAcknowledged
-			});
+			const response = await decideProposal(
+				portfolio.portfolio_id,
+				proposal.proposal_id,
+				decision,
+				{
+					note: decision === 'approve' ? approveNote.trim() : undefined,
+					liveAcknowledged: decision === 'approve' && approvalNeedsAck && liveAcknowledged
+				}
+			);
 			approving = null;
 			await ondecision(
-				decision === 'approve' ? `Approved: ${proposal.summary}` : `Declined: ${proposal.summary}`
+				decision === 'approve'
+					? withWarnings(`Approved: ${proposal.summary}`, response)
+					: `Declined: ${proposal.summary}`
 			);
 		} catch (caught) {
 			decisionError = errorText(caught, 'The decision could not be recorded.');

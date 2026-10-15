@@ -1,9 +1,11 @@
-"""Refuse paper and live starts and resumes of snapshots seeded below convergence (ADR 0140).
+"""Warn about, or refuse, starts and resumes of snapshots seeded below convergence.
 
-A strategy snapshot saved before the convergence warmup policy seeds its recursive indicators
-on their minimum warmup, so its signals depend on when the book started. Starts and operator
-resumes require the policy; books already running keep running, and discretionary books, which
-evaluate no strategy rules, never pass through here.
+A strategy snapshot saved before the convergence warmup policy (ADR 0140) seeds its recursive
+indicators on their minimum warmup, so its signals depend on when the book started. A paper or
+live start or an operator resume of such a snapshot warns; the risk policy's opt-in
+``start_safeguards.require_convergence_warmup`` refuses it instead (ADR 0142). Books already
+running keep running, and discretionary books, which evaluate no strategy rules, never pass
+through here.
 """
 
 from __future__ import annotations
@@ -17,17 +19,30 @@ if TYPE_CHECKING:
     from thytrader.strategies.models import StrategyDefinition
 
 WARMUP_POLICY_REQUIRED = "WARMUP_POLICY_REQUIRED"
-"""Reason-code prefix of a refused start or resume."""
+"""Reason-code prefix of a start or resume refused by the opt-in safeguard."""
+
+WARMUP_POLICY_MISSING = "WARMUP_POLICY_MISSING"
+"""Reason-code prefix of the warning a start or resume of such a snapshot carries."""
 
 
-def require_convergence_policy(definition: StrategyDefinition, *, action: str) -> None:
-    """Raise unless the snapshot seeds every indicator under the convergence policy.
+def convergence_policy_check(
+    definition: StrategyDefinition, *, action: str, enforce: bool
+) -> str | None:
+    """Return a warning for a snapshot without the policy, or raise when ``enforce`` is set.
 
-    ``action`` is the refused verb as the operator sees it ("started" or "resumed").
+    ``action`` is the verb as the operator sees it ("started" or "resumed"). ``None`` means
+    the snapshot carries the policy and there is nothing to say.
     """
     if definition.data_requirements.warmup_policy == "convergence":
-        return
-    raise ExecutionConflictError(convergence_policy_message(definition, action=action))
+        return None
+    if enforce:
+        raise ExecutionConflictError(convergence_policy_message(definition, action=action))
+    return (
+        f"{WARMUP_POLICY_MISSING}: Strategy “{definition.name}” ({definition.strategy_id}) "
+        "predates the convergence warmup policy (ADR 0140), so its signals depend on when the "
+        f"bot started. It {action} anyway; re-save the strategy to adopt the policy, or set "
+        "the risk policy's require_convergence_warmup to refuse this."
+    )
 
 
 def convergence_policy_message(definition: StrategyDefinition, *, action: str) -> str:

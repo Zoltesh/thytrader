@@ -266,6 +266,13 @@ class ProposalResponse(BaseModel):
 
     proposal: Proposal
     portfolio_revision: int
+    warnings: tuple[str, ...] = Field(
+        default=(),
+        description=(
+            "Warnings the approved change reported, each prefixed by its code, such as a "
+            "resumed sleeve's WARMUP_POLICY_MISSING (ADR 0142)."
+        ),
+    )
 
 
 def deployment_response(

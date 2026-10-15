@@ -196,12 +196,12 @@ def windows_hold_warmup(
     which also covers the previous mapped bar at a clock rollover. A book's windows start a
     full warmup before its creation, so this fails only where the venue had no candles that
     early (a market listed after the window start, or a quiet first bar): indicators would be
-    seeded late, so under the convergence policy entries wait until each window covers its
-    warmup. Without the policy it always holds. Coverage through the latest mapped bar and
-    contiguity are the worker's gap checks, not this one.
+    seeded late, so entries wait until each window covers its warmup. That holds for every
+    snapshot, measured against its own declared warmups: the convergence policy only sets how
+    long they are, and a snapshot saved before it may start with a warning (ADR 0142).
+    Coverage through the latest mapped bar and contiguity are the worker's gap checks, not this
+    one.
     """
-    if strategy.data_requirements.warmup_policy != "convergence":
-        return True
     if len(candles) < max(strategy.data_requirements.warmup_bars, 1):
         return False
     latest = candles[-1].starts_at

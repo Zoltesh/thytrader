@@ -76,6 +76,8 @@ class ProposalOutcome:
 
     aggregate: PortfolioAggregate
     proposal: Proposal
+    warnings: tuple[str, ...] = ()
+    """Warnings the applied change reported, such as a resumed sleeve's (ADR 0142)."""
 
 
 class ProposalService:
@@ -305,9 +307,10 @@ class ProposalService:
         change = proposal.change
         portfolio_id = aggregate.portfolio.portfolio_id
         note = f"Approved proposal {proposal.proposal_id}"
+        warnings: tuple[str, ...] = ()
         try:
             if isinstance(change, PauseSleeveChange):
-                _require_sleeve_changed(
+                warnings = _require_sleeve_changed(
                     await self._runtime.pause(
                         portfolio_id,
                         context=context,
@@ -317,7 +320,7 @@ class ProposalService:
                     )
                 )
             elif isinstance(change, ResumeSleeveChange):
-                _require_sleeve_changed(
+                warnings = _require_sleeve_changed(
                     await self._runtime.resume(
                         portfolio_id,
                         context=context,
@@ -337,7 +340,7 @@ class ProposalService:
                 current, stored, status="applied", context=context, note=request.note
             ),
         )
-        return ProposalOutcome(aggregate=aggregate, proposal=settled)
+        return ProposalOutcome(aggregate=aggregate, proposal=settled, warnings=warnings)
 
     async def _fail(
         self,
@@ -360,11 +363,13 @@ class ProposalService:
         return ProposalOutcome(aggregate=aggregate, proposal=settled)
 
 
-def _require_sleeve_changed(result: PortfolioActionResult) -> None:
-    """Raise when the runtime refused the sleeve's change, so its proposal settles ``failed``.
+def _require_sleeve_changed(result: PortfolioActionResult) -> tuple[str, ...]:
+    """The warnings of the sleeve's change; raise when the runtime refused it instead.
 
-    A refused resume (for example ``WARMUP_POLICY_REQUIRED``, ADR 0140) leaves the book as it
-    was; recording the proposal ``applied`` would hide that and its remediation.
+    A refused resume (for example ``WARMUP_POLICY_REQUIRED`` under an opt-in safeguard, ADR
+    0142) leaves the book as it was; recording the proposal ``applied`` would hide that and its
+    remediation. A resume that went ahead with a warning (``WARMUP_POLICY_MISSING``) returns
+    it, so the approval reports it rather than dropping it.
     """
     failed = next((item for item in result.outcomes if item.outcome == "failed"), None)
     if failed is not None:
@@ -372,6 +377,9 @@ def _require_sleeve_changed(result: PortfolioActionResult) -> None:
             "portfolio_sleeve_action_failed",
             failed.message or "The sleeve's book refused the change.",
         )
+    return tuple(
+        item.message for item in result.outcomes if item.outcome == "resumed" and item.message
+    )
 
 
 def _submission(

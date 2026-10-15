@@ -40,6 +40,7 @@ async def start_adopting(
     market_data: MarketDataService,
     quote_reader: ExchangeAccount | None,
     memory_store: ExperientialMemoryStore | None,
+    warnings: list[str] | None = None,
 ) -> Deployment:
     """Start the strategy live with its held coins adopted, or refuse with a code.
 
@@ -72,5 +73,6 @@ async def start_adopting(
             ),
             memory_store=memory_store,
         ),
+        warnings=warnings,
     )
     return started.deployment

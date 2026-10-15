@@ -23,9 +23,11 @@ from thytrader.operator.runtime_models import (
     RiskFinding,
     RiskPayload,
     RiskReport,
+    StartSafeguardsPayload,
 )
 from thytrader.operator.status import aggregate_status, recommend_next_action
 from thytrader.risk.models import RiskPolicySource
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.models import (
     Deployment,
@@ -41,6 +43,7 @@ if TYPE_CHECKING:
 
     from thytrader.memory.models import MonitorSnapshot
     from thytrader.operator.service import OperatorDiagnostics
+    from thytrader.risk.models import RiskPolicyDefinition
 
 
 _BREAKER_FINDING_CODES = {"DAILY_LOSS_LIMIT", "STRATEGY_DRAWDOWN_LIMIT"}
@@ -119,6 +122,7 @@ async def build_risk_report(diagnostics: OperatorDiagnostics) -> RiskReport:
             futures_collateral=await futures_collateral_payload(
                 diagnostics.futures_account_store, policy
             ),
+            start_safeguards=_start_safeguards(policy),
             findings=findings,
             fleet_entries=fleet_entries,
         ),
@@ -440,3 +444,12 @@ def _mode_slot_counts(deployments: tuple[Deployment, ...], mode: DeploymentMode)
         if item.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
     )
     return len(occupied), open_count
+
+
+def _start_safeguards(policy: RiskPolicyDefinition) -> StartSafeguardsPayload:
+    """Every opt-in start refusal of ``policy``, unset ones reported as false."""
+    safeguards = policy.start_safeguards or StartSafeguards()
+    return StartSafeguardsPayload(
+        require_convergence_warmup=safeguards.require_convergence_warmup,
+        require_market_history=safeguards.require_market_history,
+    )

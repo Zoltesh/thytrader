@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN, SpotQuoteCurrency
 from thytrader.risk.futures_policy import FuturesRiskPolicy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.strategies.models import (
     DecimalText,
 )
@@ -275,6 +276,11 @@ class RiskPolicyDefinition(_FrozenModel):
     )
     # Optional futures block (ADR 0129). Unset keeps today's behaviour and fingerprints.
     futures: FuturesRiskPolicy | None = Field(default=None, exclude_if=lambda v: v is None)
+    # Optional start safeguards (ADR 0142): which start warnings refuse instead. Unset or all
+    # off keeps today's warn-only starts and the canonical bytes of every existing policy.
+    start_safeguards: StartSafeguards | None = Field(
+        default=None, exclude_if=lambda v: v is None or v == StartSafeguards()
+    )
 
     @field_validator("product_allowlist")
     @classmethod
@@ -393,6 +399,7 @@ class RiskPolicyWrite(_FrozenModel):
     max_btc_beta_exposure_fraction: DecimalText | None = None
     max_btc_beta_exposure_quote: DecimalText | None = None
     futures: FuturesRiskPolicy | None = None
+    start_safeguards: StartSafeguards | None = None
 
     @model_validator(mode="after")
     def validate_fleet_window(self) -> Self:

@@ -15039,6 +15039,10 @@
           ],
           "default": null
         },
+        "start_safeguards": {
+          "$ref": "#/$defs/StartSafeguardsPayload",
+          "description": "Which start warnings the policy turns into refusals (ADR 0142); all false means every start check only warns."
+        },
         "findings": {
           "items": {
             "$ref": "#/$defs/RiskFinding"
@@ -15075,6 +15079,7 @@
         "max_cancellations_per_minute",
         "reference_price_collar_fraction",
         "allow_intra_strategy_pyramiding",
+        "start_safeguards",
         "findings"
       ],
       "title": "RiskPayload",
@@ -15377,6 +15382,26 @@
         "usd_hold"
       ],
       "title": "SpotCollateralPayload",
+      "type": "object"
+    },
+    "StartSafeguardsPayload": {
+      "additionalProperties": false,
+      "description": "The risk policy's opt-in start refusals, each reported explicitly (ADR 0142).",
+      "properties": {
+        "require_convergence_warmup": {
+          "title": "Require Convergence Warmup",
+          "type": "boolean"
+        },
+        "require_market_history": {
+          "title": "Require Market History",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "require_convergence_warmup",
+        "require_market_history"
+      ],
+      "title": "StartSafeguardsPayload",
       "type": "object"
     },
     "StrategiesPayload": {

@@ -1,4 +1,8 @@
-"""Paper and live starts and resumes require the convergence warmup policy (ADR 0140)."""
+"""Starts and resumes of snapshots without the convergence warmup policy (ADR 0140, 0142).
+
+By default they go ahead with a ``WARMUP_POLICY_MISSING`` warning; the risk policy's opt-in
+``start_safeguards.require_convergence_warmup`` refuses them with ``WARMUP_POLICY_REQUIRED``.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +15,14 @@ import pytest
 
 from tests.execution.decision_support import Catalog
 from thytrader.execution.service import create_deployment, set_deployment_status
-from thytrader.execution.warmup_gate import WARMUP_POLICY_REQUIRED, convergence_policy_message
+from thytrader.execution.warmup_gate import (
+    WARMUP_POLICY_MISSING,
+    WARMUP_POLICY_REQUIRED,
+    convergence_policy_message,
+)
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
+from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import (
     StrategyDefinition,
@@ -39,7 +50,13 @@ def _plain() -> StrategyDefinition:
     return StrategyDefinition.model_validate(without_warmup_policy(document))
 
 
-async def _start(definition: StrategyDefinition, store: InMemoryExecutionStore) -> None:
+async def _start(
+    definition: StrategyDefinition,
+    store: InMemoryExecutionStore,
+    *,
+    risk_store: InMemoryRiskPolicyStore | None = None,
+    warnings: list[str] | None = None,
+) -> None:
     await create_deployment(
         store=store,
         publication_store=Catalog(definition),
@@ -47,16 +64,43 @@ async def _start(definition: StrategyDefinition, store: InMemoryExecutionStore) 
         mode=DeploymentMode.PAPER,
         paper_starting_cash=Decimal("10000"),
         live_allowed=False,
+        risk_store=risk_store,
+        warnings=warnings,
     )
 
 
-async def test_a_snapshot_without_the_policy_cannot_start() -> None:
+async def _enforcing() -> InMemoryRiskPolicyStore:
+    """A risk policy that turns the warmup warning into a refusal (ADR 0142)."""
+    risk_store = InMemoryRiskPolicyStore()
+    await risk_store.publish(
+        compiled_default_risk_policy().model_copy(
+            update={"start_safeguards": StartSafeguards(require_convergence_warmup=True)}
+        )
+    )
+    return risk_store
+
+
+async def test_a_snapshot_without_the_policy_starts_with_a_warning() -> None:
+    """By default the user's start goes ahead and says why its signals may differ."""
+    definition = _plain()
+    store = InMemoryExecutionStore()
+    warnings: list[str] = []
+    await _start(definition, store, warnings=warnings)
+    (deployment,) = await store.list_deployments()
+    assert deployment.strategy_fingerprint == strategy_fingerprint(definition)
+    (warning,) = warnings
+    assert warning.startswith(f"{WARMUP_POLICY_MISSING}: ")
+    assert "It started anyway" in warning
+    assert "require_convergence_warmup" in warning
+
+
+async def test_the_opt_in_safeguard_refuses_a_snapshot_without_the_policy() -> None:
     """The refusal names the reason code and the re-save that adopts the policy."""
     definition = _plain()
     assert definition.data_requirements.warmup_policy is None
     store = InMemoryExecutionStore()
     with pytest.raises(ExecutionConflictError) as caught:
-        await _start(definition, store)
+        await _start(definition, store, risk_store=await _enforcing())
     message = str(caught.value)
     assert message.startswith(f"{WARMUP_POLICY_REQUIRED}: ")
     assert "Nothing was started" in message
@@ -79,8 +123,36 @@ async def test_a_converged_snapshot_starts() -> None:
     assert deployment.strategy_fingerprint == strategy_fingerprint(definition)
 
 
-async def test_resuming_a_book_without_the_policy_is_refused() -> None:
-    """Pausing still works; resuming a pre-policy book is refused and it stays paused."""
+async def test_resuming_a_book_without_the_policy_warns() -> None:
+    """By default a pre-policy book resumes, carrying a warning."""
+    converged = with_convergence_warmup(_plain())
+    store = InMemoryExecutionStore()
+    await _start(converged, store)
+    (deployment,) = await store.list_deployments()
+    legacy = _plain()
+    await store.save_deployment(
+        replace(
+            deployment,
+            strategy_fingerprint=strategy_fingerprint(legacy),
+            status=DeploymentStatus.PAUSED,
+        )
+    )
+    warnings: list[str] = []
+    resumed = await set_deployment_status(
+        store=store,
+        deployment_id=deployment.id,
+        status=DeploymentStatus.RUNNING,
+        publication_store=Catalog(legacy),
+        warnings=warnings,
+    )
+    assert resumed.deployment.status is DeploymentStatus.RUNNING
+    (warning,) = warnings
+    assert warning.startswith(f"{WARMUP_POLICY_MISSING}: ")
+    assert "It resumed anyway" in warning
+
+
+async def test_the_opt_in_safeguard_refuses_resuming_a_pre_policy_book() -> None:
+    """Pausing still works; under the safeguard a pre-policy resume is refused and stays paused."""
     converged = with_convergence_warmup(_plain())
     store = InMemoryExecutionStore()
     await _start(converged, store)
@@ -104,6 +176,7 @@ async def test_resuming_a_book_without_the_policy_is_refused() -> None:
             deployment_id=deployment.id,
             status=DeploymentStatus.RUNNING,
             publication_store=catalog,
+            require_convergence_warmup=True,
         )
     message = str(caught.value)
     assert message.startswith(f"{WARMUP_POLICY_REQUIRED}: ")

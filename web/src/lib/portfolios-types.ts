@@ -250,7 +250,12 @@ export type ProposalListResponse = {
 	next_cursor: string | null;
 };
 
-export type ProposalResponse = { proposal: Proposal; portfolio_revision: number };
+/** `warnings`: what an approved change reported, e.g. a resumed sleeve's (ADR 0142). */
+export type ProposalResponse = {
+	proposal: Proposal;
+	portfolio_revision: number;
+	warnings?: string[];
+};
 
 /** What the portfolio action dialog confirms. */
 export type PortfolioDialogAction = 'start' | 'pause' | 'resume' | 'stop' | 'reset';

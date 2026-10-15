@@ -59,13 +59,12 @@ live evaluated as an SMA(100).
    crossovers but can still flip a comparison sitting exactly on its threshold; exact signal identity
    would need a shared initialization point and is not promised.
 
-6. **Starts and resumes require the policy** (`execution/warmup_gate.py`). Paper and live starts
-   (single bots, adoption starts, portfolio sleeves) and operator resumes refuse a snapshot without
-   it with `WARMUP_POLICY_REQUIRED`, naming the re-save that adopts it, or, when convergence cannot
-   be declared, the indicator to shorten. Pause and stop are never refused; running books keep
-   running; the user-feed pause that clears itself is not a resume; discretionary books evaluate
-   no strategy rules and are exempt. A refused resume leaves the book paused and managing its
-   position; the operator stops it and starts the re-saved strategy as a new bot.
+6. **Starts and resumes check the policy** (`execution/warmup_gate.py`). As first accepted, paper
+   and live starts and operator resumes refused a snapshot without it (`WARMUP_POLICY_REQUIRED`).
+   [ADR 0142](0142-opt-in-start-safeguards.md) supersedes that default: a start adopts the policy
+   by re-saving the strategy, a snapshot that still lacks it starts or resumes with a
+   `WARMUP_POLICY_MISSING` warning, and refusal is an opt-in risk-policy safeguard. Pause and stop
+   are never affected; running books keep running; discretionary books are exempt.
 7. **Reference watches must cover the warmup.** A reference series' enabled watch must look back
    at least its warmup plus one bar (capped at the interval's ceiling); a watch sized for the old
    minimum no longer passes the start gate.
@@ -77,9 +76,10 @@ live evaluated as an SMA(100).
    after a window start lacks those candles. Every start (single, adoption, each portfolio
    sleeve during planning) therefore reads each series' own clock up to its window's first bar
    (one bounded request); when that read is empty, as on a thin market, it reads the previous
-   year of daily bars, counting only a day that closed by the window start. It refuses with
-   `HISTORY_TOO_SHORT` when the series has not traded by then, or
-   `HISTORY_UNCONFIRMED` when the venue cannot be read. The worker sizes its windows with the
+   year of daily bars, counting only a day that closed by the window start. It reports
+   `HISTORY_TOO_SHORT` when the series has not traded by then, or `HISTORY_UNCONFIRMED` when the
+   venue cannot be read: a warning by default, a refusal under the opt-in safeguard
+   ([ADR 0142](0142-opt-in-start-safeguards.md)). The worker sizes its windows with the
    same functions, so the check and the fetch agree.
 9. **The worker never enters on a short window.** Under the policy, an entry-eligible bar is skipped
    as `warmup`, with that reason, while its decision window holds fewer bars than its warmup or an

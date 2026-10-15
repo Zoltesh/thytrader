@@ -37,9 +37,17 @@ async def require_start_history(
     market_data: MarketDataService, strategy: StrategyDefinition, *, now: datetime
 ) -> None:
     """Raise unless every window of a book starting ``now`` has venue history at its start."""
-    shortfalls = await start_history_shortfalls(market_data, strategy, now=now)
+    try:
+        shortfalls = await start_history_shortfalls(market_data, strategy, now=now)
+    except ExecutionConflictError as error:
+        raise ExecutionConflictError(history_unconfirmed_refusal(error)) from error
     if shortfalls:
         raise ExecutionConflictError(history_shortfall_message(shortfalls))
+
+
+def history_unconfirmed_refusal(error: ExecutionConflictError) -> str:
+    """The ``HISTORY_UNCONFIRMED`` message of a refused start: nothing started, retry it."""
+    return f"{error} Nothing was started; retry the start."
 
 
 async def start_history_shortfalls(
@@ -56,18 +64,37 @@ async def start_history_shortfalls(
     )
 
 
-def history_shortfall_message(shortfalls: tuple[ClockWindow, ...]) -> str:
-    """Name each short series and the way out."""
+def history_shortfall_message(shortfalls: tuple[ClockWindow, ...], *, refused: bool = True) -> str:
+    """Name each short series and what happens: refused, or started and waiting (ADR 0142)."""
     series = "; ".join(
         f"{item.role} {item.product_id} {item.timeframe} needs {item.warmup_bars} bars from "
         f"{item.starts_at:%Y-%m-%d %H:%M} UTC"
         for item in shortfalls
     )
+    outcome = (
+        "Nothing was started. Use shorter indicators or a market with longer history."
+        if refused
+        else "Started anyway: the bot skips entries until each window holds its warmup. Use "
+        "shorter indicators, or set the risk policy's require_market_history to refuse this."
+    )
     return (
         f"{HISTORY_TOO_SHORT}: the venue has no candles that early for {series}. The market is "
-        "younger than the strategy's warmup (ADR 0140). Nothing was started. Use shorter "
-        "indicators or a market with longer history."
+        f"younger than the strategy's warmup (ADR 0140). {outcome}"
     )
+
+
+async def start_history_warning(
+    market_data: MarketDataService, strategy: StrategyDefinition, *, now: datetime
+) -> str | None:
+    """The warning a start carries when its history is short or unreadable (ADR 0142)."""
+    try:
+        shortfalls = await start_history_shortfalls(market_data, strategy, now=now)
+    except ExecutionConflictError as error:
+        return (
+            f"{error} Started anyway; the bot skips entries until its history is confirmed and "
+            "long enough (the risk policy's require_market_history refuses this)."
+        )
+    return history_shortfall_message(shortfalls, refused=False) if shortfalls else None
 
 
 def _earliest_per_series(windows: tuple[ClockWindow, ...]) -> tuple[ClockWindow, ...]:
@@ -118,6 +145,6 @@ async def _traded_by(
         raise ExecutionConflictError(
             f"{HISTORY_UNCONFIRMED}: could not read {window.product_id} {interval.value} "
             f"history from the venue ({type(error).__name__}), so its warmup cannot be "
-            "confirmed. Nothing was started; retry the start."
+            "confirmed."
         ) from error
     return any(candle.starts_at <= through for candle in report.quality.candles)

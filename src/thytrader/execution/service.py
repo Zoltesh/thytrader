@@ -14,13 +14,14 @@ from thytrader.execution.futures_start import (
     futures_start_terms,
 )
 from thytrader.execution.paper_fees import paper_fee_rates
-from thytrader.execution.start_history import require_start_history
-from thytrader.execution.warmup_gate import require_convergence_policy
+from thytrader.execution.start_history import require_start_history, start_history_warning
+from thytrader.execution.warmup_gate import convergence_policy_check
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.watchlist import MarketDataWatchlistUnavailableError
 from thytrader.risk.gate import evaluate_new_deployment
 from thytrader.risk.models import RiskDecision, RiskReasonCode
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.models import covered_product_ids, reference_data_requirements
 from thytrader.strategies.snapshots import (
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.market_data.service import MarketDataService
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
+    from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.models import ReferenceDataRequirement, StrategyDefinition
     from thytrader.trading.store import ExecutionStore
@@ -62,6 +64,7 @@ class PreparedDeployment:
     definition: StrategyDefinition
     deployments: tuple[Deployment, ...]
     futures: FuturesStartTerms | None = None
+    warnings: tuple[str, ...] = ()
 
 
 async def create_deployment(
@@ -81,6 +84,7 @@ async def create_deployment(
     paper_fee_per_contract: Decimal | None = None,
     futures_start: FuturesStart | None = None,
     market_data: MarketDataService | None = None,
+    warnings: list[str] | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -97,7 +101,8 @@ async def create_deployment(
     ``paper_fee_source`` and is refused when they cannot be read. A paper futures start
     (ADR 0129 §4) names its maker, taker and per-contract fees and binds its contract
     through ``futures_start`` right after the book is created. With ``market_data`` the
-    venue must hold history at the start of every window the book will read (ADR 0140).
+    venue's history at the start of every window the book will read is checked (ADR 0140).
+    Start warnings (ADR 0142) are appended to ``warnings`` when given.
     """
     prepared = await prepare_deployment(
         store=store,
@@ -116,6 +121,8 @@ async def create_deployment(
         futures_start=futures_start,
         market_data=market_data,
     )
+    if warnings is not None:
+        warnings.extend(prepared.warnings)
     created = await store.create_deployment(prepared.deployment)
     if prepared.futures is not None:
         try:
@@ -152,7 +159,10 @@ async def prepare_deployment(
     ``create_deployment`` inserts the result; strategy start with adoption (ADR 0124)
     inserts it in the same transaction as the adoption instead. The venue-history check
     runs last, after every check that needs no venue read, and only with ``market_data``;
-    the worker's evaluation refuses entries on a short window regardless (ADR 0140).
+    the worker's evaluation refuses entries on a short window regardless (ADR 0140). A
+    snapshot without the convergence warmup policy and a market younger than the warmup are
+    start warnings; the risk policy's opt-in ``start_safeguards`` refuse them instead
+    (ADR 0142).
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     requested_fees = (paper_maker_fee_rate, paper_taker_fee_rate)
@@ -167,7 +177,6 @@ async def prepare_deployment(
     )
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
-    require_convergence_policy(definition, action="started")
     futures = await futures_start_terms(
         definition,
         mode=mode,
@@ -180,7 +189,7 @@ async def prepare_deployment(
     await _require_reference_watches(reference_watches, definition)
     existing = await store.list_deployments()
     _require_unique_active(existing, strategy_id=definition.strategy_id, mode=mode)
-    await _require_risk_admission(
+    active = await _require_risk_admission(
         risk_store,
         mode=mode,
         definition=definition,
@@ -188,9 +197,21 @@ async def prepare_deployment(
         deployments=existing,
         portfolio_sleeve=portfolio_sleeve is not None,
     )
+    safeguards = active.definition.start_safeguards or StartSafeguards()
+    warnings: list[str] = []
+    warmup = convergence_policy_check(
+        definition, action="started", enforce=safeguards.require_convergence_warmup
+    )
+    if warmup is not None:
+        warnings.append(warmup)
     now = utc_now()
     if market_data is not None:
-        await require_start_history(market_data, definition, now=now)
+        if safeguards.require_market_history:
+            await require_start_history(market_data, definition, now=now)
+        else:
+            history = await start_history_warning(market_data, definition, now=now)
+            if history is not None:
+                warnings.append(history)
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
         cash = Decimal("0")
@@ -226,7 +247,11 @@ async def prepare_deployment(
         portfolio_id=None if portfolio_sleeve is None else portfolio_sleeve.portfolio_id,
     )
     return PreparedDeployment(
-        deployment=deployment, definition=definition, deployments=existing, futures=futures
+        deployment=deployment,
+        definition=definition,
+        deployments=existing,
+        futures=futures,
+        warnings=tuple(warnings),
     )
 
 
@@ -330,13 +355,16 @@ async def set_deployment_status(
     status: DeploymentStatus,
     publication_store: StrategySnapshotReader,
     flatten: bool = False,
+    require_convergence_warmup: bool = False,
+    warnings: list[str] | None = None,
 ) -> DeploymentSnapshot:
     """Pause, resume, or stop one existing deployment.
 
     HTTP stop defaults to managed shutdown: protective brackets stay, residual
     exposure remains in account-level risk. Pass ``flatten=True`` to marketably
-    exit and then cancel remainders. Resuming a strategy book requires its snapshot
-    to carry the convergence warmup policy (ADR 0140).
+    exit and then cancel remainders. Resuming a strategy book whose snapshot predates the
+    convergence warmup policy (ADR 0140) appends a warning to ``warnings``; with the opt-in
+    ``require_convergence_warmup`` safeguard it is refused instead (ADR 0142).
     """
     snapshot = await store.get_deployment(deployment_id)
     current = snapshot.deployment.status
@@ -349,7 +377,11 @@ async def set_deployment_status(
         if fingerprint is None:
             raise ExecutionConflictError("This deployment has no strategy snapshot to resume.")
         published = await _load_published(publication_store, fingerprint)
-        require_convergence_policy(published.definition, action="resumed")
+        warning = convergence_policy_check(
+            published.definition, action="resumed", enforce=require_convergence_warmup
+        )
+        if warning is not None and warnings is not None:
+            warnings.append(warning)
     command = command_for_status(status, flatten=flatten)
     updated = with_runtime(
         snapshot.deployment,
@@ -449,8 +481,8 @@ async def _require_risk_admission(
     paper_starting_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
     portfolio_sleeve: bool = False,
-) -> None:
-    """Fail closed when the active risk policy rejects this deployment."""
+) -> ActiveRiskPolicy:
+    """Fail closed when the active risk policy rejects this deployment; return the policy."""
     active = await load_effective_policy(risk_store)
     verdict = evaluate_new_deployment(
         active.definition,
@@ -465,6 +497,7 @@ async def _require_risk_admission(
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)
+    return active
 
 
 async def _opening_allocation(

@@ -12,6 +12,7 @@ from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.backtest.results import DisabledBacktestResultStore
 from thytrader.config import Settings
 from thytrader.market_data.worker_state import DisabledMarketDataWorkerStateStore
+from thytrader.operator.diagnostics.findings import _start_safeguards
 from thytrader.operator.models import SCHEMA_VERSION, ReportStatus
 from thytrader.operator.service import OperatorDiagnostics
 from thytrader.persistence.portfolio_history import InMemoryPortfolioHistoryStore
@@ -22,6 +23,8 @@ from thytrader.persistence.worker_heartbeats import (
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 from thytrader.research.catalog import InMemoryResearchStudyCatalog, StudyCatalogSummary
+from thytrader.risk.models import compiled_default_risk_policy
+from thytrader.risk.start_safeguards import StartSafeguards
 from thytrader.strategies.library import DisabledStrategyStore
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
@@ -289,10 +292,24 @@ def test_risk_report_is_available_without_dollar_amounts() -> None:
     assert report.payload.daily_loss_limit_fraction == "1"
     assert report.payload.max_entry_orders_per_minute == 60
     assert report.payload.allow_intra_strategy_pyramiding is False
+    assert report.payload.start_safeguards.model_dump() == {
+        "require_convergence_warmup": False,
+        "require_market_history": False,
+    }
     dumped = report.model_dump(mode="json")
     assert "paper_capital_quote" not in dumped
     assert "cash" not in dumped
     assert report.redaction.balances_omitted is True
+
+
+def test_risk_report_names_each_opt_in_start_refusal() -> None:
+    """A policy that enforces one start check reports it; the other stays false (ADR 0142)."""
+    policy = compiled_default_risk_policy().model_copy(
+        update={"start_safeguards": StartSafeguards(require_market_history=True)}
+    )
+    reported = _start_safeguards(policy)
+    assert reported.require_market_history is True
+    assert reported.require_convergence_warmup is False
 
 
 class _SeededSplitStateStore(InMemoryExecutionStore):

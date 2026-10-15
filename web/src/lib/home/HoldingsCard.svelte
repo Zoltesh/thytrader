@@ -19,6 +19,7 @@
 	import { formatUsd, type Portfolio, type PortfolioAsset } from '$lib/portfolio';
 	import { resolve } from '$app/paths';
 	import { formatQuoteAmount } from '$lib/deployment-portfolio';
+	import { withWarnings } from '$lib/deployment-detail';
 	import type { Deployment } from '$lib/deployments';
 	import HoldingActions from './HoldingActions.svelte';
 	import { holdingActionsAvailable, type HoldingAction } from './holding-actions';
@@ -116,9 +117,12 @@
 
 	{#if done !== null}
 		<p class="action-done" role="status" data-testid="holding-action-done">
-			{done.action === 'sell'
-				? 'Sell book created; the worker sells it on its next cycle.'
-				: 'Live bot started holding the coins; the worker places its protection next cycle.'}
+			{withWarnings(
+				done.action === 'sell'
+					? 'Sell book created; the worker sells it on its next cycle.'
+					: 'Live bot started holding the coins; the worker places its protection next cycle.',
+				done.deployment
+			)}
 			<a href={resolve(`/deployments/${done.deployment.id}`)}>Open the book</a>
 		</p>
 	{/if}

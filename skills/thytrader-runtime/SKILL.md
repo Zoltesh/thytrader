@@ -443,50 +443,46 @@ is this lane's job and needs the user's request. After deletion, stopped live bo
 their referenced snapshots are likewise retained as risk evidence (ADR 0111). Deletion output
 `counts.paper_deployments` counts removals and is zero, not a count of retained books.
 
-## Convergence warmup gate (ADR 0140)
+## Start warnings and opt-in safeguards (ADR 0140, ADR 0142)
 
-Paper and live `start` (single bots, `--adopt-holdings` starts, and every portfolio sleeve) and
-operator `resume` / `portfolio-resume` require the strategy snapshot to carry
-`data_requirements.warmup_policy: "convergence"`
-([ADR 0140](../../docs/decisions/0140-indicator-convergence-warmup.md)): its recursive indicators
-(EMA family, Wilder RSI/ATR/ADX, KAMA) are then seeded long enough that signals no longer depend
-on when the bot started. A snapshot saved before the policy is refused with HTTP 409 detail
-`WARMUP_POLICY_REQUIRED: …`; nothing is started or resumed. Portfolio starts list it as problem
-`warmup_policy_required` (nothing starts); a portfolio resume reports that sleeve `failed` with the
-same message while other sleeves resume.
+Starts and resumes **warn, they do not refuse**, unless the operator turned a safeguard on. The
+`start` and `resume` responses (HTTP `POST /api/v1/deployments`, `…/{id}/resume`) carry
+`warnings: [...]`, each prefixed by its code; relay them to the user. Portfolio starts and
+resumes put them in each sleeve's outcome `message`.
 
-- **Start refused.** The strategy was saved before the policy. Re-saving it unchanged adopts the
-  policy and raises its warmups (the research lane: `thytrader-research show-strategy`, then
-  `save-strategy … --confirm` with the same document; see `skills/thytrader-research/SKILL.md`,
-  "Convergence warmup"). Its fingerprint changes and earlier backtests no longer describe it:
-  re-check them before starting. Only when the user asked.
-- **Resume refused.** The paused bot runs a pre-policy snapshot and cannot be resumed. It keeps
-  managing its open position (protection, signal and time exits) while paused. To trade the
-  strategy again: re-save it as above, `stop UUID --confirm` this bot (managed shutdown keeps its
-  protection), then `start --strategy-id UUID … --confirm` (live also `--i-understand-live`).
-- **Cannot converge.** When convergence needs more than the 10,000 declarable bars (a very slow
-  KAMA), the message says to shorten that indicator instead; re-saving does not help.
-- Bots already running keep running, and an automatic recovery (the user-feed pause clearing
-  itself) is not a resume. Pause and stop are never refused. Discretionary books are exempt.
-
-**History check at start.** A bot fetches each window it reads (the decision clock of every
-covered product, the HTF filter, extra indicator timeframes, reference instruments) from Coinbase
-on demand, starting a full warmup before it was created, so an established market is warmed up
-from the first decision; there is nothing to backfill or wait for (except a bar or two of
-`warmup` skips when the very first bar of a window had no trades). Only a market **younger than
-the warmup** has no candles that early (an EMA(200) on 2h needs about 74 days). Every start
-(single, `--adopt-holdings`, each portfolio sleeve) checks that each series traded by its window
-start (one request per series, plus a daily read for a thin market) and
-is refused with HTTP 409 `HISTORY_TOO_SHORT: …` naming each short series and the date its window
-needs; nothing starts. Choose shorter indicators or a market with longer history (research lane).
-`HISTORY_UNCONFIRMED: …` means Coinbase could not be read; retry the start. Portfolio starts list
-them as problems `history_too_short` / `history_unconfirmed` (nothing starts).
-
-A bot whose windows do not yet reach back over its warmup (that quiet first bar, or a book started
-without the check) never enters on unconverged indicators: its
-decision rows read `outcome: skipped`, `skip_reason: warmup`, summary "Skipped: warming up — the
-market's history is shorter than the strategy's warmup …" until each window holds its warmup.
-Protection, exits and reconciliation keep running; the bot is not paused.
+- **Convergence warmup** ([ADR 0140](../../docs/decisions/0140-indicator-convergence-warmup.md)).
+  Recursive indicators (EMA family, Wilder RSI/ATR/ADX, KAMA) are seeded long enough that signals
+  do not depend on when the bot started when the snapshot carries
+  `data_requirements.warmup_policy: "convergence"`. A start of a strategy saved before that
+  policy **adopts it automatically**: the server re-saves the unchanged document (as any save
+  would; the strategy's `revision` and `current_fingerprint` move on) and snapshots that. Nothing
+  for the user to do. A strategy that still lacks it (a convergence warmup above the 10,000
+  declarable bars, e.g. a very slow KAMA) starts with warning `WARMUP_POLICY_MISSING: …`.
+  Resuming a paused bot keeps the snapshot it started with: a bot started before the policy
+  resumes with the same warning. To give such a bot the policy, stop it and start the strategy
+  again (only when the user asked). Pause, stop and flatten never warn or refuse; bots already
+  running keep running; discretionary books are exempt.
+- **Market history.** A bot fetches each window it reads (decision clock of every covered
+  product, HTF filter, extra timeframes, references) from Coinbase on demand, a full warmup
+  before it was created, so an established market is warmed up from the first decision; nothing
+  to backfill or wait for. Only a market **younger than the warmup** has no candles that early
+  (an EMA(200) on 2h needs about 74 days). Such a start goes ahead with warning
+  `HISTORY_TOO_SHORT: …` naming each short series and the date its window needs;
+  `HISTORY_UNCONFIRMED: …` means Coinbase could not be read. The bot then never enters on
+  unconverged indicators: its decision rows read `outcome: skipped`, `skip_reason: warmup`,
+  summary "Skipped: warming up — the market's history is shorter than the strategy's warmup …"
+  until each window holds its warmup (also a bar or two after a quiet first bar). Protection,
+  exits and reconciliation keep running; the bot is not paused.
+- **Opt-in safeguards.** The risk policy's `start_safeguards` turns a warning into a refusal:
+  `set-risk-policy … --require-convergence-warmup` refuses starts and resumes without the policy
+  (HTTP 409 `WARMUP_POLICY_REQUIRED: …`; portfolio problem `warmup_policy_required`, a portfolio
+  resume reports that sleeve `failed`), and `--require-market-history` refuses young or
+  unreadable markets (409 `HISTORY_TOO_SHORT` / `HISTORY_UNCONFIRMED`; portfolio problems
+  `history_too_short` / `history_unconfirmed`; nothing starts). Both are off unless the operator
+  sets them, and like every optional policy flag they must be resupplied on each
+  `set-risk-policy` (omitted means off); `show-risk-policy` shows `start_safeguards`, and the
+  operator `risk` report's `payload.start_safeguards` lists both flags explicitly (all `false`
+  means every start check only warns). Never turn one on without the user.
 
 ## Signal exits (paper and live)
 
@@ -634,8 +630,9 @@ id: a paper sleeve starts with `weight × capital_quote` of paper cash, a live s
 portfolio are `attached`, not duplicated. Every sleeve is planned before anything starts, so one
 refusal starts nothing: HTTP 422 `portfolio_start_rejected` lists `problems[]` (`sleeve_issue`,
 `strategy_busy` when the strategy already runs standalone or in another portfolio — stop that bot
-first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required`,
-`history_too_short` / `history_unconfirmed` (see "Convergence warmup gate"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
+first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required` and
+`history_too_short` / `history_unconfirmed` (only under the opt-in start safeguards; see "Start
+warnings and opt-in safeguards"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
 credentials (`live_credentials_missing`), and a published risk policy; **a live portfolio's sleeve
 allocations count as risk-policy allocation membership for its own bots**, so an allocations
 allowlist does not need to list sleeve strategies (standalone bots keep the allowlist; every other
