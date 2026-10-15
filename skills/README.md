@@ -67,8 +67,11 @@ rejections, the call that timed out, the resolved origin when unreachable, or a 
 blindly.
 
 **Stale image.** Every command preflights the full `/health/ready` ops contract. A version or
-ops-contract mismatch, or HTTP 404 on an agent route while `/health/ready` is 200, means the
-Compose image is stale: rebuild with `make run` (only when the user asked or the CLI reports it).
+ops-contract mismatch, or a route-level HTTP 404 (FastAPI's generic `Not Found`, which the CLI
+reports as "agent API routes are missing … stale Compose image") while `/health/ready` is 200,
+means the Compose image is stale: rebuild with `make run` (only when the user asked or the CLI
+reports it). A 404 with its own detail (for example a deployment with no live-start evidence) is
+the route's answer, not a stale image.
 Package version `0.1.0` alone is not current-image evidence.
 
 **Hard stop.** Operating a running instance is not a source-code task. Do not edit `src/`,
