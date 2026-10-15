@@ -75,7 +75,7 @@ timings (ADR 0131). Database health is an
 engine ping when `THYTRADER_DATABASE_URL` is set (`DATABASE_UNCONFIGURED`, `DATABASE_ENGINE_MISSING`,
 or `DATABASE_UNREACHABLE`).
 
-If the CLI exits because of an application version mismatch, an ops-contract mismatch, or an agent route returns 404 while `GET /health/ready` is 200, rebuild with `make run`. Package version `0.1.0` is not enough to prove the running image matches this CLI. Do not treat a printed report plus a stderr warning as success.
+If the CLI exits because of an application version mismatch, an ops-contract mismatch, or an agent route is missing (a generic `Not Found` 404, reported by the CLI as a stale Compose image) while `GET /health/ready` is 200, rebuild with `make run`. A 404 carrying its own detail is the route's answer (for example no record for that id), not a stale image. Package version `0.1.0` is not enough to prove the running image matches this CLI. Do not treat a printed report plus a stderr warning as success.
 
 CLI equivalents are listed in `SKILL.md`. Process entry point: `thytrader-operator`.
 

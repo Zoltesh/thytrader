@@ -268,7 +268,12 @@ def _http_error_message(
     the message, the originating status code, and the API ``detail.code`` (when the
     body has one) so callers can classify the failure without re-parsing the text.
     """
-    if status == 404 and url is not None and _stale_image_missing_agent_routes(url):
+    if (
+        status == 404
+        and url is not None
+        and not _answered_by_a_route(raw)
+        and _stale_image_missing_agent_routes(url)
+    ):
         return (
             (
                 "HTTP 404: agent API routes are missing on a ready listener "
@@ -292,6 +297,23 @@ def _shorten(text: str) -> str:
     if len(text) <= _MAX_ERROR_CHARS:
         return text
     return f"{text[: _MAX_ERROR_CHARS - 1]}…"
+
+
+def _answered_by_a_route(raw: bytes) -> bool:
+    """True when a 404 body carries a route's own detail, not FastAPI's generic route miss.
+
+    A route that exists answers "this deployment has no such record" with a specific detail;
+    only the framework's ``{"detail": "Not Found"}`` (or a non-JSON body) can mean the route
+    itself is missing from a stale image.
+    """
+    try:
+        body = json.loads(raw[:_MAX_ERROR_BODY_BYTES])
+    except ValueError:
+        return False
+    if not isinstance(body, dict):
+        return False
+    detail = body.get("detail")
+    return detail is not None and detail != "Not Found"
 
 
 def _stale_image_missing_agent_routes(url: str) -> bool:
