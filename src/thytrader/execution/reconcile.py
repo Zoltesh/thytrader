@@ -359,11 +359,13 @@ async def _settle_canceled(
     Once that holds at least ``CANCELED_SETTLE_DELAY`` after the order's first cancel time,
     the order is settled and leaves the watch set (ADR 0141). Until then it is read every
     cycle; a failed read never reaches here. The settlement is written onto the order as the
-    store now holds it, so fill progress applied by this very read is never overwritten.
+    store now holds it, so fill progress applied by this very read is never overwritten. Time
+    is measured at this read (``order.updated_at``) rather than a new clock reading, so a
+    replay tape captured before ADR 0141 holds every clock input settlement consumes.
     """
     if order.status is not OrderStatus.CANCELED or order.settled_at is not None:
         return current
-    now = utc_now()
+    now = order.updated_at
     # ``order`` keeps the stored cancel time; none yet means it was canceled by this read.
     if order.canceled_at is None or now - order.canceled_at < CANCELED_SETTLE_DELAY:
         return current

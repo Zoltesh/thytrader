@@ -7,8 +7,9 @@ counts it); ``settled_at`` ends venue reads of a canceled order after a consiste
 read. Orders canceled before this revision get their last save time: no earlier than the real
 cancel, so settlement still waits the full delay after it, and a cancel the old breaker counted by
 that time is counted the same way for at most a minute. That covers canceled orders and those a
-failed read left UNKNOWN after the venue had reported them canceled (``terminal_read_unconfirmed``
-and not fully filled), so their first good read after the upgrade is not a new cancellation.
+failed read left UNKNOWN after the venue had reported them canceled (``terminal_read_unconfirmed``),
+so their first good read after the upgrade is not a new cancellation. Only the application's own
+timestamps are used: the database clock is never mixed in.
 """
 
 import sqlalchemy as sa
@@ -45,10 +46,8 @@ def upgrade() -> None:
     )
     op.execute(
         sa.text(
-            "UPDATE execution_orders SET canceled_at = LEAST(updated_at, now()) "
-            "WHERE status = 'canceled' OR (status = 'unknown' "
-            "AND reject_reason = 'terminal_read_unconfirmed' "
-            "AND CAST(filled_quantity AS numeric) < CAST(quantity AS numeric))"
+            "UPDATE execution_orders SET canceled_at = updated_at WHERE status = 'canceled' "
+            "OR (status = 'unknown' AND reject_reason = 'terminal_read_unconfirmed')"
         )
     )
 

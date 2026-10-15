@@ -22,6 +22,7 @@ from tests.execution.test_adr_0110_stopped_lifecycle import (
 )
 from thytrader.execution import reconcile as reconcile_module
 from thytrader.execution.reconcile import CANCELED_SETTLE_DELAY, reconcile_open_orders
+from thytrader.runtime_inputs import InputTape, runtime_input_scope
 from thytrader.trading.ids import utc_now
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
@@ -201,3 +202,32 @@ async def test_a_cancel_just_before_the_upgrade_is_read_for_the_full_delay(
     watched = await _reconcile(store, book_id, venue)
     assert watched.settled_at is None
     assert _reads(venue) == 1
+
+
+async def _clock_reads(status: OrderStatus, *, canceled_for: timedelta | None) -> tuple[int, Order]:
+    """Clock inputs one reconcile consumes reading an order the venue reports as ``status``."""
+    store = InMemoryExecutionStore()
+    _order, book_id = await _canceled_stop(store)
+    (stored,) = store.orders.values()
+    store.orders[stored.id] = replace(
+        stored,
+        status=status,
+        canceled_at=None if canceled_for is None else utc_now() - canceled_for,
+    )
+    venue = _Venue(statuses={"stop-1": [status]})
+    tape = InputTape()
+    with runtime_input_scope(tape):
+        read = await _reconcile(store, book_id, venue)
+    return sum(1 for event in tape.events if event.kind == "clock"), read
+
+
+async def test_settling_consumes_no_clock_input_beyond_the_read() -> None:
+    """Replay tapes captured before ADR 0141 hold exactly the clocks an ordinary read uses."""
+    ordinary, still_open = await _clock_reads(OrderStatus.OPEN, canceled_for=None)
+    settling, settled = await _clock_reads(OrderStatus.CANCELED, canceled_for=timedelta(hours=1))
+    legacy, unsettled = await _clock_reads(OrderStatus.CANCELED, canceled_for=None)
+    assert still_open.status is OrderStatus.OPEN
+    assert settled.settled_at is not None
+    assert unsettled.settled_at is None
+    assert settling == ordinary
+    assert legacy == ordinary

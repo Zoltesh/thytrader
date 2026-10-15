@@ -34,12 +34,14 @@ into `CANCELED`, which a timestamp of the last change would also count again.
    the full delay after the real cancel, and with no synthetic offset there is no clock-skew
    edge. Only an order saved in the minute before the upgrade can fall inside the cancel-rate
    window, for at most that minute, which is how the breaker counted it before. Orders a failed
-   read left `UNKNOWN` after the venue reported them canceled (`terminal_read_unconfirmed`, not
-   fully filled) are backfilled too, so their first good read after the upgrade is not counted as
-   a new cancellation.
+   read left `UNKNOWN` after the venue reported them canceled (`terminal_read_unconfirmed`) are
+   backfilled too, so their first good read after the upgrade is not counted as a new
+   cancellation. The backfill uses only the application's timestamps, never the database clock.
 4. **Replay.** Both fields are serialized only when set, so packages captured earlier keep their
    canonical bytes; replay restores captured orders exactly (no cancel time is invented) and
-   compares a replayed order without these fields when the captured order predates them.
+   compares a replayed canceled or unknown order without these fields when the captured order
+   predates them. Settlement measures its delay at the read's own timestamp and takes no
+   clock reading of its own, so earlier replay tapes still hold every clock input it uses.
 
 ## Consequences
 
