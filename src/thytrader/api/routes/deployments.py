@@ -150,8 +150,9 @@ async def post_deployment(
     reference series is on the enabled market-data watchlist with a lookback covering its
     warmup (409 otherwise, naming the ``thytrader-data watch-add`` command). A snapshot
     saved before the convergence warmup policy is refused with 409
-    ``WARMUP_POLICY_REQUIRED``, and one whose market is younger than its warmup with 409
-    ``HISTORY_TOO_SHORT`` (ADR 0140).
+    ``WARMUP_POLICY_REQUIRED``, one whose market is younger than its warmup with 409
+    ``HISTORY_TOO_SHORT``, and one whose venue history cannot be read with 409
+    ``HISTORY_UNCONFIRMED`` (ADR 0140).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)

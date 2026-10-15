@@ -137,3 +137,19 @@ async def test_create_deployment_refuses_a_young_market_and_creates_nothing() ->
             market_data=listed_history(listed_at=datetime.now(UTC) - timedelta(days=30)),
         )
     assert await store.list_deployments() == ()
+
+
+async def test_a_thin_market_quiet_for_the_whole_short_read_is_still_listed() -> None:
+    """With no 2h trade in the 350 bars before the start, earlier daily bars prove the listing."""
+    strategy = _ema200_2h()
+    (decision,) = deployment_clock_windows(strategy, deploy_anchor=_NOW)
+    quiet = frozenset(decision.starts_at - timedelta(hours=2) * offset for offset in range(350))
+    await require_start_history(listed_history(quiet=quiet), strategy, now=_NOW)
+
+
+async def test_a_listing_later_on_the_start_day_is_still_short() -> None:
+    """The daily read counts only days that closed by the window start."""
+    strategy = _ema200_2h()
+    (decision,) = deployment_clock_windows(strategy, deploy_anchor=_NOW)
+    same_day = listed_history(listed_at=decision.starts_at + timedelta(hours=2))
+    assert await start_history_shortfalls(same_day, strategy, now=_NOW) == (decision,)

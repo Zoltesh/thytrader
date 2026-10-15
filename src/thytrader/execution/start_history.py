@@ -4,7 +4,7 @@ A book fetches every clock's window from the venue on demand, starting a fixed n
 bars before its creation (``clock_windows``). When a market was listed after that start, the
 venue simply has no earlier candles: the indicators would be seeded at the listing and
 trade before they converge. A start therefore checks, with one bounded range request per
-window, that each series has a candle at or before its window start.
+series (two for a thin market), that each series traded at or before its window start.
 """
 
 from __future__ import annotations
@@ -12,7 +12,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.clock_windows import ClockWindow, deployment_clock_windows
-from thytrader.market_data.models import HISTORICAL_REQUEST_MAX_CANDLES, parse_candle_interval
+from thytrader.market_data.models import (
+    HISTORICAL_REQUEST_MAX_CANDLES,
+    CandleInterval,
+    parse_candle_interval,
+)
+from thytrader.market_data.watch_coverage import utc_day_floor
 from thytrader.trading.models import ExecutionConflictError
 
 if TYPE_CHECKING:
@@ -79,20 +84,40 @@ def _earliest_per_series(windows: tuple[ClockWindow, ...]) -> tuple[ClockWindow,
 async def _reaches_start(
     market_data: MarketDataService, window: ClockWindow, *, now: datetime
 ) -> bool:
-    """Whether the series has a candle at or before the window start.
+    """Whether the series traded at or before the window start.
 
-    One request covers the window's first bar and the bars just before it, so a market that
-    happened to have no trades on the first bar itself still counts as listed.
+    The window's own clock is read first: its first bar and the bars just before it, so a
+    market with no trade on that bar still counts as listed. A thin market can go hundreds of
+    short bars without a trade, so when that read is empty, daily bars over the previous year
+    are read, counting only a day that closed by the window start.
     """
     interval = parse_candle_interval(window.timeframe)
-    ends_at = window.starts_at + interval.duration
+    if await _traded_by(market_data, window, interval, through=window.starts_at, now=now):
+        return True
+    day = CandleInterval.ONE_DAY
+    if interval is day:
+        return False
+    last_closed_day = utc_day_floor(window.starts_at) - day.duration
+    return await _traded_by(market_data, window, day, through=last_closed_day, now=now)
+
+
+async def _traded_by(
+    market_data: MarketDataService,
+    window: ClockWindow,
+    interval: CandleInterval,
+    *,
+    through: datetime,
+    now: datetime,
+) -> bool:
+    """Whether one bounded read has a bar of ``interval`` starting at or before ``through``."""
+    ends_at = through + interval.duration
     starts_at = ends_at - interval.duration * HISTORICAL_REQUEST_MAX_CANDLES
     try:
         report = await market_data.get_range(window.product_id, interval, starts_at, ends_at, now)
     except (RuntimeError, ValueError, TypeError, OSError) as error:
         raise ExecutionConflictError(
-            f"{HISTORY_UNCONFIRMED}: could not read {window.product_id} {window.timeframe} "
+            f"{HISTORY_UNCONFIRMED}: could not read {window.product_id} {interval.value} "
             f"history from the venue ({type(error).__name__}), so its warmup cannot be "
             "confirmed. Nothing was started; retry the start."
         ) from error
-    return any(candle.starts_at <= window.starts_at for candle in report.quality.candles)
+    return any(candle.starts_at <= through for candle in report.quality.candles)

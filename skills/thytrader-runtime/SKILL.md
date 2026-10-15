@@ -466,7 +466,8 @@ same message while other sleeves resume.
 **History check at start.** A bot fetches each window it reads (the decision clock of every
 covered product, the HTF filter, extra indicator timeframes, reference instruments) from Coinbase
 on demand, starting a full warmup before it was created, so an established market is warmed up
-from the first decision; there is nothing to backfill or wait for. Only a market **younger than
+from the first decision; there is nothing to backfill or wait for (except a bar or two of
+`warmup` skips when the very first bar of a window had no trades). Only a market **younger than
 the warmup** has no candles that early (an EMA(200) on 2h needs about 74 days). Every start
 (single, `--adopt-holdings`, each portfolio sleeve) checks this with one request per series and
 is refused with HTTP 409 `HISTORY_TOO_SHORT: …` naming each short series and the date its window
@@ -474,7 +475,8 @@ needs; nothing starts. Choose shorter indicators or a market with longer history
 `HISTORY_UNCONFIRMED: …` means Coinbase could not be read; retry the start. Portfolio starts list
 them as problems `history_too_short` / `history_unconfirmed` (nothing starts).
 
-A bot that somehow runs on such a market anyway never enters on unconverged indicators: its
+A bot whose windows do not yet reach back over its warmup (that quiet first bar, or a book started
+without the check) never enters on unconverged indicators: its
 decision rows read `outcome: skipped`, `skip_reason: warmup`, summary "Skipped: warming up — the
 market's history is shorter than the strategy's warmup …" until each window holds its warmup.
 Protection, exits and reconciliation keep running; the bot is not paused.

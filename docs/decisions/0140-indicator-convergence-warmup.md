@@ -81,8 +81,10 @@ live evaluated as an SMA(100).
    same functions, so the check and the fetch agree.
 9. **The worker never enters on a short window.** Under the policy, an entry-eligible bar whose
    decision, HTF or extra-timeframe window holds fewer closed bars than its warmup is skipped
-   as `warmup` with that reason (references already require theirs). It cannot happen after a
-   passed start check; it guards books started without one.
+   as `warmup` with that reason (references already require theirs). After a passed start
+   check it happens only briefly, when an established market had no trade on a window's first
+   bar (the probe saw earlier candles; the window starts after the quiet bar until the required
+   coverage moves past it); otherwise it guards books started without the check.
 
 Rollout continues in a later change: decision journals record each clock's window start;
 operator reports and the browser catalog show convergence warmup and anchor sensitivity.

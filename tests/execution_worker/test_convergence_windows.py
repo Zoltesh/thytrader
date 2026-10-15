@@ -182,3 +182,8 @@ def test_an_htf_window_must_also_cover_the_previous_mapped_bar_at_a_rollover() -
     hourly = {hour: candle(datetime(2026, 10, 6, hour, tzinfo=UTC), "30") for hour in (1, 2, 3)}
     assert windows_hold_warmup(strategy, decision, tuple(hourly.values()), None)
     assert not windows_hold_warmup(strategy, decision, (hourly[2], hourly[3]), None)
+
+
+def test_an_empty_decision_window_never_holds_under_the_policy() -> None:
+    """No decision bars is not a warmed-up window."""
+    assert not windows_hold_warmup(_startable_htf_strategy(), (), (), None)
