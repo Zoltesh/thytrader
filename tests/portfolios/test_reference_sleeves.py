@@ -58,13 +58,16 @@ async def _mixed_portfolio(state: World) -> PortfolioAggregate:
 
 
 async def _watch_btc_daily(watchlist: InMemoryMarketDataWatchlistStore) -> None:
-    """Put BTC-USDC 1d on the enabled watchlist."""
+    """Put BTC-USDC 1d on the enabled watchlist, deep enough for the template's EMA(100).
+
+    Its convergence warmup is 446 daily bars (ADR 0140); the watch covers it plus one bar.
+    """
     await watchlist.upsert(
         MarketDataWatchTarget(
             provider="demo",
             product_id="BTC-USDC",
             timeframe=CandleInterval.ONE_DAY,
-            lookback_hours=2424,
+            lookback_hours=447 * 24,
             enabled=True,
             updated_at=datetime(2026, 10, 1, tzinfo=UTC),
         )

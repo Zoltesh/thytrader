@@ -40,6 +40,7 @@ from thytrader.execution.references import reference_gate
 from thytrader.execution.service import (
     ReferenceWatchlist,
     create_deployment,
+    reference_warmup_hours,
     reference_watch_lookback_hours,
 )
 from thytrader.execution.signals import evaluate_latest_entry_evidence
@@ -55,6 +56,7 @@ from thytrader.strategies.models import (
     reference_data_requirements,
     strategy_fingerprint,
 )
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError
 
@@ -138,7 +140,14 @@ def test_live_evaluation_drops_in_progress_reference_bars_and_leaves_missing_one
     assert blind.current["btc_close"] is None
 
 
-async def _watchlist(*, enabled: bool = True) -> InMemoryMarketDataWatchlistStore:
+def _startable() -> StrategyDefinition:
+    """The reference strategy under the convergence warmup policy, which starts require."""
+    return with_convergence_warmup(reference_strategy())
+
+
+async def _watchlist(
+    *, enabled: bool = True, lookback_hours: int = 2424
+) -> InMemoryMarketDataWatchlistStore:
     """A watchlist holding the BTC-USD 1d reference series."""
     store = InMemoryMarketDataWatchlistStore()
     await store.upsert(
@@ -146,7 +155,7 @@ async def _watchlist(*, enabled: bool = True) -> InMemoryMarketDataWatchlistStor
             provider="demo",
             product_id="BTC-USD",
             timeframe=CandleInterval.ONE_DAY,
-            lookback_hours=2424,
+            lookback_hours=lookback_hours,
             enabled=enabled,
             updated_at=datetime(2026, 10, 1, tzinfo=UTC),
         )
@@ -174,7 +183,7 @@ async def _start(
 @pytest.mark.anyio
 async def test_start_is_refused_until_every_reference_series_is_watched() -> None:
     """Unwatched or disabled references refuse the start and name watch-add."""
-    definition = reference_strategy()
+    definition = _startable()
     empty = ReferenceWatchlist(store=InMemoryMarketDataWatchlistStore(), provider="demo")
     with pytest.raises(ExecutionConflictError) as caught:
         await _start(definition, empty)
@@ -194,7 +203,7 @@ async def test_start_is_refused_until_every_reference_series_is_watched() -> Non
 @pytest.mark.anyio
 async def test_start_fails_closed_without_a_readable_watchlist() -> None:
     """No watchlist, or an unavailable one, never starts a reference strategy."""
-    definition = reference_strategy()
+    definition = _startable()
     with pytest.raises(ExecutionConflictError, match="unavailable"):
         await _start(definition, None)
     unavailable = ReferenceWatchlist(store=DisabledMarketDataWatchlistStore(), provider="demo")
@@ -205,10 +214,27 @@ async def test_start_fails_closed_without_a_readable_watchlist() -> None:
 @pytest.mark.anyio
 async def test_start_succeeds_when_the_reference_is_watched() -> None:
     """An enabled watch on the reference series lets the bot start."""
-    definition = reference_strategy()
+    definition = _startable()
     store = await _start(definition, ReferenceWatchlist(store=await _watchlist(), provider="demo"))
     (deployment,) = await store.list_deployments()
     assert deployment.product_id == "ETH-USD"
+
+
+@pytest.mark.anyio
+async def test_a_watch_shorter_than_the_reference_warmup_refuses_the_start() -> None:
+    """The SMA(2) reference needs its 2 bars plus one: a 2-day watch is one bar short."""
+    definition = _startable()
+    (requirement,) = reference_data_requirements(definition)
+    assert reference_warmup_hours(requirement) == 72
+    short = ReferenceWatchlist(store=await _watchlist(lookback_hours=48), provider="demo")
+    with pytest.raises(ExecutionConflictError) as caught:
+        await _start(definition, short)
+    message = str(caught.value)
+    assert "with a lookback covering their warmup" in message
+    assert "re-adding an existing watch replaces its lookback" in message
+    exact = ReferenceWatchlist(store=await _watchlist(lookback_hours=72), provider="demo")
+    store = await _start(definition, exact)
+    assert len(await store.list_deployments()) == 1
 
 
 def test_suggested_lookback_covers_reference_warmup_and_is_capped() -> None:
@@ -220,6 +246,19 @@ def test_suggested_lookback_covers_reference_warmup_and_is_capped() -> None:
     assert reference_watch_lookback_hours(requirement) == 101 * 24
     (small,) = reference_data_requirements(reference_strategy(reference_timeframe="1h"))
     assert reference_watch_lookback_hours(small) == 168
+
+
+def test_a_converged_daily_ema_reference_needs_its_convergence_history() -> None:
+    """Under the policy a daily EMA(100) reference needs 446 bars, so 447 days of watch."""
+    payload = reference_payload()
+    indicators = cast("list[dict[str, object]]", payload["indicators"])
+    indicators[2]["kind"] = "ema"
+    indicators[2]["parameters"] = {"period": 100}
+    definition = with_convergence_warmup(StrategyDefinition.model_validate(payload))
+    (requirement,) = reference_data_requirements(definition)
+    assert requirement.warmup_bars == 446
+    assert reference_warmup_hours(requirement) == reference_watch_lookback_hours(requirement)
+    assert reference_watch_lookback_hours(requirement) == 447 * 24
 
 
 async def _journaled(
@@ -263,7 +302,7 @@ async def _journaled(
 @pytest.mark.anyio
 async def test_stale_reference_skips_the_entry_and_journals_the_reason() -> None:
     """The bar is processed (exits run) but no entry is attempted; the row says why."""
-    definition = reference_strategy()
+    definition = _startable()
     store, row = await _journaled(
         definition, reference_candles={"btc": daily_bars(_DAY, "100", "100")}, stale=True
     )
@@ -280,7 +319,7 @@ async def test_stale_reference_skips_the_entry_and_journals_the_reason() -> None
 @pytest.mark.anyio
 async def test_fresh_reference_values_appear_in_the_decision_row() -> None:
     """The rule trace labels reference operands ``BTC · close [1d]`` with the values read."""
-    definition = reference_strategy()
+    definition = _startable()
     _store, row = await _journaled(
         definition,
         reference_candles={"btc": daily_bars(_DAY, "100", "100", "200", "1")},

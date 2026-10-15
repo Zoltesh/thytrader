@@ -112,6 +112,17 @@ def _add_twin_parsers(
             )
 
 
+_STATUS_HELP = {
+    "pause": "Pause one deployment.",
+    "resume": (
+        "Resume one paused deployment. A bot running a snapshot saved before the convergence "
+        "warmup policy is refused (409 WARMUP_POLICY_REQUIRED, ADR 0140): stop it and start the "
+        "re-saved strategy instead."
+    ),
+    "stop": "Stop one deployment.",
+}
+
+
 def add_start_parser(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
     trailing: argparse.ArgumentParser,
@@ -123,8 +134,11 @@ def add_start_parser(
         help=(
             "Start one paper or live deployment from a strategy's current (valid) rules. "
             "The response's strategy_fingerprint names the snapshot the bot runs. A strategy "
-            "with reference instruments starts only when each reference series is on the "
-            "enabled market-data watchlist (409 names the thytrader-data watch-add command). "
+            "saved before the convergence warmup policy is refused (409 "
+            "WARMUP_POLICY_REQUIRED; re-save it, ADR 0140). A strategy with reference "
+            "instruments starts only when each reference series is on the enabled market-data "
+            "watchlist with a lookback covering its warmup (409 names the thytrader-data "
+            "watch-add command). "
             "A futures strategy starts in paper only, with --cash (USD), --maker-fee-rate, "
             "--taker-fee-rate and --fee-per-contract."
         ),
@@ -259,7 +273,8 @@ def add_deployment_action_parsers(
         command = subparsers.add_parser(
             action,
             parents=[trailing],
-            help=f"{action.title()} one deployment.",
+            help=_STATUS_HELP[action],
+            description=_STATUS_HELP[action],
         )
         command.add_argument("deployment_id", help="Deployment UUID.")
         command.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)

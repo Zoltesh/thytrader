@@ -29,6 +29,7 @@ from thytrader.execution.service import (
     create_deployment,
     set_deployment_status,
 )
+from thytrader.execution.warmup_gate import convergence_policy_message
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.portfolios.allocation import quote_text
 from thytrader.portfolios.deployment import (
@@ -478,6 +479,12 @@ class PortfolioRuntimeService:
                 "timeframe_not_executable",
                 f"{snapshot.definition.timeframe} is not an ingested venue clock.",
             )
+        if snapshot.definition.data_requirements.warmup_policy != "convergence":
+            return _problem(
+                view,
+                "warmup_policy_required",
+                convergence_policy_message(snapshot.definition, action="started"),
+            )
         capital = _sleeve_capital(aggregate, view)
         return _PlannedSleeve(view=view, capital=capital, snapshot=snapshot)
 
@@ -571,7 +578,11 @@ class PortfolioRuntimeService:
         """Apply one single-deployment status change to one sleeve's book."""
         try:
             snapshot = await set_deployment_status(
-                store=self._execution, deployment_id=deployment.id, status=status, flatten=flatten
+                store=self._execution,
+                deployment_id=deployment.id,
+                status=status,
+                publication_store=self._publication,
+                flatten=flatten,
             )
         except (ExecutionConflictError, ExecutionStoreError) as error:
             return _outcome(name, view, deployment, "failed", str(error))

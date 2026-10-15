@@ -61,6 +61,7 @@ if TYPE_CHECKING:
     from thytrader.portfolios.models import PortfolioAggregate, SleeveStrategy
     from thytrader.portfolios.proposals import DecidedBy, ProposalPage, ProposalStatus
     from thytrader.portfolios.runtime import PortfolioRuntimeService
+    from thytrader.portfolios.runtime_outcomes import PortfolioActionResult
     from thytrader.portfolios.store import PortfolioStorage
     from thytrader.portfolios.vocabulary import JournalChannel
     from thytrader.trading.store import ExecutionStore
@@ -262,12 +263,14 @@ class ProposalService:
             return ProposalOutcome(aggregate=aggregate, proposal=proposal)
         portfolio_id = aggregate.portfolio.portfolio_id
         try:
-            await self._runtime.pause(
-                portfolio_id,
-                context=context,
-                sleeve_id=change.sleeve_id,
-                reason="manager_proposal",
-                note=f"Proposal {proposal.proposal_id}",
+            _require_sleeve_changed(
+                await self._runtime.pause(
+                    portfolio_id,
+                    context=context,
+                    sleeve_id=change.sleeve_id,
+                    reason="manager_proposal",
+                    note=f"Proposal {proposal.proposal_id}",
+                )
             )
         except PortfolioError as error:
             return await self._fail(portfolio_id, proposal, error, context=context)
@@ -304,21 +307,25 @@ class ProposalService:
         note = f"Approved proposal {proposal.proposal_id}"
         try:
             if isinstance(change, PauseSleeveChange):
-                await self._runtime.pause(
-                    portfolio_id,
-                    context=context,
-                    sleeve_id=change.sleeve_id,
-                    reason="manager_proposal",
-                    note=note,
+                _require_sleeve_changed(
+                    await self._runtime.pause(
+                        portfolio_id,
+                        context=context,
+                        sleeve_id=change.sleeve_id,
+                        reason="manager_proposal",
+                        note=note,
+                    )
                 )
             elif isinstance(change, ResumeSleeveChange):
-                await self._runtime.resume(
-                    portfolio_id,
-                    context=context,
-                    live_acknowledged=request.i_understand_live,
-                    sleeve_id=change.sleeve_id,
-                    reason="manager_proposal",
-                    note=note,
+                _require_sleeve_changed(
+                    await self._runtime.resume(
+                        portfolio_id,
+                        context=context,
+                        live_acknowledged=request.i_understand_live,
+                        sleeve_id=change.sleeve_id,
+                        reason="manager_proposal",
+                        note=note,
+                    )
                 )
         except PortfolioConflictError as error:
             return await self._fail(portfolio_id, proposal, error, context=context)
@@ -351,6 +358,20 @@ class ProposalService:
             ),
         )
         return ProposalOutcome(aggregate=aggregate, proposal=settled)
+
+
+def _require_sleeve_changed(result: PortfolioActionResult) -> None:
+    """Raise when the runtime refused the sleeve's change, so its proposal settles ``failed``.
+
+    A refused resume (for example ``WARMUP_POLICY_REQUIRED``, ADR 0140) leaves the book as it
+    was; recording the proposal ``applied`` would hide that and its remediation.
+    """
+    failed = next((item for item in result.outcomes if item.outcome == "failed"), None)
+    if failed is not None:
+        raise PortfolioConflictError(
+            "portfolio_sleeve_action_failed",
+            failed.message or "The sleeve's book refused the change.",
+        )
 
 
 def _submission(

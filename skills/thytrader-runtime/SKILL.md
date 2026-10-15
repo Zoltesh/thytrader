@@ -437,6 +437,32 @@ is this lane's job and needs the user's request. After deletion, stopped live bo
 their referenced snapshots are likewise retained as risk evidence (ADR 0111). Deletion output
 `counts.paper_deployments` counts removals and is zero, not a count of retained books.
 
+## Convergence warmup gate (ADR 0140)
+
+Paper and live `start` (single bots, `--adopt-holdings` starts, and every portfolio sleeve) and
+operator `resume` / `portfolio-resume` require the strategy snapshot to carry
+`data_requirements.warmup_policy: "convergence"`
+([ADR 0140](../../docs/decisions/0140-indicator-convergence-warmup.md)): its recursive indicators
+(EMA family, Wilder RSI/ATR/ADX, KAMA) are then seeded long enough that signals no longer depend
+on when the bot started. A snapshot saved before the policy is refused with HTTP 409 detail
+`WARMUP_POLICY_REQUIRED: …`; nothing is started or resumed. Portfolio starts list it as problem
+`warmup_policy_required` (nothing starts); a portfolio resume reports that sleeve `failed` with the
+same message while other sleeves resume.
+
+- **Start refused.** The strategy was saved before the policy. Re-saving it unchanged adopts the
+  policy and raises its warmups (the research lane: `thytrader-research show-strategy`, then
+  `save-strategy … --confirm` with the same document; see `skills/thytrader-research/SKILL.md`,
+  "Convergence warmup"). Its fingerprint changes and earlier backtests no longer describe it:
+  re-check them before starting. Only when the user asked.
+- **Resume refused.** The paused bot runs a pre-policy snapshot and cannot be resumed. It keeps
+  managing its open position (protection, signal and time exits) while paused. To trade the
+  strategy again: re-save it as above, `stop UUID --confirm` this bot (managed shutdown keeps its
+  protection), then `start --strategy-id UUID … --confirm` (live also `--i-understand-live`).
+- **Cannot converge.** When convergence needs more than the 10,000 declarable bars (a very slow
+  KAMA), the message says to shorten that indicator instead; re-saving does not help.
+- Bots already running keep running, and an automatic recovery (the user-feed pause clearing
+  itself) is not a resume. Pause and stop are never refused. Discretionary books are exempt.
+
 ## Signal exits (paper and live)
 
 A strategy whose snapshot declares `exits.signal_exit` ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md))
@@ -461,10 +487,12 @@ A strategy may read up to three read-only reference series
 gate on an alt. References are never traded: orders only go to the traded instrument.
 
 - **Start gate.** `start` (and each portfolio sleeve) is refused with HTTP 409 unless every
-  reference series is on the **enabled** market-data watchlist of the ingestion provider. The
-  message names each missing series and the exact command, for example
-  `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 1d --lookback-hours 2424
-  --confirm` (the lookback covers the derived reference warmup). This lane never adds the watch:
+  reference series is on the **enabled** market-data watchlist of the ingestion provider with a
+  `lookback_hours` covering the reference's warmup plus one bar. Under the convergence policy a
+  daily EMA(100) reference needs 446 bars, so a watch sized for the old minimum warmup is too
+  short. The message names each series and the exact command, for example
+  `uv run thytrader-data watch-add --product-id BTC-USDC --timeframe 1d --lookback-hours 10728
+  --confirm`; re-adding an existing watch replaces its lookback. This lane never adds the watch:
   hand the command to the data lane (`skills/thytrader-data/SKILL.md`, needs the user's
   confirmation), then retry the start. In a portfolio start, only that sleeve reports `failed`
   with the same message; other sleeves start.
@@ -581,8 +609,8 @@ id: a paper sleeve starts with `weight × capital_quote` of paper cash, a live s
 portfolio are `attached`, not duplicated. Every sleeve is planned before anything starts, so one
 refusal starts nothing: HTTP 422 `portfolio_start_rejected` lists `problems[]` (`sleeve_issue`,
 `strategy_busy` when the strategy already runs standalone or in another portfolio — stop that bot
-first, `strategy_invalid`, `timeframe_not_executable`, `risk_policy_refused` with the policy's
-reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
+first, `strategy_invalid`, `timeframe_not_executable`, `warmup_policy_required` (see
+"Convergence warmup gate"), `risk_policy_refused` with the policy's reason code). A live portfolio needs `--i-understand-live` on start and resume, configured
 credentials (`live_credentials_missing`), and a published risk policy; **a live portfolio's sleeve
 allocations count as risk-policy allocation membership for its own bots**, so an allocations
 allowlist does not need to list sleeve strategies (standalone bots keep the allowlist; every other

@@ -147,8 +147,10 @@ async def post_deployment(
     before any other start check (there is no live futures order path).
 
     A strategy that reads reference instruments (ADR 0096) starts only when every
-    reference series is on the enabled market-data watchlist (409 otherwise, naming
-    the ``thytrader-data watch-add`` command).
+    reference series is on the enabled market-data watchlist with a lookback covering its
+    warmup (409 otherwise, naming the ``thytrader-data watch-add`` command). A snapshot
+    saved before the convergence warmup policy is refused with 409
+    ``WARMUP_POLICY_REQUIRED`` (ADR 0140).
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
@@ -566,6 +568,7 @@ async def _set_status(
             store=store,
             deployment_id=deployment_id,
             status=status_value,
+            publication_store=publication_store,
             flatten=flatten,
         )
     except ExecutionConflictError as error:

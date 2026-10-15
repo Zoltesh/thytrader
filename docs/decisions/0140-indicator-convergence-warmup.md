@@ -59,10 +59,22 @@ live evaluated as an SMA(100).
    crossovers but can still flip a comparison sitting exactly on its threshold; exact signal identity
    would need a shared initialization point and is not promised.
 
-Rollout follows in later changes: paper and live starts and resumes refuse snapshots without the
-policy (discretionary books exempt) and preflight that venue history and watch lookbacks cover the
-required warmup; decision journals record each clock's window start; operator reports and the
-browser catalog show convergence warmup and anchor sensitivity.
+6. **Starts and resumes require the policy** (`execution/warmup_gate.py`). Paper and live starts
+   (single bots, adoption starts, portfolio sleeves) and operator resumes refuse a snapshot without
+   it with `WARMUP_POLICY_REQUIRED`, naming the re-save that adopts it, or, when convergence cannot
+   be declared, the indicator to shorten. Pause and stop are never refused; running books keep
+   running; the user-feed pause that clears itself is not a resume; discretionary books evaluate
+   no strategy rules and are exempt. A refused resume leaves the book paused and managing its
+   position; the operator stops it and starts the re-saved strategy as a new bot.
+7. **Reference watches must cover the warmup.** A reference series' enabled watch must look back
+   at least its warmup plus one bar (capped at the interval's ceiling); a watch sized for the old
+   minimum no longer passes the start gate.
+
+Rollout continues in a later change: decision clocks wait while their window holds fewer bars
+before the decision than the declared warmup (a market listed after the warmup start would
+otherwise trade on a seed made at its listing), which covers venue-history depth at every bar
+rather than as a start preflight; decision journals record each clock's window start; operator
+reports and the browser catalog show convergence warmup and anchor sensitivity.
 
 ## Consequences
 
