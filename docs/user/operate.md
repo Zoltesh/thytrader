@@ -358,8 +358,10 @@ Under each indicator, the builder says how many completed bars it needs. Smoothe
 RSI, ATR, MACD and similar) have a first value early but keep settling for longer, for example "First
 value after 200 completed bars; settled after 891". Saving raises **Warmup bars** to the settled
 count, so where the data starts barely moves indicator values; a value sitting exactly at a threshold
-or crossover can still differ. An indicator that would need more than 10,000 bars (a very slow KAMA)
-cannot be declared: the builder says so, and paper and live will not start it until it is shortened.
+or crossover can still differ. An indicator on the decision clock or the higher-timeframe filter that
+would need more than 10,000 bars (a very slow KAMA) cannot be declared: the builder says so, and paper
+and live will not start it until it is shortened. Indicators on their own timeframe or reading a
+reference instrument get their settled history fetched for that clock instead.
 Supertrend, Parabolic SAR, OBV and A/D also note that their direction or running level depends on
 where the data starts ([ADR 0140](../decisions/0140-indicator-convergence-warmup.md)).
 **Position sizing** labels use the product's quote currency (`Minimum USDC notional` for a USDC
