@@ -27,6 +27,7 @@ from tests.execution.test_paper_futures_books import (
     _product,
     _strategy,
 )
+from tests.market_history import listed_history
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.execution import futures_start, service
@@ -118,6 +119,7 @@ def lane(monkeypatch: pytest.MonkeyPatch) -> Iterator[Lane]:
         execution_store=execution,
         risk_policy_store=risk,
         decision_journal_store=journal,
+        market_data_service=listed_history(),
     )
     app.state.futures_start = FuturesStart(contracts=contracts, observations=_Catalog())
     with TestClient(app) as client:

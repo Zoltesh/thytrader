@@ -145,7 +145,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0137](0137-offline-live-execution-replay.md) | Immutable as-seen inputs, offline execution/reconciliation replay and portable acceptance; separate entry-signal and original-rule evidence, opt-in private worker capture and qualified timing; no trading authority | Accepted |
 | [0138](0138-live-alert-delivery.md) | `alert_delivery` is degraded while live books hold risk (running, paused, or stopped with residual exposure) without external delivery (also in operator health); optional HMAC-signed webhooks; Compose passes webhook env; ops contract v98 | Accepted |
 | [0139](0139-quiet-alert-delivery.md) | `notify_min_severity` (YAML, live) sends only alerts at or above it; lower ones are skipped without spending retries; `set-settings` rewrites a bind-mounted `thytrader.yaml` in place on `EBUSY`; ops contract v99 | Accepted |
-| [0140](0140-indicator-convergence-warmup.md) | Per-indicator convergence warmup (seed weight ≤ 1e-3); snapshotted `warmup_policy: convergence` adopted on save and by templates/sweeps, covering declared and derived clocks; absent keeps historical meaning; paper/live starts and resumes require it and reference watches must cover the warmup | Accepted |
+| [0140](0140-indicator-convergence-warmup.md) | Per-indicator convergence warmup (seed weight ≤ 1e-3); snapshotted `warmup_policy: convergence` adopted on save and by templates/sweeps, covering declared and derived clocks; absent keeps historical meaning; paper/live starts and resumes require it, reference watches must cover the warmup, and starts refuse markets younger than it | Accepted |
 
 ## Status values
 

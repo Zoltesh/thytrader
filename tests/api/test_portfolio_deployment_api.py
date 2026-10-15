@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 import pytest
 
+from tests.market_history import listed_history
 from thytrader.api.app import create_app
 from thytrader.config import Settings
 from thytrader.portfolios.store import InMemoryPortfolioStore
@@ -96,6 +97,7 @@ def harness() -> Iterator[Harness]:
         execution_store=execution,
         risk_policy_store=risk,
         portfolio_store=InMemoryPortfolioStore(strategies=strategies, execution=execution),
+        market_data_service=listed_history(),
     )
     with TestClient(app) as client:
         yield Harness(client, strategies)

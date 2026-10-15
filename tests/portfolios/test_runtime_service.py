@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
 
 import pytest
 
+from tests.market_history import listed_history
 from tests.portfolios.runtime_support import operator, portfolio, world
 from thytrader.execution.service import create_deployment
 from thytrader.portfolios.errors import (
@@ -17,6 +19,7 @@ from thytrader.portfolios.errors import (
     PortfolioStartRejectedError,
 )
 from thytrader.portfolios.models import SetWeightsRequest
+from thytrader.portfolios.runtime import PortfolioRuntimeService
 from thytrader.portfolios.runtime_start import FeeAssumptions
 from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
 from thytrader.strategies.warmup_policy import without_warmup_policy
@@ -122,6 +125,33 @@ async def test_a_sleeve_saved_before_the_warmup_policy_refuses_the_start() -> No
     (problem,) = raised.value.problems
     assert (problem.code, problem.strategy_id) == ("warmup_policy_required", stored.strategy_id)
     assert problem.message.startswith("WARMUP_POLICY_REQUIRED: ")
+    assert await state.tagged(current.portfolio.portfolio_id) == ()
+
+
+async def test_a_sleeve_on_a_market_younger_than_its_warmup_refuses_the_start() -> None:
+    """Planning checks venue history for every sleeve before any sleeve starts (ADR 0140)."""
+    state = world()
+    young = PortfolioRuntimeService(
+        portfolios=state.portfolios,
+        execution=state.execution,
+        strategies=state.strategies,
+        publication=state.strategies,
+        risk_store=state.risk,
+        live_allowed=True,
+        audit=state.audit,
+        market_data=listed_history(listed_at=datetime.now(UTC) - timedelta(days=2)),
+    )
+    current, records = await portfolio(state)
+    with pytest.raises(PortfolioStartRejectedError) as raised:
+        await young.start(
+            current.portfolio.portfolio_id,
+            revision=current.portfolio.revision,
+            context=operator(),
+        )
+    problems = raised.value.problems
+    assert {item.code for item in problems} == {"history_too_short"}
+    assert {item.strategy_id for item in problems} == {item.strategy_id for item in records}
+    assert problems[0].message.startswith("HISTORY_TOO_SHORT: ")
     assert await state.tagged(current.portfolio.portfolio_id) == ()
 
 

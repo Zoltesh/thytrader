@@ -70,11 +70,27 @@ live evaluated as an SMA(100).
    at least its warmup plus one bar (capped at the interval's ceiling); a watch sized for the old
    minimum no longer passes the start gate.
 
-Rollout continues in a later change: decision clocks wait while their window holds fewer bars
-before the decision than the declared warmup (a market listed after the warmup start would
-otherwise trade on a seed made at its listing), which covers venue-history depth at every bar
-rather than as a start preflight; decision journals record each clock's window start; operator
-reports and the browser catalog show convergence warmup and anchor sensitivity.
+8. **A start checks venue history** (`execution/clock_windows.py`, `execution/start_history.py`).
+   A book fetches every clock's window (decision clock per covered product, HTF filter, extra
+   indicator timeframes, references) from the venue on demand, starting a full warmup before its
+   creation, so an established market is warmed up from its first decision. Only a market listed
+   after a window start lacks those candles. Every start (single, adoption, each portfolio
+   sleeve during planning) therefore reads each series' own clock up to its window's first bar
+   (one bounded request); when that read is empty, as on a thin market, it reads the previous
+   year of daily bars, counting only a day that closed by the window start. It refuses with
+   `HISTORY_TOO_SHORT` when the series has not traded by then, or
+   `HISTORY_UNCONFIRMED` when the venue cannot be read. The worker sizes its windows with the
+   same functions, so the check and the fetch agree.
+9. **The worker never enters on a short window.** Under the policy, an entry-eligible bar is skipped
+   as `warmup`, with that reason, while its decision window holds fewer bars than its warmup or an
+   HTF or extra-timeframe window starts after the evaluator's required coverage for that bar, which
+   includes the previous mapped bar at a rollover (references already require theirs). After a
+   passed start check it happens only briefly, when an established market had no trade on a window's
+   first bar (the probe saw earlier candles; the window starts after the quiet bar until the
+   required coverage moves past it); otherwise it guards books started without the check.
+
+Rollout continues in a later change: decision journals record each clock's window start;
+operator reports and the browser catalog show convergence warmup and anchor sensitivity.
 
 ## Consequences
 

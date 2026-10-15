@@ -31,6 +31,7 @@ from thytrader.execution_worker.windows import (
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
     _closed_reference_windows,
+    _covered_seed_gate,
     new_closed_bars,
 )
 from thytrader.market_data.models import parse_candle_interval
@@ -363,7 +364,8 @@ async def _evaluate_lockstep_bar(
 ) -> bool:
     """Evaluate every covered product on one shared closed bar. True if the loop should stop.
 
-    One reference-instrument gate applies to every covered product on the shared bar.
+    One reference-instrument gate applies to every covered product on the shared bar, and so
+    does a short-history gate when any covered product's windows lack their warmup.
     """
     current = await store.get_deployment(deployment_id)
     if current.deployment.status is DeploymentStatus.STOPPED:
@@ -371,8 +373,6 @@ async def _evaluate_lockstep_bar(
     gate = _bar_reference_gate(
         strategy, reference_candles, candle, allow_new_entries=allow_new_entries
     )
-    if gate is not None:
-        allow_new_entries = False
     marks: dict[str, Decimal] = {}
     product_bars: dict[str, tuple[MarketProduct, tuple[Candle, ...], Candle]] = {}
     for product_id in covered:
@@ -384,6 +384,15 @@ async def _evaluate_lockstep_bar(
         window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
         product_bars[product_id] = (product, window, bar)
         marks[product_id] = bar.close
+    gate = gate or _covered_seed_gate(
+        strategy,
+        {product_id: window for product_id, (_product, window, _bar) in product_bars.items()},
+        htf_by_product,
+        extra_by_product,
+        allow_new_entries=allow_new_entries,
+    )
+    if gate is not None:
+        allow_new_entries = False
     peer_marks = await _portfolio_marks(
         market_data,
         portfolio=portfolio,

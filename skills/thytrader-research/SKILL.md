@@ -490,6 +490,8 @@ fingerprint and `summary` returned by the call show the new values; you do not e
   lookbacks and backtest windows must cover that history; coverage errors name it.
 - Snapshots saved before this keep their historical minimum-warmup meaning and fingerprints; re-save
   a strategy to adopt the policy. Do not compare results across the two policies as if identical.
+- A paper or live start of a market younger than the warmup is refused (`HISTORY_TOO_SHORT`): its
+  venue history cannot seed the indicators. Use shorter indicators or an older market.
 - Paper and live starts and resumes refuse a snapshot without the policy (`WARMUP_POLICY_REQUIRED`,
   see "Convergence warmup gate" in `skills/thytrader-runtime/SKILL.md`). To adopt it, `show-strategy`
   and `save-strategy` the unchanged document (only when the user asked), then re-run its backtests.

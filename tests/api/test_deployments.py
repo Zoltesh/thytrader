@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+from tests.market_history import listed_history
 from tests.strategy_fakes import SeededStrategyStore as InMemoryPublicationStore
 from thytrader.api.app import create_app
 from thytrader.audit_events import AuditEventCategory, InMemoryAuditEventStore
@@ -48,6 +50,9 @@ from thytrader.trading.models import (
     with_runtime,
 )
 
+if TYPE_CHECKING:
+    from thytrader.market_data.service import MarketDataService
+
 
 def _published_strategy() -> StrategyDefinition:
     """Return the reference strategy marked published."""
@@ -62,6 +67,7 @@ def _client(
     live_credentials: bool = False,
     audit: InMemoryAuditEventStore | None = None,
     risk: InMemoryRiskPolicyStore | None = None,
+    market_data: MarketDataService | None = None,
 ) -> TestClient:
     """Build an API client with in-memory publication and execution stores."""
     settings = Settings(_env_file=None)
@@ -77,6 +83,7 @@ def _client(
         execution_store=execution,
         audit_event_store=audit,
         risk_policy_store=risk,
+        market_data_service=market_data or listed_history(),
     )
     return TestClient(app)
 
@@ -473,6 +480,28 @@ def test_duplicate_running_paper_deployment_conflicts() -> None:
 
     assert first.status_code == 201
     assert second.status_code == 409
+
+
+def test_a_market_younger_than_the_warmup_is_refused_over_http() -> None:
+    """The start reads venue history and answers 409 HISTORY_TOO_SHORT; nothing is created."""
+    publication = InMemoryPublicationStore()
+    execution = InMemoryExecutionStore()
+    definition = _published_strategy()
+    fingerprint = strategy_fingerprint(definition)
+    publication.published[fingerprint] = StrategySnapshot(
+        strategy_fingerprint=fingerprint, definition=definition
+    )
+    payload = {
+        "strategy_id": str(definition.strategy_id),
+        "mode": "paper",
+        "paper_starting_cash": "10000",
+    }
+    young = listed_history(listed_at=datetime.now(UTC) - timedelta(days=1))
+    with _client(publication, execution, market_data=young) as client:
+        response = client.post("/api/v1/deployments", json=payload)
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith("HISTORY_TOO_SHORT: ")
+    assert asyncio.run(execution.list_deployments()) == ()
 
 
 def test_live_deployment_requires_credentials() -> None:

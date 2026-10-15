@@ -18,6 +18,7 @@ from thytrader.market_data.instruments import InstrumentKind
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.models import strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.futures_book import InMemoryFuturesContractStore
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError
@@ -60,7 +61,7 @@ async def _start(
     **overrides: Any,
 ) -> tuple[Deployment, InMemoryFuturesContractStore, InMemoryExecutionStore]:
     """Start the perp strategy in paper with explicit fees unless overridden."""
-    strategy = _strategy()
+    strategy = with_convergence_warmup(_strategy())
     store = InMemoryExecutionStore()
     risk_store = InMemoryRiskPolicyStore()
     await risk_store.publish(_policy())

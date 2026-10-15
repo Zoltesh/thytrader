@@ -14,6 +14,7 @@ from thytrader.execution.futures_start import (
     futures_start_terms,
 )
 from thytrader.execution.paper_fees import paper_fee_rates
+from thytrader.execution.start_history import require_start_history
 from thytrader.execution.warmup_gate import require_convergence_policy
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.execution.paper_fees import PaperFeeSource
+    from thytrader.market_data.service import MarketDataService
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.models import ReferenceDataRequirement, StrategyDefinition
@@ -78,6 +80,7 @@ async def create_deployment(
     paper_fee_source: PaperFeeSource | None = None,
     paper_fee_per_contract: Decimal | None = None,
     futures_start: FuturesStart | None = None,
+    market_data: MarketDataService | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -93,7 +96,8 @@ async def create_deployment(
     paper start that omits both fee rates takes the account's rates from
     ``paper_fee_source`` and is refused when they cannot be read. A paper futures start
     (ADR 0129 §4) names its maker, taker and per-contract fees and binds its contract
-    through ``futures_start`` right after the book is created.
+    through ``futures_start`` right after the book is created. With ``market_data`` the
+    venue must hold history at the start of every window the book will read (ADR 0140).
     """
     prepared = await prepare_deployment(
         store=store,
@@ -110,6 +114,7 @@ async def create_deployment(
         paper_fee_source=paper_fee_source,
         paper_fee_per_contract=paper_fee_per_contract,
         futures_start=futures_start,
+        market_data=market_data,
     )
     created = await store.create_deployment(prepared.deployment)
     if prepared.futures is not None:
@@ -140,11 +145,14 @@ async def prepare_deployment(
     paper_fee_source: PaperFeeSource | None = None,
     paper_fee_per_contract: Decimal | None = None,
     futures_start: FuturesStart | None = None,
+    market_data: MarketDataService | None = None,
 ) -> PreparedDeployment:
     """Run every start check and build the book without persisting it.
 
     ``create_deployment`` inserts the result; strategy start with adoption (ADR 0124)
-    inserts it in the same transaction as the adoption instead.
+    inserts it in the same transaction as the adoption instead. The venue-history check
+    runs last, after every check that needs no venue read, and only with ``market_data``;
+    the worker's evaluation refuses entries on a short window regardless (ADR 0140).
     """
     _require_mode_prerequisites(mode, paper_starting_cash, live_allowed=live_allowed)
     requested_fees = (paper_maker_fee_rate, paper_taker_fee_rate)
@@ -181,6 +189,8 @@ async def prepare_deployment(
         portfolio_sleeve=portfolio_sleeve is not None,
     )
     now = utc_now()
+    if market_data is not None:
+        await require_start_history(market_data, definition, now=now)
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
         cash = Decimal("0")
