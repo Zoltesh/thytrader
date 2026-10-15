@@ -14,6 +14,7 @@ from thytrader.execution.futures_start import (
     futures_start_terms,
 )
 from thytrader.execution.paper_fees import paper_fee_rates
+from thytrader.execution.warmup_gate import require_convergence_policy
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.market_data.watchlist import MarketDataWatchlistUnavailableError
@@ -31,6 +32,7 @@ from thytrader.trading.ledger import resolve_paper_fee_schedule
 from thytrader.trading.lifecycle import command_for_status, occupies_running_slot
 from thytrader.trading.models import (
     Deployment,
+    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -157,6 +159,7 @@ async def prepare_deployment(
     )
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
+    require_convergence_policy(definition, action="started")
     futures = await futures_start_terms(
         definition,
         mode=mode,
@@ -232,12 +235,13 @@ class ReferenceWatchlist:
 async def _require_reference_watches(
     watches: ReferenceWatchlist | None, definition: StrategyDefinition
 ) -> None:
-    """Refuse a start whose reference series are not on the enabled watchlist (ADR 0096).
+    """Refuse a start whose reference series are not watched deeply enough (ADR 0096, 0140).
 
     Paper and live read every reference series each cycle and skip entries when one is
-    stale. Requiring an enabled watch keeps each series ingested and visible in the data
-    catalog's freshness. The runtime lane never adds a watch itself: data mutations stay
-    in the confirmation-gated data lane, so the message names the exact command.
+    stale. Requiring an enabled watch whose lookback covers the reference's warmup keeps
+    each series ingested and visible in the data catalog's freshness. The runtime lane
+    never adds a watch itself: data mutations stay in the confirmation-gated data lane, so
+    the message names the exact command.
     """
     requirements = reference_data_requirements(definition)
     if not requirements:
@@ -257,7 +261,11 @@ async def _require_reference_watches(
                 "The market-data watchlist is unavailable, so the reference instruments cannot "
                 "be confirmed as watched. Nothing was started; retry the start."
             ) from error
-        if target is None or not target.enabled:
+        if (
+            target is None
+            or not target.enabled
+            or target.lookback_hours < reference_warmup_hours(requirement)
+        ):
             missing.append(requirement)
     if not missing:
         return
@@ -271,8 +279,21 @@ async def _require_reference_watches(
     )
     raise ExecutionConflictError(
         f"Reference instrument series {series} must be on the enabled market-data watchlist "
-        f"before this strategy can run. Nothing was started. Watch each, then retry: {commands}."
+        "with a lookback covering their warmup before this strategy can run. Nothing was "
+        f"started. Watch each (re-adding an existing watch replaces its lookback), then retry: "
+        f"{commands}."
     )
+
+
+def reference_warmup_hours(requirement: ReferenceDataRequirement) -> int:
+    """The watch lookback one reference's warmup plus one bar needs, within the ceiling.
+
+    Under the convergence policy (ADR 0140) the requirement's warmup is its convergence
+    warmup, so a watch sized for the minimum warmup no longer covers it.
+    """
+    interval = parse_candle_interval(requirement.timeframe)
+    hours = math.ceil((requirement.warmup_bars + 1) * interval.duration.total_seconds() / 3600)
+    return min(hours, max_watch_lookback_hours(interval))
 
 
 def reference_watch_lookback_hours(requirement: ReferenceDataRequirement) -> int:
@@ -281,8 +302,7 @@ def reference_watch_lookback_hours(requirement: ReferenceDataRequirement) -> int
     Capped at the interval's maximum watch lookback.
     """
     interval = parse_candle_interval(requirement.timeframe)
-    hours = math.ceil((requirement.warmup_bars + 1) * interval.duration.total_seconds() / 3600)
-    return min(max(hours, 168), max_watch_lookback_hours(interval))
+    return min(max(reference_warmup_hours(requirement), 168), max_watch_lookback_hours(interval))
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,13 +318,15 @@ async def set_deployment_status(
     store: ExecutionStore,
     deployment_id: UUID,
     status: DeploymentStatus,
+    publication_store: StrategySnapshotReader,
     flatten: bool = False,
 ) -> DeploymentSnapshot:
     """Pause, resume, or stop one existing deployment.
 
     HTTP stop defaults to managed shutdown: protective brackets stay, residual
     exposure remains in account-level risk. Pass ``flatten=True`` to marketably
-    exit and then cancel remainders.
+    exit and then cancel remainders. Resuming a strategy book requires its snapshot
+    to carry the convergence warmup policy (ADR 0140).
     """
     snapshot = await store.get_deployment(deployment_id)
     current = snapshot.deployment.status
@@ -312,6 +334,12 @@ async def set_deployment_status(
         raise ExecutionConflictError("A stopped deployment cannot be resumed.")
     if status is DeploymentStatus.RUNNING and current is DeploymentStatus.RUNNING:
         return snapshot
+    if status is DeploymentStatus.RUNNING and snapshot.deployment.kind is DeploymentKind.STRATEGY:
+        fingerprint = snapshot.deployment.strategy_fingerprint
+        if fingerprint is None:
+            raise ExecutionConflictError("This deployment has no strategy snapshot to resume.")
+        published = await _load_published(publication_store, fingerprint)
+        require_convergence_policy(published.definition, action="resumed")
     command = command_for_status(status, flatten=flatten)
     updated = with_runtime(
         snapshot.deployment,

@@ -566,6 +566,7 @@ async def _set_status(
             store=store,
             deployment_id=deployment_id,
             status=status_value,
+            publication_store=publication_store,
             flatten=flatten,
         )
     except ExecutionConflictError as error:

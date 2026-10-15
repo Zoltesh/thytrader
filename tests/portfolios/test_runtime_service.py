@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal
+import json
 
 import pytest
 
@@ -17,6 +18,8 @@ from thytrader.portfolios.errors import (
 )
 from thytrader.portfolios.models import SetWeightsRequest
 from thytrader.portfolios.runtime_start import FeeAssumptions
+from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
+from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 
 pytestmark = pytest.mark.anyio
@@ -97,6 +100,28 @@ async def test_a_busy_strategy_refuses_the_whole_start() -> None:
         ("strategy_busy", records[0].strategy_id)
     ]
     assert "standalone bot" in problems[0].message
+    assert await state.tagged(current.portfolio.portfolio_id) == ()
+
+
+async def test_a_sleeve_saved_before_the_warmup_policy_refuses_the_start() -> None:
+    """A strategy stored before ADR 0140 names the re-save; nothing starts."""
+    state = world()
+    current, records = await portfolio(state)
+    stored = records[0]
+    assert stored.definition is not None
+    document = json.loads(canonical_strategy_bytes(stored.definition))
+    legacy = StrategyDefinition.model_validate(without_warmup_policy(document))
+    # PostgreSQL keeps such rows from before the policy; the memory store always converges.
+    state.strategies._records[stored.strategy_id] = replace(stored, definition=legacy)
+    with pytest.raises(PortfolioStartRejectedError) as raised:
+        await state.runtime.start(
+            current.portfolio.portfolio_id,
+            revision=current.portfolio.revision,
+            context=operator(),
+        )
+    (problem,) = raised.value.problems
+    assert (problem.code, problem.strategy_id) == ("warmup_policy_required", stored.strategy_id)
+    assert problem.message.startswith("WARMUP_POLICY_REQUIRED: ")
     assert await state.tagged(current.portfolio.portfolio_id) == ()
 
 

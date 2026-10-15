@@ -22,6 +22,7 @@ from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.models import StrategyDefinition
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.models import DeploymentStatus
 
 pytestmark = pytest.mark.anyio
@@ -160,7 +161,8 @@ async def test_worker_evaluates_first_decision_without_false_coverage_pause(
     payload["entry"]["when"] = {
         "all": [{"left": {"literal": "1"}, "operator": "greater_than", "right": {"literal": "2"}}]
     }
-    definition = StrategyDefinition.model_validate(payload)
+    # Starts require the convergence warmup policy (ADR 0140).
+    definition = with_convergence_warmup(StrategyDefinition.model_validate(payload))
     store, snapshot = await paper_book(definition)
     await store.save_deployment(replace(snapshot.deployment, created_at=_ANCHOR))
     snapshot = await store.get_deployment(snapshot.deployment.id)

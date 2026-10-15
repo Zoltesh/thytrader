@@ -34,6 +34,7 @@ from thytrader.market_data.quality import analyze_range
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import InMemoryMarketDataWatchlistStore, MarketDataWatchTarget
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentStatus
 
@@ -90,7 +91,11 @@ async def _book(definition: StrategyDefinition) -> InMemoryExecutionStore:
 async def _cycle(
     definition: StrategyDefinition, provider: DemoMarketData
 ) -> tuple[InMemoryExecutionStore, tuple[BarDecision, ...]]:
-    """Run one real worker cycle and return the store and journal rows."""
+    """Run one real worker cycle and return the store and journal rows.
+
+    The strategy runs under the convergence warmup policy, which starts require (ADR 0140).
+    """
+    definition = with_convergence_warmup(definition)
     store = await _book(definition)
     journal = InMemoryDecisionJournalStore()
     with execution_audit_scope(InMemoryAuditEventStore()), decision_journal_scope(journal):

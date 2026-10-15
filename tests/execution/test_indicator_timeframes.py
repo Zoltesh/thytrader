@@ -20,6 +20,7 @@ from thytrader.execution.service import create_deployment
 from thytrader.execution.signals import evaluate_latest_entry
 from thytrader.market_data.models import MarketProduct
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, RuntimePhase
 
@@ -177,7 +178,7 @@ def test_evaluate_latest_entry_fails_closed_without_extra_tf_candles() -> None:
 async def test_process_closed_bar_does_not_enter_when_extra_tf_fails() -> None:
     """Extra-TF-false is not an entry."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_extra_tf_strategy()
+    strategy = with_convergence_warmup(_five_minute_extra_tf_strategy())
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),
@@ -205,7 +206,7 @@ async def test_process_closed_bar_does_not_enter_when_extra_tf_fails() -> None:
 async def test_process_closed_bar_enters_when_extra_tf_matches() -> None:
     """Last-completed extra-TF match rests a paper entry."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_extra_tf_strategy()
+    strategy = with_convergence_warmup(_five_minute_extra_tf_strategy())
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),
@@ -232,7 +233,7 @@ async def test_process_closed_bar_enters_when_extra_tf_matches() -> None:
 async def test_process_closed_bar_pauses_when_required_extra_tf_bar_is_missing() -> None:
     """Extra-TF coverage holes pause instead of trading without the published overlay."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_extra_tf_strategy()
+    strategy = with_convergence_warmup(_five_minute_extra_tf_strategy())
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),

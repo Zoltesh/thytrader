@@ -18,6 +18,7 @@ from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.models import StrategyDefinition, strategy_fingerprint
 from thytrader.strategies.snapshots import StrategySnapshot, StrategySnapshotError
+from thytrader.strategies.warmup_policy import with_convergence_warmup
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentStatus, RuntimePhase
 
@@ -123,6 +124,11 @@ def _five_minute_htf_strategy() -> StrategyDefinition:
         },
     }
     return StrategyDefinition.model_validate(payload)
+
+
+def _startable_htf_strategy() -> StrategyDefinition:
+    """The 5m HTF strategy under the convergence warmup policy, which starts require (ADR 0140)."""
+    return with_convergence_warmup(_five_minute_htf_strategy())
 
 
 def _one_minute_five_minute_htf_strategy() -> StrategyDefinition:
@@ -232,7 +238,7 @@ def test_htf_bars_closed_at_or_before_drops_in_progress_hour() -> None:
 @pytest.mark.anyio
 async def test_create_deployment_starts_htf_filter_paper_and_live() -> None:
     """Published HTF-filter strategies may start paper and live."""
-    strategy = _five_minute_htf_strategy()
+    strategy = _startable_htf_strategy()
     catalog = _Catalog(strategy)
     paper = await create_deployment(
         store=InMemoryExecutionStore(),
@@ -262,7 +268,7 @@ async def test_create_deployment_starts_htf_filter_paper_and_live() -> None:
 async def test_process_closed_bar_does_not_enter_when_htf_filter_fails() -> None:
     """LTF-true / HTF-false is not an entry."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_htf_strategy()
+    strategy = _startable_htf_strategy()
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),
@@ -290,7 +296,7 @@ async def test_process_closed_bar_does_not_enter_when_htf_filter_fails() -> None
 async def test_process_closed_bar_enters_when_htf_and_ltf_match() -> None:
     """Combined HTF AND LTF match rests a paper entry."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_htf_strategy()
+    strategy = _startable_htf_strategy()
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),
@@ -317,7 +323,7 @@ async def test_process_closed_bar_enters_when_htf_and_ltf_match() -> None:
 async def test_process_closed_bar_pauses_when_required_htf_bar_is_missing() -> None:
     """HTF coverage holes pause instead of trading without the published filter."""
     store = InMemoryExecutionStore()
-    strategy = _five_minute_htf_strategy()
+    strategy = _startable_htf_strategy()
     created = await create_deployment(
         store=store,
         publication_store=_Catalog(strategy),
