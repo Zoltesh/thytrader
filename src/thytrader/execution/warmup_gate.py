@@ -31,27 +31,20 @@ def require_convergence_policy(definition: StrategyDefinition, *, action: str) -
 
 
 def convergence_policy_message(definition: StrategyDefinition, *, action: str) -> str:
-    """Explain one refusal and name the way out."""
+    """Explain one refusal and name the way out, short enough for a 500-character record."""
     subject = f"Strategy “{definition.name}” ({definition.strategy_id})"
-    restart = " as a new bot after stopping this one" if action == "resumed" else ""
+    then = "stop this bot, then start the strategy anew" if action == "resumed" else "start it"
     decision, htf = convergence_warmups(definition)
-    if max(decision, htf or 0) > MAX_DECLARED_WARMUP_BARS:
+    required = max(decision, htf or 0)
+    if required > MAX_DECLARED_WARMUP_BARS:
         return (
-            f"{WARMUP_POLICY_REQUIRED}: {subject} needs {max(decision, htf or 0)} warmup bars "
-            f"for its indicators to converge, more than the {MAX_DECLARED_WARMUP_BARS} a strategy "
-            f"can declare (ADR 0140). Nothing was {action}. Shorten its slowest indicator (for "
-            "example a KAMA slow constant), save it, re-check its backtests, then start it"
-            f"{restart}."
+            f"{WARMUP_POLICY_REQUIRED}: {subject} needs {required} bars to converge, over the "
+            f"{MAX_DECLARED_WARMUP_BARS} it can declare (ADR 0140). Nothing was {action}. Shorten "
+            f"its slowest indicator, save it, re-check its backtests, {then}."
         )
-    remedy = (
-        "Re-save the strategy unchanged to adopt the policy (`uv run thytrader-research "
-        f"show-strategy --strategy-id {definition.strategy_id}`, then pass its `document`, "
-        f"unchanged, to `save-strategy --strategy-id {definition.strategy_id} --file "
-        "document.json --revision N --confirm` with its current revision), re-check its "
-        f"backtests under the longer warmup, then start it{restart}"
-    )
     return (
-        f"{WARMUP_POLICY_REQUIRED}: {subject} was saved before the convergence warmup policy "
-        "(ADR 0140), so its indicators would be seeded on their minimum warmup and its signals "
-        f"would depend on when the bot started. Nothing was {action}. {remedy}."
+        f"{WARMUP_POLICY_REQUIRED}: {subject} predates the convergence warmup policy "
+        f"(ADR 0140), so its signals depend on when it started. Nothing was {action}. "
+        "Re-save its unchanged `document` from `thytrader-research show-strategy` with "
+        f"`save-strategy --revision N --confirm`, re-check its backtests, {then}."
     )

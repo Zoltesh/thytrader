@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import json
 from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
@@ -24,6 +26,8 @@ from thytrader.portfolios.proposals import (
 )
 from thytrader.strategies.authoring import create_template_strategy
 from thytrader.strategies.library import create_strategy_from_definition
+from thytrader.strategies.models import StrategyDefinition, canonical_strategy_bytes
+from thytrader.strategies.warmup_policy import without_warmup_policy
 from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
@@ -276,6 +280,36 @@ async def test_resume_always_waits_and_live_approval_needs_the_acknowledgement()
     )
     assert approved.proposal.status == "applied"
     assert {book.status for book in await state.tagged(pid)} == {DeploymentStatus.RUNNING}
+
+
+async def test_an_approved_resume_the_runtime_refuses_settles_as_failed() -> None:
+    """A sleeve running a snapshot saved before ADR 0140 is not resumed; the proposal says why."""
+    state = world()
+    current = await _started(state, permissions=ManagerPermissions(may_pause_sleeves=True))
+    pid = current.portfolio.portfolio_id
+    await state.proposals.submit(pid, _sleeve_change(current, "pause_sleeve"), channel="api")
+    strategy_id = current.sleeves[0].sleeve.strategy_id
+    book = next(item for item in await state.tagged(pid) if item.strategy_id == strategy_id)
+    assert book.status is DeploymentStatus.PAUSED
+    loaded = await state.strategies.load(book.strategy_fingerprint or "")
+    document = json.loads(canonical_strategy_bytes(loaded.definition))
+    legacy = await state.strategies.record_snapshot(
+        StrategyDefinition.model_validate(without_warmup_policy(document))
+    )
+    await state.execution.save_deployment(
+        replace(book, strategy_fingerprint=legacy.strategy_fingerprint)
+    )
+    resume = await state.proposals.submit(
+        pid, _sleeve_change(current, "resume_sleeve"), channel="api"
+    )
+    decided = await state.proposals.approve(
+        pid, resume.proposal.proposal_id, ProposalDecisionRequest(), context=operator()
+    )
+    assert decided.proposal.status == "failed"
+    assert decided.proposal.failure_code == "portfolio_sleeve_action_failed"
+    assert str(decided.proposal.failure_message).startswith("WARMUP_POLICY_REQUIRED: ")
+    still = next(item for item in await state.tagged(pid) if item.id == book.id)
+    assert still.status is DeploymentStatus.PAUSED
 
 
 async def test_add_sleeve_needs_the_permission_to_propose_and_then_approval() -> None:

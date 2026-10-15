@@ -60,7 +60,13 @@ async def test_a_snapshot_without_the_policy_cannot_start() -> None:
     message = str(caught.value)
     assert message.startswith(f"{WARMUP_POLICY_REQUIRED}: ")
     assert "Nothing was started" in message
-    assert f"show-strategy --strategy-id {definition.strategy_id}" in message
+    assert str(definition.strategy_id) in message
+    assert "thytrader-research show-strategy" in message
+    assert "save-strategy --revision N --confirm" in message
+    longest = _plain().model_copy(update={"name": "N" * 120})
+    for action in ("started", "resumed"):
+        # Portfolio proposals keep at most 500 characters of a refusal.
+        assert len(convergence_policy_message(longest, action=action)) <= 500
     assert await store.list_deployments() == ()
 
 
@@ -102,7 +108,7 @@ async def test_resuming_a_book_without_the_policy_is_refused() -> None:
     message = str(caught.value)
     assert message.startswith(f"{WARMUP_POLICY_REQUIRED}: ")
     assert "Nothing was resumed" in message
-    assert "as a new bot after stopping this one" in message
+    assert message.endswith("stop this bot, then start the strategy anew.")
     current = await store.get_deployment(deployment.id)
     assert current.deployment.status is DeploymentStatus.PAUSED
 
@@ -165,11 +171,11 @@ def test_an_unreachable_convergence_warmup_says_to_shorten_the_indicator() -> No
     )
     definition = StrategyDefinition.model_validate(document)
     message = convergence_policy_message(definition, action="started")
-    assert "more than the 10000 a strategy can declare" in message
+    assert "over the 10000 it can declare" in message
     assert "Shorten its slowest indicator" in message
     assert "save-strategy" not in message
     resumed = convergence_policy_message(definition, action="resumed")
-    assert resumed.endswith("then start it as a new bot after stopping this one.")
+    assert resumed.endswith("stop this bot, then start the strategy anew.")
 
 
 async def test_a_resume_whose_snapshot_cannot_load_fails_closed() -> None:
