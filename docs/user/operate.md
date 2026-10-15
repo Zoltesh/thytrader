@@ -401,8 +401,9 @@ custom evaluation dates; its summary line always shows the current slippage, spr
 period. Omitting
 both evaluation dates on submit uses the common LTF+HTF (and extra-clock) covered intersection
 rather than the LTF range alone. When Coinbase credentials are present, maker/taker fields prefill
-from your account's reported Coinbase rates (what live fills are billed at) and stay editable; the
-public fee-schedule band for the same volume is shown only as context on hover. Demo or missing
+from your account's reported Coinbase rates (what live fills are billed at) and stay editable;
+hovering shows Coinbase's next tier for your account (its rates and the 30-day volume it starts
+at) and your progress toward it. Demo or missing
 credentials leave those fields blank rather than inventing a tier. An opened result has a **Why so
 few trades?** disclosure (open by default when a result has no trades): signals matched → entries
 rested → filled, entries that expired or were still resting at the end, and how many matched

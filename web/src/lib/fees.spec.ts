@@ -4,7 +4,7 @@ import {
 	feeRatesMatch,
 	formatFeeProfileAsOf,
 	formatResearchFeeSourceChip,
-	formatScheduleContext,
+	formatTierContext,
 	readResearchFeeSuggestion,
 	researchFeeFieldSource,
 	shouldPrefillPaperFeeRates,
@@ -14,56 +14,71 @@ import {
 } from './fees';
 
 const suggestedProfile: FeeProfile = {
-	taker_fee_rate: '0.0040',
-	maker_fee_rate: '0.0025',
+	taker_fee_rate: '0.0075',
+	maker_fee_rate: '0.0035',
 	usd_volume_30d: '25000',
-	fee_tier: 'Tier 2 ($10k-$50k)',
+	fee_tier: 'Advanced 1',
 	as_of: '2026-09-13T16:00:00Z',
 	source: 'coinbase',
-	suggested_maker_fee_rate: '0.0025',
-	suggested_taker_fee_rate: '0.0040',
+	suggested_maker_fee_rate: '0.0035',
+	suggested_taker_fee_rate: '0.0075',
 	suggestion_source: 'coinbase_account',
 	suggestion_unavailable_reason: null,
-	suggestion_fee_tier: 'Tier 2 ($10k-$50k)',
-	suggestion_schedule_tier_id: 'usd-10k-50k',
-	suggestion_schedule_version: 'coinbase-advanced-spot-fees-v1',
-	suggestion_schedule_as_of: '2026-09-13',
-	schedule_maker_fee_rate: '0.0025',
-	schedule_taker_fee_rate: '0.0040',
-	suggestion_fetched_at: '2026-09-13T16:00:00Z'
+	suggestion_fee_tier: 'Advanced 1',
+	suggestion_fetched_at: '2026-09-13T16:00:00Z',
+	next_tier: {
+		pricing_tier: 'Advanced 2',
+		maker_fee_rate: '0.0015',
+		taker_fee_rate: '0.003',
+		spot_volume_from: '50000',
+		spot_volume_to: '100000'
+	},
+	qualification: 'spot_volume',
+	qualification_value: '25000',
+	next_tier_threshold: '50000'
 };
 
 const suggestion: ResearchFeeSuggestion = {
-	makerFeeRate: '0.0025',
-	takerFeeRate: '0.0040',
-	feeTier: 'Tier 2 ($10k-$50k)',
-	scheduleTierId: 'usd-10k-50k',
-	scheduleVersion: 'coinbase-advanced-spot-fees-v1',
-	scheduleAsOf: '2026-09-13',
-	scheduleMakerFeeRate: '0.0025',
-	scheduleTakerFeeRate: '0.0040',
-	fetchedAt: '2026-09-13T16:00:00Z'
+	makerFeeRate: '0.0035',
+	takerFeeRate: '0.0075',
+	feeTier: 'Advanced 1',
+	fetchedAt: '2026-09-13T16:00:00Z',
+	nextTier: 'Advanced 2 from $50,000 30-day spot volume: 0.0015 maker / 0.003 taker (now $25,000)'
 };
 
 describe('account-rate suggestions (ADR 0090)', () => {
-	it('prefills the account rates, not the cheaper public schedule band', () => {
+	it("prefills the account rates and names Coinbase's next tier (ADR 0144)", () => {
 		const intro = readResearchFeeSuggestion({
 			...suggestedProfile,
 			maker_fee_rate: '0.005',
 			taker_fee_rate: '0.009',
-			usd_volume_30d: '24',
-			fee_tier: 'Intro 1',
+			usd_volume_30d: '710.4',
+			fee_tier: 'Intro',
 			suggested_maker_fee_rate: '0.005',
 			suggested_taker_fee_rate: '0.009',
-			suggestion_fee_tier: 'Intro 1',
-			suggestion_schedule_tier_id: 'usd-0-10k',
-			schedule_maker_fee_rate: '0.0040',
-			schedule_taker_fee_rate: '0.0060'
+			suggestion_fee_tier: 'Intro',
+			next_tier: {
+				pricing_tier: 'Advanced 1',
+				maker_fee_rate: '0.0035',
+				taker_fee_rate: '0.0075',
+				spot_volume_from: '10000',
+				spot_volume_to: '50000'
+			},
+			qualification_value: '710.4',
+			next_tier_threshold: '10000'
 		});
 		expect(intro?.makerFeeRate).toBe('0.005');
 		expect(intro?.takerFeeRate).toBe('0.009');
-		expect(intro === null ? '' : formatScheduleContext(intro)).toBe(
-			'Account rates (Intro 1). Public schedule band usd-0-10k: 0.0040 maker / 0.0060 taker — context only, coinbase-advanced-spot-fees-v1.'
+		expect(intro === null ? '' : formatTierContext(intro)).toBe(
+			'Account rates (Intro), as Coinbase bills them. Next tier Advanced 1 from $10,000 30-day spot volume: 0.0035 maker / 0.0075 taker (now $710).'
+		);
+	});
+
+	it('says nothing about a next tier Coinbase does not report', () => {
+		const top = readResearchFeeSuggestion({ ...suggestedProfile, next_tier: null });
+		expect(top?.nextTier).toBe('');
+		expect(top === null ? '' : formatTierContext(top)).toBe(
+			'Account rates (Advanced 1), as Coinbase bills them.'
 		);
 	});
 
@@ -92,7 +107,7 @@ describe('formatFeeProfileAsOf', () => {
 });
 
 describe('readResearchFeeSuggestion', () => {
-	it('reads schedule-backed suggestion fields', () => {
+	it('reads account suggestion fields and the next tier', () => {
 		expect(readResearchFeeSuggestion(suggestedProfile)).toEqual(suggestion);
 	});
 
@@ -160,8 +175,8 @@ describe('research fee field source', () => {
 		};
 		expect(
 			researchFeeFieldSource({
-				makerFeeRate: '0.0025',
-				takerFeeRate: '0.0040',
+				makerFeeRate: '0.0035',
+				takerFeeRate: '0.0075',
 				applied: suggestion,
 				latest: suggestion,
 				loading: false
@@ -169,8 +184,8 @@ describe('research fee field source', () => {
 		).toBe('suggested');
 		expect(
 			researchFeeFieldSource({
-				makerFeeRate: '0.0025',
-				takerFeeRate: '0.0040',
+				makerFeeRate: '0.0035',
+				takerFeeRate: '0.0075',
 				applied: suggestion,
 				latest: later,
 				loading: false
@@ -234,8 +249,8 @@ describe('shouldPrefillPaperFeeRates', () => {
 		).toBe(false);
 		expect(
 			shouldPrefillPaperFeeRates({
-				makerFeeRate: '0.0025',
-				takerFeeRate: '0.0040',
+				makerFeeRate: '0.0035',
+				takerFeeRate: '0.0075',
 				touched: false,
 				suggestion
 			})

@@ -2,7 +2,8 @@
  * Typed API client for Coinbase fee tiers and research/paper maker/taker suggestions.
  *
  * With credentials the suggestion is the account's own reported Coinbase rates (what
- * live fills are billed at); the pinned public schedule band is context only (ADR 0090).
+ * live fills are billed at, ADR 0090). The next tier and the account's progress toward it
+ * are Coinbase's own report (ADR 0144); no schedule is pinned here.
  */
 
 import { compareDecimalStrings } from './portfolio';
@@ -33,24 +34,32 @@ export interface FeeProfile {
 	suggestion_source?: 'coinbase_account' | 'unavailable';
 	suggestion_unavailable_reason?: 'demo_or_missing_credentials' | null;
 	suggestion_fee_tier?: string | null;
-	suggestion_schedule_tier_id?: string | null;
-	suggestion_schedule_version?: string | null;
-	suggestion_schedule_as_of?: string | null;
-	schedule_maker_fee_rate?: string | null;
-	schedule_taker_fee_rate?: string | null;
 	suggestion_fetched_at?: string | null;
+	current_tier?: FeeTier | null;
+	next_tier?: FeeTier | null;
+	qualification?: string | null;
+	qualification_value?: string | null;
+	next_tier_threshold?: string | null;
+}
+
+/** One Coinbase pricing tier as the account's transaction summary reports it. */
+export interface FeeTier {
+	pricing_tier: string;
+	maker_fee_rate: string;
+	taker_fee_rate: string;
+	spot_volume_from?: string | null;
+	spot_volume_to?: string | null;
+	assets_from?: string | null;
+	assets_to?: string | null;
 }
 
 export interface ResearchFeeSuggestion {
 	makerFeeRate: string;
 	takerFeeRate: string;
 	feeTier: string;
-	scheduleTierId: string;
-	scheduleVersion: string;
-	scheduleAsOf: string;
-	scheduleMakerFeeRate: string;
-	scheduleTakerFeeRate: string;
 	fetchedAt: string;
+	/** Coinbase's next tier, e.g. "Advanced 1 from $10,000 30-day spot volume: …"; '' at the top. */
+	nextTier: string;
 }
 
 export type ResearchFeeFieldSource =
@@ -87,40 +96,47 @@ export function readResearchFeeSuggestion(profile: FeeProfile): ResearchFeeSugge
 	const maker = profile.suggested_maker_fee_rate?.trim() ?? '';
 	const taker = profile.suggested_taker_fee_rate?.trim() ?? '';
 	const feeTier = profile.suggestion_fee_tier?.trim() ?? '';
-	const scheduleVersion = profile.suggestion_schedule_version?.trim() ?? '';
 	const fetchedAt = profile.suggestion_fetched_at?.trim() ?? '';
-	if (
-		maker === '' ||
-		taker === '' ||
-		feeTier === '' ||
-		scheduleVersion === '' ||
-		fetchedAt === ''
-	) {
+	if (maker === '' || taker === '' || feeTier === '' || fetchedAt === '') {
 		return null;
 	}
 	return {
 		makerFeeRate: maker,
 		takerFeeRate: taker,
 		feeTier,
-		scheduleTierId: profile.suggestion_schedule_tier_id?.trim() ?? '',
-		scheduleVersion,
-		scheduleAsOf: profile.suggestion_schedule_as_of?.trim() ?? '',
-		scheduleMakerFeeRate: profile.schedule_maker_fee_rate?.trim() ?? '',
-		scheduleTakerFeeRate: profile.schedule_taker_fee_rate?.trim() ?? '',
-		fetchedAt
+		fetchedAt,
+		nextTier: describeNextTier(profile)
 	};
 }
 
+/** Coinbase's next tier and the account's progress toward it, or '' when not reported. */
+export function describeNextTier(profile: FeeProfile): string {
+	const next = profile.next_tier;
+	if (next === null || next === undefined || next.pricing_tier.trim() === '') {
+		return '';
+	}
+	const rates = `${next.maker_fee_rate} maker / ${next.taker_fee_rate} taker`;
+	const threshold = profile.next_tier_threshold?.trim() ?? '';
+	const current = profile.qualification_value?.trim() ?? '';
+	const basis = profile.qualification === 'spot_volume' ? '30-day spot volume' : 'qualification';
+	const from = threshold === '' ? '' : ` from ${usd(threshold)} ${basis}`;
+	const progress = current === '' ? '' : ` (now ${usd(current)})`;
+	return `${next.pricing_tier}${from}: ${rates}${progress}`;
+}
+
+function usd(text: string): string {
+	const value = Number(text);
+	return Number.isFinite(value)
+		? `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+		: text;
+}
+
 /**
- * Context line for the public schedule band; the account rates are what gets prefilled.
+ * Context line for the fee fields: the account rates prefilled, and Coinbase's next tier.
  */
-export function formatScheduleContext(suggestion: ResearchFeeSuggestion): string {
-	const band = suggestion.scheduleTierId === '' ? '' : ` ${suggestion.scheduleTierId}`;
-	const rates =
-		suggestion.scheduleMakerFeeRate === '' || suggestion.scheduleTakerFeeRate === ''
-			? ''
-			: `: ${suggestion.scheduleMakerFeeRate} maker / ${suggestion.scheduleTakerFeeRate} taker`;
-	return `Account rates (${suggestion.feeTier}). Public schedule band${band}${rates} — context only, ${suggestion.scheduleVersion}.`;
+export function formatTierContext(suggestion: ResearchFeeSuggestion): string {
+	const next = suggestion.nextTier === '' ? '' : ` Next tier ${suggestion.nextTier}.`;
+	return `Account rates (${suggestion.feeTier}), as Coinbase bills them.${next}`;
 }
 
 /**

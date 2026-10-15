@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from requests import HTTPError, RequestException, Timeout
 
 from thytrader.exchanges.coinbase_cfm_preview import CoinbaseCfmFeePreview, FuturesFeePreview
+from thytrader.exchanges.coinbase_fee_tiers import tier_ladder
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.exchanges.read_errors import (
@@ -461,6 +462,7 @@ class CoinbaseAccount:
             fee_tier=pricing_tier,
             as_of=datetime.now(UTC),
             source="coinbase",
+            **tier_ladder(payload),
         )
 
     @staticmethod

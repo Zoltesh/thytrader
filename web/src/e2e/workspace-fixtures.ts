@@ -253,11 +253,6 @@ export function suggestedFeeProfile(
 		suggestion_source: 'coinbase_account',
 		suggestion_unavailable_reason: null,
 		suggestion_fee_tier: 'Tier 2 ($10k-$50k)',
-		suggestion_schedule_tier_id: 'usd-10k-50k',
-		suggestion_schedule_version: 'coinbase-advanced-spot-fees-v1',
-		suggestion_schedule_as_of: '2026-09-13',
-		schedule_maker_fee_rate: '0.0025',
-		schedule_taker_fee_rate: '0.0040',
 		suggestion_fetched_at: '2026-09-13T16:00:00Z',
 		...overrides
 	};

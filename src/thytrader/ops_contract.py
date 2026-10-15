@@ -133,7 +133,9 @@ Alembic 0078, ADR 0141), or start checks (``WARMUP_POLICY_MISSING`` / ``HISTORY_
 and the risk policy's opt-in ``start_safeguards``; ADR 0142), or live-start evidence (the
 ``live_start_evidence`` table of Alembic 0079, ``live_evidence`` on live start responses,
 ``GET /deployments/{id}/live-evidence``, ``LIVE_EVIDENCE_THIN`` / ``LIVE_EVIDENCE_REQUIRED``
-and the ``require_live_evidence`` / ``live_evidence`` safeguards; ADR 0143) change.
+and the ``require_live_evidence`` / ``live_evidence`` safeguards; ADR 0143), or the fee
+report (``current_tier`` / ``next_tier`` and qualification from Coinbase replace the pinned
+``schedule_*`` fields; ADR 0144) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -162,7 +164,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v103"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v104"
 EXPECTED_SCHEMA_REVISION = "0079"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (

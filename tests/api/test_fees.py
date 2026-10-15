@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from thytrader.api.app import create_app
 from thytrader.config import Settings
+from thytrader.exchanges.fees import FeeProfile, FeeTierBand
 from thytrader.portfolio.demo import DemoExchangeAccount
 from thytrader.portfolio.service import PortfolioService
 
@@ -35,10 +36,9 @@ def test_fees_endpoint_demo_service_returns_fee_profile() -> None:
     assert data["suggestion_source"] == "unavailable"
     assert data["suggestion_unavailable_reason"] == "demo_or_missing_credentials"
     assert data["suggestion_fee_tier"] is None
-    assert data["suggestion_schedule_tier_id"] is None
-    assert data["suggestion_schedule_version"] is None
-    assert data["suggestion_schedule_as_of"] is None
     assert data["suggestion_fetched_at"] is None
+    assert data["next_tier"] is None
+    assert "suggestion_schedule_tier_id" not in data
 
 
 def test_fees_endpoint_service_failure_returns_redacted_502() -> None:
@@ -210,7 +210,7 @@ def test_fees_endpoint_rejects_forged_zero_offset_non_utc_datetime() -> None:
 
 
 def test_fees_endpoint_live_service_returns_account_rate_suggestions() -> None:
-    """With credentials, GET /api/v1/fees prefills the account's rates plus schedule context."""
+    """With credentials, GET /api/v1/fees prefills the account's rates and Coinbase's next tier."""
 
     class LiveFeeExchange:
         async def list_balances(self) -> Any:
@@ -224,13 +224,23 @@ def test_fees_endpoint_live_service_returns_account_rate_suggestions() -> None:
             return None
 
         async def get_fee_profile(self) -> Any:
-            return SimpleNamespace(
-                taker_fee_rate=Decimal("0.0040"),
-                maker_fee_rate=Decimal("0.0025"),
+            return FeeProfile(
+                taker_fee_rate=Decimal("0.0075"),
+                maker_fee_rate=Decimal("0.0035"),
                 usd_volume_30d=Decimal("25000"),
-                fee_tier="Tier 2 ($10k-$50k)",
+                fee_tier="Advanced 1",
                 as_of=datetime(2026, 9, 13, 16, 0, tzinfo=UTC),
                 source="coinbase",
+                next_tier=FeeTierBand(
+                    pricing_tier="Advanced 2",
+                    maker_fee_rate=Decimal("0.0015"),
+                    taker_fee_rate=Decimal("0.003"),
+                    spot_volume_from=Decimal("50000"),
+                    spot_volume_to=Decimal("100000"),
+                ),
+                qualification="spot_volume",
+                qualification_value=Decimal("25000"),
+                next_tier_threshold=Decimal("50000"),
             )
 
     service = PortfolioService(LiveFeeExchange(), demo=False)  # type: ignore[arg-type]
@@ -241,17 +251,16 @@ def test_fees_endpoint_live_service_returns_account_rate_suggestions() -> None:
 
     assert response.status_code == 200
     data = response.json()
-    assert data["fee_tier"] == "Tier 2 ($10k-$50k)"
-    assert data["maker_fee_rate"] == "0.0025"
-    assert data["taker_fee_rate"] == "0.0040"
-    assert data["suggested_maker_fee_rate"] == "0.0025"
-    assert data["suggested_taker_fee_rate"] == "0.0040"
+    assert data["fee_tier"] == "Advanced 1"
+    assert data["suggested_maker_fee_rate"] == "0.0035"
+    assert data["suggested_taker_fee_rate"] == "0.0075"
     assert data["suggestion_source"] == "coinbase_account"
     assert data["suggestion_unavailable_reason"] is None
-    assert data["suggestion_fee_tier"] == "Tier 2 ($10k-$50k)"
-    assert data["suggestion_schedule_tier_id"] == "usd-10k-50k"
-    assert data["schedule_maker_fee_rate"] == "0.0025"
-    assert data["schedule_taker_fee_rate"] == "0.0040"
-    assert data["suggestion_schedule_version"] == "coinbase-advanced-spot-fees-v1"
-    assert data["suggestion_schedule_as_of"] == "2026-09-13"
+    assert data["suggestion_fee_tier"] == "Advanced 1"
     assert data["suggestion_fetched_at"] == "2026-09-13T16:00:00Z"
+    assert data["next_tier"]["pricing_tier"] == "Advanced 2"
+    assert data["next_tier"]["maker_fee_rate"] == "0.0015"
+    assert data["next_tier"]["taker_fee_rate"] == "0.003"
+    assert data["next_tier"]["spot_volume_from"] == "50000"
+    assert data["qualification"] == "spot_volume"
+    assert data["next_tier_threshold"] == "50000"

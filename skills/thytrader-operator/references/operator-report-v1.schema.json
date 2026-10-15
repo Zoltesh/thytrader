@@ -4057,9 +4057,82 @@
       "title": "ExitRuleTrace",
       "type": "object"
     },
+    "FeeTierPayload": {
+      "additionalProperties": false,
+      "description": "One Coinbase pricing tier as the account's transaction summary reports it (ADR 0144).\n\nVolume and asset bounds are decimal strings; a null upper bound is open-ended.",
+      "properties": {
+        "pricing_tier": {
+          "title": "Pricing Tier",
+          "type": "string"
+        },
+        "maker_fee_rate": {
+          "title": "Maker Fee Rate",
+          "type": "string"
+        },
+        "taker_fee_rate": {
+          "title": "Taker Fee Rate",
+          "type": "string"
+        },
+        "spot_volume_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spot Volume From"
+        },
+        "spot_volume_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spot Volume To"
+        },
+        "assets_from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assets From"
+        },
+        "assets_to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assets To"
+        }
+      },
+      "required": [
+        "pricing_tier",
+        "maker_fee_rate",
+        "taker_fee_rate"
+      ],
+      "title": "FeeTierPayload",
+      "type": "object"
+    },
     "FeesPayload": {
       "additionalProperties": false,
-      "description": "Coinbase fee tier plus the research/paper prefill (account rates) and schedule context.\n\n``futures`` is the separate futures fee evidence (never merged into the spot rates).",
+      "description": "Coinbase fee tier, the research/paper prefill (account rates) and the tier ladder.\n\n``futures`` is the separate futures fee evidence (never merged into the spot rates).",
       "properties": {
         "taker_fee_rate": {
           "title": "Taker Fee Rate",
@@ -4144,66 +4217,6 @@
           "default": null,
           "title": "Suggestion Fee Tier"
         },
-        "suggestion_schedule_tier_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Suggestion Schedule Tier Id"
-        },
-        "suggestion_schedule_version": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Suggestion Schedule Version"
-        },
-        "suggestion_schedule_as_of": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Suggestion Schedule As Of"
-        },
-        "schedule_maker_fee_rate": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Schedule Maker Fee Rate"
-        },
-        "schedule_taker_fee_rate": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Schedule Taker Fee Rate"
-        },
         "suggestion_fetched_at": {
           "anyOf": [
             {
@@ -4216,6 +4229,64 @@
           ],
           "default": null,
           "title": "Suggestion Fetched At"
+        },
+        "current_tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeeTierPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "next_tier": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FeeTierPayload"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "qualification": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qualification"
+        },
+        "qualification_value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qualification Value"
+        },
+        "next_tier_threshold": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Tier Threshold"
         },
         "futures": {
           "anyOf": [

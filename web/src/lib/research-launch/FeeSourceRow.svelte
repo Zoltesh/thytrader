@@ -5,7 +5,7 @@
 	 * back to the latest suggested rates.
 	 */
 	import {
-		formatScheduleContext,
+		formatTierContext,
 		type ResearchFeeFieldSource,
 		type ResearchFeeSuggestion
 	} from '$lib/fees';
@@ -33,7 +33,7 @@
 		class:custom={feeFieldSource === 'custom'}
 		class:stale={feeFieldSource === 'stale-suggestion'}
 		data-testid="research-fee-source"
-		title={latestFeeSuggestion !== null ? formatScheduleContext(latestFeeSuggestion) : undefined}
+		title={latestFeeSuggestion !== null ? formatTierContext(latestFeeSuggestion) : undefined}
 		>{feeSourceChip}</span
 	>
 	<button class="secondary fee-source-action" type="button" onclick={() => onreload()}

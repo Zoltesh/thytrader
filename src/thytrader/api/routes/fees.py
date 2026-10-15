@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 import logging
 from typing import TYPE_CHECKING, Annotated, Literal
@@ -11,7 +11,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from thytrader.api.dependencies import get_portfolio_service
-from thytrader.exchanges.fee_schedule import suggest_research_fee_rates
+from thytrader.exchanges.fee_suggestions import suggest_research_fee_rates
+from thytrader.exchanges.fees import FeeTierBand
 from thytrader.portfolio.service import (
     PortfolioService,
 )
@@ -32,8 +33,9 @@ class FeeProfileResponse(_FrozenResponseModel):
 
     ``maker_fee_rate`` / ``taker_fee_rate`` are the account's Coinbase snapshot. With
     credentials, ``suggested_*`` equal those account rates (``suggestion_source`` is
-    ``coinbase_account``, ADR 0090); ``schedule_*`` report the pinned public band for the
-    same volume as context only. Demo or missing credentials suggest nothing (null).
+    ``coinbase_account``, ADR 0090). ``current_tier`` / ``next_tier`` and the qualification
+    progress are Coinbase's own tier ladder for this account (ADR 0144); null when Coinbase
+    does not report it. Demo or missing credentials suggest nothing (null).
     """
 
     taker_fee_rate: Decimal = Field(ge=Decimal("0"), le=Decimal("1"))
@@ -47,12 +49,20 @@ class FeeProfileResponse(_FrozenResponseModel):
     suggestion_source: Literal["coinbase_account", "unavailable"]
     suggestion_unavailable_reason: Literal["demo_or_missing_credentials"] | None = None
     suggestion_fee_tier: str | None = Field(default=None, min_length=1, max_length=64)
-    suggestion_schedule_tier_id: str | None = Field(default=None, min_length=1, max_length=32)
-    suggestion_schedule_version: str | None = Field(default=None, min_length=1, max_length=64)
-    suggestion_schedule_as_of: date | None = None
-    schedule_maker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
-    schedule_taker_fee_rate: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("1"))
     suggestion_fetched_at: datetime | None = None
+    current_tier: FeeTierBand | None = None
+    next_tier: FeeTierBand | None = Field(
+        default=None, description="The next tier up as Coinbase reports it; null at the top."
+    )
+    qualification: str | None = Field(
+        default=None, description="How this account's tier is reached, e.g. spot_volume."
+    )
+    qualification_value: Decimal | None = Field(
+        default=None, description="The account's current value for that qualification."
+    )
+    next_tier_threshold: Decimal | None = Field(
+        default=None, description="The qualification value at which the next tier starts."
+    )
 
     @field_validator("as_of")
     @classmethod
@@ -144,10 +154,10 @@ def _fee_profile_response(profile: FeeProfile, *, demo: bool) -> FeeProfileRespo
         suggestion_source=suggestion.source,
         suggestion_unavailable_reason=suggestion.unavailable_reason,
         suggestion_fee_tier=suggestion.fee_tier,
-        suggestion_schedule_tier_id=suggestion.schedule_tier_id,
-        suggestion_schedule_version=suggestion.schedule_version,
-        suggestion_schedule_as_of=suggestion.schedule_as_of,
-        schedule_maker_fee_rate=suggestion.schedule_maker_fee_rate,
-        schedule_taker_fee_rate=suggestion.schedule_taker_fee_rate,
         suggestion_fetched_at=suggestion.fetched_at,
+        current_tier=profile.current_tier,
+        next_tier=profile.next_tier,
+        qualification=profile.qualification,
+        qualification_value=profile.qualification_value,
+        next_tier_threshold=profile.next_tier_threshold,
     )
