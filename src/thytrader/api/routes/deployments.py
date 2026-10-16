@@ -30,7 +30,10 @@ from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.live_evidence_wiring import get_live_evidence_store
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_adoption import start_adopting
-from thytrader.api.routes.deployment_futures_start import futures_start_fields
+from thytrader.api.routes.deployment_futures_start import (
+    futures_start_fields,
+    require_live_futures_ack_first,
+)
 from thytrader.api.routes.deployment_live_evidence import assess_live_start
 from thytrader.api.routes.deployment_models import (
     CreateDeploymentRequest,
@@ -175,6 +178,7 @@ async def post_deployment(
     opt-in ``require_live_evidence`` safeguard.
     """
     require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
+    await require_live_futures_ack_first(body, strategies)
     # The snapshot below reports a missing or unavailable strategy precisely.
     with suppress(StrategyLibraryError):
         await adopt_warmup_policy_for_start(strategies, body.strategy_id)

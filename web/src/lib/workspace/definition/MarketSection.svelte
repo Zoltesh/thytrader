@@ -203,7 +203,7 @@
 	</div>
 	<div class="hint">
 		{futures
-			? 'A Coinbase CFM futures contract, settled in USD. Futures run as backtests and paper books only; there is no live futures path.'
+			? 'A Coinbase CFM futures contract, settled in USD. Futures run as backtests and paper books here; live futures books start from the CLI only.'
 			: "Coinbase spot, quoted in the product's own currency (for example USD or USDC)."} Research, paper,
 		and live use any ingested venue clock (this strategy uses {model.timeframe} candles). Sub-hour live
 		requires a connected user-order feed. Optional HTF filters may use a strictly coarser integer-multiple

@@ -9,9 +9,12 @@ or order on the product, the catalog contract size and a perp. Every refusal cre
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -22,24 +25,35 @@ from tests.api.test_paper_futures_runtime_lane import _OPEN, _Catalog
 from tests.execution.test_paper_futures_books import _PERP, _observation, _policy, _strategy
 from tests.market_history import listed_history
 from thytrader.api.app import create_app
+from thytrader.api.routes import deployments
 from thytrader.config import Settings
 from thytrader.evaluation.futures_spec import contract_from_observation
 from thytrader.execution import futures_live_start, futures_start, service
 from thytrader.execution.futures_live import FuturesLiveAccount
 from thytrader.execution.futures_start import FuturesStart, FuturesStartTerms
 from thytrader.execution.paper import PaperBroker
+from thytrader.market_data.models import Candle
 from thytrader.risk.futures_live import FuturesVenueEvidence
 from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.store import InMemoryRiskPolicyStore
 from thytrader.strategies.library import create_strategy_from_definition
 from thytrader.strategies.memory_store import InMemoryStrategyStore
 from thytrader.trading.futures_book import InMemoryFuturesContractStore
+from thytrader.trading.ids import uuid7
 from thytrader.trading.memory import InMemoryExecutionStore
-from thytrader.trading.models import DeploymentMode
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentStatus,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from thytrader.market_data.service import MarketDataService
     from thytrader.risk.models import RiskPolicyDefinition
 
 _SIZE = Decimal(contract_from_observation(_observation()).contract_size)
@@ -53,23 +67,29 @@ class _Source:
         self.positions: dict[str, Decimal] = {}
         self.external: frozenset[str] = frozenset()
         self.reads = 0
+        self.delay = 0.0
+        self.managed: frozenset[tuple[str, str]] = frozenset()
+        self.observed_at = _OPEN
+        self.killswitch: bool | None = False
 
     async def read_account(
         self,
         managed_client_ids: frozenset[tuple[str, str]],
         product_ids: frozenset[str] = frozenset(),
     ) -> FuturesLiveAccount:
-        """Return fresh evidence for the perp."""
-        del managed_client_ids, product_ids
+        """Return fresh evidence for the perp after ``delay`` seconds."""
+        del product_ids
+        self.managed = managed_client_ids
         self.reads += 1
+        await asyncio.sleep(self.delay)
         return FuturesLiveAccount(
             venue=FuturesVenueEvidence(
-                observed_at=_OPEN,
+                observed_at=self.observed_at,
                 buying_power_usd=Decimal(5000),
                 initial_margin_usd=Decimal(0),
                 positions=dict(self.positions),
                 external_order_products=self.external,
-                killswitch_enabled=False,
+                killswitch_enabled=self.killswitch,
                 maintenance={},
                 contract_sizes={_PERP: _SIZE},
             ),
@@ -88,6 +108,7 @@ class _Live:
     execution: InMemoryExecutionStore
     contracts: InMemoryFuturesContractStore
     source: _Source
+    strategies: InMemoryStrategyStore
 
 
 def _live_policy(**changes: Any) -> RiskPolicyDefinition:
@@ -138,7 +159,9 @@ def _app(
     app.state.futures_start = FuturesStart(
         contracts=contracts, observations=_Catalog(), live_source=source
     )
-    return _Live(TestClient(app), strategy.strategy_id, execution, contracts, source or _Source())
+    return _Live(
+        TestClient(app), strategy.strategy_id, execution, contracts, source or _Source(), strategies
+    )
 
 
 @pytest.fixture
@@ -298,3 +321,135 @@ async def test_the_start_margin_is_one_contract_or_unknown(
     )
     margin = await futures_live_start._one_contract_margin(terms, listed_history())
     assert margin == expected
+
+
+def test_concurrent_live_futures_starts_cannot_both_pass_exclusivity(live: _Live) -> None:
+    """Two strategies racing on one perp: the start lock admits one, the other is occupied."""
+    second = _strategy().model_copy(update={"strategy_id": uuid7(_OPEN), "name": "Second perp"})
+    asyncio.run(create_strategy_from_definition(live.strategies, second))
+    live.source.delay = 0.2
+    bodies = (
+        _body(live.strategy_id, futures_capital_usd="600"),
+        _body(second.strategy_id, futures_capital_usd="600"),
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(
+            pool.map(lambda body: live.client.post("/api/v1/deployments", json=body), bodies)
+        )
+    codes = sorted(response.status_code for response in responses)
+    assert codes == [201, 409], [response.text for response in responses]
+    refused = next(response for response in responses if response.status_code == 409)
+    assert refused.json()["detail"].startswith("FUTURES_PRODUCT_OCCUPIED")
+    assert len(live.execution.deployments) == 1
+
+
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ({"observed_at": _OPEN - timedelta(seconds=181)}, "FUTURES_COLLATERAL_UNKNOWN"),
+        ({"killswitch": None}, "FUTURES_COLLATERAL_UNKNOWN"),
+        ({"killswitch": True}, "FUTURES_VENUE_KILLSWITCH"),
+    ],
+)
+def test_stale_or_unknown_venue_state_never_admits(
+    live: _Live, change: dict[str, object], code: str
+) -> None:
+    """I8: evidence older than 180 s or an unknown/enabled killswitch refuses the start."""
+    for key, value in change.items():
+        setattr(live.source, key, value)
+    refused = live.client.post("/api/v1/deployments", json=_body(live.strategy_id))
+    assert refused.status_code == 409
+    assert refused.json()["detail"].startswith(code)
+    assert live.execution.deployments == {}
+
+
+def test_a_stopped_books_leftover_orders_are_external(live: _Live) -> None:
+    """Only running or paused live futures books' orders count as ours at a new start."""
+    started = live.client.post("/api/v1/deployments", json=_body(live.strategy_id))
+    assert started.status_code == 201, started.text
+    book = live.execution.deployments[UUID(started.json()["id"])]
+    order = Order(
+        id=uuid7(_OPEN),
+        deployment_id=book.id,
+        intent_id=uuid7(_OPEN),
+        client_order_id="managed-client",
+        side=OrderSide.SELL,
+        kind=OrderKind.STOP_LIMIT,
+        quantity=_SIZE,
+        price=Decimal(90),
+        status=OrderStatus.OPEN,
+        created_at=_OPEN,
+        updated_at=_OPEN,
+        product_id=_PERP,
+    )
+    asyncio.run(live.execution.save_order(order))
+    second = _strategy().model_copy(update={"strategy_id": uuid7(_OPEN), "name": "Next perp"})
+    asyncio.run(create_strategy_from_definition(live.strategies, second))
+    live.client.post("/api/v1/deployments", json=_body(second.strategy_id))
+    assert (_PERP, "managed-client") in live.source.managed
+    asyncio.run(
+        live.execution.save_deployment(
+            replace(live.execution.deployments[book.id], status=DeploymentStatus.STOPPED)
+        )
+    )
+    live.client.post("/api/v1/deployments", json=_body(second.strategy_id))
+    assert (_PERP, "managed-client") not in live.source.managed
+
+
+def test_an_unacknowledged_live_futures_start_does_no_start_work(
+    live: _Live, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The futures 428 comes before the warmup re-save and the snapshot."""
+    calls: list[object] = []
+
+    async def adopt(store: object, strategy_id: object) -> bool:
+        del store
+        calls.append(strategy_id)
+        return False
+
+    monkeypatch.setattr(deployments, "adopt_warmup_policy_for_start", adopt)
+    refused = live.client.post(
+        "/api/v1/deployments", json=_body(live.strategy_id, i_understand_live_futures=None)
+    )
+    assert refused.status_code == 428
+    assert refused.json()["detail"].startswith("LIVE_FUTURES_ACK_REQUIRED")
+    assert calls == []
+
+
+@pytest.mark.anyio
+async def test_a_stale_hourly_price_leaves_the_start_margin_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A preview marked stale, or a close older than two hours, is no price at all."""
+    monkeypatch.setattr(futures_live_start, "utc_now", lambda: _OPEN)
+    candle = Candle(
+        starts_at=_OPEN - timedelta(hours=1),
+        open=Decimal(100),
+        high=Decimal(101),
+        low=Decimal(99),
+        close=Decimal(100),
+        volume=Decimal(1),
+    )
+
+    class _Preview:
+        def __init__(self, *, stale: bool, latest: datetime) -> None:
+            self.quality = SimpleNamespace(
+                candles=(candle,), is_stale=stale, latest_completed_at=latest
+            )
+
+    class _Market:
+        def __init__(self, preview: _Preview) -> None:
+            self.preview = preview
+
+        async def get_hourly_preview(self, product_id: str) -> _Preview:
+            del product_id
+            return self.preview
+
+    fresh = _Market(_Preview(stale=False, latest=_OPEN))
+    stale = _Market(_Preview(stale=True, latest=_OPEN))
+    old = _Market(_Preview(stale=False, latest=_OPEN - timedelta(hours=3)))
+    assert await futures_live_start._latest_close(
+        cast("MarketDataService", fresh), _PERP
+    ) == Decimal(100)
+    assert await futures_live_start._latest_close(cast("MarketDataService", stale), _PERP) is None
+    assert await futures_live_start._latest_close(cast("MarketDataService", old), _PERP) is None

@@ -22,7 +22,7 @@ export type LiveFuturesBook = {
 };
 
 export const LIVE_VISIBILITY_NOTE =
-	'Read-only live book evidence. Live starts remain disabled pending venue acceptance and the separate switch-on gate. Account USD totals are not allocated to this book or added to USDC.';
+	'Read-only live book evidence; this book trades real CFM contracts. Live futures books start and stop from the CLI. Account USD totals are not allocated to this book or added to USDC.';
 
 /** Every unknown is explicit; no settlement is inferred from a mirror counter. */
 export function liveFuturesGroup(book: FuturesBookPayload): FuturesFactGroup {

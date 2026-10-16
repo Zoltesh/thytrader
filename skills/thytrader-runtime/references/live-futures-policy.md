@@ -53,7 +53,7 @@ book's protection is confirmed cancelled. Watch it with `thytrader-runtime show 
 - `pause`/`resume` behave as for spot; `resume` needs `--i-understand-live`.
 - Futures-only disarm: publish the policy with `--futures-live-enabled false`. It refuses new
   live futures starts and entries; exits, protection, I9 and the margin de-risk keep running.
-  Fleet `disarm --mode live` also stops live spot entries.
+  `fleet-disarm --mode live` (see the runtime skill's fleet table) also stops live spot entries.
 - `FUTURES_POSITION_MISMATCH` (I9) pauses the book after two fresh valid mismatches. Compare
   `futures-books` with Coinbase; a proven excess of ours was already reduced and the book stays
   paused. Do not place manual orders on that perp: they make the position external. Resume only
@@ -123,8 +123,8 @@ Existing authentication/CSRF rules still apply. Policy publication never arms tr
 | `--futures-live-enabled true\|false` | `live_enabled` | Explicit opt-in; unset or false denies live futures risk. False is retained, not omitted. |
 | `--futures-live-capital-usd N` | `live_capital_usd` | Positive USD allocation envelope and basis for futures-scope daily loss/exposure; not buying power or spot capital. |
 | `--futures-product-allowlist PRODUCT` (repeatable) | `product_allowlist` | Up to 32 unique `CODE-DDMONYY-CDE` IDs. Live requires a nonempty list. A nonempty list also restricts paper futures. Spot uses the separate top-level allowlist. |
-| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], margin-monitor threshold on available margin / liquidation threshold. Exercised in the injected P2-4 runtime only; production activation is still refused. |
-| `--futures-live-funding-drift-tolerance-usd N` | `live_funding_drift_tolerance_usd` | Positive USD tolerance. Persisted now; alert wiring is P2-6. |
+| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], margin-monitor threshold on available margin / liquidation threshold. The live margin monitor de-risks a live futures book below it. |
+| `--futures-live-funding-drift-tolerance-usd N` | `live_funding_drift_tolerance_usd` | Positive USD tolerance for the `FUTURES_FUNDING_DRIFT` alert (P2-6). |
 | `--futures-max-order-contracts N` | `max_order_contracts` | Existing positive integer cap: live defaults to one contract when unset, for both the order and resulting position. Paper keeps its existing unset behavior. |
 
 The existing `--futures-live-spot-collateral-reserve-quote` and `--futures-peg-haircut`
@@ -215,5 +215,5 @@ Operational semantics of a live futures book:
 - Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
   missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
 
-Acknowledgements and start activation (P2-7) remain outstanding. Do not interpret
-a stored opt-in, a healthy spot report or a passing fake-runtime test as live futures readiness.
+A stored opt-in, a healthy spot report or a passing fake-runtime test is not a decision to trade:
+start a live futures book only through the acknowledged start above, with the operator's go-ahead.

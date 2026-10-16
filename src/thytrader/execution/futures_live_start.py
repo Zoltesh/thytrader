@@ -9,12 +9,14 @@ only) for the risk gate's I3/I8 checks; a failed read is unknown evidence, which
 from __future__ import annotations
 
 import contextlib
+from datetime import timedelta
 from decimal import Decimal, DecimalException
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_live import LiveFuturesStart
 from thytrader.trading.ids import utc_now
+from thytrader.trading.lifecycle import occupies_running_slot
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError, OrderStatus
 
 if TYPE_CHECKING:
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
     from thytrader.trading.store import ExecutionStore
 
 _ACTIVE = frozenset({OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN})
+_PRICE_MAX_AGE = timedelta(hours=2)
 
 
 def require_live_futures_capital(
@@ -75,15 +78,18 @@ async def live_futures_start(
     """
     product_id = terms.contract.product_id
     source = None if start is None else start.live_source
+    margin = await _one_contract_margin(terms, market_data)
     venue = await _venue_evidence(
         source, store=store, deployments=deployments, product_id=product_id
     )
+    # Admission time is taken after every awaited read, so the gate's 180 s freshness check
+    # covers all of them.
     return LiveFuturesStart(
         allocated_capital_usd=capital,
         contract=terms.contract,
         venue=venue,
         as_of=utc_now(),
-        proposed_initial_margin_usd=await _one_contract_margin(terms, market_data),
+        proposed_initial_margin_usd=margin,
     )
 
 
@@ -101,10 +107,18 @@ async def _one_contract_margin(
 
 
 async def _latest_close(market_data: MarketDataService, product_id: str) -> Decimal | None:
-    """The latest closed hourly close, or None when the read fails or has no candle."""
+    """The latest closed hourly close, or None when the read fails, is stale or has no candle.
+
+    The close must belong to a fresh preview and to one of the last two closed hours.
+    """
     with contextlib.suppress(RuntimeError, ValueError, TypeError, OSError, DecimalException):
-        candles = (await market_data.get_hourly_preview(product_id)).quality.candles
-        return candles[-1].close if candles else None
+        quality = (await market_data.get_hourly_preview(product_id)).quality
+        latest = quality.latest_completed_at
+        if quality.is_stale or not quality.candles or latest is None:
+            return None
+        if utc_now() - latest > _PRICE_MAX_AGE:
+            return None
+        return quality.candles[-1].close
     return None
 
 
@@ -115,13 +129,19 @@ async def _venue_evidence(
     deployments: tuple[Deployment, ...],
     product_id: str,
 ) -> FuturesVenueEvidence | None:
-    """One GET-only CFM read; orders of existing live futures books are not external."""
+    """One GET-only CFM read; orders of running or paused live futures books are not external.
+
+    A stopped book's leftover orders count as external, so a new start on that perp is refused
+    until they are gone (``close_position`` acts on the whole account position).
+    """
     if source is None:
         return None
     managed: set[tuple[str, str]] = set()
     for deployment in deployments:
-        if deployment.mode is not DeploymentMode.LIVE or not is_futures_product_id(
-            deployment.product_id
+        if (
+            deployment.mode is not DeploymentMode.LIVE
+            or not is_futures_product_id(deployment.product_id)
+            or not occupies_running_slot(deployment)
         ):
             continue
         snapshot = await store.get_deployment(deployment.id)

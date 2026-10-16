@@ -502,10 +502,19 @@ live start (fees, capital, HTTP 428, CLI, `FUTURES_ORDER_PATHS`).
   `futures_capital_usd` inside `futures.live_capital_usd` (the envelope check).
 - **Evidence.** The API reads the CFM account once per live start, GET only
   (`RecordedFuturesSource` on the request's current credentials): balance, positions, the
-  complete futures open-order listing (orders of existing live futures books are not external)
-  and the mirror's killswitch. The proposed initial margin is the smallest entry's, one contract
-  at the latest closed hourly price times the catalog's higher overnight rate; buying power and
-  the reserve must cover it (I8). Unknown inputs deny with `FUTURES_COLLATERAL_UNKNOWN`.
+  complete futures open-order listing (orders of running or paused live futures books are not
+  external; a stopped book's leftovers are) and the mirror's killswitch. The proposed initial
+  margin is the smallest entry's, one contract at the latest closed hourly price (a fresh preview,
+  closed within two hours) times the catalog's higher overnight rate; buying power and the
+  reserve must cover it (I8). The admission instant is taken after every read, so the 180 s
+  freshness covers them all. Unknown inputs deny with `FUTURES_COLLATERAL_UNKNOWN`.
+- **Atomic admission.** Live starts are serialized in the API process (the only creator of live
+  books) from their checks to the insert, so two concurrent starts cannot both pass product
+  exclusivity or the envelope.
+- **Acknowledgement first.** The futures 428 is returned from the stored strategy's product
+  before the warmup re-save, the snapshot or any read. Operator chat never forwards
+  `i_understand_live_futures` (or any undeclared tool argument): a live futures start is CLI or
+  direct HTTP only.
 - **Refusals** lead with their code (every risk refusal at start now reads `CODE: detail`).
   Missing capital is `FUTURES_CAPITAL_REQUIRED`; a sleeve is `FUTURES_LIVE_UNSUPPORTED`;
   adoption has no capital and is refused; a dated contract is `FUTURES_LIVE_DATED_UNSUPPORTED`.

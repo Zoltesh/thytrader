@@ -69,11 +69,18 @@ def test_show_reports_an_unreadable_futures_view_instead_of_inventing_it() -> No
     }
 
 
-def _live_start(*extra: str) -> tuple[pytest.ExceptionInfo[SystemExit], MagicMock]:
+def _live_start(
+    *extra: str, yolo: bool = False
+) -> tuple[pytest.ExceptionInfo[SystemExit], MagicMock]:
     """Run ``start --mode live`` with ``extra`` flags; return the exit and the request mock."""
+    status = (
+        orchestration_status_payload(yolo_enabled=True, yolo_tiers=("paper", "live"))
+        if yolo
+        else orchestration_status_payload()
+    )
     handlers = {
         "GET /health/ready": matching_ready_payload(),
-        "GET /api/v1/agent-orchestration": orchestration_status_payload(),
+        "GET /api/v1/agent-orchestration": status,
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
@@ -103,6 +110,10 @@ def test_a_live_futures_start_always_needs_confirm_and_forwards_its_terms() -> N
     terms = ("--fee-per-contract", "0.11", "--futures-capital-usd", "500")
     raised, request = _live_start(*terms, "--i-understand-live-futures")
     assert raised.value.code != 0
+    request.assert_not_called()
+    raised, request = _live_start(*terms, "--i-understand-live-futures", yolo=True)
+    assert raised.value.code != 0
+    assert "--confirm" in str(raised.value)
     request.assert_not_called()
     raised, request = _live_start(*terms, "--i-understand-live-futures", "--confirm")
     assert raised.value.code == 0

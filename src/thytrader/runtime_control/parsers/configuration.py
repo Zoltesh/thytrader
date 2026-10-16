@@ -324,7 +324,10 @@ def add_risk_policy_parsers(
         "--futures-live-enabled",
         choices=("true", "false"),
         default=None,
-        help="Persist live futures opt-in (ADR 0134). Starts remain FUTURES_LIVE_UNSUPPORTED.",
+        help=(
+            "Persist live futures opt-in (ADR 0134). Off refuses live futures starts and entries "
+            "with FUTURES_LIVE_DISABLED (a futures-only disarm); exits keep running."
+        ),
     )
     set_policy.add_argument(
         "--futures-product-allowlist",

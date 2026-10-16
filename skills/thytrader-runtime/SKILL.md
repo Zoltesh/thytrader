@@ -86,8 +86,8 @@ operator `runtime` expose `futures_derisk_pending` and `futures_flat_confirmatio
 present timestamp means verification is pending, not a successful venue read. Natural protective
 fills during managed shutdown (and closes applied before a stop command) create the same duty as
 explicit flatten; local flatness alone cannot retire supervision. Neither restart,
-resume nor recovered margin clears these duties; there is no manual-clear command. Live starts
-remain refused. See [live futures policy](references/live-futures-policy.md) and ADR 0135.
+resume nor recovered margin clears these duties; there is no manual-clear command. See
+[live futures policy](references/live-futures-policy.md) (start, stop/flatten, disarm) and ADR 0135.
 
 UTC day-open and high-water baselines persist
 across pause. Discover lease/lifecycle/latch fields on `thytrader-operator runtime` and capital

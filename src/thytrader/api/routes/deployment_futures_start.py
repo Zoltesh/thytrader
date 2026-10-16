@@ -7,6 +7,7 @@ acknowledgement on top of the live one. Each fee field belongs to one mode only.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -14,12 +15,15 @@ from fastapi import HTTPException, status
 
 from thytrader.api.live_ack import require_live_futures_acknowledgement
 from thytrader.execution.service import parse_decimal
+from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.strategies.library import StrategyLibraryError
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError
 
 if TYPE_CHECKING:
     from decimal import Decimal
 
     from thytrader.api.routes.deployment_models import CreateDeploymentRequest
+    from thytrader.strategies.library import StrategyStore
     from thytrader.strategies.models import StrategyDefinition
 
 
@@ -64,3 +68,19 @@ def futures_start_fields(
 def _conflict(detail: str) -> None:
     """Refuse a start whose fields contradict its mode."""
     raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+async def require_live_futures_ack_first(
+    body: CreateDeploymentRequest, strategies: StrategyStore
+) -> None:
+    """428 for an unacknowledged live futures start before any start work (ADR 0134 I1).
+
+    Runs before the warmup re-save and the snapshot, from the stored record's product. A
+    missing strategy is left to the snapshot's precise error.
+    """
+    if body.mode is not DeploymentMode.LIVE or body.i_understand_live_futures:
+        return
+    with suppress(StrategyLibraryError):
+        record = await strategies.get(body.strategy_id)
+        if record.product_id is not None and is_futures_product_id(record.product_id):
+            require_live_futures_acknowledgement(acknowledged=False)

@@ -16,6 +16,7 @@ from thytrader.execution.futures_start import (
 )
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.start_history import require_start_history, start_history_warning
+from thytrader.execution.start_lock import live_start_serialized
 from thytrader.execution.warmup_gate import convergence_policy_check
 from thytrader.market_data.lookback import max_watch_lookback_hours
 from thytrader.market_data.models import parse_candle_interval
@@ -109,37 +110,42 @@ async def create_deployment(
     (ADR 0134 P2-7) names its per-contract fee in ``paper_fee_per_contract`` and its USD
     capital in ``futures_capital_usd``, and is admitted on a fresh CFM read.
     """
-    prepared = await prepare_deployment(
-        store=store,
-        publication_store=publication_store,
-        strategy_fingerprint=strategy_fingerprint,
-        mode=mode,
-        paper_starting_cash=paper_starting_cash,
-        live_allowed=live_allowed,
-        risk_store=risk_store,
-        paper_maker_fee_rate=paper_maker_fee_rate,
-        paper_taker_fee_rate=paper_taker_fee_rate,
-        portfolio_sleeve=portfolio_sleeve,
-        reference_watches=reference_watches,
-        paper_fee_source=paper_fee_source,
-        paper_fee_per_contract=paper_fee_per_contract,
-        futures_start=futures_start,
-        market_data=market_data,
-        futures_capital_usd=futures_capital_usd,
-    )
-    if warnings is not None:
-        warnings.extend(prepared.warnings)
-    created = await store.create_deployment(prepared.deployment)
-    if prepared.futures is not None:
-        try:
-            await bind_futures_contract(
-                futures_start, deployment_id=created.id, terms=prepared.futures
-            )
-        except ExecutionStoreError:
-            stopped = with_runtime(created, updated_at=utc_now(), status=DeploymentStatus.STOPPED)
-            await store.save_deployment(stopped)
-            raise
-    return created
+    # Live starts are serialized from their checks to the insert, so two cannot both pass
+    # product exclusivity or the capital envelope (one API process creates live books).
+    async with live_start_serialized(mode):
+        prepared = await prepare_deployment(
+            store=store,
+            publication_store=publication_store,
+            strategy_fingerprint=strategy_fingerprint,
+            mode=mode,
+            paper_starting_cash=paper_starting_cash,
+            live_allowed=live_allowed,
+            risk_store=risk_store,
+            paper_maker_fee_rate=paper_maker_fee_rate,
+            paper_taker_fee_rate=paper_taker_fee_rate,
+            portfolio_sleeve=portfolio_sleeve,
+            reference_watches=reference_watches,
+            paper_fee_source=paper_fee_source,
+            paper_fee_per_contract=paper_fee_per_contract,
+            futures_start=futures_start,
+            market_data=market_data,
+            futures_capital_usd=futures_capital_usd,
+        )
+        if warnings is not None:
+            warnings.extend(prepared.warnings)
+        created = await store.create_deployment(prepared.deployment)
+        if prepared.futures is not None:
+            try:
+                await bind_futures_contract(
+                    futures_start, deployment_id=created.id, terms=prepared.futures
+                )
+            except ExecutionStoreError:
+                stopped = with_runtime(
+                    created, updated_at=utc_now(), status=DeploymentStatus.STOPPED
+                )
+                await store.save_deployment(stopped)
+                raise
+        return created
 
 
 async def prepare_deployment(

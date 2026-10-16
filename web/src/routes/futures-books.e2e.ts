@@ -349,7 +349,9 @@ test('bot detail shows a known paper futures book in USD', async ({ page }) => {
 	await page.goto(`/deployments/${futuresId}`);
 	const card = page.getByTestId('futures-book');
 	await expect(card.getByRole('heading', { name: 'Paper futures book (USD)' })).toBeVisible();
-	await expect(card.getByTestId('futures-paper-only')).toContainText('no live futures order path');
+	await expect(card.getByTestId('futures-paper-only')).toContainText(
+		'Live futures books start from the CLI only'
+	);
 	await expect(card.getByTestId('futures-collateral-note')).toContainText(
 		'USDC spot balance as futures collateral'
 	);
