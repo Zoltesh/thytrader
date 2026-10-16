@@ -30,6 +30,7 @@ from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.live_evidence_wiring import get_live_evidence_store
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_adoption import start_adopting
+from thytrader.api.routes.deployment_futures_start import futures_start_fields
 from thytrader.api.routes.deployment_live_evidence import assess_live_start
 from thytrader.api.routes.deployment_models import (
     CreateDeploymentRequest,
@@ -75,6 +76,7 @@ from thytrader.execution.service import (
     set_deployment_status,
 )
 from thytrader.fleet_control.inventory import read_stable_inventory
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.service import MarketDataService
 from thytrader.market_data.watchlist import (
     MarketDataWatchlistStore,
@@ -151,9 +153,11 @@ async def post_deployment(
     A paper start that omits both fee rates uses the Coinbase account's rates, and is
     refused (409) when those cannot be read.
 
-    A futures strategy (ADR 0129) starts in paper only, with explicit maker, taker and
-    per-contract fees; an acknowledged live start returns 409 ``FUTURES_LIVE_UNSUPPORTED``
-    before any other start check (there is no live futures order path).
+    A futures strategy (ADR 0129) starts in paper with explicit maker, taker and
+    per-contract fees. A live futures start (ADR 0134 P2-7) also needs
+    ``i_understand_live_futures`` (428 ``LIVE_FUTURES_ACK_REQUIRED``), ``fee_per_contract`` and
+    ``futures_capital_usd``, and is admitted by the risk gate on a fresh CFM read (policy
+    opt-in, envelope, one book per product, no external position or order, perp only).
 
     A strategy that reads reference instruments (ADR 0096) starts only when every
     reference series is on the enabled market-data watchlist with a lookback covering its
@@ -176,14 +180,7 @@ async def post_deployment(
         await adopt_warmup_policy_for_start(strategies, body.strategy_id)
     snapshot = await snapshot_for_start(strategies, body.strategy_id)
     warnings: list[str] = []
-    if body.mode is DeploymentMode.LIVE and snapshot.definition.instrument.is_future:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "FUTURES_LIVE_UNSUPPORTED: futures strategies run as paper books only; there "
-                "is no live futures order path. Start it with mode paper."
-            ),
-        )
+    futures_fields = futures_start_fields(body, snapshot.definition)
     live_evidence = (
         await assess_live_start(
             snapshot, risk_store=risk_store, catalog=catalog, execution=store, warnings=warnings
@@ -225,9 +222,8 @@ async def post_deployment(
                 risk_store=risk_store,
                 reference_watches=reference_watches,
                 paper_fee_source=paper_fee_source,
-                paper_fee_per_contract=parse_decimal(
-                    body.paper_fee_per_contract, field="paper_fee_per_contract"
-                ),
+                paper_fee_per_contract=futures_fields.fee_per_contract,
+                futures_capital_usd=futures_fields.futures_capital_usd,
                 futures_start=futures_start,
                 market_data=market_data,
                 warnings=warnings,
@@ -674,6 +670,7 @@ async def _append_runtime_audit(
             f"deployment_id={deployment.id} mode={deployment.mode.value} "
             f"status={deployment.status.value} kind={deployment.kind.value} "
             f"fingerprint={deployment.strategy_fingerprint}"
+            + (" futures=true" if is_futures_product_id(deployment.product_id) else "")
         ),
         product_id=deployment.product_id,
     )

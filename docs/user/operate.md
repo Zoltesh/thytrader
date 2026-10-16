@@ -506,9 +506,12 @@ entered there ([ADR 0133](../decisions/0133-cfm-supervised-trade-evidence-and-fi
 Nothing is ever defaulted:
 without evidence the fields stay blank. **Start paper futures book…** confirms the contract,
 cash, and fees; a refusal (for example `FUTURES_POLICY_UNSET` or
-`FUTURES_PAPER_CAPITAL_EXCEEDED`) shows the server's reason. The Live card offers no arming and
-says "Live futures are not supported (FUTURES_LIVE_UNSUPPORTED)". **Update bot…** on a futures
-book keeps that book's fees, and refuses before stopping anything when they are unknown.
+`FUTURES_PAPER_CAPITAL_EXCEEDED`) shows the server's reason. The Live card offers no arming for a
+futures strategy: a live futures book starts from the CLI only, with its own acknowledgement,
+per-contract fee and USD capital (`thytrader-runtime start --mode live … --i-understand-live-futures
+--confirm`), and the card says so. **Update bot…** on a paper futures book keeps that book's fees,
+and refuses before stopping anything when they are unknown. A live futures bot is not offered
+**Update bot…**: update it from the CLI (stop it, then start the current rules live).
 
 Higher-timeframe filters and separate indicator clocks load enough warmup for both the first
 decision's current and previous completed bars. Starting a 1h bot just after a 4h boundary can

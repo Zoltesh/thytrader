@@ -57,7 +57,11 @@ def _entry_membership(
     if allowlisted.decision is RiskDecision.DENY:
         return allowlisted
     allocated = _allocation_membership(
-        policy, proposed.strategy_id, mode=mode, portfolio_member=portfolio_member
+        policy,
+        proposed.strategy_id,
+        mode=mode,
+        portfolio_member=portfolio_member,
+        futures=is_futures_product_id(proposed.product_id),
     )
     if allocated.decision is RiskDecision.DENY:
         return allocated
@@ -185,6 +189,7 @@ def _allocation_membership(
     *,
     mode: DeploymentMode,
     portfolio_member: bool = False,
+    futures: bool = False,
 ) -> RiskVerdict:
     """When allocations exist, live requires a listed strategy and denies discretionary books.
 
@@ -193,9 +198,11 @@ def _allocation_membership(
     sized by paper capital, while a listed strategy's paper starting cash and exposure stay
     bounded by its allocation (a rehearsal of the live reservation). A sleeve of a live
     portfolio is a member through its portfolio: the sleeve's weight times the portfolio's
-    capital is its reservation (ADR 0091). Standalone books keep these semantics.
+    capital is its reservation (ADR 0091). Standalone books keep these semantics. Allocations
+    are spot reservations; a futures book reserves its own ``futures_capital_usd`` inside
+    ``futures.live_capital_usd`` (ADR 0134 P2-7), so ``futures`` books are not members.
     """
-    if not policy.allocations or mode is not DeploymentMode.LIVE:
+    if not policy.allocations or mode is not DeploymentMode.LIVE or futures:
         return _allow()
     if portfolio_member and strategy_id is not None:
         return _allow()

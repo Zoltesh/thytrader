@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from fastapi import HTTPException, status
 
-from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL
+from thytrader.ops_contract import LIVE_ACK_REQUIRED_DETAIL, LIVE_FUTURES_ACK_REQUIRED_DETAIL
 from thytrader.trading.models import DeploymentMode
 
 
@@ -21,4 +21,13 @@ def require_live_acknowledgement(mode: DeploymentMode, *, acknowledged: bool) ->
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
             detail=LIVE_ACK_REQUIRED_DETAIL,
+        )
+
+
+def require_live_futures_acknowledgement(*, acknowledged: bool) -> None:
+    """Raise HTTP 428 when a live futures start lacks its own acknowledgement (ADR 0134 I1)."""
+    if not acknowledged:
+        raise HTTPException(
+            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
+            detail=LIVE_FUTURES_ACK_REQUIRED_DETAIL,
         )

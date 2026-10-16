@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 import pytest
 
@@ -15,7 +16,7 @@ from thytrader.risk.futures_live import LiveFuturesStart, live_futures_deploymen
 from thytrader.risk.futures_policy import FuturesRiskPolicy
 from thytrader.risk.gate import evaluate_new_deployment, evaluate_new_entry
 from thytrader.risk.gate_common import ProposedEntry
-from thytrader.risk.models import RiskReasonCode
+from thytrader.risk.models import CapitalAllocation, RiskReasonCode
 from thytrader.trading.futures_book import futures_book_equity, futures_book_scope
 from thytrader.trading.models import DeploymentMode
 
@@ -194,3 +195,46 @@ def test_live_linked_breakers_are_scoped_and_never_sum(quote: str) -> None:
         is None
     )
     assert futures_capital(policy(), DeploymentMode.LIVE) == Decimal(10000)
+
+
+def test_spot_allocations_never_gate_a_live_futures_book() -> None:
+    """Allocations reserve spot capital; a futures book reserves futures_capital_usd instead."""
+    other = CapitalAllocation(strategy_id=UUID(int=7), allocated_quote="500")
+    definition = policy().model_copy(update={"allocations": (other,)})
+    start = LiveFuturesStart(Decimal(1000), _CONTRACT, venue(), _NOW, Decimal(100))
+    verdict = evaluate_new_deployment(
+        definition,
+        mode=DeploymentMode.LIVE,
+        product_id=_PERP,
+        strategy_id=UUID(int=8),
+        paper_starting_cash=None,
+        deployments=(),
+        live_futures=start,
+    )
+    assert verdict.reason_code is RiskReasonCode.ALLOWED
+    spot = evaluate_new_deployment(
+        definition,
+        mode=DeploymentMode.LIVE,
+        product_id="BTC-USDC",
+        strategy_id=UUID(int=8),
+        paper_starting_cash=None,
+        deployments=(),
+    )
+    assert spot.reason_code is RiskReasonCode.STRATEGY_NOT_ALLOCATED
+    assert entry_code(policy_changes=None) is RiskReasonCode.ALLOWED
+    snapshot = book()
+    with futures_book_scope(_state(snapshot)):
+        entry = evaluate_new_entry(
+            definition,
+            mode=DeploymentMode.LIVE,
+            proposed=ProposedEntry(
+                product_id=_PERP,
+                strategy_id=snapshot.deployment.strategy_id,
+                quantity=Decimal("0.01"),
+                notional=Decimal(1),
+            ),
+            snapshots=(snapshot,),
+            observation=_observation(),
+            futures_venue=venue(),
+        )
+    assert entry.reason_code is RiskReasonCode.ALLOWED

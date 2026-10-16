@@ -7,6 +7,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from thytrader.alerts.store import AlertStore, DisabledAlertStore
+from thytrader.api.futures_start_source import live_futures_start_source
 from thytrader.audit_events import AuditEventStore
 from thytrader.backtest.results import BacktestResultReader
 from thytrader.backtest.submission import BacktestSubmitter
@@ -377,10 +378,11 @@ def get_futures_account_store(request: Request) -> FuturesAccountSnapshotStore |
 
 
 def get_futures_start(request: Request) -> FuturesStart | None:
-    """Return the stores a paper futures start binds its contract with (ADR 0129 §4).
+    """Return the stores a futures start binds its contract with (ADR 0129 §4).
 
     Tests may inject one on ``app.state.futures_start``; without a database there is none
-    and a futures start is refused.
+    and a futures start is refused. With Coinbase credentials it carries a GET-only CFM source
+    for a live start's evidence (ADR 0134 P2-7), built from the current credentials.
     """
     injected = getattr(request.app.state, "futures_start", None)
     if injected is not None:
@@ -388,9 +390,15 @@ def get_futures_start(request: Request) -> FuturesStart | None:
     engine = get_database_engine(request)
     if engine is None:
         return None
+    observations = PostgresFuturesObservationStore(engine)
     return FuturesStart(
         contracts=PostgresFuturesContractStore(engine),
-        observations=PostgresFuturesObservationStore(engine),
+        observations=observations,
+        live_source=live_futures_start_source(
+            get_runtime_state(request).settings,
+            observations=observations,
+            mirror=PostgresFuturesAccountStore(engine),
+        ),
     )
 
 

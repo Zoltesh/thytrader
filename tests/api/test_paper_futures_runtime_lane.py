@@ -1,7 +1,7 @@
 """The paper futures runtime lane end to end over HTTP (ADR 0129 §4, P1-6).
 
-Start a perp strategy as a paper book through ``POST /api/v1/deployments`` (live is
-refused with ``FUTURES_LIVE_UNSUPPORTED`` and creates nothing), let the worker's bar loop
+Start a perp strategy as a paper book through ``POST /api/v1/deployments`` (an incomplete
+live start is refused and creates nothing; see test_live_futures_start), let the worker's bar loop
 fill whole contracts, read ``GET /api/v1/deployments/{id}/futures`` and the operator
 ``futures-books`` report, then stop with ``flatten`` and see the book flat. Funding that
 was never recorded is reported overdue (unknown) and denies entries; it is never zero.
@@ -200,30 +200,35 @@ async def _journal_close(lane: Lane, snapshot: DeploymentSnapshot, candle: Candl
     )
 
 
-def test_live_futures_starts_are_refused_and_create_nothing(lane: Lane) -> None:
-    """Unacknowledged live is 428 as for spot; acknowledged live is FUTURES_LIVE_UNSUPPORTED."""
+def test_incomplete_live_futures_starts_are_refused_and_create_nothing(lane: Lane) -> None:
+    """Live needs both acknowledgements (428) before any other check; nothing is created."""
     strategy_id = lane.strategy.strategy_id
     unacknowledged = lane.client.post(
         "/api/v1/deployments", json={"strategy_id": str(strategy_id), "mode": "live"}
     )
     assert unacknowledged.status_code == 428
-    refused = lane.client.post(
+    live_only = lane.client.post(
         "/api/v1/deployments",
         json={"strategy_id": str(strategy_id), "mode": "live", "i_understand_live": True},
     )
-    assert refused.status_code == 409
-    assert refused.json()["detail"].startswith("FUTURES_LIVE_UNSUPPORTED")
+    assert live_only.status_code == 428
+    assert live_only.json()["detail"].startswith("LIVE_FUTURES_ACK_REQUIRED")
+    acknowledged = {"i_understand_live": True, "i_understand_live_futures": True}
+    no_capital = lane.client.post(
+        "/api/v1/deployments",
+        json={"strategy_id": str(strategy_id), "mode": "live", **acknowledged},
+    )
+    assert no_capital.status_code == 409  # this app has no credentials; see test_live_futures_start
     adopting = lane.client.post(
         "/api/v1/deployments",
         json={
             "strategy_id": str(strategy_id),
             "mode": "live",
             "adopt_holdings": "all",
-            "i_understand_live": True,
+            **acknowledged,
         },
     )
     assert adopting.status_code == 409
-    assert adopting.json()["detail"].startswith("FUTURES_LIVE_UNSUPPORTED")
     missing_fee = lane.client.post(
         "/api/v1/deployments", json=_start_body(strategy_id, paper_fee_per_contract=None)
     )

@@ -229,26 +229,25 @@ replacement/readback rules, collateral headroom and denial codes. Futures loss c
 separate from spot, even in USD; live margin equity requires finite positive allocation, not
 merely a pinned performance basis. Unrepresentable live admission arithmetic denies rather than
 rounding away contracts, allocations or margin requirements. Unset fields keep old fingerprints.
-Publication does **not** enable live futures: all starts remain
-`FUTURES_LIVE_UNSUPPORTED`. P2-4 exercises injected futures runtime preparation, position checks,
-funding accrual and candle-free protective reductions with fake venues and memory/PostgreSQL
-stores. Since P2-7 wiring the worker composes the futures broker and CFM source for live futures
-books only (spot books keep the spot adapter; the API composes none); a live futures book without
-a futures broker pauses as broker-unavailable. There is still no operator order path or
-activation flag until the acknowledged start lands. Every marketable reduction is a sized
-`close_position` (reduce-only is refused by the venue); attachments are disabled and no automatic
-fallback exists.
+Publication alone does **not** start anything: a live futures book exists only after the
+acknowledged `start --mode live --fee-per-contract F --futures-capital-usd C
+--i-understand-live --i-understand-live-futures --confirm` (ADR 0134 P2-7; YOLO never covers
+it). Read [Starting a live futures book](references/live-futures-policy.md#starting-a-live-futures-book-p2-7)
+before any live futures start, and get the operator's go-ahead for the product and USD amount.
+The worker composes the futures broker and CFM source for live futures books only (spot books
+keep the spot adapter; the API composes none); a live futures book without a futures broker
+pauses as broker-unavailable. Every marketable reduction is a sized `close_position`
+(reduce-only is refused by the venue); attachments are disabled and no automatic fallback exists.
 See the same reference for the adapter boundary and refusal meanings, including exact fill
 timestamps (local hours 00–23 only, never normalized hour 24) and complete identity scans.
 Known venue ids route independently of attached-child bookkeeping labels; malformed scan rows
 never authorize cancellation. Do not bypass starts by importing an adapter.
 
 Paper futures books ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md) §4).
-A futures strategy (`instrument.kind: future`, ADR 0128) runs in **paper only**. There is no
-futures order path: `start --mode live` of a futures strategy (with `--i-understand-live`;
-without it the usual 428 comes first) is HTTP 409 `FUTURES_LIVE_UNSUPPORTED` and creates
-nothing, and the CLI refuses `--fee-per-contract` with `--mode live` before any HTTP call.
-Portfolio sleeves cannot start futures books (no per-contract fee). Setup and start:
+A futures strategy (`instrument.kind: future`, ADR 0128) runs as a paper book here, or live
+through the acknowledged start in the
+[live futures reference](references/live-futures-policy.md#starting-a-live-futures-book-p2-7).
+Portfolio sleeves cannot start futures books (no per-contract fee). Paper setup and start:
 
 - Publish the policy with `--futures-paper-capital-usd N` (a USD envelope separate from
   `--paper-capital-quote`; unset refuses every futures start with `FUTURES_POLICY_UNSET`) and

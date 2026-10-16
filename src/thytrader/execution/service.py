@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 import math
 from typing import TYPE_CHECKING
 
+from thytrader.execution.futures_live_start import live_futures_start, require_live_futures_capital
 from thytrader.execution.futures_start import (
     FuturesStart,
     FuturesStartTerms,
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
     from thytrader.execution.paper_fees import PaperFeeSource
     from thytrader.market_data.service import MarketDataService
     from thytrader.market_data.watchlist import MarketDataWatchlistStore
+    from thytrader.risk.futures_live import LiveFuturesStart
     from thytrader.risk.models import ActiveRiskPolicy
     from thytrader.risk.store import RiskPolicyStore
     from thytrader.strategies.models import ReferenceDataRequirement, StrategyDefinition
@@ -85,6 +87,7 @@ async def create_deployment(
     futures_start: FuturesStart | None = None,
     market_data: MarketDataService | None = None,
     warnings: list[str] | None = None,
+    futures_capital_usd: Decimal | None = None,
 ) -> Deployment:
     """Start one running deployment for one exact strategy snapshot.
 
@@ -102,7 +105,9 @@ async def create_deployment(
     (ADR 0129 §4) names its maker, taker and per-contract fees and binds its contract
     through ``futures_start`` right after the book is created. With ``market_data`` the
     venue's history at the start of every window the book will read is checked (ADR 0140).
-    Start warnings (ADR 0142) are appended to ``warnings`` when given.
+    Start warnings (ADR 0142) are appended to ``warnings`` when given. A live futures start
+    (ADR 0134 P2-7) names its per-contract fee in ``paper_fee_per_contract`` and its USD
+    capital in ``futures_capital_usd``, and is admitted on a fresh CFM read.
     """
     prepared = await prepare_deployment(
         store=store,
@@ -120,6 +125,7 @@ async def create_deployment(
         paper_fee_per_contract=paper_fee_per_contract,
         futures_start=futures_start,
         market_data=market_data,
+        futures_capital_usd=futures_capital_usd,
     )
     if warnings is not None:
         warnings.extend(prepared.warnings)
@@ -153,6 +159,7 @@ async def prepare_deployment(
     paper_fee_per_contract: Decimal | None = None,
     futures_start: FuturesStart | None = None,
     market_data: MarketDataService | None = None,
+    futures_capital_usd: Decimal | None = None,
 ) -> PreparedDeployment:
     """Run every start check and build the book without persisting it.
 
@@ -177,6 +184,12 @@ async def prepare_deployment(
     )
     published = await _load_published(publication_store, strategy_fingerprint)
     definition = published.definition
+    capital = require_live_futures_capital(
+        definition,
+        mode=mode,
+        portfolio_sleeve=portfolio_sleeve is not None,
+        capital=futures_capital_usd,
+    )
     futures = await futures_start_terms(
         definition,
         mode=mode,
@@ -189,6 +202,18 @@ async def prepare_deployment(
     await _require_reference_watches(reference_watches, definition)
     existing = await store.list_deployments()
     _require_unique_active(existing, strategy_id=definition.strategy_id, mode=mode)
+    live_futures = (
+        None
+        if capital is None or futures is None
+        else await live_futures_start(
+            capital=capital,
+            terms=futures,
+            start=futures_start,
+            store=store,
+            deployments=existing,
+            market_data=market_data,
+        )
+    )
     active = await _require_risk_admission(
         risk_store,
         mode=mode,
@@ -196,6 +221,7 @@ async def prepare_deployment(
         paper_starting_cash=paper_starting_cash,
         deployments=existing,
         portfolio_sleeve=portfolio_sleeve is not None,
+        live_futures=live_futures,
     )
     safeguards = active.definition.start_safeguards or StartSafeguards()
     warnings: list[str] = []
@@ -215,8 +241,11 @@ async def prepare_deployment(
     cash = paper_starting_cash if mode is DeploymentMode.PAPER else Decimal("0")
     if cash is None:
         cash = Decimal("0")
-    if portfolio_sleeve is not None:
-        allocated: Decimal | None = portfolio_sleeve.allocated_capital
+    if capital is not None:
+        # A live futures book's own USD capital is its allocation and performance basis.
+        allocated: Decimal | None = capital
+    elif portfolio_sleeve is not None:
+        allocated = portfolio_sleeve.allocated_capital
     else:
         allocated = await _opening_allocation(risk_store, strategy_id=definition.strategy_id)
     # A new live fill ledger starts at zero, independently of its allocated capital.
@@ -481,6 +510,7 @@ async def _require_risk_admission(
     paper_starting_cash: Decimal | None,
     deployments: tuple[Deployment, ...],
     portfolio_sleeve: bool = False,
+    live_futures: LiveFuturesStart | None = None,
 ) -> ActiveRiskPolicy:
     """Fail closed when the active risk policy rejects this deployment; return the policy."""
     active = await load_effective_policy(risk_store)
@@ -494,9 +524,11 @@ async def _require_risk_admission(
         deployments=deployments,
         policy_source=active.source,
         portfolio_sleeve=portfolio_sleeve and mode is DeploymentMode.LIVE,
+        live_futures=live_futures,
     )
     if verdict.decision is RiskDecision.DENY:
-        raise ExecutionConflictError(verdict.detail)
+        # The code leads, so operators and skills can act on it (e.g. FUTURES_PRODUCT_OCCUPIED).
+        raise ExecutionConflictError(f"{verdict.reason_code.value}: {verdict.detail}")
     return active
 
 

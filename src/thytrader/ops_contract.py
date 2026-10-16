@@ -136,7 +136,11 @@ and the risk policy's opt-in ``start_safeguards``; ADR 0142), or live-start evid
 and the ``require_live_evidence`` / ``live_evidence`` safeguards; ADR 0143), or the fee
 report (``current_tier`` / ``next_tier`` and qualification from Coinbase replace the pinned
 ``schedule_*`` fields; ADR 0144), or futures strategy documents (USD-quoted reference
-instruments allowed; ADR 0145) change.
+instruments allowed; ADR 0145), or the live futures start (``futures_order_paths``
+``live_futures_start``, the ``i_understand_live_futures`` / ``fee_per_contract`` /
+``futures_capital_usd`` start fields with HTTP 428 ``LIVE_FUTURES_ACK_REQUIRED``, CLI
+``--i-understand-live-futures`` / ``--futures-capital-usd``, risk refusals led by their code,
+and spot allocations no longer gating futures books; ADR 0134 P2-7) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -165,7 +169,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v105"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v106"
 EXPECTED_SCHEMA_REVISION = "0079"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
@@ -315,10 +319,11 @@ RUNTIME_OBSERVABILITY: tuple[str, ...] = (
     "live_alert_delivery_health",
     "alert_min_severity",
 )
-# Instrument kinds the read-only catalog reports (ADR 0126). Futures are observation-only:
-# no execution, live, adoption or discretionary surface accepts a futures id.
+# Instrument kinds the read-only catalog reports (ADR 0126).
 INSTRUMENT_KINDS: tuple[str, ...] = tuple(kind.value for kind in InstrumentKind)
-FUTURES_ORDER_PATHS: tuple[str, ...] = ()
+# Live futures order paths (ADR 0134 P2-7): the acknowledged standalone live futures start.
+# Adoption, portfolio sleeves and discretionary orders still accept no futures id.
+FUTURES_ORDER_PATHS: tuple[str, ...] = ("live_futures_start",)
 FUTURES_OBSERVATIONS: tuple[str, ...] = (
     "instrument_catalog",
     "funding_history",
@@ -425,4 +430,14 @@ LIVE_ACK_REQUIRED_DETAIL = (
     f"{LIVE_ACK_REQUIRED_CODE}: Live trading spends real money. Send "
     f"{LIVE_ACK_FIELD}=true only after the operator explicitly acknowledged live trading "
     "(CLI --i-understand-live, the UI live confirmation, or the chat understand-live box)."
+)
+LIVE_FUTURES_ACK_FIELD = "i_understand_live_futures"
+"""Request field a live futures start needs on top of ``i_understand_live`` (ADR 0134 I1)."""
+
+LIVE_FUTURES_ACK_REQUIRED_CODE = "LIVE_FUTURES_ACK_REQUIRED"
+LIVE_FUTURES_ACK_REQUIRED_DETAIL = (
+    f"{LIVE_FUTURES_ACK_REQUIRED_CODE}: A live futures book trades leveraged CFM perpetuals "
+    "with real money: margin can be lost faster than the allocation. Send "
+    f"{LIVE_FUTURES_ACK_FIELD}=true only after the operator explicitly acknowledged live "
+    "futures (CLI --i-understand-live-futures; YOLO never covers it)."
 )

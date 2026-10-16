@@ -35,7 +35,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     unexpected = {**expected, "unexpected": True}
     assert ops_contract_matches(unexpected) is False
     assert expected["id"] == OPS_CONTRACT_ID
-    assert expected["id"] == "thytrader-ops-contract-v105"
+    assert expected["id"] == "thytrader-ops-contract-v106"
     assert expected["same_bar_exit_precedence"] == [
         "stop",
         "take_profit",
@@ -102,7 +102,7 @@ def test_ops_contract_matches_requires_payload() -> None:
     assert expected["expected_schema_revision"] == EXPECTED_SCHEMA_REVISION
     assert expected["expected_schema_revision"] == "0079"
     assert expected["instrument_kinds"] == ["spot", "dated_future", "perpetual_future"]
-    assert expected["futures_order_paths"] == []
+    assert expected["futures_order_paths"] == ["live_futures_start"]
     assert expected["futures_observations"] == [
         "instrument_catalog",
         "funding_history",

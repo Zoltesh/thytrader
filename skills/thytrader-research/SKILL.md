@@ -138,8 +138,8 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   ([ADR 0145](../../docs/decisions/0145-futures-reference-instruments.md)). Watch the reference
   series before a paper start. **Status:** futures documents can be saved,
   validated and backtested (see **Futures backtests** and **Futures simulation** below), and
-  run as paper futures books (runtime skill; perp-style contracts only); live returns
-  `FUTURES_LIVE_UNSUPPORTED`. Never invent a futures result.
+  run as paper futures books or, after the operator's acknowledged runtime-lane start, live
+  books (runtime skill; perp-style contracts only). Never invent a futures result.
 - **Futures backtests** ([ADR 0128](../../docs/decisions/0128-futures-backtest-model.md)). The
   `submit-backtest --file` JSON adds a `futures` block, required for a futures strategy and
   refused for a spot one: `{"fee_per_contract": "0.11"}` at minimum (the **fixed** USD part per

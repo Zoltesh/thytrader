@@ -7,7 +7,9 @@
 	 * stop of this bot followed by a new start of the current definition. The
 	 * guided "Update bot" does exactly that, behind one confirmation that names
 	 * both steps; live still needs the real-orders acknowledgement before
-	 * `i_understand_live: true` is sent.
+	 * `i_understand_live: true` is sent. A live futures bot is never updated here: its
+	 * restart needs its own acknowledgement, fee and capital (CLI only, ADR 0134 P2-7), so
+	 * the guided stop is not offered rather than leaving the bot stopped.
 	 */
 	import { resolve } from '$app/paths';
 	import ConfirmDialog from '$lib/ConfirmDialog.svelte';
@@ -48,7 +50,10 @@
 			rulesState(deployment.strategy_fingerprint, currentFingerprint) === 'earlier'
 	);
 	const active = $derived(deployment.status === 'running' || deployment.status === 'paused');
-	const canUpdate = $derived(active && current !== null && currentFingerprint !== null);
+	const liveFutures = $derived(isLive && isFuturesProductId(deployment.product_id));
+	const canUpdate = $derived(
+		active && !liveFutures && current !== null && currentFingerprint !== null
+	);
 
 	function openDialog(): void {
 		error = null;
@@ -58,7 +63,7 @@
 	}
 
 	async function update(): Promise<void> {
-		if (pending || deployment.strategy_id === null) return;
+		if (pending || deployment.strategy_id === null || liveFutures) return;
 		if (isLive && !liveAcknowledged) return;
 		pending = true;
 		error = null;
@@ -141,6 +146,12 @@
 				data-testid="update-bot"
 				onclick={openDialog}>Update bot…</button
 			>
+		{:else if liveFutures && active}
+			<p class="note" data-testid="update-live-futures-cli">
+				Update a live futures bot from the CLI: <code>thytrader-runtime stop</code>, then
+				<code>start --mode live</code> with its fee, capital and
+				<code>--i-understand-live-futures</code>.
+			</p>
 		{:else if !active && deployment.strategy_id !== null}
 			<a class="btn" href={resolve(workspaceHref(deployment.strategy_id, 'run'))}
 				>Start with current rules</a

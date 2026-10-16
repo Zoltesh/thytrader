@@ -53,6 +53,31 @@ class CreateDeploymentRequest(BaseModel):
             "Send only after the operator explicitly acknowledged live trading."
         ),
     )
+    fee_per_contract: str | None = Field(
+        default=None,
+        description=(
+            "Live futures only (ADR 0134 P2-7): the fixed USD fee per contract (the fees "
+            "report's payload.futures.fee_per_contract). Required for a live futures start; "
+            "its maker/taker rates are the account's futures tier. Paper sends "
+            "paper_fee_per_contract instead."
+        ),
+    )
+    futures_capital_usd: str | None = Field(
+        default=None,
+        description=(
+            "Live futures only: the book's USD capital, its allocation and performance basis "
+            "(ADR 0107), inside the risk policy's futures.live_capital_usd envelope. Required "
+            "for a live futures start."
+        ),
+    )
+    i_understand_live_futures: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true, with i_understand_live, for a live futures start (HTTP 428 "
+            "LIVE_FUTURES_ACK_REQUIRED otherwise). Send only after the operator explicitly "
+            "acknowledged live futures; YOLO never covers it."
+        ),
+    )
 
 
 class ResumeDeploymentRequest(BaseModel):

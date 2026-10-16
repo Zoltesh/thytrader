@@ -1,6 +1,7 @@
 """CLI surfaces of the paper futures runtime lane (ADR 0129, P1-6).
 
-``thytrader-runtime start`` refuses live futures before any HTTP call, ``show`` adds the
+``thytrader-runtime start`` refuses a live futures start without its own acknowledgement
+before any HTTP call and forwards a complete one (ADR 0134 P2-7), ``show`` adds the
 ``futures`` view to a futures bot (and degrades truthfully when it cannot be read), and
 ``thytrader-operator futures-books`` is a validated read-only report.
 """
@@ -10,7 +11,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -68,33 +69,48 @@ def test_show_reports_an_unreadable_futures_view_instead_of_inventing_it() -> No
     }
 
 
-def test_live_start_with_a_per_contract_fee_is_refused_before_http() -> None:
-    """``--fee-per-contract`` is paper futures only; live never reaches the API."""
+def _live_start(*extra: str) -> tuple[pytest.ExceptionInfo[SystemExit], MagicMock]:
+    """Run ``start --mode live`` with ``extra`` flags; return the exit and the request mock."""
     handlers = {
         "GET /health/ready": matching_ready_payload(),
         "GET /api/v1/agent-orchestration": orchestration_status_payload(),
     }
     with (
         patch("thytrader.agent_http.urlopen", side_effect=urlopen_by_path(handlers)),
-        patch("thytrader.runtime_control.deployment_handlers.start_deployment") as request,
+        patch(
+            "thytrader.runtime_control.deployment_handlers.start_deployment",
+            return_value={"id": _BOT, "mode": "live"},
+        ) as request,
         pytest.raises(SystemExit) as raised,
     ):
         runtime_main(
-            [
-                "start",
-                "--strategy-id",
-                _STRATEGY,
-                "--mode",
-                "live",
-                "--fee-per-contract",
-                "0.15",
-                "--confirm",
-                "--i-understand-live",
-            ]
+            ["start", "--strategy-id", _STRATEGY, "--mode", "live", "--i-understand-live", *extra]
         )
+    return raised, request
+
+
+def test_live_futures_terms_without_their_acknowledgement_never_reach_http() -> None:
+    """``--fee-per-contract`` or ``--futures-capital-usd`` on live need the futures ack."""
+    for extra in (("--fee-per-contract", "0.11"), ("--futures-capital-usd", "500")):
+        raised, request = _live_start(*extra, "--confirm")
+        assert raised.value.code != 0
+        assert "LIVE_FUTURES_ACK_REQUIRED" in str(raised.value)
+        request.assert_not_called()
+
+
+def test_a_live_futures_start_always_needs_confirm_and_forwards_its_terms() -> None:
+    """The futures ack is a hard gate (YOLO never covers it); the terms go to the API."""
+    terms = ("--fee-per-contract", "0.11", "--futures-capital-usd", "500")
+    raised, request = _live_start(*terms, "--i-understand-live-futures")
     assert raised.value.code != 0
-    assert "FUTURES_LIVE_UNSUPPORTED" in str(raised.value)
     request.assert_not_called()
+    raised, request = _live_start(*terms, "--i-understand-live-futures", "--confirm")
+    assert raised.value.code == 0
+    arguments = request.call_args.kwargs
+    assert arguments["fee_per_contract"] == "0.11"
+    assert arguments["paper_fee_per_contract"] is None
+    assert arguments["futures_capital_usd"] == "500"
+    assert arguments["i_understand_live_futures"] is True
 
 
 def test_paper_futures_start_forwards_all_three_fees() -> None:
@@ -145,7 +161,9 @@ def test_help_documents_the_futures_lane(capsys: pytest.CaptureFixture[str]) -> 
         runtime_main(["start", "--help"])
     start_help = capsys.readouterr().out
     assert "--fee-per-contract" in start_help
-    assert "FUTURES_LIVE_UNSUPPORTED" in start_help
+    assert "--futures-capital-usd" in start_help
+    assert "--i-understand-live-futures" in start_help
+    assert "FUTURES_LIVE_CAPITAL_EXCEEDED" in start_help
     with pytest.raises(SystemExit):
         runtime_main(["show", "--help"])
     assert "futures" in capsys.readouterr().out

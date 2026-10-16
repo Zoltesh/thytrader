@@ -151,13 +151,18 @@ def start_deployment(
     i_understand_live: bool = False,
     adopt_holdings: str | None = None,
     paper_fee_per_contract: str | None = None,
+    fee_per_contract: str | None = None,
+    futures_capital_usd: str | None = None,
+    i_understand_live_futures: bool = False,
 ) -> object:
     """Start one paper or live deployment from a strategy's current rules.
 
     The server snapshots the strategy and returns the snapshot
     ``strategy_fingerprint`` the bot runs. ``i_understand_live`` is forwarded
     only for live; the API rejects live without it. ``adopt_holdings`` (a quantity or
-    ``all``) starts the live bot already holding coins the account holds (ADR 0124).
+    ``all``) starts the live bot already holding coins the account holds (ADR 0124). A live
+    futures start sends ``fee_per_contract``, ``futures_capital_usd`` and, only when the
+    operator passed it, ``i_understand_live_futures`` (ADR 0134 P2-7).
     """
     payload: dict[str, str | bool] = {
         "strategy_id": strategy_id,
@@ -175,6 +180,12 @@ def start_deployment(
         payload["adopt_holdings"] = adopt_holdings
     if paper_fee_per_contract is not None:
         payload["paper_fee_per_contract"] = paper_fee_per_contract
+    if fee_per_contract is not None:
+        payload["fee_per_contract"] = fee_per_contract
+    if futures_capital_usd is not None:
+        payload["futures_capital_usd"] = futures_capital_usd
+    if mode == "live" and i_understand_live_futures:
+        payload["i_understand_live_futures"] = True
     return request_mutation_json(
         method="POST",
         url=f"{base_url}{_DEPLOYMENTS_PREFIX}",

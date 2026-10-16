@@ -5,7 +5,7 @@
 	 *
 	 * The preflight lists what existing endpoints report, with `Unknown` where a
 	 * source cannot be read; it is never a readiness verdict. A futures strategy
-	 * cannot be armed: there is no live futures path (FUTURES_LIVE_UNSUPPORTED).
+	 * is not armed here: a live futures book starts from the CLI only (ADR 0134 P2-7).
 	 */
 	import type { LifecycleAction } from '$lib/deployment-detail';
 	import type { Deployment } from '$lib/deployments';
@@ -33,7 +33,7 @@
 		canStart: boolean;
 		currentFingerprint: string | null;
 		model: BuilderModel | null;
-		/** The strategy trades a futures contract, which runs as a paper book only. */
+		/** The strategy trades a futures contract: paper here, live from the CLI only. */
 		futures?: boolean;
 		onaction: (action: LifecycleAction, deployment: Deployment) => void;
 		onupdated: (result: { stopped: Deployment; started: Deployment | null }) => void;
@@ -62,9 +62,10 @@
 			/>
 		{/each}
 		{#if futures}
-			<p class="refused" role="status" data-testid="live-futures-unsupported">
-				Live futures are not supported (FUTURES_LIVE_UNSUPPORTED) — run this strategy as a paper
-				book.
+			<p class="refused" role="status" data-testid="live-futures-cli-only">
+				Live futures start from the CLI only: <code>thytrader-runtime start --mode live</code> with
+				<code>--fee-per-contract</code>, <code>--futures-capital-usd</code>,
+				<code>--i-understand-live-futures</code> and <code>--confirm</code>.
 			</p>
 		{:else}
 			<h3 class="sub">Live preflight</h3>

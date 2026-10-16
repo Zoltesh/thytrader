@@ -1,6 +1,7 @@
 # 0134: Live Coinbase CFM futures order path
 
-- Status: Proposed; P2-4 persistence amended by [0135](0135-durable-futures-safety-obligations.md)
+- Status: Accepted (P2-0–P2-7 implemented 2026-10-16; later slices pending); P2-4 persistence
+  amended by [0135](0135-durable-futures-safety-obligations.md)
 - Date: 2026-10-10
 - Relates to: [0106](0106-account-risk-capital-and-live-startup-baselines.md),
   [0107](0107-capital-normalized-live-performance.md),
@@ -482,17 +483,46 @@ live start (fees, capital, HTTP 428, CLI, `FUTURES_ORDER_PATHS`).
   books pause as above.
 - The API builds no futures adapter: live futures stop and flatten run in the worker.
 - Composition places nothing. CFM reads happen only while a live futures book exists (spot-only
-  fleets make none), and the live start remains refused (`FUTURES_LIVE_UNSUPPORTED`,
-  `FUTURES_ORDER_PATHS` empty) until the second change.
+  fleets make none); the second change below opens the start.
 - This supersedes the "routing keeps every caller unchanged" rationale below for spot books: they
   keep the unrouted adapter.
+
+## P2-7 implementation boundary: acknowledged live start
+
+- **Request.** `POST /api/v1/deployments` with `mode: live` for a futures strategy needs
+  `i_understand_live` and `i_understand_live_futures` (HTTP 428 `LIVE_FUTURES_ACK_REQUIRED`,
+  checked before any other start check), `fee_per_contract` (USD, the fixed per-contract fee;
+  maker/taker come from the account's futures tier at run time, ADR 0144) and
+  `futures_capital_usd`. Each fee field belongs to one mode (`paper_fee_per_contract` is paper
+  only). CLI: `--fee-per-contract`, `--futures-capital-usd`, `--i-understand-live-futures`; the
+  futures acknowledgement is a confirmation hard gate (YOLO never covers it).
+- **Capital.** `futures_capital_usd` is the book's `allocated_capital` and
+  `performance_capital_quote` (ADR 0107); the ledger starts at 0. Spot `allocations` are spot
+  reservations and no longer gate futures books, at start or at entry: the futures reservation is
+  `futures_capital_usd` inside `futures.live_capital_usd` (the envelope check).
+- **Evidence.** The API reads the CFM account once per live start, GET only
+  (`RecordedFuturesSource` on the request's current credentials): balance, positions, the
+  complete futures open-order listing (orders of existing live futures books are not external)
+  and the mirror's killswitch. The proposed initial margin is the smallest entry's, one contract
+  at the latest closed hourly price times the catalog's higher overnight rate; buying power and
+  the reserve must cover it (I8). Unknown inputs deny with `FUTURES_COLLATERAL_UNKNOWN`.
+- **Refusals** lead with their code (every risk refusal at start now reads `CODE: detail`).
+  Missing capital is `FUTURES_CAPITAL_REQUIRED`; a sleeve is `FUTURES_LIVE_UNSUPPORTED`;
+  adoption has no capital and is refused; a dated contract is `FUTURES_LIVE_DATED_UNSUPPORTED`.
+  These are correctness and acknowledgement requirements of a leveraged account-level venue,
+  not optional safeguards (ADR 0142 keeps optional start checks as warnings).
+- **Audit.** The `start_live` runtime audit carries `futures=true`.
+- **Ops contract v106:** `futures_order_paths: ["live_futures_start"]`.
+- **Browser.** No live futures start (decision f). The Live card says the start is CLI-only, and
+  "Update bot…" is not offered for a live futures bot: its restart needs the acknowledgement,
+  fee and capital, so a guided stop would leave it stopped.
 
 ## Consequences
 
 - Live futures reuse the existing intent, reconciliation, protection and exit machinery; the
   new risk is concentrated in one broker, one gate module, the I9 check and the margin
   monitor.
-- Nothing is reachable until P2-7, and P2-6 visibility lands before it: every new check has a
+- Nothing was reachable until P2-7, and P2-6 visibility landed before it: every new check has a
   report, alert or banner before an operator can start a live futures book.
 - Product exclusivity (I3) is a hard constraint: manual trading of a managed product pauses
   the book. It also makes the account-level reduction of §1 correct.

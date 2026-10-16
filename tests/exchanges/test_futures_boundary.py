@@ -117,8 +117,8 @@ def test_exact_mutation_path_allowlist_and_single_composition_point() -> None:
         "/api/v3/brokerage/orders/close_position",
         "/api/v3/brokerage/orders/batch_cancel",
     }
-    # The live start path is not advertised until it is acknowledged (P2-7 start slice).
-    assert FUTURES_ORDER_PATHS == ()
+    # The one live futures order path is the acknowledged standalone start (ADR 0134 P2-7).
+    assert FUTURES_ORDER_PATHS == ("live_futures_start",)
     for file in (root / "src/thytrader/api").rglob("*.py"):
         text = file.read_text()
         assert "CoinbaseFuturesBroker" not in text

@@ -296,8 +296,9 @@ bypass.
 `beta_netting`, plus P2-3 `live_enabled`, `live_capital_usd`, `product_allowlist`,
 `live_derisk_margin_ratio` and `live_funding_drift_tolerance_usd`; optional fields absent
 when unset). See [live futures policy evidence](references/report-schemas.md#live-futures-policy-evidence-p2-3).
-These settings are not live futures readiness: every start still refuses
-`FUTURES_LIVE_UNSUPPORTED`. Policy changes belong to the runtime lane, with confirmation;
+These settings gate the acknowledged live futures start (ADR 0134 P2-7, runtime lane): a start
+is refused with a leading code (`FUTURES_LIVE_DISABLED`, `FUTURES_LIVE_CAPITAL_EXCEEDED`,
+`FUTURES_PRODUCT_OCCUPIED`, …). Policy changes belong to the runtime lane, with confirmation;
 this lane only reads. `futures_collateral` shows the shared-USDC-collateral gate
 ([ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)):
 `state` (`absent`, `idle`, `in_use`, `unknown`), `cause`, the CFM `initial_margin_usd`,
@@ -359,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v105`, schema revision `0079`) and exits on any
+   this checkout's (`thytrader-ops-contract-v106`, schema revision `0079`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -371,8 +372,10 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
    `capital_normalized_performance`, `explicit_deployment_twins`,
    `rule_matched_deployment_twins`, `exchange_read_failures`, `audit_failure_evidence`).
    `instrument_kinds` lists `spot`, `dated_future` and `perpetual_future`, and
-   `futures_order_paths` is empty: Coinbase futures are observation-only, and no command in any
-   lane can order one ([ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)).
+   `futures_order_paths` lists `live_futures_start`: the acknowledged standalone live futures
+   start in the runtime lane is the only futures order path; adoption, portfolio sleeves and
+   discretionary orders accept no futures id
+   ([ADR 0134](../../docs/decisions/0134-live-futures-order-path.md) P2-7).
    Multi-book reads follow [ADR 0060](../../docs/decisions/0060-multi-book-deployment-api.md).
 2. If the CLI exits because the API version or ops contract does not match this checkout, rebuild with `make run` (ask first). Package version `0.1.0` is not enough. Do not treat a printed report plus a warning as success.
 3. If degraded or failed, follow `recommended_next_action` and inspect `components[].reason_code`.
@@ -703,10 +706,10 @@ unrepresentable ratio remains unknown (`FUTURES_MARGIN_UNKNOWN` for missing safe
 `readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
 and `collateral_group` headroom. `fleet-health` runs P2-3 probes in `live:CFM-USD`; fleet-wide
 failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged.
-Production uses the existing mirror, not new CFM venue reads; worker external-order evidence
-requires the explicitly injected source. A failed observer records unknown, not all-clear.
-Live starts still refuse `FUTURES_LIVE_UNSUPPORTED`, `futures_order_paths` remains empty,
-and visibility never grants lifecycle, order, cancellation or policy authority.
+The worker reads CFM directly only while a live futures book exists (P2-7 wiring); otherwise
+the mirror. A failed observer records unknown, not all-clear. `futures_order_paths` lists only
+`live_futures_start` (runtime lane), and visibility never grants lifecycle, order,
+cancellation or policy authority.
 
 ## Safety alert recovery and delivery (ADR 0115)
 
