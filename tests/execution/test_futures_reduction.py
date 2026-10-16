@@ -9,6 +9,7 @@ import pytest
 
 from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_paper_futures_books import _PERP, _book, _candles, _product, _strategy
+from thytrader.execution.exit_guards import PROTECTIVE_REJECTED_PREFIX
 from thytrader.execution.exits import _marketable_exit
 from thytrader.execution.futures_live import live_futures_account_scope
 from thytrader.execution.futures_reduction import reduce_live_futures_position
@@ -18,6 +19,7 @@ from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
+    DeploymentStatus,
     IntentPurpose,
     OrderKind,
     OrderSide,
@@ -108,3 +110,45 @@ async def test_existing_exit_path_uses_explicit_position_reduction(
         )
     assert closed.position is None
     assert closed.intents[-1].price is None
+
+
+async def _reduce(
+    snapshot: DeploymentSnapshot, store: InMemoryExecutionStore, venue: FakeVenue
+) -> DeploymentSnapshot:
+    """One stop reduction against a fresh account read at the venue's clock."""
+    return await reduce_live_futures_position(
+        snapshot,
+        account=await venue.read_account(frozenset()),
+        broker=venue.broker(),
+        store=store,
+        purpose=IntentPurpose.STOP,
+        now=venue.now,
+    )
+
+
+@pytest.mark.anyio
+async def test_a_rejected_reduction_pauses_and_retries_as_a_new_attempt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A definite rejection pauses visibly; after the backoff a retry is a new intent and closes."""
+    store = InMemoryExecutionStore()
+    venue = FakeVenue()
+    monkeypatch.setattr("thytrader.execution.submit.utc_now", lambda: venue.now)
+    snapshot = await open_live_book(store, venue)
+    venue.rejected_closes = 1
+    paused = await _reduce(snapshot, store, venue)
+    assert paused.position is not None
+    assert paused.deployment.status is DeploymentStatus.PAUSED
+    assert (paused.deployment.mismatch_detail or "").startswith(PROTECTIVE_REJECTED_PREFIX)
+    assert "coinbase_http_404:NOT_FOUND" in (paused.deployment.mismatch_detail or "")
+    closes = len([call for call in venue.calls if call[1].endswith("/close_position")])
+    held = await _reduce(paused, store, venue)
+    assert held.position is not None
+    assert len([call for call in venue.calls if call[1].endswith("/close_position")]) == closes
+    venue.advance(120)
+    closed = await _reduce(await store.get_deployment(snapshot.deployment.id), store, venue)
+    assert closed.position is None
+    assert venue.net == 0
+    keys = [intent.idempotency_key for intent in closed.intents if intent.idempotency_key]
+    assert len(keys) == 2
+    assert keys[1] == f"{keys[0]}:attempt-2"

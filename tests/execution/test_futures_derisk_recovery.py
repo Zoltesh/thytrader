@@ -10,6 +10,7 @@ from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_futures_reduction import open_live_book
 from tests.execution.test_live_futures_entry import clock
 from tests.execution.test_paper_futures_books import _PERP, _candles, _state
+from thytrader.execution.exit_guards import PROTECTIVE_REJECTED_PREFIX
 from thytrader.execution.futures_live_liquidation import supervise_live_futures
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.submit import submit_intent
@@ -81,3 +82,36 @@ async def test_derisk_cancel_uncertainty_persists_without_duplicate_or_reentry(
     assert closed.deployment.status is DeploymentStatus.PAUSED
     assert "FUTURES_DERISK_COMPLETED" in (closed.deployment.mismatch_detail or "")
     assert sum(intent.purpose is IntentPurpose.LIQUIDATION for intent in closed.intents) == 1
+
+
+@pytest.mark.anyio
+async def test_rejected_derisk_closes_latch_after_five_without_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The de-risk wrapper keeps the rejection pause, so the five-rejection latch holds."""
+    venue = FakeVenue()
+    clock(monkeypatch, venue)
+    store = InMemoryExecutionStore()
+    snapshot = await open_live_book(store, venue)
+    venue.margin = Decimal(1)
+    venue.rejected_closes = 10
+    policy = compiled_default_risk_policy().model_copy(
+        update={"futures": FuturesRiskPolicy(live_enabled=False, live_derisk_margin_ratio="1.5")}
+    )
+    for _ in range(7):
+        snapshot = await supervise_live_futures(
+            await store.get_deployment(snapshot.deployment.id),
+            state=_state(snapshot),
+            account=await venue.read_account(frozenset()),
+            policy=policy,
+            broker=venue.broker(),
+            store=store,
+            now=venue.now,
+        )
+        venue.advance(31 * 60)
+    closes = [call for call in venue.calls if call[1].endswith("/close_position")]
+    assert len(closes) == 5
+    assert snapshot.position is not None
+    assert snapshot.deployment.futures_derisk_pending
+    assert snapshot.deployment.status is DeploymentStatus.PAUSED
+    assert (snapshot.deployment.mismatch_detail or "").startswith(PROTECTIVE_REJECTED_PREFIX)

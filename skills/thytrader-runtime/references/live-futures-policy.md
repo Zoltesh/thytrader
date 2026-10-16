@@ -22,7 +22,13 @@ position, and attached brackets on an entry; none of them is reduce-only, so exi
 book's protection first. A second probe showed `close_position` takes a partial size, is not
 blocked by a resting stop (the stop stays OPEN once flat, so cancel-first is required), and
 answers HTTP 404 `NOT_FOUND` when flat or oversized without ever flipping; the broker records
-that as a definite rejection (`coinbase_http_404:NOT_FOUND`). Attached entry brackets remain disabled in the adapter. The worker composes the runtime for
+that as a definite rejection (`coinbase_http_404:NOT_FOUND`). A rejected futures reduction pauses
+the book with `PROTECTIVE_SUBMIT_REJECTED:` and backs off like a rejected spot exit (a margin
+de-risk keeps that detail; `futures_derisk_pending` stays set). Check the venue position
+(`futures-books`, I9) first. A running/paused book recovers with `resume`, which sends a fresh
+attempt; a STOPPED book being flattened refuses `resume`, so reissue `stop --flatten` after the
+backoff instead.
+Attached entry brackets remain disabled in the adapter. The worker composes the runtime for
 live futures books since P2-7 wiring (product exclusivity and position checks apply); a live
 futures book without a futures broker pauses with `Live broker is unavailable: no futures broker
 is composed…` (a stopped one is noted), keeping its de-risk and flat-confirmation duties. Opaque order ids are resolved from bounded venue reads, not a memory cache;

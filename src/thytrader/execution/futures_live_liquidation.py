@@ -6,6 +6,7 @@ from dataclasses import replace
 from decimal import Decimal, DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
+from thytrader.execution.exit_guards import PROTECTIVE_REJECTED_PREFIX
 from thytrader.execution.futures_reduction import reduce_live_futures_position
 from thytrader.execution.runtime_ops import _pause
 from thytrader.trading.futures_book import futures_book_equity
@@ -68,7 +69,8 @@ async def supervise_live_futures(
         )
     if reduced.position is not None:
         detail = reduced.deployment.mismatch_detail or "reduction still pending"
-        if not detail.startswith(_PENDING):
+        # A rejection pause keeps its own prefix: the latch and its audit dedup key on it.
+        if not detail.startswith((_PENDING, PROTECTIVE_REJECTED_PREFIX)):
             await store.save_deployment(
                 with_runtime(reduced.deployment, updated_at=now, mismatch_detail=_PENDING + detail)
             )
