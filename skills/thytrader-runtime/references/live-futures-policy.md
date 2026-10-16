@@ -21,8 +21,11 @@ book's protection first. A second probe showed `close_position` takes a partial 
 blocked by a resting stop (the stop stays OPEN once flat, so cancel-first is required), and
 answers HTTP 404 `NOT_FOUND` when flat or oversized without ever flipping; the broker records
 that as a definite rejection (`coinbase_http_404:NOT_FOUND`). A rejected futures reduction pauses
-the book with `PROTECTIVE_SUBMIT_REJECTED:` and backs off like a rejected spot exit; check the
-venue position (`futures-books`, I9) before `resume`, which sends a fresh attempt.
+the book with `PROTECTIVE_SUBMIT_REJECTED:` and backs off like a rejected spot exit (a margin
+de-risk keeps that detail; `futures_derisk_pending` stays set). Check the venue position
+(`futures-books`, I9) first. A running/paused book recovers with `resume`, which sends a fresh
+attempt; a STOPPED book being flattened refuses `resume`, so reissue `stop --flatten` after the
+backoff instead.
 Attached entry brackets remain disabled in the adapter; live wiring
 (P2-7) is still pending. P2-4 tests injected runtime composition with product exclusivity and
 position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
