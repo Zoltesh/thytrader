@@ -988,12 +988,13 @@ The worker never re-submits an order automatically
   `coinbase_http_400:INVALID_ARGUMENT` (audit `order_submit_rejected`). The book returns to flat
   and keeps running; fix the cause (size, permissions, product) before the next entry. A rejected
   protective bracket still pauses the book because the position is unprotected.
-- **Repeated protective rejections are latched.** A live bracket, stop-limit, or marketable exit that Coinbase
-  rejects (for example `INSUFFICIENT_FUND`) pauses once with `mismatch_detail` starting
+- **Repeated protective rejections are latched.** A live bracket, stop-limit, or marketable exit
+  (including a futures `close_position` reduction) that Coinbase rejects (for example `INSUFFICIENT_FUND`) pauses once with `mismatch_detail` starting
   `PROTECTIVE_SUBMIT_REJECTED:` (audit `protective_submit_latched`, one per real rejection).
   Identical re-submits back off 1, 2, 4 … minutes (capped at 30); after 5 identical rejections the
-  worker waits for `resume` before one more attempt. A changed stop, target, or quantity starts
-  fresh. Check Coinbase balances and holds before resuming; do not place manual orders.
+  worker waits for `resume` (and the elapsed backoff) before one more attempt; a STOPPED book being
+  flattened refuses `resume`, so reissue `stop --flatten` instead. A changed stop, target, or
+  quantity starts fresh. Check Coinbase balances and holds before resuming; do not place manual orders.
 - **Exit ordering on live.** Before any exit or protection the worker learns the entry's
   venue-attached TP/SL child. Time, stop, and flatten exits cancel known protective children first.
   Coinbase cancels asynchronously: an accepted cancel shows the order still `open` with

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from tests.execution.test_paper_futures_books import _PERP, _START
 from thytrader.exchanges.coinbase_futures_broker import CoinbaseFuturesBroker
+from thytrader.exchanges.rest_transport import CoinbaseHttpStatusError
 from thytrader.execution.futures_live import FuturesLiveAccount
 from thytrader.risk.futures_live import FuturesVenueEvidence
 
@@ -43,6 +44,7 @@ class FakeVenue:
         self.partial_contracts: Decimal | None = None
         self.cancel_confirmed = True
         self.pending_cancels: set[str] = set()
+        self.rejected_closes = 0
 
     async def contract_size(self, product_id: str) -> Decimal | None:
         """The same catalog size used in evidence and by the actual futures broker."""
@@ -69,6 +71,10 @@ class FakeVenue:
             return {"results": [{"order_id": i, "success": True} for i in ids]}
         identity = f"test-order-{len(self.orders)}"
         close = path == ORDERS + "/close_position"
+        if close and self.rejected_closes:
+            # The observed answer to a close without a matching position (ADR 0134 section 1).
+            self.rejected_closes -= 1
+            raise CoinbaseHttpStatusError(404, "NOT_FOUND")
         if close:
             contracts = Decimal(str(data["size"]))
             side = "SELL" if self.net > 0 else "BUY"

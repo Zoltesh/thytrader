@@ -2,6 +2,8 @@
 
 Reconciliation and cancel confirmation precede submission. An ambiguous reduction is never
 cancelled/replaced or resent; the existing persisted intent and FUTURE client scan recover it.
+A definite venue rejection pauses the book like a rejected spot exit; identical retries back off
+and each retry is a new intent, so a rejection is never mistaken for a submitted reduction.
 """
 
 from __future__ import annotations
@@ -10,12 +12,17 @@ from typing import TYPE_CHECKING
 
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
-from thytrader.execution.exit_guards import active_orders, exit_fill_pending
+from thytrader.execution.exit_guards import (
+    active_orders,
+    exit_fill_pending,
+    exit_rejection,
+    rejection_latched,
+)
 from thytrader.execution.futures_cancel import cancel_proven_futures_orders
 from thytrader.execution.futures_obligations import retain_flat_confirmation
 from thytrader.execution.futures_venue_check import compare_position
 from thytrader.execution.reconcile import reconcile_open_orders
-from thytrader.execution.runtime_ops import _pause
+from thytrader.execution.runtime_ops import _pause, _pause_rejected
 from thytrader.execution.submit import submit_intent
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
@@ -25,6 +32,7 @@ from thytrader.trading.models import (
     IntentPurpose,
     LifecycleCommand,
     OrderKind,
+    OrderStatus,
     RuntimePhase,
     with_runtime,
 )
@@ -34,7 +42,7 @@ if TYPE_CHECKING:
 
     from thytrader.execution.broker import Broker
     from thytrader.execution.futures_live import FuturesLiveAccount
-    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot, Position
     from thytrader.trading.store import ExecutionStore
 
 
@@ -78,12 +86,11 @@ async def reduce_live_futures_position(
             detail="FUTURES_REDUCTION_UNPROVEN: inventory changed during cancel confirmation.",
         )
     position = snapshot.position
-    key = (
-        f"futures-reduction:{snapshot.deployment.id}:{purpose.value}:"
-        f"{position.updated_at.isoformat()}"
-    )
+    rejection = exit_rejection(snapshot, position)
+    if rejection is not None and rejection_latched(snapshot, rejection, now=now):
+        return await _pause_rejected(snapshot, store=store, rejection=rejection, position=position)
     snapshot = await _pending(snapshot, store=store, now=now)
-    await submit_intent(
+    order = await submit_intent(
         store=store,
         broker=broker,
         deployment_id=snapshot.deployment.id,
@@ -95,8 +102,15 @@ async def reduce_live_futures_position(
         price=None,
         candle=None,
         decision_at=now,
-        idempotency_key=key,
+        idempotency_key=_reduction_key(snapshot, position, purpose),
     )
+    if order.status is OrderStatus.REJECTED:
+        current = await store.get_deployment(snapshot.deployment.id)
+        rejected = exit_rejection(current, position)
+        if rejected is not None:
+            return await _pause_rejected(
+                current, store=store, rejection=rejected, position=position
+            )
     mark = None if account is None else account.marks.get(snapshot.deployment.product_id)
     await record_execution_audit(
         action="futures_position_reduction",
@@ -145,6 +159,18 @@ async def _await_flat_confirmation(
         )
         return await store.get_deployment(snapshot.deployment.id)
     return snapshot
+
+
+def _reduction_key(snapshot: DeploymentSnapshot, position: Position, purpose: IntentPurpose) -> str:
+    """One intent per attempt on this position; a retry after a rejection is a new attempt."""
+    base = (
+        f"futures-reduction:{snapshot.deployment.id}:{purpose.value}:"
+        f"{position.updated_at.isoformat()}"
+    )
+    attempts = sum(
+        1 for intent in snapshot.intents if (intent.idempotency_key or "").startswith(base)
+    )
+    return base if attempts == 0 else f"{base}:attempt-{attempts + 1}"
 
 
 def _unresolved_reduction(snapshot: DeploymentSnapshot) -> bool:
