@@ -150,6 +150,6 @@ Future operational semantics are pinned, not enabled here:
 - Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
   missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
 
-Venue enforcement/acceptance probes, the protection decision (P2-5), live futures fleet-health
-and alerts (P2-6), and acknowledgements/start activation (P2-7) remain outstanding. Do not interpret
+The remaining `close_position` probes (partial size, flat error shape, holds, flips) and
+acknowledgements/start activation (P2-7) remain outstanding. Do not interpret
 a stored opt-in, a healthy spot report or a passing fake-runtime test as live futures readiness.

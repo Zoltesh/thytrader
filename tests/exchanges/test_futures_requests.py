@@ -143,7 +143,7 @@ async def test_explicit_reduction_body(side: OrderSide, purpose: IntentPurpose) 
 async def test_standalone_protection_shapes(
     side: OrderSide, kind: OrderKind, purpose: IntentPurpose, configuration: str, stop_key: str
 ) -> None:
-    """Standalone request shaping is dormant pending supervised venue acceptance."""
+    """Stop-limit and bracket shapes the venue accepted on a position (probe 2026-10-16)."""
     client = CLIENT.replace(":entry:", f":{purpose.value}:")
     transport = FakeTransport(posts={ORDERS: [{"success": False}]}, gets={})
     await place(

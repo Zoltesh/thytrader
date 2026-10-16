@@ -109,7 +109,7 @@ are post-only limits only; the futures broker sends no market-entry body.
 - CFM nets per product across the account and `close_position` acts on the account's
   position, so it is correct only under product exclusivity (I3).
 
-**Pending supervised acceptance before any live wiring:** a `market_market_ioc`
+**Supervised probe (planned before any live wiring):** a `market_market_ioc`
 order with `reduce_only: true` and `base_size` = the book's contracts. The probe answers:
 
 1. Is `reduce_only: true` accepted in the create-order body for a CDE perp?
@@ -127,8 +127,9 @@ inside `market_market_ioc` it is recognized but `orders/preview` refuses it with
 `PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE`. `close_position` of one contract filled at once and
 echoed a `market_market_ioc` configuration. The `REDUCE_ONLY_MARKET` candidate is therefore
 removed from the futures broker: every marketable reduction is `close_position`. Still open for
-`close_position`: a partial `size`, whether resting stops (holds) block it, and whether it can
-ever flip a position. A plain
+`close_position`: a partial `size`, the exact error shape when flat (the fixture's
+`CANNOT_CLOSE_ZERO_POSITION` is hand-built, not observed), whether resting stops (holds) block it,
+and whether it can ever flip a position. A plain
 market order **without** venue-enforced reduce-only is never used to reduce a position: sized
 to the book while the account is already flat, it would open a position.
 
@@ -454,7 +455,7 @@ intents remain supervised.
   path.
 - **Plain market orders to reduce.** Rejected: without venue-enforced reduce-only they can open
   or flip a position when the account is not where the book thinks it is. Reduce-only market
-  orders are not rejected; they are probed (§1).
+  orders were the other candidate; the venue refuses them (§1, probe 2026-10-16).
 - **A second live broker per venue instead of product routing.** Rejected: reconciliation and
   exits address one broker; routing by product id keeps every caller unchanged.
 - **Sizing live futures from ledger equity alone.** Rejected: a live ledger starts at 0
