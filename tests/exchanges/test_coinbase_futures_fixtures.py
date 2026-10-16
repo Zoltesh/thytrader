@@ -192,7 +192,6 @@ def test_close_position_success_echoes_the_thytrader_client_id() -> None:
 @pytest.mark.parametrize(
     ("name", "reason"),
     [
-        ("close_position_failure.json", "CANNOT_CLOSE_ZERO_POSITION"),
         ("create_order_fcm_session_rejected.json", "INVALID_FCM_TRADING_SESSION"),
     ],
 )
@@ -204,6 +203,14 @@ def test_definite_rejections_name_a_failure_reason(name: str, reason: str) -> No
     error: dict[str, Any] = body["error_response"]
     assert error["new_order_failure_reason"] == reason
     assert error["error"] == reason
+
+
+def test_close_position_without_a_matching_position_is_not_found() -> None:
+    """Flat, or a size above the position: HTTP 404 ``NOT_FOUND``, never a partial or flip."""
+    fixture = json.loads((_DIR / "close_position_failure.json").read_text(encoding="utf-8"))
+    assert fixture["http_status"] == 404
+    assert fixture["body"]["error"] == "NOT_FOUND"
+    assert "success_response" not in fixture["body"]
 
 
 def test_fcm_session_rejection_was_a_post_only_limit() -> None:

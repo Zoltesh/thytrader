@@ -17,7 +17,10 @@ orders (`PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE`, supervised probe 2026-10-16,
 the reduce-only candidate was removed. There is no plain market exit or market entry. The same
 probe showed CDE accepts post-only entries, stop-limit and trigger-bracket protection on a
 position, and attached brackets on an entry; none of them is reduce-only, so exits cancel the
-book's protection first. Attached entry brackets remain disabled in the adapter; live wiring
+book's protection first. A second probe showed `close_position` takes a partial size, is not
+blocked by a resting stop (the stop stays OPEN once flat, so cancel-first is required), and
+answers HTTP 404 `NOT_FOUND` when flat or oversized without ever flipping; the broker records
+that as a definite rejection (`coinbase_http_404:NOT_FOUND`). Attached entry brackets remain disabled in the adapter; live wiring
 (P2-7) is still pending. P2-4 tests injected runtime composition with product exclusivity and
 position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
 incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
@@ -150,6 +153,5 @@ Future operational semantics are pinned, not enabled here:
 - Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
   missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
 
-The remaining `close_position` probes (partial size, flat error shape, holds, flips) and
-acknowledgements/start activation (P2-7) remain outstanding. Do not interpret
+Acknowledgements and start activation (P2-7) remain outstanding. Do not interpret
 a stored opt-in, a healthy spot report or a passing fake-runtime test as live futures readiness.

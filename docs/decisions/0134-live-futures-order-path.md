@@ -87,8 +87,9 @@ From the public API reference and a GET-only read of a supervised one-contract r
   `REDUCE_ONLY_NOT_ALLOWED_ON_SPOT_PRODUCTS` failure reasons.
 - `POST /orders/close_position` takes `client_order_id`, `product_id` and an optional `size`
   ("the amount of contracts that should be closed") and returns the create-order response
-  shape; `CANNOT_CLOSE_ZERO_POSITION` is a documented failure reason. The reference says
-  nothing about partial sizes, resting holds or flips.
+  shape; `CANNOT_CLOSE_ZERO_POSITION` is a documented failure reason (the venue answered
+  HTTP 404 `NOT_FOUND` instead, §1). The reference says nothing about partial sizes, resting
+  holds or flips.
 - Create order lists `INVALID_FCM_TRADING_SESSION` and `FUTURES_AFTER_HOUR_INVALID_ORDER_TYPE`
   / `_TIME_IN_FORCE`; only `TriggerBracketGtc` is eligible as an attached order.
 - Funding accrues hourly and settles twice daily (venue launch material); ADR 0133 observed
@@ -126,10 +127,22 @@ reduce-only. As a top-level body field `reduce_only` is an unknown proto field (
 inside `market_market_ioc` it is recognized but `orders/preview` refuses it with
 `PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE`. `close_position` of one contract filled at once and
 echoed a `market_market_ioc` configuration. The `REDUCE_ONLY_MARKET` candidate is therefore
-removed from the futures broker: every marketable reduction is `close_position`. Still open for
-`close_position`: a partial `size`, the exact error shape when flat (the fixture's
-`CANNOT_CLOSE_ZERO_POSITION` is hand-built, not observed), whether resting stops (holds) block it,
-and whether it can ever flip a position. A plain
+removed from the futures broker: every marketable reduction is `close_position`.
+
+**`close_position` answered 2026-10-16 (second supervised probe, at most two ETP contracts):**
+
+- A partial `size` reduces by exactly that many contracts (two open, `size` 1, one left).
+- Without a matching position it places nothing and answers HTTP 404 `NOT_FOUND` ("no positions
+  found for product"), both when flat and when `size` exceeds the open contracts (one long,
+  `size` 2). It never reduced to flat or flipped. The broker maps this to a definite rejection
+  (`coinbase_http_404:NOT_FOUND`). The same 404 for "flat" and "oversized" means the rejection
+  says nothing about the venue's position: the reduction path already submits only after fresh
+  venue contracts equal the book's (`_reduction_proven`).
+- A resting stop-limit on the same product does **not** block it (no hold), and the stop stays
+  OPEN after the position is closed. Cancel-first (decision 7) and the I9 orphan cancel are
+  therefore required, not belt and braces: a stop left behind would open a position.
+
+A plain
 market order **without** venue-enforced reduce-only is never used to reduce a position: sized
 to the book while the account is already flat, it would open a position.
 
@@ -258,7 +271,8 @@ capability remains `orderable: false` pending authentic acceptance and P2-7.
 1. Order and fill units, commission composition, `product_type`, `order_type`, client-id echo:
    **answered** by P2-0 (contracts; all-in commission; FUTURE; MARKET/IOC; echoed).
 2. Reduce-only market IOC vs `close_position` (§1): **answered** 2026-10-16: reduce-only is
-   not allowed on CDE; `close_position` closes (§1).
+   not allowed on CDE; `close_position` closes, takes a partial `size`, answers 404 `NOT_FOUND`
+   when flat or oversized (never flips), and is not blocked by a resting stop (§1).
 3. Post-only `limit_limit_gtc` accepted on FCM: **answered** 2026-10-16: accepted on a 24/7
    perp (rested OPEN, cancelled).
 4. `stop_limit_stop_limit_gtc`, standalone `trigger_bracket_gtc` and attached brackets on a
