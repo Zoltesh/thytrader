@@ -1,4 +1,4 @@
-"""Exact CFM quantities and dormant request validation, never venue authority."""
+"""Exact CFM quantities and request validation, never venue authority."""
 
 from __future__ import annotations
 

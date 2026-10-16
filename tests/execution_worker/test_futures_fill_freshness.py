@@ -95,7 +95,8 @@ async def test_wire_fill_freshness_preserves_proofs_and_worker_duties(
                         publication_store=Catalog(_strategy()),
                         market_data=MarketDataService(DemoMarketData()),
                         paper_broker=PaperBroker(),
-                        live_broker=venue.broker(),
+                        live_broker=None,
+                        futures_live_broker=venue.broker(),
                         quote_reader=None,
                         risk_store=None,
                     )

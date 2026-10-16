@@ -74,7 +74,7 @@ _ACCOUNT: ContextVar[FuturesLiveAccount | None] = ContextVar("live_futures_accou
 
 @contextmanager
 def live_futures_runtime_scope(runtime: FuturesLiveRuntime | None) -> Iterator[None]:
-    """Bind staged runtime dependencies; production supplies None until probes are accepted."""
+    """Bind the cycle's futures runtime; None when the venue has no futures composition."""
     token = _RUNTIME.set(runtime)
     try:
         yield

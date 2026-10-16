@@ -1,4 +1,4 @@
-"""Dormant product-aware broker facade with restart-safe opaque identity routing."""
+"""Product-aware broker facade for live futures books, with restart-safe identity routing."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class ProductRoutedBroker:
     """
 
     def __init__(self, spot: Broker, futures: Broker | None) -> None:
-        """Bind dormant adapters without lookup, submission or process wiring."""
+        """Bind both adapters; nothing is looked up or submitted here."""
         self._spot = spot
         self._futures = futures
 

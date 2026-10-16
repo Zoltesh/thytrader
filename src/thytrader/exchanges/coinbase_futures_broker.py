@@ -1,4 +1,4 @@
-"""Dormant CFM adapter; no worker or API constructs this broker (ADR 0134)."""
+"""CFM adapter; only the worker's futures venue seam constructs it, never the API (ADR 0134)."""
 
 from __future__ import annotations
 

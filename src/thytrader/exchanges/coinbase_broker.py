@@ -389,7 +389,7 @@ class CoinbaseRestBroker:
     ) -> VenueOrderIdentity | None:
         """Read routing metadata across products without interpreting quantities.
 
-        Only the dormant product router uses this optional capability. Existing spot
+        Only the product router (live futures books) uses this optional capability. Existing spot
         get/cancel/submit/fill paths are unchanged; opaque ids are never parsed as products.
         """
         return await resolve_order_identity(

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from functools import partial
 import logging
 import os
 from pathlib import Path
@@ -14,8 +15,9 @@ from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
 from thytrader.execution.futures_paper import FuturesRuntime, futures_runtime_scope
 from thytrader.execution.paper import PaperBroker
+from thytrader.execution_worker.futures_venue import coinbase_futures_extension
 from thytrader.execution_worker.service import run_execution_worker
-from thytrader.execution_worker.venue import ExecutionVenueRuntime
+from thytrader.execution_worker.venue import ExecutionVenueRuntime, build_execution_venue
 from thytrader.execution_worker.venue_feed import run_venue_user_order_feed
 from thytrader.memory.notify import ReloadingNotificationSender
 from thytrader.observability.logging import configure_logging
@@ -72,7 +74,19 @@ async def run() -> None:
         ),
         min_severity=lambda: settings_store.current().notify_min_severity,
     )
-    venue_runtime = ExecutionVenueRuntime(settings)
+    futures_observations = PostgresFuturesObservationStore(engine)
+    futures_accounts = PostgresFuturesAccountStore(engine)
+    # Live futures books get a product-routed broker on the generation's REST client; spot
+    # books keep the plain spot broker (ADR 0134 P2-7).
+    venue_runtime = ExecutionVenueRuntime(
+        settings,
+        builder=partial(
+            build_execution_venue,
+            extend=coinbase_futures_extension(
+                observations=futures_observations, mirror=futures_accounts
+            ),
+        ),
+    )
     credential_runtime = WorkerCredentialRuntime(
         settings_store,
         on_coinbase_reload=venue_runtime.replace,
@@ -98,10 +112,10 @@ async def run() -> None:
         # tasks created below inherit these bindings.
         futures_runtime = FuturesRuntime(
             contracts=PostgresFuturesContractStore(engine),
-            observations=PostgresFuturesObservationStore(engine),
+            observations=futures_observations,
         )
         with (
-            risk_futures_account_scope(PostgresFuturesAccountStore(engine)),
+            risk_futures_account_scope(futures_accounts),
             futures_runtime_scope(futures_runtime),
             capture_scope(configured_replay_capture()),
         ):

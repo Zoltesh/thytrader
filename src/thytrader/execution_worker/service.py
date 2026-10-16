@@ -47,6 +47,7 @@ from thytrader.execution_worker.supervision import (
     _supervise_warming_window,
     _user_feed_connected,
 )
+from thytrader.execution_worker.venue import book_live_broker
 from thytrader.execution_worker.windows import (
     _closed_htf_window,
     _closed_indicator_timeframe_windows,
@@ -179,12 +180,14 @@ async def run_execution_worker(
                 quote_reader,
             )
             cycle_futures_runtime = None
+            cycle_futures_live_broker = None
             if venue_provider is not None:
                 venue = venue_provider()
                 cycle_market_data = venue.market_data
                 cycle_live_broker = venue.live_broker
                 cycle_quote_reader = venue.quote_reader
                 cycle_futures_runtime = venue.futures_runtime
+                cycle_futures_live_broker = venue.futures_live_broker
             wait_seconds = (
                 settings_store.current().execution_worker_interval_seconds
                 if settings_store is not None
@@ -208,6 +211,7 @@ async def run_execution_worker(
                     market_data=cycle_market_data,
                     paper_broker=paper_broker,
                     live_broker=cycle_live_broker,
+                    futures_live_broker=cycle_futures_live_broker,
                     quote_reader=cycle_quote_reader,
                     risk_store=risk_store,
                     user_feed_store=user_feed_store,
@@ -272,6 +276,7 @@ async def _run_cycle(
     live_broker: Broker | None,
     quote_reader: QuoteBalanceReader | None,
     risk_store: RiskPolicyStore | None,
+    futures_live_broker: Broker | None = None,
     user_feed_store: UserOrderFeedStateStore | None = None,
     memory_store: ExperientialMemoryStore | None = None,
     portfolio_store: PortfolioRuntimeStore | None = None,
@@ -331,7 +336,9 @@ async def _run_cycle(
                             publication_store=publication_store,
                             market_data=market_data,
                             paper_broker=paper_broker,
-                            live_broker=live_broker,
+                            live_broker=book_live_broker(
+                                deployment, spot=live_broker, futures=futures_live_broker
+                            ),
                             quote_reader=quote_reader,
                             risk_policy=policy,
                             portfolio=portfolio,
