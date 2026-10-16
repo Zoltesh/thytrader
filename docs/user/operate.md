@@ -686,8 +686,9 @@ on ETH, and a backtest or paper start refuses a mismatch), **Maximum leverage** 
 policy's ceiling applies too and the lower wins) and **Margin mode** (overnight only). A saved
 `flatten_before_expiry_hours` is kept and shown read-only. Saving writes `instrument.kind` and the
 whole `derivatives` block; switching back to **Spot** removes them, so a spot strategy's document
-never carries futures keys. A futures strategy cannot pyramid, cover more markets, or read
-reference instruments, and the Build stage names any such block left over.
+never carries futures keys. A futures strategy cannot pyramid or cover more markets, and the Build
+stage names any such block left over. It can read reference instruments quoted in USD, its
+settlement currency: **Add reference** proposes BTC-USD (the same Coinbase candles as BTC-USDC).
 
 ### Portfolio and bot detail
 

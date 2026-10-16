@@ -2,6 +2,7 @@
  * Reference-instrument checks for the strategy builder (ADR 0096), mirrored from
  * the backend. Re-exported by `strategy-insight.ts`.
  */
+import { FUTURES_QUOTE_CURRENCY } from './strategies-derivatives';
 import {
 	MAX_REFERENCE_INSTRUMENTS,
 	quoteCurrencyFor,
@@ -32,7 +33,11 @@ export function validateReferenceInstruments(model: BuilderModel): string[] {
 	if (series.size !== references.length) {
 		problems.push('Reference instruments must not repeat one product and timeframe.');
 	}
-	const quote = quoteCurrencyFor(model.product_id, '');
+	// A futures contract settles in USD (ADR 0145); a spot id carries its own quote.
+	const quote =
+		model.instrument_kind === 'future'
+			? FUTURES_QUOTE_CURRENCY
+			: quoteCurrencyFor(model.product_id, '');
 	for (const reference of references) {
 		const label = `Reference instrument "${reference.id}"`;
 		if (!REFERENCE_ID_PATTERN.test(reference.id)) {

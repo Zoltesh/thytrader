@@ -53,6 +53,8 @@ Reviewed and accepted by the lead with ADR 0129. No changes to this ADR were req
   `flatten_before_expiry_hours` (dated contracts; required for them).
 - Futures documents are single-instrument in P1: no `additional_instruments`, no reference
   instruments on another settlement currency. Multi-leg and spot-plus-futures pairs are P3.
+  (Amended by [0145](0145-futures-reference-instruments.md): USD-quoted spot reference
+  instruments are allowed; they feed indicators only.)
 - Shorts are real shorts: a futures `short` entry needs no base inventory.
 
 ### 2. Run spec

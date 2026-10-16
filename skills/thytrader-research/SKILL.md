@@ -130,9 +130,13 @@ HTTP contracts behind this CLI ([ADR 0082](../../docs/decisions/0082-strategy-ro
   (1–20; optional `flatten_before_expiry_hours` 1–720 for dated contracts; `margin_mode` is always
   `overnight`). `base_currency` is the contract's underlying (`thytrader-operator products --kind
   future` shows it; `BIP` is BTC), `quote_currency` is `USD`, the settlement currency. A futures
-  document has no `additional_instruments` and no reference instruments. Spot documents omit
+  document has no `additional_instruments`. Spot documents omit
   `kind` and `derivatives`, so their bytes and fingerprints never change. Futures documents cannot
-  pyramid (`entry.pyramiding` is refused). **Status:** futures documents can be saved,
+  pyramid (`entry.pyramiding` is refused). They may declare `data_requirements.reference_instruments`
+  quoted in **USD** (for example `BTC-USD` 1d, the same Coinbase candles as `BTC-USDC`) and gate
+  entries on them exactly as spot strategies do; a USDC reference is refused (quote must match)
+  ([ADR 0145](../../docs/decisions/0145-futures-reference-instruments.md)). Watch the reference
+  series before a paper start. **Status:** futures documents can be saved,
   validated and backtested (see **Futures backtests** and **Futures simulation** below), and
   run as paper futures books (runtime skill; perp-style contracts only); live returns
   `FUTURES_LIVE_UNSUPPORTED`. Never invent a futures result.

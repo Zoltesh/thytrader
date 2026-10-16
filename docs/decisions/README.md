@@ -150,6 +150,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0142](0142-opt-in-start-safeguards.md) | Start checks warn by default: starts adopt the convergence warmup policy by re-saving, missing-policy and young-market starts/resumes carry warnings; refusal is the risk policy's opt-in `start_safeguards` | Accepted |
 | [0143](0143-live-start-evidence.md) | Every live start records what its exact strategy fingerprint had shown (out-of-sample study windows, paper bots); thin evidence warns `LIVE_EVIDENCE_THIN`, refusal is the opt-in `require_live_evidence` safeguard | Accepted |
 | [0144](0144-fee-tiers-from-coinbase.md) | Fee tiers come from Coinbase: the fee report carries the account's current and next tier from `transaction_summary`; the pinned public schedule and its `schedule_*` fields are removed | Accepted |
+| [0145](0145-futures-reference-instruments.md) | Futures strategies may read USD-quoted spot reference instruments (e.g. BTC-USD 1d) and gate entries on them like spot strategies; references feed indicators only, never capital or margin | Accepted |
 
 ## Status values
 
