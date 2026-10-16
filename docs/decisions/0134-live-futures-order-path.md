@@ -142,6 +142,12 @@ removed from the futures broker: every marketable reduction is `close_position`.
   OPEN after the position is closed. Cancel-first (decision 7) and the I9 orphan cancel are
   therefore required, not belt and braces: a stop left behind would open a position.
 
+A definitely rejected reduction (any reason, including that 404) pauses the book with
+`PROTECTIVE_SUBMIT_REJECTED`, exactly as a rejected spot exit does: identical retries back off
+(1, 2, 4 … minutes, capped at 30) and after five the book waits for `resume`. Each retry is a new
+intent (idempotency key suffix `:attempt-N`), so a resume or an elapsed backoff really resends;
+before this (2026-10-16) the retry reused the rejected intent's key and could never resend.
+
 A plain
 market order **without** venue-enforced reduce-only is never used to reduce a position: sized
 to the book while the account is already flat, it would open a position.
