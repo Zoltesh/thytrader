@@ -14,6 +14,8 @@ from uuid import uuid4
 
 import pytest
 
+from tests.execution.futures_live_fixture import FakeVenue
+from tests.execution.test_futures_reduction import open_live_book
 from tests.execution.test_paper_futures_books import _book, _strategy
 from tests.execution_worker.test_futures_source import _Observations
 from tests.execution_worker.test_venue_reload import _KEY, _PEM, _settings
@@ -21,15 +23,21 @@ from thytrader.credentials.service import settings_with_coinbase
 from thytrader.exchanges.coinbase_broker import CoinbaseRestBroker
 from thytrader.execution.futures_sources import RecordedFuturesSource
 from thytrader.execution.paper import PaperBroker
+from thytrader.execution.stopped import STOPPED_BROKER_UNAVAILABLE
 from thytrader.execution.venue_routing import ProductRoutedBroker
 from thytrader.execution_worker import service
+from thytrader.execution_worker.futures_step import (
+    LIVE_FUTURES_BROKER_UNAVAILABLE,
+    supervised_live_futures,
+)
 from thytrader.execution_worker.futures_venue import coinbase_futures_extension
 from thytrader.execution_worker.venue import book_live_broker, build_execution_venue
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
+from thytrader.risk.models import compiled_default_risk_policy
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 from thytrader.trading.memory import InMemoryExecutionStore
-from thytrader.trading.models import DeploymentMode
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -117,7 +125,58 @@ async def test_the_cycle_hands_each_book_its_own_live_broker(
     assert seen[futures_book.id] is futures
 
 
-def test_partial_builder_matches_the_worker_signature(tmp_path: Path) -> None:
-    """The worker binds the extension with ``partial``; the builder stays (settings, generation)."""
-    builder = partial(build_execution_venue, extend=_extension())
-    assert builder(_settings(tmp_path), 2).generation == 2
+def test_a_failing_futures_extension_keeps_the_spot_generation(tmp_path: Path) -> None:
+    """Futures composition can never take down live spot: the generation keeps spot only."""
+
+    def broken(*_: Any) -> Any:
+        raise RuntimeError("synthetic futures composition fault")
+
+    settings = settings_with_coinbase(_settings(tmp_path), key_name=_KEY, private_key=_PEM)
+    venue = build_execution_venue(settings, 4, extend=broken)
+    assert isinstance(venue.live_broker, CoinbaseRestBroker)
+    assert venue.futures_live_broker is None
+    assert venue.futures_runtime is None
+
+
+def test_the_router_wraps_the_generation_spot_broker(tmp_path: Path) -> None:
+    """The worker's partial builder composes on credentials; the router reuses the spot object."""
+    settings = settings_with_coinbase(_settings(tmp_path), key_name=_KEY, private_key=_PEM)
+    venue = partial(build_execution_venue, extend=_extension())(settings, 5)
+    assert isinstance(venue.futures_live_broker, ProductRoutedBroker)
+    assert venue.futures_live_broker._spot is venue.live_broker
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("stopped", [False, True])
+async def test_a_live_futures_book_without_a_futures_broker_is_never_silently_skipped(
+    stopped: bool,
+) -> None:
+    """Running (even with a pending de-risk) pauses; a stopped flatten is noted; duties stay."""
+    store = InMemoryExecutionStore()
+    snapshot = await open_live_book(store, FakeVenue())
+    deployment = replace(snapshot.deployment, futures_derisk_pending=True)
+    if stopped:
+        deployment = replace(
+            deployment,
+            status=DeploymentStatus.STOPPED,
+            lifecycle_command=LifecycleCommand.FLATTEN,
+        )
+    await store.save_deployment(deployment)
+    snapshot = await store.get_deployment(deployment.id)
+    async with supervised_live_futures(
+        snapshot,
+        state=None,
+        broker=None,
+        store=store,
+        policy=compiled_default_risk_policy(),
+        portfolio=(snapshot,),
+    ) as supervised:
+        pass
+    assert supervised.position is not None
+    assert supervised.deployment.futures_derisk_pending
+    if stopped:
+        assert supervised.deployment.status is DeploymentStatus.STOPPED
+        assert supervised.deployment.mismatch_detail == STOPPED_BROKER_UNAVAILABLE
+    else:
+        assert supervised.deployment.status is DeploymentStatus.PAUSED
+        assert supervised.deployment.mismatch_detail == LIVE_FUTURES_BROKER_UNAVAILABLE

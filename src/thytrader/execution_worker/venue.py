@@ -90,7 +90,8 @@ def build_execution_venue(
 ) -> ExecutionVenue:
     """Use Coinbase REST when credentials exist, otherwise demo candles and no live broker.
 
-    ``extend`` runs only for a credentialed generation, with the same instrumented client.
+    ``extend`` runs only for a credentialed generation, with the same instrumented client. If
+    it raises, the generation keeps its spot bindings and has no futures composition.
     """
     key = settings.coinbase_api_key_name
     secret = settings.coinbase_api_private_key
@@ -116,7 +117,14 @@ def build_execution_venue(
         source="coinbase",
         generation=generation,
     )
-    return venue if extend is None else extend(venue, client)
+    if extend is None:
+        return venue
+    try:
+        return extend(venue, client)
+    except Exception as error:  # noqa: BLE001 - futures composition never takes down spot.
+        # Live futures books then pause as broker-unavailable; spot keeps this generation.
+        _logger.warning("execution_venue_futures_unavailable type=%s", type(error).__name__)
+        return venue
 
 
 def book_live_broker(

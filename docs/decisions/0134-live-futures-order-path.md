@@ -464,8 +464,13 @@ live start (fees, capital, HTTP 428, CLI, `FUTURES_ORDER_PATHS`).
   `futures_live_broker` (`ProductRoutedBroker(spot, futures)`) is handed only to live books
   on a futures product (`book_live_broker`). The router resolves every opaque get/cancel with an
   extra venue read, which spot books must not pay. A live futures book without a composed
-  futures broker gets none and pauses as "Live broker is unavailable"; it never falls back to
-  the spot adapter. Paper books never submit through either.
+  futures broker gets none and never falls back to the spot adapter: before any deferred duty
+  can skip it, a running book pauses ("Live broker is unavailable: no futures broker is
+  composed…") and a stopped one is noted, with de-risk and flat-confirmation duties kept. Paper
+  books never submit through either.
+- A failure while composing futures never takes down spot: the generation keeps its spot
+  bindings, logs `execution_venue_futures_unavailable` (exception type only), and live futures
+  books pause as above.
 - The API builds no futures adapter: live futures stop and flatten run in the worker.
 - Composition places nothing. CFM reads happen only while a live futures book exists (spot-only
   fleets make none), and the live start remains refused (`FUTURES_LIVE_UNSUPPORTED`,

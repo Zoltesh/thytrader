@@ -37,8 +37,8 @@ async def supervise_futures(
 ) -> Literal["observed", "failed", "disabled"]:
     """Report failure distinctly and never apply all-clear after an incomplete read.
 
-    Spot-only inventories perform no CFM read. An injected live source reuses the cycle's
-    shared account read. Production remains spot-only and uses the existing durable mirror.
+    Spot-only inventories perform no CFM read. A composed live source reuses the cycle's
+    shared account read; without one, the existing durable mirror is used.
     No broker is constructed, no order is sent, and no book or policy is modified here.
     """
     if alert_service is None:

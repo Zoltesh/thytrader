@@ -232,10 +232,12 @@ rounding away contracts, allocations or margin requirements. Unset fields keep o
 Publication does **not** enable live futures: all starts remain
 `FUTURES_LIVE_UNSUPPORTED`. P2-4 exercises injected futures runtime preparation, position checks,
 funding accrual and candle-free protective reductions with fake venues and memory/PostgreSQL
-stores. Default API/worker composition stays spot-only: there is no operator order path or
-activation flag. Operational protection, visibility/alerts and switch-on remain later slices. Both
-constructor-selected reduction candidates and post-only/protection venue acceptance remain
-pending supervised verification; attachments are disabled and no automatic fallback exists.
+stores. Since P2-7 wiring the worker composes the futures broker and CFM source for live futures
+books only (spot books keep the spot adapter; the API composes none); a live futures book without
+a futures broker pauses as broker-unavailable. There is still no operator order path or
+activation flag until the acknowledged start lands. Every marketable reduction is a sized
+`close_position` (reduce-only is refused by the venue); attachments are disabled and no automatic
+fallback exists.
 See the same reference for the adapter boundary and refusal meanings, including exact fill
 timestamps (local hours 00–23 only, never normalized hour 24) and complete identity scans.
 Known venue ids route independently of attached-child bookkeeping labels; malformed scan rows

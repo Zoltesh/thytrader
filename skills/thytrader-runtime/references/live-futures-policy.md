@@ -22,9 +22,10 @@ position, and attached brackets on an entry; none of them is reduce-only, so exi
 book's protection first. A second probe showed `close_position` takes a partial size, is not
 blocked by a resting stop (the stop stays OPEN once flat, so cancel-first is required), and
 answers HTTP 404 `NOT_FOUND` when flat or oversized without ever flipping; the broker records
-that as a definite rejection (`coinbase_http_404:NOT_FOUND`). Attached entry brackets remain disabled in the adapter; live wiring
-(P2-7) is still pending. P2-4 tests injected runtime composition with product exclusivity and
-position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
+that as a definite rejection (`coinbase_http_404:NOT_FOUND`). Attached entry brackets remain disabled in the adapter. The worker composes the runtime for
+live futures books since P2-7 wiring (product exclusivity and position checks apply); a live
+futures book without a futures broker pauses with `Live broker is unavailable: no futures broker
+is composed…` (a stopped one is noted), keeping its de-risk and flat-confirmation duties. Opaque order ids are resolved from bounded venue reads, not a memory cache;
 incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
 id does not require an attached spot child's local bookkeeping label to be echoed. Client-only
 scans require exact client matching and valid identities on every row/page; malformed nonmatches
