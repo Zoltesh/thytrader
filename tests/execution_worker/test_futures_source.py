@@ -72,15 +72,18 @@ async def test_source_reads_two_cfm_paths_and_keeps_unknown_killswitch() -> None
     assert size == account.venue.contract_sizes[_PERP] == Decimal("0.01")
 
 
-def test_injected_composition_is_separate_from_default_spot_venue() -> None:
-    """No approval boolean or production constructor enables a futures broker."""
+def test_composition_adds_a_routed_futures_broker_and_keeps_the_spot_broker() -> None:
+    """Spot books keep the unchanged spot adapter; only the futures slot is product-routed."""
     default = build_execution_venue(Settings(_env_file=None), 0)
     assert default.futures_runtime is None
+    assert default.futures_live_broker is None
     assert default.live_broker is None
     fake = FakeVenue()
-    spot = replace(default, live_broker=CoinbaseRestBroker(fake))
+    spot_broker = CoinbaseRestBroker(fake)
+    spot = replace(default, live_broker=spot_broker)
     staged = compose_futures_venue(spot, broker=fake.broker(), source=fake)
-    assert isinstance(staged.live_broker, ProductRoutedBroker)
+    assert staged.live_broker is spot_broker
+    assert isinstance(staged.futures_live_broker, ProductRoutedBroker)
     assert staged.futures_runtime is not None
     assert staged.futures_runtime.source is fake
     assert spot.futures_runtime is None

@@ -4,11 +4,13 @@ This surface publishes **policy only**, not trading authority. All live futures 
 paths still refuse `FUTURES_LIVE_UNSUPPORTED` until P2-7 (ADR 0134). There is no supported
 live futures start command in this slice. Do not probe order endpoints or bypass the refusal.
 
-## Dormant adapter is not a supported order path
+## Wired adapter is not a supported order path yet
 
-P2-2 adds internal futures request and product-routing adapters, exercised only with fake
-transports. The default worker/API wiring and all operator commands remain spot-only; `futures_order_paths`
-remains empty. Do not import an adapter as an operating workaround or treat a passing fake
+P2-2 added the futures request and product-routing adapters. Since P2-7 wiring the worker
+composes them for live futures books only (spot books keep the spot adapter; the API builds
+none), but no live futures book can be started yet: starts still refuse
+`FUTURES_LIVE_UNSUPPORTED`, all operator commands remain spot-only, and `futures_order_paths`
+remains empty. A spot-only fleet makes no CFM reads. Do not import an adapter as an operating workaround or treat a passing fake
 venue test as proof of Coinbase acceptance. No real probe or policy change is authorized by
 this implementation.
 
@@ -26,9 +28,10 @@ de-risk keeps that detail; `futures_derisk_pending` stays set). Check the venue 
 (`futures-books`, I9) first. A running/paused book recovers with `resume`, which sends a fresh
 attempt; a STOPPED book being flattened refuses `resume`, so reissue `stop --flatten` after the
 backoff instead.
-Attached entry brackets remain disabled in the adapter; live wiring
-(P2-7) is still pending. P2-4 tests injected runtime composition with product exclusivity and
-position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
+Attached entry brackets remain disabled in the adapter. The worker composes the runtime for
+live futures books since P2-7 wiring (product exclusivity and position checks apply); a live
+futures book without a futures broker pauses with `Live broker is unavailable: no futures broker
+is composed…` (a stopped one is noted), keeping its de-risk and flat-confirmation duties. Opaque order ids are resolved from bounded venue reads, not a memory cache;
 incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
 id does not require an attached spot child's local bookkeeping label to be echoed. Client-only
 scans require exact client matching and valid identities on every row/page; malformed nonmatches
@@ -116,8 +119,9 @@ collateral group; they do not import another scope's limit.
 The runtime can now prepare an existing synthetic live book, read fresh CFM balance/position
 facts, use futures fees and whole-contract sizing, reconcile signed positions, accrue funding,
 and cancel-confirm before explicit reductions. It is exercised with fake transports through the
-real worker, broker adapter and atomic memory/PostgreSQL stores. Production venue construction
-still supplies **no futures runtime**. There is no command to activate or bypass that boundary.
+real worker, broker adapter and atomic memory/PostgreSQL stores. The production worker now
+composes the futures runtime too (P2-7 wiring), but it acts only on live futures books, and none
+can be started yet. There is no command to activate or bypass that boundary.
 
 Future operational semantics are pinned, not enabled here:
 - An exact accepted futures cancel remains pending if its confirmation GET fails. Restarts use

@@ -379,7 +379,8 @@ publication, readback, field validation and the remaining operational boundary.
 ## P2-4 implementation boundary
 
 P2-4 implements the **injected runtime**, not production venue acceptance. The default API
-and worker venue builder still construct only the spot adapter. `compose_futures_venue` is an
+and worker venue builder still construct only the spot adapter (superseded for the worker by the
+P2-7 wiring below). `compose_futures_venue` is an
 internal process composition function accepting an already supplied broker and neutral evidence
 source; no CLI, setting, boolean approval record or default builder calls it. Hermetic tests inject
 a synthetic transport through the real futures adapter, intent store, worker step and fill ledger.
@@ -457,6 +458,34 @@ committing the intent but before its local order, the fenced worker restores an 
 observation anchor with that same client identity and original submit window. It scans rather
 than submits; absence is not permission to resend. Stopped-flat books with such unresolved
 intents remain supervised.
+
+## P2-7 implementation boundary: production wiring
+
+P2-7 lands in two changes. The first wires the worker; the second opens the acknowledged
+live start (fees, capital, HTTP 428, CLI, `FUTURES_ORDER_PATHS`).
+
+- The worker's venue builder composes, for every credentialed generation, a
+  `CoinbaseFuturesBroker` and a `RecordedFuturesSource` on that generation's instrumented REST
+  client (`coinbase_futures_extension` in `execution_worker/futures_venue.py`, the only place
+  either is constructed). Credential hot-swaps rebuild both with the spot bindings.
+- **Routing is per book, not process-wide.** `ExecutionVenue.live_broker` stays the plain spot
+  adapter, so spot books keep exactly their REST calls and failure modes. A separate
+  `futures_live_broker` (`ProductRoutedBroker(spot, futures)`) is handed only to live books
+  on a futures product (`book_live_broker`). The router resolves every opaque get/cancel with an
+  extra venue read, which spot books must not pay. A live futures book without a composed
+  futures broker gets none and never falls back to the spot adapter: before any deferred duty
+  can skip it, a running book pauses ("Live broker is unavailable: no futures broker is
+  composed…") and a stopped one is noted, with de-risk and flat-confirmation duties kept. Paper
+  books never submit through either.
+- A failure while composing futures never takes down spot: the generation keeps its spot
+  bindings, logs `execution_venue_futures_unavailable` (exception type only), and live futures
+  books pause as above.
+- The API builds no futures adapter: live futures stop and flatten run in the worker.
+- Composition places nothing. CFM reads happen only while a live futures book exists (spot-only
+  fleets make none), and the live start remains refused (`FUTURES_LIVE_UNSUPPORTED`,
+  `FUTURES_ORDER_PATHS` empty) until the second change.
+- This supersedes the "routing keeps every caller unchanged" rationale below for spot books: they
+  keep the unrouted adapter.
 
 ## Consequences
 

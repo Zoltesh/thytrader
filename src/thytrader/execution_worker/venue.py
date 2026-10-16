@@ -11,6 +11,9 @@ single cycle never mixes two credential generations.
 Clearing credentials yields a venue with ``live_broker=None``; live deployments
 then pause through the existing "Live broker is unavailable." path and never
 evaluate demo candles for live orders.
+
+Spot books always use the plain spot broker. Only live futures books use the product-routed
+``futures_live_broker`` (ADR 0134 P2-7), so the spot path keeps its exact REST calls.
 """
 
 from __future__ import annotations
@@ -30,13 +33,16 @@ from thytrader.exchanges.coinbase_market_data import CoinbaseMarketData
 from thytrader.exchanges.request_timing import instrument_rest_client
 from thytrader.exchanges.rest_transport import RestClientTransport
 from thytrader.market_data.demo import DemoMarketData
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.service import MarketDataService
+from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
     from thytrader.config import Settings
     from thytrader.execution.broker import Broker
     from thytrader.execution.futures_live import FuturesLiveRuntime
     from thytrader.execution_worker.ports import QuoteBalanceReader
+    from thytrader.trading.models import Deployment
 
 _logger = logging.getLogger(__name__)
 
@@ -54,6 +60,9 @@ class ExecutionVenue:
         jwt_provider: Builds a short-lived user-feed JWT, or None without credentials.
         source: ``coinbase`` for venue candles, ``demo`` for synthetic candles.
         generation: Monotonic counter; increments on every credential change.
+        futures_runtime: CFM account evidence for live futures books, or None.
+        futures_live_broker: Product-routed spot+futures broker for live futures books only,
+            or None when futures are not composed.
     """
 
     market_data: MarketDataService
@@ -63,6 +72,7 @@ class ExecutionVenue:
     source: VenueSource
     generation: int
     futures_runtime: FuturesLiveRuntime | None = None
+    futures_live_broker: Broker | None = None
 
     @property
     def live_enabled(self) -> bool:
@@ -71,10 +81,18 @@ class ExecutionVenue:
 
 
 VenueBuilder = Callable[["Settings", int], ExecutionVenue]
+VenueExtension = Callable[[ExecutionVenue, RESTClient], ExecutionVenue]
+"""Adds bindings that share the generation's REST client (futures composition, ADR 0134)."""
 
 
-def build_execution_venue(settings: Settings, generation: int) -> ExecutionVenue:
-    """Use Coinbase REST when credentials exist, otherwise demo candles and no live broker."""
+def build_execution_venue(
+    settings: Settings, generation: int, *, extend: VenueExtension | None = None
+) -> ExecutionVenue:
+    """Use Coinbase REST when credentials exist, otherwise demo candles and no live broker.
+
+    ``extend`` runs only for a credentialed generation, with the same instrumented client. If
+    it raises, the generation keeps its spot bindings and has no futures composition.
+    """
     key = settings.coinbase_api_key_name
     secret = settings.coinbase_api_private_key
     if key is None or secret is None:
@@ -91,7 +109,7 @@ def build_execution_venue(settings: Settings, generation: int) -> ExecutionVenue
     client = RESTClient(api_key=key_name, api_secret=private_key, timeout=10)
     # Every REST call of this generation is counted and timed per cycle (ADR 0131).
     instrument_rest_client(client)
-    return ExecutionVenue(
+    venue = ExecutionVenue(
         market_data=MarketDataService(CoinbaseMarketData(client)),
         live_broker=CoinbaseRestBroker(RestClientTransport(client)),
         quote_reader=CoinbaseAccount(client),
@@ -99,6 +117,27 @@ def build_execution_venue(settings: Settings, generation: int) -> ExecutionVenue
         source="coinbase",
         generation=generation,
     )
+    if extend is None:
+        return venue
+    try:
+        return extend(venue, client)
+    except Exception as error:  # noqa: BLE001 - futures composition never takes down spot.
+        # Live futures books then pause as broker-unavailable; spot keeps this generation.
+        _logger.warning("execution_venue_futures_unavailable type=%s", type(error).__name__)
+        return venue
+
+
+def book_live_broker(
+    deployment: Deployment, *, spot: Broker | None, futures: Broker | None
+) -> Broker | None:
+    """The live broker one book may use: futures books never fall back to the spot adapter.
+
+    A live futures book without a composed futures broker gets None and pauses as "Live broker
+    is unavailable."; paper books never submit through either live broker.
+    """
+    if deployment.mode is DeploymentMode.LIVE and is_futures_product_id(deployment.product_id):
+        return futures
+    return spot
 
 
 def credential_identity(settings: Settings) -> str | None:

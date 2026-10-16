@@ -1,7 +1,7 @@
-"""Injected live futures evidence, distinct from approval to wire a production venue.
+"""Live futures evidence bound per cycle, distinct from approval to start a live futures book.
 
-There is no default source or approval boolean. The process must explicitly provide an
-account reader and broker. Production composition remains spot-only pending ADR 0134 probes.
+There is no default source or approval boolean. The worker's futures venue seam provides the
+account reader and broker (ADR 0134 P2-7); starting a live futures book is a separate path.
 """
 
 from __future__ import annotations
@@ -74,7 +74,7 @@ _ACCOUNT: ContextVar[FuturesLiveAccount | None] = ContextVar("live_futures_accou
 
 @contextmanager
 def live_futures_runtime_scope(runtime: FuturesLiveRuntime | None) -> Iterator[None]:
-    """Bind staged runtime dependencies; production supplies None until probes are accepted."""
+    """Bind the cycle's futures runtime; None when the venue has no futures composition."""
     token = _RUNTIME.set(runtime)
     try:
         yield
@@ -98,7 +98,7 @@ def current_live_futures_account() -> FuturesLiveAccount | None:
 
 
 def current_live_futures_runtime() -> FuturesLiveRuntime | None:
-    """The explicit runtime dependency, absent in the default production worker."""
+    """The cycle's runtime, or None when the venue has no futures composition."""
     return _RUNTIME.get()
 
 

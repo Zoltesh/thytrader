@@ -16,9 +16,16 @@ from thytrader.execution.futures_position_supervision import enforce_position_ch
 from thytrader.execution.futures_recovery import recover_futures_intents
 from thytrader.execution.futures_reduction import reduce_live_futures_position
 from thytrader.execution.reconcile import reconcile_open_orders
+from thytrader.execution.stopped import _note_broker_unavailable
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.trading.ids import utc_now
-from thytrader.trading.models import DeploymentMode, IntentPurpose, LifecycleCommand
+from thytrader.trading.models import (
+    DeploymentMode,
+    DeploymentStatus,
+    IntentPurpose,
+    LifecycleCommand,
+    with_runtime,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -28,6 +35,12 @@ if TYPE_CHECKING:
     from thytrader.trading.futures_book import FuturesBookState
     from thytrader.trading.models import DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
+
+
+LIVE_FUTURES_BROKER_UNAVAILABLE = (
+    "Live broker is unavailable: no futures broker is composed, so this live futures book is not "
+    "supervised (I9, de-risk, flatten) until it is."
+)
 
 
 @asynccontextmanager
@@ -44,10 +57,12 @@ async def supervised_live_futures(
     if (
         snapshot.deployment.mode is not DeploymentMode.LIVE
         or not is_futures_product_id(snapshot.deployment.product_id)
-        or broker is None
         or not managed_live_futures(snapshot)
     ):
         yield snapshot
+        return
+    if broker is None:
+        yield await _without_futures_broker(snapshot, store=store)
         return
     snapshot = await retain_flat_confirmation(snapshot, store=store, now=utc_now())
     snapshot = await recover_futures_intents(snapshot, store=store)
@@ -80,3 +95,28 @@ async def supervised_live_futures(
                 now=utc_now(),
             )
         yield snapshot
+
+
+async def _without_futures_broker(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """No supervision is possible: pause a running book, note a stopped one, keep every duty.
+
+    Deferred duties (de-risk, flat confirmation, an I9 pause) would otherwise skip both this
+    supervision and the ordinary missing-broker pause, leaving the book silently unsupervised.
+    """
+    deployment = snapshot.deployment
+    if deployment.status is DeploymentStatus.STOPPED:
+        await _note_broker_unavailable(snapshot, store=store)
+    elif deployment.status is DeploymentStatus.RUNNING:
+        await store.save_deployment(
+            with_runtime(
+                deployment,
+                updated_at=utc_now(),
+                status=DeploymentStatus.PAUSED,
+                mismatch_detail=LIVE_FUTURES_BROKER_UNAVAILABLE,
+            )
+        )
+    else:
+        return snapshot
+    return await store.get_deployment(deployment.id)

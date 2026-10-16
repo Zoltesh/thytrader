@@ -100,8 +100,8 @@ def test_futures_has_no_candle_fills() -> None:
     )
 
 
-def test_exact_mutation_path_allowlist_and_dormant_wiring() -> None:
-    """No order preview/transfer fallback, no worker/API import, no advertised live path."""
+def test_exact_mutation_path_allowlist_and_single_composition_point() -> None:
+    """No preview/transfer fallback; the API never builds futures adapters; one worker seam."""
     root = Path(__file__).resolve().parents[2]
     source = root / "src/thytrader/exchanges/coinbase_futures_broker.py"
     constants = {
@@ -117,18 +117,20 @@ def test_exact_mutation_path_allowlist_and_dormant_wiring() -> None:
         "/api/v3/brokerage/orders/close_position",
         "/api/v3/brokerage/orders/batch_cancel",
     }
+    # The live start path is not advertised until it is acknowledged (P2-7 start slice).
     assert FUTURES_ORDER_PATHS == ()
-    for directory in (root / "src/thytrader/api", root / "src/thytrader/execution_worker"):
-        for file in directory.rglob("*.py"):
-            assert "CoinbaseFuturesBroker" not in file.read_text()
-            if file.name != "futures_venue.py":
-                assert "ProductRoutedBroker" not in file.read_text()
-                assert "compose_futures_venue" not in file.read_text()
-    staged = root / "src/thytrader/execution_worker/futures_venue.py"
+    for file in (root / "src/thytrader/api").rglob("*.py"):
+        text = file.read_text()
+        assert "CoinbaseFuturesBroker" not in text
+        assert "ProductRoutedBroker" not in text
+    seam = root / "src/thytrader/execution_worker/futures_venue.py"
+    for file in (root / "src/thytrader/execution_worker").rglob("*.py"):
+        if file != seam:
+            text = file.read_text()
+            assert "CoinbaseFuturesBroker" not in text
+            assert "ProductRoutedBroker" not in text
+            assert "compose_futures_venue" not in text
     functions = [
-        node for node in ast.parse(staged.read_text()).body if isinstance(node, ast.FunctionDef)
+        node.name for node in ast.parse(seam.read_text()).body if isinstance(node, ast.FunctionDef)
     ]
-    assert [node.name for node in functions] == ["compose_futures_venue"]
-    assert [arg.arg for arg in functions[0].args.kwonlyargs] == ["broker", "source"]
-    # No setting, flag, approval boolean or adapter construction enables this composition.
-    assert "CoinbaseFuturesBroker" not in staged.read_text()
+    assert functions == ["compose_futures_venue", "coinbase_futures_extension"]

@@ -82,7 +82,7 @@ class CatalogContractSizes:
 class RecordedFuturesSource:
     """Fresh balances/positions plus read-only mirror controls and complete external orders.
 
-    Constructed only by explicit injected composition, not the default CLI. Two CFM GETs
+    Constructed only by the worker's futures venue seam (``futures_venue.py``). Two CFM GETs
     are needed; the separate complete futures open-order listing is also required for I3.
     Killswitch facts reuse the persisted mirror and are never renewed by these two GETs.
     """
