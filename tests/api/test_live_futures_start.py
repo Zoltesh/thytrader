@@ -71,6 +71,7 @@ class _Source:
         self.managed: frozenset[tuple[str, str]] = frozenset()
         self.observed_at = _OPEN
         self.killswitch: bool | None = False
+        self.killswitch_at: datetime | None = None
 
     async def read_account(
         self,
@@ -90,6 +91,7 @@ class _Source:
                 positions=dict(self.positions),
                 external_order_products=self.external,
                 killswitch_enabled=self.killswitch,
+                killswitch_observed_at=self.killswitch_at,
                 maintenance={},
                 contract_sizes={_PERP: _SIZE},
             ),
@@ -202,7 +204,13 @@ def test_an_acknowledged_live_futures_start_creates_a_capitalised_book(live: _Li
 
 
 def test_a_live_futures_start_needs_its_own_acknowledgement(live: _Live) -> None:
-    """``i_understand_live`` alone is a 428 naming LIVE_FUTURES_ACK_REQUIRED."""
+    """Missing the futures acknowledgement is a 428 naming LIVE_FUTURES_ACK_REQUIRED first."""
+    neither = live.client.post(
+        "/api/v1/deployments",
+        json=_body(live.strategy_id, i_understand_live=None, i_understand_live_futures=None),
+    )
+    assert neither.status_code == 428
+    assert neither.json()["detail"].startswith("LIVE_FUTURES_ACK_REQUIRED")
     refused = live.client.post(
         "/api/v1/deployments", json=_body(live.strategy_id, i_understand_live_futures=None)
     )
@@ -348,6 +356,7 @@ def test_concurrent_live_futures_starts_cannot_both_pass_exclusivity(live: _Live
     [
         ({"observed_at": _OPEN - timedelta(seconds=181)}, "FUTURES_COLLATERAL_UNKNOWN"),
         ({"killswitch": None}, "FUTURES_COLLATERAL_UNKNOWN"),
+        ({"killswitch_at": _OPEN - timedelta(seconds=181)}, "FUTURES_COLLATERAL_UNKNOWN"),
         ({"killswitch": True}, "FUTURES_VENUE_KILLSWITCH"),
     ],
 )
@@ -392,8 +401,11 @@ def test_a_stopped_books_leftover_orders_are_external(live: _Live) -> None:
             replace(live.execution.deployments[book.id], status=DeploymentStatus.STOPPED)
         )
     )
-    live.client.post("/api/v1/deployments", json=_body(second.strategy_id))
+    live.source.external = frozenset({_PERP})  # the source sees the stopped book's order
+    refused = live.client.post("/api/v1/deployments", json=_body(second.strategy_id))
     assert (_PERP, "managed-client") not in live.source.managed
+    assert refused.status_code == 409
+    assert refused.json()["detail"].startswith("FUTURES_EXTERNAL_POSITION_ON_PRODUCT")
 
 
 def test_an_unacknowledged_live_futures_start_does_no_start_work(

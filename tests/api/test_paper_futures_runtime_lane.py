@@ -276,7 +276,7 @@ def test_a_paper_futures_book_runs_reports_and_flattens(lane: Lane) -> None:
     assert report["report_kind"] == "futures_books"
     assert report["payload"]["paper_capital_usd"] == "100000"
     assert report["payload"]["committed_paper_cash_usd"] == "10000"
-    assert report["payload"]["live_supported"] is False
+    assert report["payload"]["live_supported"] is True
     (book,) = report["payload"]["books"]
     assert book["deployment_id"] == str(deployment_id)
     assert book["equity"] == view["equity"]

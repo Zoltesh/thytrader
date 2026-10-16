@@ -220,7 +220,7 @@ bar's entry is skipped and recorded in `decisions`. Resupply both flags on every
 keep them. `thytrader-operator risk` shows `payload.futures_collateral` (`state`, USD figures,
 `reserve_quote`, `effect`).
 
-Live futures **policy preparation only** ([ADR 0134](../../docs/decisions/0134-live-futures-order-path.md), P2-3):
+Live futures policy ([ADR 0134](../../docs/decisions/0134-live-futures-order-path.md), P2-3) and start (P2-7):
 `set-risk-policy` accepts `--futures-live-enabled true|false`, `--futures-live-capital-usd`,
 repeatable `--futures-product-allowlist`, `--futures-live-derisk-margin-ratio` and
 `--futures-live-funding-drift-tolerance-usd`. Read the

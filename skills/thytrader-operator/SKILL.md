@@ -903,7 +903,7 @@ never added to USDC or USDT amounts; `null` is unknown, never zero.
 - `payload.paper_capital_usd` (the policy's `futures.paper_capital_usd`, `null` while unset),
   `committed_paper_cash_usd` (starting cash of running and paused paper futures books),
   `futures_policy_set` (`false`: every futures entry is denied `FUTURES_POLICY_UNSET`; `null`:
-  the policy could not be read), `collateral_note`, `live_supported: false`.
+  the policy could not be read), `collateral_note`, `live_supported: true` (live futures books start from the runtime lane).
 - `books[]`: `deployment_id`, `strategy_name`, `status`, `mode`, `product_id`; the binding made at
   start (`contract_kind`, `underlying`, `contract_size`, `fee_per_contract`, `catalog_fingerprint`,
   `bound_at`) and the paper `maker_fee_rate` / `taker_fee_rate`; `side` (`long` \| `short` \|

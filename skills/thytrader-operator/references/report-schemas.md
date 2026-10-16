@@ -601,7 +601,7 @@ included; no trailing gap on a truncated page). Each window change: `observed_at
 `futures_books` is read-only (`balances_omitted=false`). `payload`: `paper_capital_usd`
 (`null` while the policy's futures block or envelope is unset), `committed_paper_cash_usd`,
 `futures_policy_set` (`true` \| `false` \| `null` when the policy is unreadable), `books[]`,
-`collateral_note` and `live_supported: false`. Each book (the same object as
+`collateral_note` and `live_supported: true` (since ops contract v106). Each book (the same object as
 `GET /api/v1/deployments/{id}/futures`, which is 404 for a spot bot): `deployment_id`,
 `strategy_name`, `status`, `mode`, `product_id`, `currency: USD`, `contract_kind`
 (`perpetual_future` \| `dated_future` \| `null`), `underlying`, `contract_size`,

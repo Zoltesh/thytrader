@@ -91,8 +91,8 @@ RUNTIME_TOOLS: tuple[ChatTool, ...] = (
             "omitted paper uses 0.001 / 0.002). Live rejects those fields. Live may pass "
             "adopt_holdings (a base quantity or 'all') to start already holding coins the "
             "account holds unmanaged (single-instrument long strategies; always confirmed). "
-            "A futures strategy starts live from the CLI only (thytrader-runtime start "
-            "--i-understand-live-futures); chat can start it in paper."
+            "Futures strategies start from the CLI (thytrader-runtime start with "
+            "--fee-per-contract; live also --i-understand-live-futures), not from chat."
         ),
         lane=ChatLane.RUNTIME,
         method="POST",

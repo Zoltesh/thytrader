@@ -86,7 +86,7 @@ export type FuturesBooksReport = {
 		futures_policy_set: boolean | null;
 		books: FuturesBookPayload[];
 		collateral_note: string;
-		live_supported: false;
+		live_supported: true;
 	};
 };
 

@@ -1,9 +1,8 @@
 """The live CFM futures gate: policy opt-in, product exclusivity and venue evidence.
 
-ADR 0134 §2, slice P2-3. Nothing here is reachable yet: every start surface still refuses a
-live futures start with ``FUTURES_LIVE_UNSUPPORTED`` until P2-7, and no worker builds live
-futures venue evidence until P2-4. The gate admits starts and risk-increasing entries only;
-exits, protection and the margin monitor never reach it.
+ADR 0134 §2, slices P2-3 and P2-7. The acknowledged live futures start and the worker's live
+entries reach this gate with fresh venue evidence. The gate admits starts and risk-increasing
+entries only; exits, protection and the margin monitor never reach it.
 
 - **I2 opt-in.** ``futures.live_enabled: true`` (else ``FUTURES_LIVE_DISABLED``),
   ``futures.live_capital_usd`` (else ``FUTURES_LIVE_CAPITAL_UNSET``) and the product on
@@ -80,7 +79,9 @@ class FuturesVenueEvidence:
     ``None`` means the open-order read failed. ``killswitch_enabled`` is True when the venue
     reports any futures killswitch enabled. ``maintenance`` holds the recorded maintenance
     window of each product that has one, and ``contract_sizes`` the catalog contract size of
-    each product the catalog lists. Amounts are USD.
+    each product the catalog lists. Amounts are USD. ``killswitch_observed_at`` is when the
+    killswitch facts were observed (the account mirror), when they come from an older read than
+    ``observed_at``; freshness then requires both.
     """
 
     observed_at: datetime
@@ -91,10 +92,14 @@ class FuturesVenueEvidence:
     killswitch_enabled: bool | None
     maintenance: Mapping[str, MaintenanceWindow]
     contract_sizes: Mapping[str, Decimal]
+    killswitch_observed_at: datetime | None = None
 
     def __post_init__(self) -> None:
         """Reject malformed venue facts and freeze defensive copies of read evidence."""
-        if self.observed_at.utcoffset() != timedelta(0):
+        if any(
+            stamp is not None and stamp.utcoffset() != timedelta(0)
+            for stamp in (self.observed_at, self.killswitch_observed_at)
+        ):
             raise ValueError("Futures venue evidence requires an aware UTC timestamp")
         _validate_venue_state(self.killswitch_enabled, self.maintenance)
         for amount in (self.buying_power_usd, self.initial_margin_usd):
@@ -116,11 +121,13 @@ class FuturesVenueEvidence:
         object.__setattr__(self, "maintenance", MappingProxyType(dict(self.maintenance)))
 
     def is_fresh(self, as_of: datetime) -> bool:
-        """Whether the read is at most :data:`LIVE_EVIDENCE_MAX_AGE` old at ``as_of``."""
-        return (
+        """Whether the read, and its killswitch facts, are at most 180 s old at ``as_of``."""
+        return all(
             as_of.utcoffset() == timedelta(0)
-            and self.observed_at <= as_of
-            and as_of - self.observed_at <= LIVE_EVIDENCE_MAX_AGE
+            and observed <= as_of
+            and as_of - observed <= LIVE_EVIDENCE_MAX_AGE
+            for observed in (self.observed_at, self.killswitch_observed_at)
+            if observed is not None
         )
 
 

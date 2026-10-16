@@ -633,7 +633,7 @@ function futuresBooksReport(books: unknown[]) {
 			futures_policy_set: true,
 			books,
 			collateral_note: 'Coinbase counts the USDC spot balance as CFM futures collateral.',
-			live_supported: false
+			live_supported: true
 		}
 	};
 }

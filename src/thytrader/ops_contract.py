@@ -438,6 +438,7 @@ LIVE_FUTURES_ACK_REQUIRED_CODE = "LIVE_FUTURES_ACK_REQUIRED"
 LIVE_FUTURES_ACK_REQUIRED_DETAIL = (
     f"{LIVE_FUTURES_ACK_REQUIRED_CODE}: A live futures book trades leveraged CFM perpetuals "
     "with real money: margin can be lost faster than the allocation. Send "
-    f"{LIVE_FUTURES_ACK_FIELD}=true only after the operator explicitly acknowledged live "
-    "futures (CLI --i-understand-live-futures; YOLO never covers it)."
+    f"{LIVE_FUTURES_ACK_FIELD}=true and {LIVE_ACK_FIELD}=true only after the operator explicitly "
+    "acknowledged live futures (CLI --i-understand-live-futures with --i-understand-live; YOLO "
+    "never covers it)."
 )

@@ -99,7 +99,7 @@ def test_injected_live_book_is_visible_without_claiming_order_authority() -> Non
         assert len(report.payload.books) == 1
         assert report.payload.books[0].deployment_id == deployment.id
         assert report.payload.books[0].model_dump()["live"]["match_state"] == "unknown"
-        assert report.payload.live_supported is False
+        assert report.payload.live_supported is True
         with patch("thytrader.operator.http.request_json", return_value=report_response.json()):
             fetched = fetch_operator_report(
                 base_url="http://127.0.0.1:18080", command="futures-books"

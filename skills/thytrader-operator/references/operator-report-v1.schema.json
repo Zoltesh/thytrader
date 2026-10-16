@@ -6768,8 +6768,8 @@
           "type": "string"
         },
         "live_supported": {
-          "const": false,
-          "default": false,
+          "const": true,
+          "default": true,
           "title": "Live Supported",
           "type": "boolean"
         }
@@ -6785,7 +6785,7 @@
     },
     "FuturesBooksReport": {
       "additionalProperties": false,
-      "description": "Read-only futures books; live starts and order paths remain disabled.",
+      "description": "Read-only futures books, paper and live; live books start from the CLI (ADR 0134 P2-7).",
       "properties": {
         "schema_version": {
           "const": "thytrader-operator-report-v1",

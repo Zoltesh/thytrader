@@ -201,7 +201,7 @@ describe('futuresBooksSection', () => {
 				futures_policy_set: true,
 				books,
 				collateral_note: 'Shared with USDC.',
-				live_supported: false
+				live_supported: true
 			}
 		};
 	}

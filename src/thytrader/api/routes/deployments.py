@@ -177,8 +177,8 @@ async def post_deployment(
     risk policy's thresholds, or is refused with 409 ``LIVE_EVIDENCE_REQUIRED`` under the
     opt-in ``require_live_evidence`` safeguard.
     """
-    require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     await require_live_futures_ack_first(body, strategies)
+    require_live_acknowledgement(body.mode, acknowledged=body.i_understand_live)
     # The snapshot below reports a missing or unavailable strategy precisely.
     with suppress(StrategyLibraryError):
         await adopt_warmup_policy_for_start(strategies, body.strategy_id)
