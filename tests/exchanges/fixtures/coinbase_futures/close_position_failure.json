@@ -1,13 +1,9 @@
 {
-  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (Close Position, NewOrderFailureReason); not observed. Closing on a flat account is a definite rejection.",
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 §1): close_position on ETP-20DEC30-CDE while flat (with or without size), and with size 2 against a one-contract long, both answered HTTP 404 with this body and placed nothing. The venue never reduced to flat or flipped on an oversized size.",
+  "http_status": 404,
   "body": {
-    "success": false,
-    "error_response": {
-      "error": "CANNOT_CLOSE_ZERO_POSITION",
-      "message": "cannot close zero position",
-      "error_details": "no open position for product",
-      "preview_failure_reason": "UNKNOWN_PREVIEW_FAILURE_REASON",
-      "new_order_failure_reason": "CANNOT_CLOSE_ZERO_POSITION"
-    }
+    "error": "NOT_FOUND",
+    "error_details": "no positions found for product ETP-20DEC30-CDE",
+    "message": "no positions found for product ETP-20DEC30-CDE"
   }
 }

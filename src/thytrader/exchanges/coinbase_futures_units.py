@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from decimal import Decimal, DecimalException, Inexact, localcontext
-from enum import StrEnum
 import re
 from typing import TYPE_CHECKING
 
@@ -13,13 +12,6 @@ from thytrader.trading.models import IntentPurpose, OrderKind, OrderSide
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import ContractSizeSource
-
-
-class FuturesReductionMode(StrEnum):
-    """Explicit dormant candidates; neither selection proves venue acceptance."""
-
-    CLOSE_POSITION = "close_position"
-    REDUCE_ONLY_MARKET = "reduce_only_market"
 
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"

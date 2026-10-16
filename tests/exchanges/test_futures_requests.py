@@ -92,7 +92,6 @@ async def test_fractional_quantity_cannot_round_into_a_contract(disabled_traps: 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("side", list(OrderSide))
-@pytest.mark.parametrize("mode", ["close_position", "reduce_only_market"])
 @pytest.mark.parametrize(
     "purpose",
     [
@@ -104,18 +103,16 @@ async def test_fractional_quantity_cannot_round_into_a_contract(disabled_traps: 
         IntentPurpose.BRACKET,
     ],
 )
-async def test_explicit_reduction_body(side: OrderSide, mode: str, purpose: IntentPurpose) -> None:
-    """Both candidate modes are fake-tested, not claimed accepted by CFM."""
-    assert hasattr(module, "FuturesReductionMode")
+async def test_explicit_reduction_body(side: OrderSide, purpose: IntentPurpose) -> None:
+    """Every marketable reduction is a close_position request (CDE refuses reduce_only)."""
+    assert not hasattr(module, "FuturesReductionMode")
     client = CLIENT.replace(":entry:", f":{purpose.value}:")
-    path = ORDERS + "/close_position" if mode == "close_position" else ORDERS
+    path = ORDERS + "/close_position"
     transport = FakeTransport(
         posts={path: [{"success": True, "success_response": {"order_id": "venue-test"}}]},
         gets={HISTORICAL: [{"order": order_json(client_order_id=client)}]},
     )
-    broker = module.CoinbaseFuturesBroker(
-        transport, Sizes(), reduction_mode=module.FuturesReductionMode(mode)
-    )
+    broker = module.CoinbaseFuturesBroker(transport, Sizes())
     result = await broker.place_order(
         client_order_id=client,
         product_id=PRODUCT,
@@ -124,19 +121,7 @@ async def test_explicit_reduction_body(side: OrderSide, mode: str, purpose: Inte
         quantity=Decimal("0.2"),
         price=None,
     )
-    expected: dict[str, object] = {"client_order_id": client, "product_id": PRODUCT}
-    if mode == "close_position":
-        expected["size"] = "2"
-    else:
-        expected.update(
-            side=side.value.upper(),
-            order_configuration={
-                "market_market_ioc": {
-                    "base_size": "2",
-                    "reduce_only": True,
-                }
-            },
-        )
+    expected: dict[str, object] = {"client_order_id": client, "product_id": PRODUCT, "size": "2"}
     assert transport.calls[0] == ("POST", path, expected)
     assert result.filled_quantity == Decimal("0.2")
 
@@ -158,7 +143,7 @@ async def test_explicit_reduction_body(side: OrderSide, mode: str, purpose: Inte
 async def test_standalone_protection_shapes(
     side: OrderSide, kind: OrderKind, purpose: IntentPurpose, configuration: str, stop_key: str
 ) -> None:
-    """Standalone request shaping is dormant pending supervised venue acceptance."""
+    """Stop-limit and bracket shapes the venue accepted on a position (probe 2026-10-16)."""
     client = CLIENT.replace(":entry:", f":{purpose.value}:")
     transport = FakeTransport(posts={ORDERS: [{"success": False}]}, gets={})
     await place(

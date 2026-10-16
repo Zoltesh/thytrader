@@ -1,0 +1,24 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. The venue accepted a post-only GTC limit entry far below the market; it rested OPEN and was cancelled.",
+  "body": {
+    "success": true,
+    "success_response": {
+      "order_id": "00000000-0000-4000-8000-00000000a301",
+      "product_id": "ETP-20DEC30-CDE",
+      "side": "BUY",
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:entry:20260105T1500:00000000-0000-7000-8000-000000000301",
+      "attached_order_id": ""
+    },
+    "order_configuration": {
+      "limit_limit_gtc": {
+        "base_size": "1",
+        "limit_price": "2100",
+        "post_only": true,
+        "rfq_disabled": false,
+        "reduce_only": false,
+        "currency_size": null,
+        "oco_ref": ""
+      }
+    }
+  }
+}

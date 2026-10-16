@@ -1,0 +1,9 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. orders/preview of a standalone trigger bracket sell while flat: refused because the bracket size exceeds the (zero) position.",
+  "body": {
+    "errs": [
+      "PREVIEW_BRACKET_ORDER_SIZE_EXCEEDS_POSITION"
+    ],
+    "warning": []
+  }
+}

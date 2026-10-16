@@ -1,7 +1,7 @@
 """Explicit staged composition; never called by the production venue builder or CLI.
 
 Callers supply adapters, not an approval boolean. Tests inject a synthetic venue here. Real
-composition remains forbidden until the ADR 0134 venue probes and later activation gate land.
+composition remains forbidden until the remaining ADR 0134 probes and the P2-7 activation land.
 """
 
 from __future__ import annotations

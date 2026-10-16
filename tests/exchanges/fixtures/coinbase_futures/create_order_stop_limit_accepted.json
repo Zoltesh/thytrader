@@ -1,0 +1,24 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. With one long contract open, the venue accepted a stop-limit sell (stop down); it rested OPEN and was cancelled. It is not reduce-only: reduce_only is false.",
+  "body": {
+    "success": true,
+    "success_response": {
+      "order_id": "00000000-0000-4000-8000-00000000a302",
+      "product_id": "ETP-20DEC30-CDE",
+      "side": "SELL",
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:stop:20260105T1500:00000000-0000-7000-8000-000000000302",
+      "attached_order_id": ""
+    },
+    "order_configuration": {
+      "stop_limit_stop_limit_gtc": {
+        "base_size": "1",
+        "limit_price": "2050",
+        "stop_price": "2100",
+        "stop_direction": "STOP_DIRECTION_STOP_DOWN",
+        "reduce_only": false,
+        "oco_ref": "",
+        "trigger_type": "TRIGGER_TYPE_UNSPECIFIED"
+      }
+    }
+  }
+}

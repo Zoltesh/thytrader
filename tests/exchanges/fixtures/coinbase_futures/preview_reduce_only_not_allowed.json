@@ -1,0 +1,12 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. orders/preview of a market_market_ioc sell with reduce_only inside the configuration: the venue refuses reduce-only orders. As a top-level body field reduce_only is an unknown proto field (HTTP 400).",
+  "body": {
+    "order_total": "75",
+    "commission_total": "0.36",
+    "errs": [
+      "PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE"
+    ],
+    "warning": [],
+    "est_average_filled_price": "2500"
+  }
+}

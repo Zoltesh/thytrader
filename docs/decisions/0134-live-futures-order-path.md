@@ -87,8 +87,9 @@ From the public API reference and a GET-only read of a supervised one-contract r
   `REDUCE_ONLY_NOT_ALLOWED_ON_SPOT_PRODUCTS` failure reasons.
 - `POST /orders/close_position` takes `client_order_id`, `product_id` and an optional `size`
   ("the amount of contracts that should be closed") and returns the create-order response
-  shape; `CANNOT_CLOSE_ZERO_POSITION` is a documented failure reason. The reference says
-  nothing about partial sizes, resting holds or flips.
+  shape; `CANNOT_CLOSE_ZERO_POSITION` is a documented failure reason (the venue answered
+  HTTP 404 `NOT_FOUND` instead, §1). The reference says nothing about partial sizes, resting
+  holds or flips.
 - Create order lists `INVALID_FCM_TRADING_SESSION` and `FUTURES_AFTER_HOUR_INVALID_ORDER_TYPE`
   / `_TIME_IN_FORCE`; only `TriggerBracketGtc` is eligible as an attached order.
 - Funding accrues hourly and settles twice daily (venue launch material); ADR 0133 observed
@@ -109,7 +110,7 @@ are post-only limits only; the futures broker sends no market-entry body.
 - CFM nets per product across the account and `close_position` acts on the account's
   position, so it is correct only under product exclusivity (I3).
 
-**Pending supervised acceptance before any live wiring:** a `market_market_ioc`
+**Supervised probe (planned before any live wiring):** a `market_market_ioc`
 order with `reduce_only: true` and `base_size` = the book's contracts. The probe answers:
 
 1. Is `reduce_only: true` accepted in the create-order body for a CDE perp?
@@ -121,8 +122,27 @@ order with `reduce_only: true` and `base_size` = the book's contracts. The probe
 And for `close_position`: a partial `size`; the error shape when flat; whether resting stops
 (holds) block it; whether it can ever flip the position.
 
-If reduce-only market orders are proven venue-enforced (items 1–2), P2-2 may send them instead
-of, or as a fallback to, `close_position`; the ADR is amended when it is accepted. A plain
+**Answered 2026-10-16 (supervised probe, one ETP contract):** CDE does **not** allow
+reduce-only. As a top-level body field `reduce_only` is an unknown proto field (HTTP 400);
+inside `market_market_ioc` it is recognized but `orders/preview` refuses it with
+`PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE`. `close_position` of one contract filled at once and
+echoed a `market_market_ioc` configuration. The `REDUCE_ONLY_MARKET` candidate is therefore
+removed from the futures broker: every marketable reduction is `close_position`.
+
+**`close_position` answered 2026-10-16 (second supervised probe, at most two ETP contracts):**
+
+- A partial `size` reduces by exactly that many contracts (two open, `size` 1, one left).
+- Without a matching position it places nothing and answers HTTP 404 `NOT_FOUND` ("no positions
+  found for product"), both when flat and when `size` exceeds the open contracts (one long,
+  `size` 2). It never reduced to flat or flipped. The broker maps this to a definite rejection
+  (`coinbase_http_404:NOT_FOUND`). The same 404 for "flat" and "oversized" means the rejection
+  says nothing about the venue's position: the reduction path already submits only after fresh
+  venue contracts equal the book's (`_reduction_proven`).
+- A resting stop-limit on the same product does **not** block it (no hold), and the stop stays
+  OPEN after the position is closed. Cancel-first (decision 7) and the I9 orphan cancel are
+  therefore required, not belt and braces: a stop left behind would open a position.
+
+A plain
 market order **without** venue-enforced reduce-only is never used to reduce a position: sized
 to the book while the account is already flat, it would open a position.
 
@@ -187,7 +207,7 @@ P2-7 in order.
 | P2-2 | adapters, execution | `CoinbaseFuturesBroker` (post-only `limit_limit_gtc` entries in contracts, `STOP_LIMIT`/`TRIGGER_BRACKET` protection, marketable orders as the §1 reduction, FUTURE fills and client-id lookup, contract conversion, pre-request REJECTED results); a futures fill parser enforcing I6; a `ContractSizeSource` protocol; `ProductRoutedBroker` routing by product id (`FUTURES_BROKER_UNAVAILABLE` without a futures broker). A pin that the module's POST paths are only create, the chosen reduction path and batch cancel. | Nothing is reachable yet. Later, a pre-request REJECTED takes the existing rejection-latch pause and raises `BOOK_PAUSED_MISMATCH`. |
 | P2-3 | risk | Live futures policy fields (excluded while unset, so fingerprints do not change), a live futures deployment and entry gate (I2–I5, I8, I11), live futures capital, futures allowlist at deployment, live linked breakers, live book equity. | Every denial in the decision and why-trade journals; `risk` shows the new fields; fleet health runs the gate for `CFM-USD` (P2-6). |
 | P2-4 | execution, processes | Venue wiring (futures broker, CFM reader, contract-size source); live futures book preparation with one shared venue read per cycle (two GETs, only while a live futures book runs); hourly funding accrual; the I9 check with the flip guard (§6a) and orphan-protection cancel; the live margin monitor (I10); futures-aware entry, sizing and fee paths; flatten without a candle (§6b). Durable obligations use Alembic 0076 (ADR 0135). | A paused book raises `BOOK_PAUSED_MISMATCH` naming the contracts; de-risking shows as a LIQUIDATION trade reason plus the P2-6 alert; overdue funding blocks entries with `FUNDING_HISTORY_MISSING`, shown in `futures-books` and fleet health. |
-| P2-5 | execution | Venue protection for futures, decided by the supervised probe: if CDE accepts stop-limit and trigger-bracket orders, nothing beyond P2-2; otherwise a worker-side synthetic stop that sends a STOP-purpose reduction, needing healthy market data and a held lease. | The existing `STOP_UNCOVERED`, `STOP_COVERAGE_UNKNOWN` and `STOP_TRIGGERED_UNFILLED` alerts, tested for futures books. |
+| P2-5 | execution | Venue protection for futures, decided by the supervised probe: if CDE accepts stop-limit and trigger-bracket orders, nothing beyond P2-2; otherwise a worker-side synthetic stop that sends a STOP-purpose reduction, needing healthy market data and a held lease. **Decided 2026-10-16:** CDE accepts both (§7 item 4), so protection is venue-held through the P2-2 request shapes; no synthetic stop. | The existing `STOP_UNCOVERED`, `STOP_COVERAGE_UNKNOWN` and `STOP_TRIGGERED_UNFILLED` alerts, tested for futures books. |
 | P2-6 | services, coordination, web | New alerts (`FUTURES_POSITION_MISMATCH`, `FUTURES_ACCOUNT_UNKNOWN`, `FUTURES_MARGIN_LOW`, `FUTURES_FUNDING_DRIFT`, `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT`, `FUTURES_ORPHAN_ORDER`) from a per-cycle futures supervisor that never fails the cycle; live columns in `futures-books`; managed/mismatch/external rows in venue reconciliation; readiness findings; a `futures_live` health component; the live futures gate in fleet health (closes the ADR 0130 gap); web venue facts; skills, schema and ops contract. Mandatory before switch-on. | This slice is the answer for every check in P2-3 and P2-4: each is in a report, an alert delivered through the notify provider, or the Home banner. |
 | P2-7 | interfaces, API, execution | The live start path: `fee_per_contract` and `futures_capital_usd` required (pinned as performance capital, ADR 0107), perp-only, exclusivity and venue evidence at start; HTTP 428 `LIVE_FUTURES_ACK_REQUIRED` replaces the 409; CLI `--i-understand-live-futures` and `--futures-capital-usd`; `FUTURES_ORDER_PATHS` in the ops contract; runtime skill (flags, stop/flatten semantics, futures-only disarm, I9 repair runbook); AGENTS.md known gaps. | An audited `deployment_started` event with `futures: true`, and `futures-books` listing the live book. |
 
@@ -250,11 +270,18 @@ capability remains `orderable: false` pending authentic acceptance and P2-7.
 
 1. Order and fill units, commission composition, `product_type`, `order_type`, client-id echo:
    **answered** by P2-0 (contracts; all-in commission; FUTURE; MARKET/IOC; echoed).
-2. Reduce-only market IOC vs `close_position` (§1): **pending**, required before live wiring.
-3. Post-only `limit_limit_gtc` accepted on FCM: **pending**, required before live wiring.
-   P2-2 implements only dormant, fake-transport request candidates, not venue acceptance.
+2. Reduce-only market IOC vs `close_position` (§1): **answered** 2026-10-16: reduce-only is
+   not allowed on CDE; `close_position` closes, takes a partial `size`, answers 404 `NOT_FOUND`
+   when flat or oversized (never flips), and is not blocked by a resting stop (§1).
+3. Post-only `limit_limit_gtc` accepted on FCM: **answered** 2026-10-16: accepted on a 24/7
+   perp (rested OPEN, cancelled).
 4. `stop_limit_stop_limit_gtc`, standalone `trigger_bracket_gtc` and attached brackets on a
-   futures entry: before P2-5.
+   futures entry: **answered** 2026-10-16: all accepted. A standalone bracket needs an open
+   position (`PREVIEW_BRACKET_ORDER_SIZE_EXCEEDS_POSITION` when flat); an attached bracket is
+   stored on the resting entry and its child exists only after the fill. None of them is
+   reduce-only (`reduce_only: false`): a resting stop or bracket would open a position if the
+   book were closed another way, so every exit must cancel the book's protection first
+   (decision 7) and the I9 check must treat a stray protective order as an orphan.
 5. Whether the `user` websocket channel carries futures order events with client ids.
 6. Funding settlement instants, and whether `funding_pnl` is cumulative or daily: measured from
    the mirror history during the pilot.
@@ -270,13 +297,12 @@ hermetic tests. The API and worker still construct the unchanged spot broker. Al
 futures starts remain `FUTURES_LIVE_UNSUPPORTED`, and `FUTURES_ORDER_PATHS` remains empty.
 No order kind, schema migration, HTTP/CLI surface, or ops contract version changes here.
 
-The futures constructor has an explicit `FuturesReductionMode`: `CLOSE_POSITION` is the
-planned default and `REDUCE_ONLY_MARKET` is the other fake-tested candidate. There is **no
-automatic fallback**, no plain market reduction, and no market entry. These tests establish
-body construction and refusal semantics, **not** authentic venue acceptance or reduce-only
-enforcement. Both modes remain subject to the unresolved supervised probes above before
-live wiring. Post-only entry and standalone stop-limit/bracket acceptance also remain pending;
-attached entry protection is always refused, with no constructor switch to enable it.
+Every marketable reduction uses sized `close_position`; the `REDUCE_ONLY_MARKET` candidate and
+its `FuturesReductionMode` constructor switch were removed once the venue refused reduce-only
+(§1, probe 2026-10-16). There is **no automatic fallback**, no plain market reduction, and no
+market entry. Post-only entry and standalone stop-limit and bracket orders were accepted by the
+venue in the same probe (none are reduce-only); attached entry protection is still always
+refused, with no constructor switch to enable it.
 
 The unchanged `Broker` signature carries no purpose. Futures submission therefore requires
 the managed client-id shape generated by `submit_intent` and validates its encoded purpose:
@@ -443,7 +469,7 @@ intents remain supervised.
   path.
 - **Plain market orders to reduce.** Rejected: without venue-enforced reduce-only they can open
   or flip a position when the account is not where the book thinks it is. Reduce-only market
-  orders are not rejected; they are probed (§1).
+  orders were the other candidate; the venue refuses them (§1, probe 2026-10-16).
 - **A second live broker per venue instead of product routing.** Rejected: reconciliation and
   exits address one broker; routing by product id keeps every caller unchanged.
 - **Sizing live futures from ledger equity alone.** Rejected: a live ledger starts at 0
