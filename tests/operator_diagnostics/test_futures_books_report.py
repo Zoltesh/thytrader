@@ -305,7 +305,7 @@ async def test_the_report_lists_futures_books_only_and_sums_the_usd_envelope() -
     assert report.payload.committed_paper_cash_usd == "50"
     assert report.payload.paper_capital_usd == "100000"
     assert report.payload.futures_policy_set is True
-    assert report.payload.live_supported is False
+    assert report.payload.live_supported is True
     assert report.components[0].reason_code == "OK"
     assert report.overall_status is ReportStatus.HEALTHY
 

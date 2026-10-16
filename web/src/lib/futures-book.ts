@@ -3,8 +3,8 @@
  * `GET /api/v1/deployments/{id}/futures` and the operator `futures-books` report.
  *
  * Every amount is USD (the CFM settlement currency) and is never added to a USDC or USDT
- * amount. `null` is unknown and renders "Unknown", never zero. Futures run as paper books
- * only: there is no live futures order path.
+ * amount. `null` is unknown and renders "Unknown", never zero. Live futures books start from
+ * the CLI only (ADR 0134 P2-7); the browser starts paper books.
  */
 import { formatUsd } from '$lib/portfolio';
 import { liveFuturesGroup, type LiveFuturesBook } from './futures-book-live';
@@ -86,15 +86,15 @@ export type FuturesBooksReport = {
 		futures_policy_set: boolean | null;
 		books: FuturesBookPayload[];
 		collateral_note: string;
-		live_supported: false;
+		live_supported: true;
 	};
 };
 
 export const UNKNOWN = 'Unknown';
 
 export const PAPER_ONLY_NOTE =
-	'Paper only: ThyTrader has no live futures order path. This book simulates fills, ' +
-	'funding and liquidation against Coinbase marks and places no Coinbase orders.';
+	'Paper book: it simulates fills, funding and liquidation against Coinbase marks and places ' +
+	'no Coinbase orders. Live futures books start from the CLI only.';
 
 export const SHARED_COLLATERAL_NOTE =
 	'In reality Coinbase counts your USDC spot balance as futures collateral, so a live ' +

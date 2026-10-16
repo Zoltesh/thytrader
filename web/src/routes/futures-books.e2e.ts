@@ -294,7 +294,7 @@ async function mockDetail(
 	return { futuresRequests: () => futuresRequests };
 }
 
-test('live futures detail keeps unknown settlement and disabled starts visible', async ({
+test('live futures detail keeps unknown settlement visible and says it is CLI-controlled', async ({
 	page
 }) => {
 	await mockDetail(page, futuresDeployment({ mode: 'live' }), book({ mode: 'live' }));
@@ -306,7 +306,7 @@ test('live futures detail keeps unknown settlement and disabled starts visible',
 		'SETTLEMENT_PROVENANCE_UNAVAILABLE'
 	);
 	await expect(card.getByTestId('futures-fact-live-orderable')).toContainText(
-		'starts remain disabled'
+		'start and stop from the CLI'
 	);
 });
 
@@ -349,7 +349,9 @@ test('bot detail shows a known paper futures book in USD', async ({ page }) => {
 	await page.goto(`/deployments/${futuresId}`);
 	const card = page.getByTestId('futures-book');
 	await expect(card.getByRole('heading', { name: 'Paper futures book (USD)' })).toBeVisible();
-	await expect(card.getByTestId('futures-paper-only')).toContainText('no live futures order path');
+	await expect(card.getByTestId('futures-paper-only')).toContainText(
+		'Live futures books start from the CLI only'
+	);
 	await expect(card.getByTestId('futures-collateral-note')).toContainText(
 		'USDC spot balance as futures collateral'
 	);
@@ -496,7 +498,7 @@ const futuresEvidence = {
 	preview_unavailable_reason: null
 };
 
-test('Run stage starts a paper futures book with all three fees and refuses live', async ({
+test('Run stage starts a paper futures book with all three fees; live is CLI-only', async ({
 	page
 }) => {
 	await mockStrategy(page, {
@@ -541,8 +543,11 @@ test('Run stage starts a paper futures book with all three fees and refuses live
 	await page.goto(`/strategies/${strategyId}/run`);
 
 	const live = page.getByTestId('live-card');
-	await expect(live.getByTestId('live-futures-unsupported')).toHaveText(
-		'Live futures are not supported (FUTURES_LIVE_UNSUPPORTED) — run this strategy as a paper book.'
+	await expect(live.getByTestId('live-futures-cli-only')).toContainText(
+		'Live futures start from the CLI only'
+	);
+	await expect(live.getByTestId('live-futures-cli-only')).toContainText(
+		'--i-understand-live-futures'
 	);
 	await expect(live.getByRole('button', { name: 'Arm live trading…' })).toHaveCount(0);
 
@@ -628,7 +633,7 @@ function futuresBooksReport(books: unknown[]) {
 			futures_policy_set: true,
 			books,
 			collateral_note: 'Coinbase counts the USDC spot balance as CFM futures collateral.',
-			live_supported: false
+			live_supported: true
 		}
 	};
 }

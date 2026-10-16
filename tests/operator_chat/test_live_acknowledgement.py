@@ -58,6 +58,33 @@ async def test_model_supplied_acknowledgement_is_dropped() -> None:
 
 
 @pytest.mark.anyio
+async def test_chat_never_forwards_the_live_futures_acknowledgement_or_undeclared_terms() -> None:
+    """Even after understand-live, the model cannot arm a live futures book (CLI only)."""
+    tool = tool_by_name("runtime_start")
+    assert tool is not None
+    capture = _Capture()
+    with patch("thytrader.operator_chat.loop.invoke_local_json", capture):
+        await _invoke_tool(
+            FastAPI(),
+            tool,
+            {
+                "strategy_id": "11111111-1111-1111-1111-111111111111",
+                "mode": "live",
+                "i_understand_live_futures": True,
+                "fee_per_contract": "0.11",
+                "futures_capital_usd": "500",
+            },
+            (),
+            live_acknowledged=True,
+        )
+    assert capture.payloads[0] == {
+        "strategy_id": "11111111-1111-1111-1111-111111111111",
+        "mode": "live",
+        "i_understand_live": True,
+    }
+
+
+@pytest.mark.anyio
 async def test_confirmed_understand_live_injects_acknowledgement() -> None:
     """After the operator ticks understand-live, the body carries i_understand_live=true."""
     tool = tool_by_name("runtime_place_order")

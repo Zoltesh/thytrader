@@ -109,7 +109,7 @@ def evaluate_new_deployment(
         if allowlisted.decision is RiskDecision.DENY:
             return allowlisted
     allocated = _allocation_membership(
-        policy, strategy_id, mode=mode, portfolio_member=portfolio_sleeve
+        policy, strategy_id, mode=mode, portfolio_member=portfolio_sleeve, futures=futures
     )
     if allocated.decision is RiskDecision.DENY:
         return allocated

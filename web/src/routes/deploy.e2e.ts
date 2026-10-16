@@ -405,6 +405,29 @@ test('updating a live bot still needs the real-orders acknowledgement', async ({
 	expect(stops).toBe(1);
 });
 
+test('a live futures bot is never stopped by the guided update', async ({ page }) => {
+	await mockStrategy(page);
+	await mockPreflight(page);
+	const earlier = deployment({
+		mode: 'live',
+		strategy_fingerprint: fingerprintV2,
+		product_id: 'BIP-20DEC30-CDE'
+	});
+	let stops = 0;
+	await mockDeployments(page, () => [earlier]);
+	await page.route('**/api/v1/deployments/*/stop**', async (route) => {
+		stops += 1;
+		await route.fulfill({ json: { ...earlier, status: 'stopped' } });
+	});
+	await page.goto(runStage);
+	const live = page.getByTestId('live-card');
+	await expect(live.getByTestId('update-live-futures-cli')).toContainText(
+		'Update a live futures bot from the CLI'
+	);
+	await expect(live.getByTestId('update-bot')).toHaveCount(0);
+	expect(stops).toBe(0);
+});
+
 test('a failed new start after the stop is reported honestly', async ({ page }) => {
 	await mockStrategy(page);
 	await mockPreflight(page);

@@ -22,14 +22,15 @@ These fields are omitted when unset and do not change old canonical policy finge
 and position. There is no combined USD/USDC capital or loss figure. The future live gate compares
 the declared reserve with (current + proposed USD initial margin) × haircut; USDT is unlinked.
 
-Ops contract `thytrader-ops-contract-v105` advertises `live_futures_risk_policy` under
-`futures_observations`; `futures_order_paths` stays empty. Alembic `0076` adds independent
+Ops contract `thytrader-ops-contract-v106` advertises `live_futures_risk_policy` under
+`futures_observations` and `live_futures_start` under `futures_order_paths` (the acknowledged
+standalone live futures start, ADR 0134 P2-7; see the runtime skill). Alembic `0076` adds independent
 `futures_derisk_pending` and `futures_flat_confirmation_after` to deployment/runtime and
 futures-book payloads (ADR 0135). The former is a durable de-risk duty; a non-null timestamp
 is a pending flat-verification lower bound, never a successful venue observation. Diagnostics
 can change without clearing either duty. Restart/resume is not a manual-clear operation.
-**This is policy evidence, not live readiness:** HTTP, CLI and service starts still refuse
-`FUTURES_LIVE_UNSUPPORTED`. Live CFM fleet-health runs the P2-3 minimum-contract probes; visibility is described below. To change
+**This is policy evidence, not a start:** a live futures book exists only after the runtime
+lane's acknowledged start (ADR 0134 P2-7), which these fields gate. Live CFM fleet-health runs the P2-3 minimum-contract probes; visibility is described below. To change
 settings, use the confirmation-gated runtime lane's
 [policy publication reference](../../thytrader-runtime/references/live-futures-policy.md),
 then read back the fingerprint and complete block here. Operator never publishes policy.
@@ -600,7 +601,7 @@ included; no trailing gap on a truncated page). Each window change: `observed_at
 `futures_books` is read-only (`balances_omitted=false`). `payload`: `paper_capital_usd`
 (`null` while the policy's futures block or envelope is unset), `committed_paper_cash_usd`,
 `futures_policy_set` (`true` \| `false` \| `null` when the policy is unreadable), `books[]`,
-`collateral_note` and `live_supported: false`. Each book (the same object as
+`collateral_note` and `live_supported: true` (since ops contract v106). Each book (the same object as
 `GET /api/v1/deployments/{id}/futures`, which is 404 for a spot bot): `deployment_id`,
 `strategy_name`, `status`, `mode`, `product_id`, `currency: USD`, `contract_kind`
 (`perpetual_future` \| `dated_future` \| `null`), `underlying`, `contract_size`,

@@ -51,25 +51,35 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
     """Start paper or live; live still requires `--i-understand-live`.
 
     ``--adopt-holdings`` (live only) is confirmation-hard-gated: YOLO never covers an
-    adoption of held coins (ADR 0124).
+    adoption of held coins (ADR 0124). A live futures start (ADR 0134 P2-7) also needs
+    ``--i-understand-live-futures``, ``--fee-per-contract`` and ``--futures-capital-usd``, and
+    is hard-gated the same way: it always needs ``--confirm``.
     """
     live = arguments.mode == "live"
     adopting = arguments.adopt_holdings is not None
+    fee = getattr(arguments, "fee_per_contract", None)
+    capital = getattr(arguments, "futures_capital_usd", None)
+    live_futures = live and getattr(arguments, "i_understand_live_futures", False)
     if adopting and not live:
         raise RuntimeControlError(
             "ADOPTION_LIVE_ONLY: --adopt-holdings adopts coins held at Coinbase; pass --mode live."
         )
-    if live and getattr(arguments, "fee_per_contract", None) is not None:
+    if capital is not None and not live:
         raise RuntimeControlError(
-            "FUTURES_LIVE_UNSUPPORTED: futures strategies run as paper books only; "
-            "--fee-per-contract needs --mode paper."
+            "FUTURES_CAPITAL_LIVE_ONLY: --futures-capital-usd is a live futures book's capital; "
+            "a paper futures book takes --cash."
+        )
+    if live and (fee is not None or capital is not None) and not live_futures:
+        raise RuntimeControlError(
+            "LIVE_FUTURES_ACK_REQUIRED: a live futures start trades leveraged perpetuals with "
+            "real money. Pass --i-understand-live-futures with --i-understand-live."
         )
     _require_live_ack(mode=arguments.mode, acknowledged=arguments.i_understand_live)
     _require_confirm(
         arguments.confirm,
         base_url=base_url,
         command="start",
-        hard_gate=adopting,
+        hard_gate=adopting or live_futures,
         tier=YoloTier.LIVE if live else YoloTier.PAPER,
     )
     cash = _paper_cash(mode=arguments.mode, cash=arguments.cash)
@@ -89,7 +99,10 @@ def _start(arguments: argparse.Namespace, base_url: str, settings: Settings) -> 
         settings=settings,
         i_understand_live=live and arguments.i_understand_live,
         adopt_holdings=arguments.adopt_holdings,
-        paper_fee_per_contract=getattr(arguments, "fee_per_contract", None),
+        paper_fee_per_contract=None if live else fee,
+        fee_per_contract=fee if live else None,
+        futures_capital_usd=capital,
+        i_understand_live_futures=live_futures,
     )
 
 

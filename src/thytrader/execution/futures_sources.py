@@ -117,6 +117,7 @@ class RecordedFuturesSource:
         signed, marks = _positions(positions)
         products = product_ids | frozenset(() if signed is None else signed)
         sizes, maintenance = await self._catalog(products)
+        killswitch, killswitch_at = await self._killswitch(observed_at)
         venue = FuturesVenueEvidence(
             observed_at=observed_at,
             buying_power_usd=_nonnegative(
@@ -125,7 +126,8 @@ class RecordedFuturesSource:
             initial_margin_usd=_nonnegative(None if balance is None else balance.initial_margin),
             positions=signed,
             external_order_products=await self._external(managed_client_ids),
-            killswitch_enabled=await self._killswitch(observed_at),
+            killswitch_enabled=killswitch,
+            killswitch_observed_at=killswitch_at,
             maintenance=maintenance,
             contract_sizes=sizes,
         )
@@ -150,28 +152,32 @@ class RecordedFuturesSource:
                 products.add(order.product_id)
         return frozenset(products)
 
-    async def _killswitch(self, now: datetime) -> bool | None:
-        """An absent/stale/failed mirror window does not prove a disabled venue killswitch."""
+    async def _killswitch(self, now: datetime) -> tuple[bool | None, datetime | None]:
+        """The mirror's killswitch facts and when they were observed; unknown is (None, None).
+
+        An absent/stale/failed mirror window does not prove a disabled venue killswitch. The
+        observation time travels with the evidence so admission re-checks its age.
+        """
         if self.mirror is None:
-            return None
+            return None, None
         try:
             row = await self.mirror.latest()
         except RuntimeError, ValueError, TypeError, OSError:
-            return None
+            return None, None
         if (
             row is None
             or row.observed_at > now
             or now - row.observed_at > LIVE_EVIDENCE_MAX_AGE
             or row.margin_window is None
         ):
-            return None
+            return None, None
         flags = (
             row.margin_window.intraday_killswitch_enabled,
             row.margin_window.enrollment_killswitch_enabled,
         )
         if any(flag is True for flag in flags):
-            return True
-        return False if all(flag is False for flag in flags) else None
+            return True, row.observed_at
+        return (False, row.observed_at) if all(flag is False for flag in flags) else (None, None)
 
     async def _catalog(
         self, products: frozenset[str]

@@ -22,7 +22,7 @@ from thytrader.operator_chat.tools import (
     tool_by_name,
     yolo_tier_for,
 )
-from thytrader.ops_contract import LIVE_ACK_FIELD
+from thytrader.ops_contract import LIVE_ACK_FIELD, LIVE_FUTURES_ACK_FIELD
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -355,9 +355,16 @@ async def _invoke_tool(
 
     The model can never supply the live acknowledgement itself: any
     ``i_understand_live`` argument is dropped, and the field is added only when
-    the operator ticked understand-live on this pending confirmation.
+    the operator ticked understand-live on this pending confirmation. Arguments the tool does
+    not declare are dropped too, and the live futures acknowledgement is never forwarded:
+    chat has no control for it, so a live futures start from chat gets HTTP 428 (CLI only,
+    ADR 0134 P2-7).
     """
-    call_arguments = {key: value for key, value in arguments.items() if key != LIVE_ACK_FIELD}
+    call_arguments = {
+        key: value
+        for key, value in arguments.items()
+        if key in tool.properties and key not in {LIVE_ACK_FIELD, LIVE_FUTURES_ACK_FIELD}
+    }
     if live_acknowledged and tool.live_ack != "never":
         call_arguments[LIVE_ACK_FIELD] = True
     try:

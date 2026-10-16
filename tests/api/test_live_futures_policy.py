@@ -58,11 +58,11 @@ def test_live_policy_round_trips_http_and_operator_report() -> None:
 
 
 @pytest.mark.anyio
-async def test_service_start_still_refuses_live_futures_without_writes() -> None:
-    """The service safety boundary survives independently of HTTP and CLI refusal tests."""
+async def test_service_start_refuses_live_futures_without_capital_and_writes_nothing() -> None:
+    """The service boundary holds without HTTP: no futures_capital_usd, no live futures book."""
     strategy = with_convergence_warmup(_strategy())
     execution = InMemoryExecutionStore()
-    with pytest.raises(ExecutionConflictError, match="FUTURES_LIVE_UNSUPPORTED"):
+    with pytest.raises(ExecutionConflictError, match="FUTURES_CAPITAL_REQUIRED"):
         await create_deployment(
             store=execution,
             publication_store=_Catalog(strategy),

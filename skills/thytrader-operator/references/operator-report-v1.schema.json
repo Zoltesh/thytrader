@@ -6768,8 +6768,8 @@
           "type": "string"
         },
         "live_supported": {
-          "const": false,
-          "default": false,
+          "const": true,
+          "default": true,
           "title": "Live Supported",
           "type": "boolean"
         }
@@ -6785,7 +6785,7 @@
     },
     "FuturesBooksReport": {
       "additionalProperties": false,
-      "description": "Read-only futures books; live starts and order paths remain disabled.",
+      "description": "Read-only futures books, paper and live; live books start from the CLI (ADR 0134 P2-7).",
       "properties": {
         "schema_version": {
           "const": "thytrader-operator-report-v1",
@@ -10796,11 +10796,11 @@
           "type": "array"
         },
         "futures_order_paths": {
-          "description": "Always empty: no surface can order a futures contract (ADR 0126).",
+          "description": "Live futures order paths: the acknowledged standalone live futures start (ADR 0134 P2-7). Adoption, sleeves and discretionary orders accept no futures id.",
           "items": {
+            "const": "live_futures_start",
             "type": "string"
           },
-          "maxItems": 0,
           "title": "Futures Order Paths",
           "type": "array"
         },

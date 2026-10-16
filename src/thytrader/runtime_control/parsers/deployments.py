@@ -158,8 +158,13 @@ def add_start_parser(
             "studies and paper bots of the exact fingerprint; read it later with live-evidence "
             "ID) and warns LIVE_EVIDENCE_THIN when it is thin; the opt-in "
             "--require-live-evidence policy flag refuses instead (LIVE_EVIDENCE_REQUIRED). "
-            "A futures strategy starts in paper only, with --cash (USD), --maker-fee-rate, "
-            "--taker-fee-rate and --fee-per-contract."
+            "A futures strategy starts in paper with --cash (USD), --maker-fee-rate, "
+            "--taker-fee-rate and --fee-per-contract, or live (ADR 0134 P2-7) with "
+            "--i-understand-live, --i-understand-live-futures, --fee-per-contract, "
+            "--futures-capital-usd and --confirm (YOLO never covers it); the risk gate admits it "
+            "on a fresh CFM read and refuses with a leading code such as FUTURES_LIVE_DISABLED, "
+            "FUTURES_LIVE_CAPITAL_EXCEEDED, FUTURES_PRODUCT_OCCUPIED, "
+            "FUTURES_EXTERNAL_POSITION_ON_PRODUCT or FUTURES_COLLATERAL_RESERVE_SHORT."
         ),
     )
     start.add_argument(
@@ -187,14 +192,14 @@ def add_start_parser(
         "--fee-per-contract",
         default=None,
         help=(
-            "Paper futures only (ADR 0129): the fixed USD fee per contract on every fill, "
+            "Futures only (ADR 0129, 0134): the fixed USD fee per contract on every fill, "
             "charged on top of the maker/taker rate (payload.futures.fee_per_contract of "
             "`thytrader-operator fees --futures-preview-product-id`, never the preview's "
-            "all-in commission; ADR 0133). Required, "
-            "with explicit --maker-fee-rate and --taker-fee-rate (the futures tier from "
-            "`thytrader-operator fees`), to start a futures strategy; --cash is USD from "
-            "the policy's futures.paper_capital_usd envelope. Futures never run live: "
-            "--mode live with a futures strategy or this flag is FUTURES_LIVE_UNSUPPORTED."
+            "all-in commission; ADR 0133). Paper: required with explicit --maker-fee-rate and "
+            "--taker-fee-rate (the futures tier from `thytrader-operator fees`); --cash is USD "
+            "from the policy's futures.paper_capital_usd envelope. Live: required with "
+            "--futures-capital-usd and --i-understand-live-futures; the account's futures tier "
+            "sets the maker/taker rates."
         ),
     )
     start.add_argument(
@@ -207,6 +212,25 @@ def add_start_parser(
             "bought; the stop and target come from the strategy's exits at the mark and the "
             "worker places them on its next cycle. Single-instrument long strategies only. "
             "Always needs --confirm (YOLO never skips it)."
+        ),
+    )
+    start.add_argument(
+        "--futures-capital-usd",
+        default=None,
+        help=(
+            "Live futures only (ADR 0134 P2-7): the book's USD capital, its allocation and "
+            "performance basis, inside the policy's futures.live_capital_usd envelope (spot "
+            "allocations do not apply). Refused above the envelope "
+            "(FUTURES_LIVE_CAPITAL_EXCEEDED)."
+        ),
+    )
+    start.add_argument(
+        "--i-understand-live-futures",
+        action="store_true",
+        help=(
+            "Required, with --i-understand-live and --confirm, to start a futures strategy "
+            "live: leveraged perpetuals can lose margin faster than the allocation. YOLO never "
+            "covers it (HTTP 428 LIVE_FUTURES_ACK_REQUIRED otherwise)."
         ),
     )
     start.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)

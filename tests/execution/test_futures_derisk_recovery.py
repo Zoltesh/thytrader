@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -115,3 +116,32 @@ async def test_rejected_derisk_closes_latch_after_five_without_resume(
     assert snapshot.deployment.futures_derisk_pending
     assert snapshot.deployment.status is DeploymentStatus.PAUSED
     assert (snapshot.deployment.mismatch_detail or "").startswith(PROTECTIVE_REJECTED_PREFIX)
+
+
+@pytest.mark.anyio
+async def test_an_aged_killswitch_mirror_never_suppresses_the_margin_derisk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Killswitch age gates admission only; a fresh account read still de-risks a breach."""
+    venue = FakeVenue()
+    clock(monkeypatch, venue)
+    store = InMemoryExecutionStore()
+    snapshot = await open_live_book(store, venue)
+    venue.margin = Decimal(1)
+    venue.killswitch_at = venue.now - timedelta(seconds=181)
+    account = await venue.read_account(frozenset())
+    assert account.venue.is_fresh(venue.now)
+    assert not account.venue.is_admissible(venue.now)
+    policy = compiled_default_risk_policy().model_copy(
+        update={"futures": FuturesRiskPolicy(live_enabled=False, live_derisk_margin_ratio="1.5")}
+    )
+    closed = await supervise_live_futures(
+        snapshot,
+        state=_state(snapshot),
+        account=account,
+        policy=policy,
+        broker=venue.broker(),
+        store=store,
+        now=venue.now,
+    )
+    assert closed.position is None

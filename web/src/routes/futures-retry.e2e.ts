@@ -15,7 +15,7 @@ for (const shown of [false, true]) {
 					futures_policy_set: false,
 					books: [],
 					collateral_note: 'USD is not added to USDC.',
-					live_supported: false
+					live_supported: true
 				}
 			};
 			const good = {

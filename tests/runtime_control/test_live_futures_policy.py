@@ -18,7 +18,7 @@ def test_policy_help_exposes_every_futures_field_and_live_default(
     for field in FuturesRiskPolicy.model_fields:
         assert "--futures-" + field.replace("_", "-") in help_text
     assert "live defaults to 1" in " ".join(help_text.split())
-    assert "FUTURES_LIVE_UNSUPPORTED" in help_text
+    assert "FUTURES_LIVE_DISABLED" in help_text
 
 
 def test_live_futures_policy_flags_round_trip() -> None:

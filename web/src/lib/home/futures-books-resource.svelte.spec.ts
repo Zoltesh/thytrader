@@ -14,7 +14,7 @@ const empty: FuturesBooksReport = {
 		futures_policy_set: false,
 		books: [],
 		collateral_note: 'USD only',
-		live_supported: false
+		live_supported: true
 	}
 };
 const failed: FuturesBooksReport = {

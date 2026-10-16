@@ -1,16 +1,69 @@
-# Live futures policy preparation and dormant runtime (P2-2–P2-4)
+# Live futures policy, start and runtime (ADR 0134 P2-2–P2-7)
 
-This surface publishes **policy only**, not trading authority. All live futures start
-paths still refuse `FUTURES_LIVE_UNSUPPORTED` until P2-7 (ADR 0134). There is no supported
-live futures start command in this slice. Do not probe order endpoints or bypass the refusal.
+Publishing the policy grants no trading by itself. A live futures book exists only after the
+operator's acknowledged start below (ops contract v106, `futures_order_paths:
+["live_futures_start"]`). Never start one without the operator's explicit go-ahead for that
+product and USD amount; never probe order endpoints or import an adapter as a workaround.
 
-## Wired adapter is not a supported order path yet
+## Starting a live futures book (P2-7)
 
-P2-2 added the futures request and product-routing adapters. Since P2-7 wiring the worker
-composes them for live futures books only (spot books keep the spot adapter; the API builds
-none), but no live futures book can be started yet: starts still refuse
-`FUTURES_LIVE_UNSUPPORTED`, all operator commands remain spot-only, and `futures_order_paths`
-remains empty. A spot-only fleet makes no CFM reads. Do not import an adapter as an operating workaround or treat a passing fake
+Prerequisites, all in the published policy (runtime lane, `set-risk-policy`, resupply on every
+publication): `--futures-live-enabled true`, `--futures-live-capital-usd N` (the USD envelope all
+live futures books share), the perp on `--futures-product-allowlist`, and
+`--futures-live-spot-collateral-reserve-quote R` (CFM margin shares the USDC pool; the reserve
+must cover (current + one contract's) initial margin × haircut). Also: the strategy is a
+perp-style futures strategy, its perp series is watched (`thytrader-data`), and no other position
+or open order exists on that perp at Coinbase.
+
+```
+uv run thytrader-runtime start --strategy-id ID --mode live \
+  --fee-per-contract F --futures-capital-usd C \
+  --i-understand-live --i-understand-live-futures --confirm
+```
+
+- F is the fixed USD per-contract fee (`thytrader-operator fees --futures-preview-product-id
+  PERP` → `payload.futures.fee_per_contract`); the account's futures tier sets maker/taker.
+- C is this book's capital: its allocation, performance basis and margin equity base. Spot
+  `allocations` do not apply to futures books; C plus every running live futures book's capital
+  must fit in `live_capital_usd`.
+- `--i-understand-live-futures` is a hard gate: YOLO never covers it and `--confirm` is always
+  required. Without it the API answers HTTP 428 `LIVE_FUTURES_ACK_REQUIRED`.
+- The start reads the CFM account once (GET only) and refuses with a leading code, creating
+  nothing: `FUTURES_CAPITAL_REQUIRED`, `FUTURES_FEE_REQUIRED`, `FUTURES_LIVE_DISABLED`,
+  `FUTURES_LIVE_CAPITAL_UNSET`, `PRODUCT_NOT_ALLOWLISTED`, `FUTURES_LIVE_CAPITAL_EXCEEDED`,
+  `FUTURES_PRODUCT_OCCUPIED` (one live book per perp), `FUTURES_EXTERNAL_POSITION_ON_PRODUCT`
+  (a position or open order you did not start through ThyTrader), `FUTURES_LIVE_DATED_UNSUPPORTED`,
+  `FUTURES_COLLATERAL_UNKNOWN` (a CFM read or price failed: retry later), `FUTURES_BUYING_POWER_SHORT`
+  (buying power below one contract's initial margin), `FUTURES_COLLATERAL_RESERVE_SHORT`,
+  `FUTURES_VENUE_KILLSWITCH`, `FUTURES_VENUE_MAINTENANCE`, `FUTURES_CONTRACT_DRIFT`. Fix the cause;
+  never loosen policy to get past a code without the operator's decision.
+- Not supported: portfolio sleeves (`FUTURES_LIVE_UNSUPPORTED`), `--adopt-holdings`, discretionary
+  futures orders, dated contracts, and the browser (CLI/HTTP only).
+
+After the start the worker runs the book every cycle: post-only limit entries in whole contracts,
+venue-held stop-limit/bracket protection, and every exit as a sized `close_position` after the
+book's protection is confirmed cancelled. Watch it with `thytrader-runtime show ID` (its
+`futures` view) and `thytrader-operator futures-books`.
+
+## Stopping, flattening and disarming futures only
+
+- `stop ID --flatten` closes the position with `close_position` without needing a candle, then
+  waits for a fresh venue-flat read (`futures_flat_confirmation_after`). A rejected close keeps
+  the book STOPPED with `PROTECTIVE_SUBMIT_REJECTED:`; after the backoff reissue `stop --flatten`.
+- `pause`/`resume` behave as for spot; `resume` needs `--i-understand-live`.
+- Futures-only disarm: publish the policy with `--futures-live-enabled false`. It refuses new
+  live futures starts and entries; exits, protection, I9 and the margin de-risk keep running.
+  `fleet-disarm --mode live` (see the runtime skill's fleet table) also stops live spot entries.
+- `FUTURES_POSITION_MISMATCH` (I9) pauses the book after two fresh valid mismatches. Compare
+  `futures-books` with Coinbase; a proven excess of ours was already reduced and the book stays
+  paused. Do not place manual orders on that perp: they make the position external. Resume only
+  after the operator confirms the venue position.
+
+## Adapter and routing
+
+P2-2 added the futures request and product-routing adapters. The worker composes them for live
+futures books only (spot books keep the spot adapter; the API builds none). A spot-only fleet
+makes no CFM reads. Do not import an adapter as an operating workaround or treat a passing fake
 venue test as proof of Coinbase acceptance. No real probe or policy change is authorized by
 this implementation.
 
@@ -70,8 +123,8 @@ Existing authentication/CSRF rules still apply. Policy publication never arms tr
 | `--futures-live-enabled true\|false` | `live_enabled` | Explicit opt-in; unset or false denies live futures risk. False is retained, not omitted. |
 | `--futures-live-capital-usd N` | `live_capital_usd` | Positive USD allocation envelope and basis for futures-scope daily loss/exposure; not buying power or spot capital. |
 | `--futures-product-allowlist PRODUCT` (repeatable) | `product_allowlist` | Up to 32 unique `CODE-DDMONYY-CDE` IDs. Live requires a nonempty list. A nonempty list also restricts paper futures. Spot uses the separate top-level allowlist. |
-| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], margin-monitor threshold on available margin / liquidation threshold. Exercised in the injected P2-4 runtime only; production activation is still refused. |
-| `--futures-live-funding-drift-tolerance-usd N` | `live_funding_drift_tolerance_usd` | Positive USD tolerance. Persisted now; alert wiring is P2-6. |
+| `--futures-live-derisk-margin-ratio R` | `live_derisk_margin_ratio` | Decimal in (1, 100], margin-monitor threshold on available margin / liquidation threshold. The live margin monitor de-risks a live futures book below it. |
+| `--futures-live-funding-drift-tolerance-usd N` | `live_funding_drift_tolerance_usd` | Positive USD tolerance for the `FUTURES_FUNDING_DRIFT` alert (P2-6). |
 | `--futures-max-order-contracts N` | `max_order_contracts` | Existing positive integer cap: live defaults to one contract when unset, for both the order and resulting position. Paper keeps its existing unset behavior. |
 
 The existing `--futures-live-spot-collateral-reserve-quote` and `--futures-peg-haircut`
@@ -114,16 +167,15 @@ ceiling does **not** inherit the spot `--max-daily-loss-quote`, even for a USD s
 Spot USD and CFM USD are distinct settlement scopes. Linked latches still deny across the
 collateral group; they do not import another scope's limit.
 
-## Injected runtime is not operational readiness (P2-4)
+## Runtime semantics (P2-4)
 
 The runtime can now prepare an existing synthetic live book, read fresh CFM balance/position
 facts, use futures fees and whole-contract sizing, reconcile signed positions, accrue funding,
 and cancel-confirm before explicit reductions. It is exercised with fake transports through the
-real worker, broker adapter and atomic memory/PostgreSQL stores. The production worker now
-composes the futures runtime too (P2-7 wiring), but it acts only on live futures books, and none
-can be started yet. There is no command to activate or bypass that boundary.
+real worker, broker adapter and atomic memory/PostgreSQL stores. The production worker composes
+the same runtime (P2-7) and acts on live futures books started as above.
 
-Future operational semantics are pinned, not enabled here:
+Operational semantics of a live futures book:
 - An exact accepted futures cancel remains pending if its confirmation GET fails. Restarts use
   the persisted marker and GET-only reconciliation; acceptance is not terminal cancellation.
   Malformed acknowledgements are uncertain, never manufactured acceptance or definite rejection.
@@ -163,5 +215,5 @@ Future operational semantics are pinned, not enabled here:
 - Funding is hourly **modeled accrual at the settled rate**, not confirmed venue settlement;
   missing/nonfinite evidence is never filled with zero. USD figures are not summed with USDC.
 
-Acknowledgements and start activation (P2-7) remain outstanding. Do not interpret
-a stored opt-in, a healthy spot report or a passing fake-runtime test as live futures readiness.
+A stored opt-in, a healthy spot report or a passing fake-runtime test is not a decision to trade:
+start a live futures book only through the acknowledged start above, with the operator's go-ahead.

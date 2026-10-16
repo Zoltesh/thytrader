@@ -164,11 +164,11 @@ class FuturesBooksPayload(_FrozenModel):
     futures_policy_set: bool | None
     books: tuple[FuturesBookPayload, ...]
     collateral_note: str = SHARED_COLLATERAL_NOTE
-    live_supported: Literal[False] = False
+    live_supported: Literal[True] = True
 
 
 class FuturesBooksReport(OperatorEnvelope):
-    """Read-only futures books; live starts and order paths remain disabled."""
+    """Read-only futures books, paper and live; live books start from the CLI (ADR 0134 P2-7)."""
 
     report_kind: Literal["futures_books"] = "futures_books"
     payload: FuturesBooksPayload

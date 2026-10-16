@@ -168,7 +168,7 @@
 	<div class="row"><span>Rules snapshot</span><code class="fp">{currentFingerprint}</code></div>
 	<p>
 		This starts a simulated futures book of the current saved rules. It places no Coinbase orders;
-		there is no live futures path. {SHARED_COLLATERAL_NOTE}
+		live futures books start from the CLI only. {SHARED_COLLATERAL_NOTE}
 	</p>
 </ConfirmDialog>
 
