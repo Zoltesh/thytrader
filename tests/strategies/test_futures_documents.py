@@ -97,7 +97,8 @@ def test_invalid_futures_documents(change: dict[str, Any], message: str) -> None
 
 
 def test_derivatives_need_a_futures_instrument_and_futures_stay_single() -> None:
-    """Spot documents cannot carry derivatives; futures cover one product and no references."""
+    """Spot documents cannot carry derivatives; futures cover one product (USD references are
+    allowed, ADR 0145)."""
     spot = _spot_document()
     spot["derivatives"] = {"max_leverage": "2"}
     with pytest.raises(ValidationError, match=r"only allowed with instrument\.kind future"):

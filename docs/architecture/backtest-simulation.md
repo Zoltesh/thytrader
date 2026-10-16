@@ -232,7 +232,9 @@ and fee-aware buy-and-hold is a separate `thytrader-buy-and-hold-v1` report.
 `funding` for perps); a mismatch either way fails `FUTURES_SPEC_MISMATCH`. The loop and the
 cash-and-inventory ledger are the spot ones, because quantities are base units (contracts ×
 `contract_size`); `src/thytrader/backtest/kernel_futures.py` holds the futures-only rules and spot
-runs never reach them, so spot result bytes are unchanged.
+runs never reach them, so spot result bytes are unchanged. A futures strategy may read USD-quoted
+spot reference instruments (ADR 0145); they flow through the same signal evaluation as for spot
+and feed indicators only, never sizing, margin, funding or liquidation.
 
 - **Sizing.** ATR risk sizing requests a notional; the entry is the floor of whole contracts
   within four bounds that hold after the entry fee (rate × notional + `fee_per_contract` ×
