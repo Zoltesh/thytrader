@@ -69,7 +69,7 @@ def _futures_cancel_failure(payload: Mapping[str, Any], venue_order_id: str) -> 
 
 
 class CoinbaseFuturesBroker:
-    """Convert base units exactly; constructor modes are candidates, not venue proof."""
+    """Convert base units exactly; every marketable reduction is a sized ``close_position``."""
 
     def __init__(
         self,
