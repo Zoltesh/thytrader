@@ -1,12 +1,23 @@
 {
-  "provenance": "Synthetic, hand-built from the Coinbase Advanced Trade REST v3 API reference (Close Position, POST /orders/close_position); not observed. The venue accepted a close of one contract of a short.",
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): close_position of one ETP-20DEC30-CDE contract filled at once; the response echoes a market_market_ioc configuration (reduce_only false). Ids re-keyed.",
   "body": {
     "success": true,
     "success_response": {
       "order_id": "00000000-0000-4000-8000-00000000a201",
       "product_id": "ETP-20DEC30-CDE",
       "side": "BUY",
-      "client_order_id": "00000000-0000-4000-8000-00000000d001:signal_exit:20260105T1500:00000000-0000-7000-8000-000000000201"
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:signal_exit:20260105T1500:00000000-0000-7000-8000-000000000201",
+      "attached_order_id": ""
+    },
+    "order_configuration": {
+      "market_market_ioc": {
+        "base_size": "1",
+        "rfq_enabled": false,
+        "rfq_disabled": false,
+        "reduce_only": false,
+        "currency_size": null,
+        "oco_ref": ""
+      }
     }
   }
 }

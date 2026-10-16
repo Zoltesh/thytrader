@@ -1,0 +1,37 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. GET order of a post-only entry created with attached_order_configuration: the bracket is stored on the parent (attached_order_id stays empty until the entry fills).",
+  "body": {
+    "order": {
+      "order_id": "00000000-0000-4000-8000-00000000a304",
+      "product_id": "ETP-20DEC30-CDE",
+      "side": "BUY",
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:entry:20260105T1500:00000000-0000-7000-8000-000000000304",
+      "status": "OPEN",
+      "filled_size": "0",
+      "order_configuration": {
+        "limit_limit_gtc": {
+          "base_size": "1",
+          "limit_price": "2100",
+          "post_only": true,
+          "rfq_disabled": false,
+          "reduce_only": false,
+          "currency_size": null,
+          "oco_ref": ""
+        }
+      },
+      "attached_order_id": "",
+      "attached_order_configuration": {
+        "trigger_bracket_gtc": {
+          "take_profit_price": "",
+          "stop_loss_price": "",
+          "limit_price": "2800",
+          "stop_trigger_price": "2000",
+          "reduce_only": false,
+          "oco_ref": "",
+          "trailing_offset": "",
+          "trigger_type": "TRIGGER_TYPE_UNSPECIFIED"
+        }
+      }
+    }
+  }
+}

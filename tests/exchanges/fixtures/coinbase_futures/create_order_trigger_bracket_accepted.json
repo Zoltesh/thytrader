@@ -1,0 +1,26 @@
+{
+  "provenance": "Synthetic values in the shape observed in a supervised probe on 2026-10-16 (ADR 0134 \u00a77): one ETP-20DEC30-CDE contract, ids re-keyed, prices rounded. With one long contract open, the venue accepted a standalone trigger bracket (take-profit limit above, stop trigger below); it rested OPEN and was cancelled. reduce_only is false.",
+  "body": {
+    "success": true,
+    "success_response": {
+      "order_id": "00000000-0000-4000-8000-00000000a303",
+      "product_id": "ETP-20DEC30-CDE",
+      "side": "SELL",
+      "client_order_id": "00000000-0000-4000-8000-00000000d001:bracket:20260105T1500:00000000-0000-7000-8000-000000000303",
+      "attached_order_id": ""
+    },
+    "order_configuration": {
+      "trigger_bracket_gtc": {
+        "base_size": "1",
+        "limit_price": "2800",
+        "stop_trigger_price": "2100",
+        "take_profit_price": "",
+        "stop_loss_price": "",
+        "reduce_only": false,
+        "oco_ref": "",
+        "trailing_offset": "",
+        "trigger_type": "TRIGGER_TYPE_UNSPECIFIED"
+      }
+    }
+  }
+}

@@ -17,7 +17,7 @@ from tests.exchanges.test_coinbase_futures_broker import (
     order_json,
 )
 from tests.exchanges.test_futures_requests import place
-from thytrader.exchanges.coinbase_futures_broker import CoinbaseFuturesBroker, FuturesReductionMode
+from thytrader.exchanges.coinbase_futures_broker import CoinbaseFuturesBroker
 from thytrader.execution.broker import BrokerError
 from thytrader.trading.models import OrderKind, OrderSide, OrderStatus
 
@@ -104,14 +104,11 @@ async def test_default_close_is_sized_and_does_not_fallback_on_rejection() -> No
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("mode", list(FuturesReductionMode))
-async def test_market_entry_and_adoption_are_rejected_in_every_mode(
-    mode: FuturesReductionMode,
-) -> None:
-    """An explicit mode selection confers no authority for a market entry or adoption."""
+async def test_market_entry_and_adoption_are_rejected() -> None:
+    """The close_position path confers no authority for a market entry or adoption."""
     transport = FakeTransport(gets={})
     for purpose in ("entry", "adoption"):
-        result = await CoinbaseFuturesBroker(transport, Sizes(), reduction_mode=mode).place_order(
+        result = await CoinbaseFuturesBroker(transport, Sizes()).place_order(
             client_order_id=CLIENT.replace(":entry:", f":{purpose}:"),
             product_id=PRODUCT,
             side=OrderSide.BUY,

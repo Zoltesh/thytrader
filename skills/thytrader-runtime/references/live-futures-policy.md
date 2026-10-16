@@ -12,11 +12,13 @@ remains empty. Do not import an adapter as an operating workaround or treat a pa
 venue test as proof of Coinbase acceptance. No real probe or policy change is authorized by
 this implementation.
 
-The two constructor-only reduction candidates are sized `close_position` (planned default)
-and market IOC with `reduce_only: true`. There is no automatic fallback, plain market exit
-or market entry. Post-only entries, both reduction modes and standalone venue protection
-still need supervised acceptance/enforcement evidence before live wiring; attached entry
-brackets remain disabled. P2-4 tests injected runtime composition with product exclusivity and
+Every marketable reduction is a sized `close_position`: Coinbase CDE refuses reduce-only
+orders (`PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE`, supervised probe 2026-10-16, ADR 0134), so
+the reduce-only candidate was removed. There is no plain market exit or market entry. The same
+probe showed CDE accepts post-only entries, stop-limit and trigger-bracket protection on a
+position, and attached brackets on an entry; none of them is reduce-only, so exits cancel the
+book's protection first. Attached entry brackets remain disabled in the adapter; live wiring
+(P2-7) is still pending. P2-4 tests injected runtime composition with product exclusivity and
 position checks; it is not enabled in production. Opaque order ids are resolved from bounded venue reads, not a memory cache;
 incomplete identity/fill evidence fails closed after restart as well. Routing a known venue
 id does not require an attached spot child's local bookkeeping label to be echoed. Client-only

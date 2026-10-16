@@ -14,7 +14,6 @@ from thytrader.exchanges.coinbase_broker import (
 from thytrader.exchanges.coinbase_fills import _next_fills_cursor, _reject_incomplete_fills_page
 from thytrader.exchanges.coinbase_futures_fills import futures_fills_from_page, venue_decimal
 from thytrader.exchanges.coinbase_futures_units import (
-    FuturesReductionMode,
     request_refusal,
     require_contract_size,
     to_base,
@@ -77,15 +76,15 @@ class CoinbaseFuturesBroker:
         transport: SignedHttpTransport,
         contract_sizes: ContractSizeSource,
         *,
-        reduction_mode: FuturesReductionMode = FuturesReductionMode.CLOSE_POSITION,
         cancel_confirm_delay_seconds: float = 0.5,
     ) -> None:
-        """Bind explicit dormant mode; neither requests nor automatic fallback occur here."""
-        if not isinstance(reduction_mode, FuturesReductionMode):
-            raise TypeError("An explicit FuturesReductionMode is required.")
+        """Bind the transport and contract sizes; nothing is requested here.
+
+        Marketable reductions always use ``close_position``: CDE refuses ``reduce_only``
+        (``PREVIEW_REDUCE_ONLY_NOT_ALLOWED_ON_VENUE``, supervised probe 2026-10-16, ADR 0134).
+        """
         self._transport = transport
         self._contract_sizes = contract_sizes
-        self._reduction_mode = reduction_mode
         self._cancel_confirm_delay = cancel_confirm_delay_seconds
 
     async def place_order(
@@ -119,18 +118,13 @@ class CoinbaseFuturesBroker:
             return SubmitResult(OrderStatus.REJECTED, client_order_id, reject_reason=str(error))
         body: dict[str, object] = {"client_order_id": client_order_id, "product_id": product_id}
         path = _ORDERS_PATH
-        if (
-            kind is OrderKind.MARKETABLE
-            and self._reduction_mode is FuturesReductionMode.CLOSE_POSITION
-        ):
+        if kind is OrderKind.MARKETABLE:
             path = _CLOSE_PATH
             body["size"] = format(contracts, "f")
         else:
             body["side"] = side.value.upper()
-            body["order_configuration"] = (
-                {"market_market_ioc": {"base_size": format(contracts, "f"), "reduce_only": True}}
-                if kind is OrderKind.MARKETABLE
-                else _order_configuration(kind, side, contracts, price, stop_trigger_price)
+            body["order_configuration"] = _order_configuration(
+                kind, side, contracts, price, stop_trigger_price
             )
         # Only this validated method can select a create/reduction request. No public
         # submit-body/market helper bypasses the intent-purpose gate above.
