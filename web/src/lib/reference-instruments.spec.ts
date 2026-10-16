@@ -1,3 +1,4 @@
+import { validateReferenceInstruments } from './strategy-insight-references';
 import { describe, expect, it } from 'vitest';
 
 import { requiredClocks } from './data-readiness';
@@ -129,6 +130,25 @@ describe('reference instruments in the builder', () => {
 		});
 		draft.reference_instruments = [];
 		expect(defaultReferenceInstrument(draft).id).toBe('btc');
+	});
+
+	it('defaults a futures strategy reference to BTC-USD and refuses a USDC one (ADR 0145)', () => {
+		const draft = {
+			...model(),
+			product_id: 'ETP-20DEC30-CDE',
+			instrument_kind: 'future' as const,
+			reference_instruments: []
+		};
+		expect(defaultReferenceInstrument(draft)).toEqual({
+			id: 'btc',
+			product_id: 'BTC-USD',
+			timeframe: '1d'
+		});
+		const usdc = validateReferenceInstruments({
+			...draft,
+			reference_instruments: [{ id: 'btc', product_id: 'BTC-USDC', timeframe: '1d' }]
+		});
+		expect(usdc.some((problem) => problem.includes('strategy quote currency USD'))).toBe(true);
 	});
 
 	it('lists each reference series as a required data clock', () => {

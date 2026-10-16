@@ -258,6 +258,10 @@ Portfolio sleeves cannot start futures books (no per-contract fee). Setup and st
   → `payload.futures.fee_per_contract` when available. F is the **fixed** USD part per contract
   (e.g. 0.11 at the Intro tier, confirmed by live fills; ADR 0133); the book adds the
   maker/taker rate itself, so never pass `preview_commission_total` (all-in) as F. `--cash` beyond the envelope is `FUTURES_PAPER_CAPITAL_EXCEEDED`.
+- A futures strategy may gate entries on a USD-quoted reference such as `BTC-USD` 1d
+  ([ADR 0145](../../docs/decisions/0145-futures-reference-instruments.md)); as for spot, the
+  start needs the reference series watched (`thytrader-data watch-add --product-id BTC-USD
+  --timeframe 1d`, 409 naming the command otherwise) and its warmup covered.
 - The start binds the contract from the latest catalog observation and never re-reads it.
   Perp-style contracts only (`FUTURES_PAPER_UNSUPPORTED` for dated ones);
   `FUTURES_CONTRACT_UNOBSERVED` / `FUTURES_UNDERLYING_MISMATCH` name a catalog problem.

@@ -172,7 +172,12 @@ export function defaultReferenceInstrument(model: BuilderModel): ReferenceInstru
 	for (let index = 2; taken.has(id); index += 1) id = `ref${index}`;
 	const clocks = validReferenceTimeframes(model.timeframe);
 	const timeframe = clocks.includes('1d') ? '1d' : (clocks.at(-1) ?? model.timeframe);
-	return { id, product_id: `BTC-${quoteCurrencyFor(model.product_id, 'USDC')}`, timeframe };
+	// A futures contract settles in USD, so its BTC reference is BTC-USD (ADR 0145).
+	const quote =
+		model.instrument_kind === 'future'
+			? FUTURES_QUOTE_CURRENCY
+			: quoteCurrencyFor(model.product_id, 'USDC');
+	return { id, product_id: `BTC-${quote}`, timeframe };
 }
 
 /**

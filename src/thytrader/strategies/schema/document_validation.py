@@ -62,7 +62,11 @@ def _validate_covered_instruments(definition: StrategyDefinition) -> None:
 
 
 def _validate_derivatives(definition: StrategyDefinition) -> None:
-    """Futures documents are single-instrument, carry ``derivatives``, and never pyramid."""
+    """Futures documents are single-instrument, carry ``derivatives``, and never pyramid.
+
+    They may read spot reference instruments quoted in USD, the contracts' settlement
+    currency, like any strategy (ADR 0145); references feed indicators only, never capital.
+    """
     future = definition.instrument.is_future
     if any(instrument.is_future for instrument in definition.additional_instruments):
         raise ValueError("additional_instruments must be spot; futures are single-instrument")
@@ -74,8 +78,6 @@ def _validate_derivatives(definition: StrategyDefinition) -> None:
         raise ValueError("a futures strategy needs a derivatives block (max_leverage)")
     if definition.additional_instruments:
         raise ValueError("a futures strategy cannot cover additional instruments (P3)")
-    if definition.data_requirements.reference_instruments:
-        raise ValueError("a futures strategy cannot read reference instruments in P1")
     if definition.entry.pyramiding is not None:
         raise ValueError("a futures strategy cannot pyramid in P1 (one position per book)")
 
