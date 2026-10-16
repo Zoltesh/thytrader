@@ -7,7 +7,7 @@ only. Within one mode the futures scope and the USD/USDC spot scopes are collate
 a latched daily-loss breaker in one denies new entries in the other
 (``SHARED_COLLATERAL_BREAKER``), naming the latched scope; the loss figures are never added
 together. Live futures starts and entries first pass the live gate (``futures_live``, ADR 0134
-P2-3); every start surface still refuses live futures until P2-7.
+P2-3); live futures books start only through the acknowledged start (P2-7).
 
 P1-4 admits a paper futures entry when the policy block, the bound contract, the observed
 margin and every due funding hour are known, the entry fits the leverage (the lower of the

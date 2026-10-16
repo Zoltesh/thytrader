@@ -294,7 +294,7 @@ async function mockDetail(
 	return { futuresRequests: () => futuresRequests };
 }
 
-test('live futures detail keeps unknown settlement and disabled starts visible', async ({
+test('live futures detail keeps unknown settlement visible and says it is CLI-controlled', async ({
 	page
 }) => {
 	await mockDetail(page, futuresDeployment({ mode: 'live' }), book({ mode: 'live' }));
@@ -306,7 +306,7 @@ test('live futures detail keeps unknown settlement and disabled starts visible',
 		'SETTLEMENT_PROVENANCE_UNAVAILABLE'
 	);
 	await expect(card.getByTestId('futures-fact-live-orderable')).toContainText(
-		'starts remain disabled'
+		'start and stop from the CLI'
 	);
 });
 

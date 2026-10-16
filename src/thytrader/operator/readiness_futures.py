@@ -266,8 +266,8 @@ def _live_findings(books: Sequence[DeploymentSnapshot], findings: list[Readiness
             _finding(
                 "FUTURES_LIVE_BOOKS",
                 ReadinessSeverity.INFO,
-                f"{len(books)} managed live futures book(s); read-only visibility, "
-                "live starts remain unsupported.",
+                f"{len(books)} managed live futures book(s); start, stop and flatten them from "
+                "the runtime lane (ADR 0134 P2-7).",
             )
         )
     for book in books:

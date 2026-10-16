@@ -85,7 +85,9 @@ describe('futuresBookView', () => {
 		const view = futuresBookView(book({ mode: 'live' }));
 		expect(factValue(view, 'venue-match')).toBe('Unknown');
 		expect(factValue(view, 'funding-drift')).toContain('SETTLEMENT_PROVENANCE_UNAVAILABLE');
-		expect(factValue(view, 'live-orderable')).toBe('No — live starts remain disabled');
+		expect(factValue(view, 'live-orderable')).toBe(
+			'Yes — real CFM orders; start and stop from the CLI'
+		);
 	});
 	it('shows a known book in USD with policy context', () => {
 		const view = futuresBookView(book());

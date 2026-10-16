@@ -30,7 +30,7 @@ export function liveFuturesGroup(book: FuturesBookPayload): FuturesFactGroup {
 	const amount = (value: string | null | undefined, currency = 'USD') =>
 		value == null ? 'Unknown' : `${value} ${currency}`;
 	const items: [string, string, string][] = [
-		['live-orderable', 'Orderable', 'No — live starts remain disabled'],
+		['live-orderable', 'Orderable', 'Yes — real CFM orders; start and stop from the CLI'],
 		['venue-match', 'Venue/book match', live?.match_state ?? 'Unknown'],
 		['venue-contracts', 'Venue signed contracts', live?.venue_contracts ?? 'Unknown'],
 		['venue-observed', 'Account observed at', live?.observed_at ?? 'Unknown'],

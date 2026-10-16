@@ -45,6 +45,7 @@ class FakeVenue:
         self.cancel_confirmed = True
         self.pending_cancels: set[str] = set()
         self.rejected_closes = 0
+        self.killswitch_at: datetime | None = None
 
     async def contract_size(self, product_id: str) -> Decimal | None:
         """The same catalog size used in evidence and by the actual futures broker."""
@@ -178,6 +179,7 @@ class FakeVenue:
                 positions={_PERP: self.net},
                 external_order_products=self.external,
                 killswitch_enabled=self.killswitch,
+                killswitch_observed_at=self.killswitch_at,
                 maintenance={},
                 contract_sizes={_PERP: self.size},
             ),
