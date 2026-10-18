@@ -73,7 +73,8 @@ class _DatasetCatalog(_DatasetVerifier):
 
         Same deep verification as :meth:`list_verified`, but other markets' manifests are
         skipped by their cached metadata before any content is verified, so one market's
-        listing never re-verifies the whole store.
+        listing never re-verifies the whole store. The verified manifest's own identity is
+        rechecked, so stale cached metadata can only skip a revision, never misattribute one.
         """
         with self._catalog_lock:
             manifests = self._root / "manifests"
@@ -81,7 +82,9 @@ class _DatasetCatalog(_DatasetVerifier):
                 return ()
             identity = (provider, product_id, timeframe)
             verified: list[DatasetManifest] = []
+            seen: set[Path] = set()
             for path in sorted(manifests.glob("*.json"), reverse=True):
+                seen.add(path)
                 try:
                     candidate = self._cached_catalog_candidate(path)
                 except DatasetStoreError:
@@ -89,8 +92,18 @@ class _DatasetCatalog(_DatasetVerifier):
                 if (candidate.provider, candidate.product_id, candidate.timeframe) != identity:
                     continue
                 manifest = self._list_verified_manifest(path)
-                if manifest is not None:
+                # The cached metadata only pre-filters: the verified manifest decides identity.
+                if (
+                    manifest is not None
+                    and (
+                        manifest.provider,
+                        manifest.product_id,
+                        manifest.timeframe,
+                    )
+                    == identity
+                ):
                     verified.append(manifest)
+            self._prune_catalog_caches(seen)
             return tuple(verified)
 
     def list_latest_verified(self) -> tuple[DatasetManifest, ...]:

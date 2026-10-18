@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import threading
@@ -12,6 +13,7 @@ from thytrader.config import Settings
 from thytrader.data_control import service as service_module
 from thytrader.data_control.models import GapCause
 from thytrader.data_control.service import INSPECT_GAPS_MAX_BARS, _local_starts, inspect_gaps
+from thytrader.market_data.dataset_manifest import DatasetStoreError
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
@@ -605,3 +607,52 @@ def test_inspect_gaps_reads_datasets_off_the_event_loop(
     )
     assert threads
     assert threads[0] != threading.main_thread().name
+
+
+def test_list_verified_for_falls_back_past_a_revision_that_fails_deep_verification(
+    tmp_path: Path,
+) -> None:
+    """A newest revision whose content fails verification is skipped; older ones still count."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    store = DatasetStore(tmp_path)
+    _publish(store, "BTC-USD", _bars(start, 2))
+    _publish(store, "BTC-USD", _bars(start, 4))
+    newest = max(
+        store.list_verified_for("coinbase", "BTC-USD", "2h"), key=lambda item: item.ends_at
+    )
+
+    class _Corrupt(DatasetStore):
+        def load_verified(self, manifest_path: Path) -> DatasetManifest:
+            if manifest_path.stem == newest.content_fingerprint.removeprefix("sha256:"):
+                raise DatasetStoreError("synthetic content corruption")
+            return super().load_verified(manifest_path)
+
+    cold = _Corrupt(tmp_path)
+    remaining = cold.list_verified_for("coinbase", "BTC-USD", "2h")
+    assert [item.content_fingerprint for item in remaining] != []
+    assert newest.content_fingerprint not in {item.content_fingerprint for item in remaining}
+
+
+def test_stale_cached_metadata_never_misattributes_another_market(tmp_path: Path) -> None:
+    """A cached candidate claiming the wrong market can only skip, never add, a revision."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    store = DatasetStore(tmp_path)
+    _publish(store, "ETH-USD", _bars(start, 3))
+    store.list_verified_for("coinbase", "BTC-USD", "2h")
+    (path,) = list(store._candidate_cache)
+    stamp, candidate = store._candidate_cache[path]
+    store._candidate_cache[path] = (stamp, replace(candidate, product_id="BTC-USD"))
+    assert store.list_verified_for("coinbase", "BTC-USD", "2h") == ()
+
+
+def test_list_verified_for_prunes_deleted_manifests_from_its_caches(tmp_path: Path) -> None:
+    """Repeated scoped listings do not keep entries for manifests that are gone."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    store = DatasetStore(tmp_path)
+    _publish(store, "BTC-USD", _bars(start, 2))
+    assert len(store.list_verified_for("coinbase", "BTC-USD", "2h")) == 1
+    (path,) = list(store._candidate_cache)
+    path.unlink()
+    assert store.list_verified_for("coinbase", "BTC-USD", "2h") == ()
+    assert path not in store._candidate_cache
+    assert path not in store._verified_cache
