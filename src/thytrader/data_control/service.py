@@ -391,32 +391,21 @@ def _local_starts(
     *,
     max_candles: int,
 ) -> tuple[set[datetime], bool]:
-    """Return bar starts from the market's newest verified island, stopping at the row budget.
+    """Return bar starts from the market's verified islands, stopping at the row budget.
 
-    The newest revision is a superset of its predecessors (ADR 0085), so older revisions add
-    nothing. Listing every historical revision re-verified the whole store (thousands of
-    manifests) for one market.
+    Only this market's revisions are verified and read (``list_verified_for``); listing every
+    revision of every market re-verified the whole store for one inspection.
     """
-    identity = (provider, product_id, interval.value)
-    manifest = next(
-        (
-            item
-            for item in dataset_store.list_latest_verified()
-            if (item.provider, item.product_id, item.timeframe) == identity
-        ),
-        None,
-    )
-    if manifest is None:
-        return set(), False
-    try:
-        candles = dataset_store.load_candles(manifest.content_fingerprint)
-    except Exception:  # noqa: BLE001 - a corrupt island is skipped, not interpolated.
-        return set(), False
     starts: set[datetime] = set()
-    for candle in candles:
-        if len(starts) >= max_candles:
-            return starts, True
-        starts.add(candle.starts_at)
+    for manifest in dataset_store.list_verified_for(provider, product_id, interval.value):
+        try:
+            candles = dataset_store.load_candles(manifest.content_fingerprint)
+        except Exception:  # noqa: BLE001, S112 - corrupt islands are skipped, not interpolated.
+            continue
+        for candle in candles:
+            if len(starts) >= max_candles:
+                return starts, True
+            starts.add(candle.starts_at)
     return starts, False
 
 

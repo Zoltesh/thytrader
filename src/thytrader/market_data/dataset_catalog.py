@@ -66,6 +66,33 @@ class _DatasetCatalog(_DatasetVerifier):
                 del self._verified_cache[cached_path]
         return tuple(verified)
 
+    def list_verified_for(
+        self, provider: str, product_id: str, timeframe: str
+    ) -> tuple[DatasetManifest, ...]:
+        """Return every verified revision of one market, newest manifest path first.
+
+        Same deep verification as :meth:`list_verified`, but other markets' manifests are
+        skipped by their cached metadata before any content is verified, so one market's
+        listing never re-verifies the whole store.
+        """
+        with self._catalog_lock:
+            manifests = self._root / "manifests"
+            if not manifests.exists():
+                return ()
+            identity = (provider, product_id, timeframe)
+            verified: list[DatasetManifest] = []
+            for path in sorted(manifests.glob("*.json"), reverse=True):
+                try:
+                    candidate = self._cached_catalog_candidate(path)
+                except DatasetStoreError:
+                    continue
+                if (candidate.provider, candidate.product_id, candidate.timeframe) != identity:
+                    continue
+                manifest = self._list_verified_manifest(path)
+                if manifest is not None:
+                    verified.append(manifest)
+            return tuple(verified)
+
     def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
         """Return the newest catalog-verified revision per provider/product/timeframe.
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import threading
 from typing import TYPE_CHECKING
 
 from thytrader.config import Settings
+from thytrader.data_control import service as service_module
 from thytrader.data_control.models import GapCause
 from thytrader.data_control.service import INSPECT_GAPS_MAX_BARS, _local_starts, inspect_gaps
 from thytrader.market_data.datasets import DatasetStore
@@ -19,6 +21,8 @@ from thytrader.market_data_worker.service import ingest_once
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
     from thytrader.market_data.dataset_manifest import DatasetManifest
 
@@ -507,11 +511,9 @@ def test_inspect_gaps_one_minute_watch_truncates_under_default_budgets(tmp_path:
     asyncio.run(exercise())
 
 
-def test_local_starts_read_only_the_markets_newest_revision(tmp_path: Path) -> None:
-    """One market's newest island answers; the full historical listing is never re-verified."""
-    store = DatasetStore(tmp_path)
-    start = datetime(2026, 10, 1, tzinfo=UTC)
-    candles = tuple(
+def _bars(start: datetime, count: int) -> tuple[Candle, ...]:
+    """Consecutive 2h bars from ``start``."""
+    return tuple(
         Candle(
             starts_at=start + timedelta(hours=2 * index),
             open=Decimal(1),
@@ -520,25 +522,86 @@ def test_local_starts_read_only_the_markets_newest_revision(tmp_path: Path) -> N
             close=Decimal(1),
             volume=Decimal(1),
         )
-        for index in range(12)
+        for index in range(count)
     )
 
-    class _Guarded(DatasetStore):
-        def list_verified(self) -> tuple[DatasetManifest, ...]:
-            raise AssertionError("inspect-gaps must not re-verify every historical revision")
 
+def _publish(store: DatasetStore, product_id: str, candles: tuple[Candle, ...]) -> None:
+    """Write one complete 2h island."""
     interval = CandleInterval.TWO_HOURS
-    for count in (6, 12):
-        ends = start + interval.duration * count
-        store.write(
-            "coinbase", "BTC-USD", analyze_range(candles[:count], interval, start, ends, now=ends)
-        )
-    guarded = _Guarded(tmp_path)
+    start, ends = candles[0].starts_at, candles[-1].starts_at + interval.duration
+    store.write("coinbase", product_id, analyze_range(candles, interval, start, ends, now=ends))
+
+
+class _NoFullListing(DatasetStore):
+    """Fail if anything re-verifies every revision of every market."""
+
+    def list_verified(self) -> tuple[DatasetManifest, ...]:
+        raise AssertionError("inspect-gaps must not re-verify the whole dataset store")
+
+
+def test_local_starts_union_this_markets_islands_without_a_full_listing(tmp_path: Path) -> None:
+    """Every verified island of the market counts (independent islands included); others don't."""
+    store = DatasetStore(tmp_path)
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    older, newer = _bars(start, 2), _bars(start + timedelta(hours=6), 2)
+    _publish(store, "BTC-USD", older)
+    _publish(store, "BTC-USD", newer)
+    _publish(store, "ETH-USD", _bars(start, 4))
+    guarded = _NoFullListing(tmp_path)
     starts, truncated = _local_starts(
         guarded, "coinbase", "BTC-USD", CandleInterval.TWO_HOURS, max_candles=100
     )
-    assert starts == {candle.starts_at for candle in candles}
+    assert starts == {candle.starts_at for candle in (*older, *newer)}
     assert not truncated
-    assert _local_starts(
-        guarded, "coinbase", "ETH-USD", CandleInterval.TWO_HOURS, max_candles=100
-    ) == (set(), False)
+    capped, truncated = _local_starts(
+        guarded, "coinbase", "BTC-USD", CandleInterval.TWO_HOURS, max_candles=3
+    )
+    assert len(capped) == 3
+    assert truncated
+
+
+def test_list_verified_for_matches_the_filtered_full_listing(tmp_path: Path) -> None:
+    """The per-market listing is exactly the full listing restricted to that market."""
+    store = DatasetStore(tmp_path)
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    _publish(store, "BTC-USD", _bars(start, 3))
+    _publish(store, "BTC-USD", _bars(start, 5))
+    _publish(store, "ETH-USD", _bars(start, 2))
+    full = {
+        item.content_fingerprint
+        for item in store.list_verified()
+        if (item.provider, item.product_id, item.timeframe) == ("coinbase", "BTC-USD", "2h")
+    }
+    scoped = store.list_verified_for("coinbase", "BTC-USD", "2h")
+    assert {item.content_fingerprint for item in scoped} == full
+    assert len(full) == 2
+
+
+def test_inspect_gaps_reads_datasets_off_the_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Blocking dataset reads run in a worker thread, so the API stays responsive."""
+    threads: list[str] = []
+
+    def record(*args: object, **kwargs: object) -> tuple[set[datetime], bool]:
+        del args, kwargs
+        threads.append(threading.current_thread().name)
+        return set(), False
+
+    monkeypatch.setattr(service_module, "_local_starts", record)
+    now = datetime(2026, 9, 11, 12, 0, tzinfo=UTC)
+    asyncio.run(
+        inspect_gaps(
+            service=_EmptyProbeService(),
+            dataset_store=DatasetStore(tmp_path),
+            state_store=InMemoryMarketDataWorkerStateStore(),
+            watchlist=InMemoryMarketDataWatchlistStore(),
+            settings=Settings(_env_file=None),
+            product_id="ETH-USD",
+            timeframe="2h",
+            now=now,
+        )
+    )
+    assert threads
+    assert threads[0] != threading.main_thread().name
