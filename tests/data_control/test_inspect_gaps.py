@@ -661,3 +661,13 @@ def test_list_verified_for_prunes_deleted_manifests_from_its_caches(tmp_path: Pa
     assert store.list_verified_for("coinbase", "BTC-USD", "2h") == ()
     assert path not in store._candidate_cache
     assert path not in store._verified_cache
+
+
+def test_a_malformed_unrelated_manifest_never_aborts_a_scoped_listing(tmp_path: Path) -> None:
+    """Deeply nested JSON (RecursionError on parse) is skipped, as in the full listing."""
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    store = DatasetStore(tmp_path)
+    _publish(store, "BTC-USD", _bars(start, 2))
+    nested = "[" * 200_000 + "]" * 200_000
+    (tmp_path / "manifests" / ("f" * 64 + ".json")).write_text(nested)
+    assert len(store.list_verified_for("coinbase", "BTC-USD", "2h")) == 1

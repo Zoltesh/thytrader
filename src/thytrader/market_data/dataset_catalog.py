@@ -90,7 +90,7 @@ class _DatasetCatalog(_DatasetVerifier):
                     # Parsed fresh, not from the size/mtime cache: a stale entry must neither
                     # hide this market's revision nor admit another's (about 2 s per 13k).
                     candidate = self._load_catalog_candidate(path)
-                except DatasetStoreError:
+                except (DatasetStoreError, RuntimeError):  # e.g. RecursionError on nested JSON
                     continue
                 if (candidate.provider, candidate.product_id, candidate.timeframe) != identity:
                     continue
