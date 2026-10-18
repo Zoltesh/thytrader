@@ -534,7 +534,11 @@ def _is_data_gap_only_pause(deployment: Deployment) -> bool:
 async def _clear_data_gap_only_pause(
     snapshot: DeploymentSnapshot, *, store: ExecutionStore
 ) -> DeploymentSnapshot:
-    """Resume a book paused solely by a decision-window gap once its window is complete.
+    """Resume a book paused solely by a decision-window gap after a whole window's bars ran.
+
+    Callers invoke this after the due bars (catch-up included) were evaluated while paused, so
+    no entry or repricing happens on a catch-up bar; entries resume from the next due bar. The
+    book is re-read first so the evaluation's own writes are never overwritten.
 
     A thin market's quiet newest bar has no candle until the next bar publishes, so the
     bounded wait (ADR 0104) pauses the book; one bar later the hole is a confirmed no-trade
@@ -542,9 +546,10 @@ async def _clear_data_gap_only_pause(
     clears itself; operator pauses, lifecycle commands, breaker latches and other data
     pauses (HTF, indicator timeframe, multi-instrument coverage) stay until the operator acts.
     """
-    deployment = snapshot.deployment
+    current = await store.get_deployment(snapshot.deployment.id)
+    deployment = current.deployment
     if not _is_data_gap_only_pause(deployment):
-        return snapshot
+        return current
     await store.save_deployment(
         with_runtime(
             deployment,
@@ -557,8 +562,9 @@ async def _clear_data_gap_only_pause(
         action="data_gap_pause_cleared",
         outcome=AuditEventOutcome.SUCCESS,
         detail=(
-            f"deployment_id={deployment.id}: the decision window is complete again; the "
-            "data-gap pause was cleared automatically. Entries resume on the newest due bar."
+            f"deployment_id={deployment.id} through_bar={deployment.last_evaluated_bar}: the "
+            "decision window is complete again and its due bars were evaluated without entries; "
+            "the data-gap pause was cleared automatically. Entries resume on the next due bar."
         ),
         product_id=deployment.product_id,
     )

@@ -151,7 +151,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0143](0143-live-start-evidence.md) | Every live start records what its exact strategy fingerprint had shown (out-of-sample study windows, paper bots); thin evidence warns `LIVE_EVIDENCE_THIN`, refusal is the opt-in `require_live_evidence` safeguard | Accepted |
 | [0144](0144-fee-tiers-from-coinbase.md) | Fee tiers come from Coinbase: the fee report carries the account's current and next tier from `transaction_summary`; the pinned public schedule and its `schedule_*` fields are removed | Accepted |
 | [0145](0145-futures-reference-instruments.md) | Futures strategies may read USD-quoted spot reference instruments (e.g. BTC-USD 1d) and gate entries on them like spot strategies; references feed indicators only, never capital or margin | Accepted |
-| [0146](0146-data-gap-pauses-clear-themselves.md) | A book paused only by a decision-window data gap (a thin market's quiet newest bar) resumes automatically once its window is whole again (audit `data_gap_pause_cleared`); operator pauses, latches, lifecycle commands and HTF/extra-timeframe/coverage pauses stay | Accepted |
+| [0146](0146-data-gap-pauses-clear-themselves.md) | A book paused only by a decision-window data gap (a thin market's quiet newest bar) resumes automatically after its window is whole again and its due bars were evaluated without entries (audit `data_gap_pause_cleared`); operator pauses, latches, lifecycle commands and HTF/extra-timeframe/coverage pauses stay | Accepted |
 
 ## Status values
 

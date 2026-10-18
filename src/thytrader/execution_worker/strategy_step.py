@@ -25,6 +25,7 @@ from thytrader.execution_worker.strategy_step_common import (
     _portfolio_marks,
 )
 from thytrader.execution_worker.supervision import (
+    _MISSING_DECISION_CANDLES,
     USER_FEED_PAUSE_DETAIL,
     _clear_data_gap_only_pause,
     _pause_five_minute_live_if_feed_down,
@@ -178,7 +179,7 @@ async def _advance_strategy_ready(
         allow_settling=True,
     )
     if due is None:
-        detail = "Market-data window is gapped or missing the latest closed bar."
+        detail = _MISSING_DECISION_CANDLES
         await _pause_running_for_data_gap(snapshot, store=store, detail=detail)
         await record_gate_skip(
             snapshot=snapshot,
@@ -241,8 +242,6 @@ async def _advance_strategy_ready(
             candles=candles,
         )
         return
-    # Due bars on a complete window: a pause caused only by an earlier gap is over.
-    snapshot = await _clear_data_gap_only_pause(snapshot, store=store)
     covered = lockstep_product_ids(strategy)
     if len(covered) > 1:
         await _advance_multi_instrument(
@@ -260,6 +259,7 @@ async def _advance_strategy_ready(
             due=due,
             memory_store=memory_store,
         )
+        await _clear_data_gap_only_pause(snapshot, store=store)
         return
     htf_candles = await _closed_htf_window(
         market_data, strategy, deploy_anchor=deployment.created_at
@@ -303,6 +303,9 @@ async def _advance_strategy_ready(
         htf_candles=htf_candles,
         memory_store=memory_store,
     )
+    # The window is whole and its due bars, catch-up included, were evaluated while still
+    # paused (no entries, no repricing); a pause caused only by the earlier gap is now over.
+    await _clear_data_gap_only_pause(snapshot, store=store)
 
 
 async def _evaluate_strategy_due_bars(
