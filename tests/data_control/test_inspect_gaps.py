@@ -634,15 +634,18 @@ def test_list_verified_for_falls_back_past_a_revision_that_fails_deep_verificati
 
 
 def test_stale_cached_metadata_never_misattributes_another_market(tmp_path: Path) -> None:
-    """A cached candidate claiming the wrong market can only skip, never add, a revision."""
+    """A stale cached candidate neither hides a market's revision nor admits it to another."""
     start = datetime(2026, 10, 1, tzinfo=UTC)
     store = DatasetStore(tmp_path)
     _publish(store, "ETH-USD", _bars(start, 3))
-    store.list_verified_for("coinbase", "BTC-USD", "2h")
-    (path,) = list(store._candidate_cache)
+    store.list_latest_verified()
+    (path,) = list((tmp_path / "manifests").glob("*.json"))
     stamp, candidate = store._candidate_cache[path]
     store._candidate_cache[path] = (stamp, replace(candidate, product_id="BTC-USD"))
     assert store.list_verified_for("coinbase", "BTC-USD", "2h") == ()
+    assert len(store.list_verified_for("coinbase", "ETH-USD", "2h")) == 1
+    store.list_latest_verified()
+    assert len(store.list_verified_for("coinbase", "ETH-USD", "2h")) == 1
 
 
 def test_list_verified_for_prunes_deleted_manifests_from_its_caches(tmp_path: Path) -> None:
@@ -651,7 +654,9 @@ def test_list_verified_for_prunes_deleted_manifests_from_its_caches(tmp_path: Pa
     store = DatasetStore(tmp_path)
     _publish(store, "BTC-USD", _bars(start, 2))
     assert len(store.list_verified_for("coinbase", "BTC-USD", "2h")) == 1
-    (path,) = list(store._candidate_cache)
+    (path,) = list((tmp_path / "manifests").glob("*.json"))
+    store.list_latest_verified()
+    assert path in store._candidate_cache
     path.unlink()
     assert store.list_verified_for("coinbase", "BTC-USD", "2h") == ()
     assert path not in store._candidate_cache
