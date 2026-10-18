@@ -518,3 +518,48 @@ async def _user_feed_connected(store: UserOrderFeedStateStore | None) -> bool:
         return False
     age = (datetime.now(UTC) - heartbeat_at).total_seconds()
     return age < DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
+
+
+def _is_data_gap_only_pause(deployment: Deployment) -> bool:
+    """True when a decision-window data gap is the only reason this book is paused."""
+    return (
+        deployment.status is DeploymentStatus.PAUSED
+        and deployment.mismatch_detail == _MISSING_DECISION_CANDLES
+        and deployment.lifecycle_command is LifecycleCommand.NONE
+        and not deployment.daily_loss_latched
+        and not deployment.drawdown_latched
+    )
+
+
+async def _clear_data_gap_only_pause(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Resume a book paused solely by a decision-window gap once its window is complete.
+
+    A thin market's quiet newest bar has no candle until the next bar publishes, so the
+    bounded wait (ADR 0104) pauses the book; one bar later the hole is a confirmed no-trade
+    bar (ADR 0095) and the window is whole again. Like the user-feed pause, this system pause
+    clears itself; operator pauses, lifecycle commands, breaker latches and other data
+    pauses (HTF, indicator timeframe, multi-instrument coverage) stay until the operator acts.
+    """
+    deployment = snapshot.deployment
+    if not _is_data_gap_only_pause(deployment):
+        return snapshot
+    await store.save_deployment(
+        with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.RUNNING,
+            clear_mismatch=True,
+        )
+    )
+    await record_execution_audit(
+        action="data_gap_pause_cleared",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id}: the decision window is complete again; the "
+            "data-gap pause was cleared automatically. Entries resume on the newest due bar."
+        ),
+        product_id=deployment.product_id,
+    )
+    return await store.get_deployment(deployment.id)

@@ -10,7 +10,9 @@ import pytest
 
 from tests.execution.decision_support import Catalog, candles, paper_book, product, strategy
 from tests.worker_patching import patch_worker_global
+from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution import candle_wait
+from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.decision_journal import decision_journal_scope
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import DecisionSkipReason
@@ -124,3 +126,91 @@ async def test_worker_waits_without_entries_then_pauses_at_deadline(
             assert any(row.skip_reason is DecisionSkipReason.BAR_SETTLING for row in journal.rows())
     assert {"BTC-USD", "ETH-USD"} <= set(maintained) if multi else "BTC-USD" in maintained
     assert any(row.skip_reason is DecisionSkipReason.DATA_GAP for row in journal.rows())
+
+
+async def _gap_then_whole(
+    monkeypatch: pytest.MonkeyPatch, *, before_resume: dict[str, object] | None = None
+) -> tuple[DeploymentSnapshot, InMemoryAuditEventStore]:
+    """Pause on a quiet newest bar, optionally alter the book, then publish the next bar."""
+    definition = strategy()
+    store, snapshot = await paper_book(definition)
+    await store.save_deployment(replace(snapshot.deployment, created_at=_CLOSE - timedelta(days=2)))
+    full = candles(14)
+    window_candles: list[tuple[Candle, ...]] = [full[:12]]
+    expected: list[datetime] = [full[12].starts_at]
+
+    async def window(
+        market_data: MarketDataService,
+        *,
+        product_id: str,
+        timeframe: str,
+        warmup_bars: int,
+        deploy_anchor: datetime,
+        as_of_closed_start: datetime | None = None,
+    ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
+        """The newest bar is missing on the first close and whole one bar later."""
+        del market_data, product_id, timeframe, warmup_bars, deploy_anchor, as_of_closed_start
+        return product(), window_candles[-1], expected[-1]
+
+    monkeypatch.setattr(candle_wait, "datetime", _Clock)
+    patch_worker_global(monkeypatch, "utc_now", lambda: _Clock.instant)
+    patch_worker_global(monkeypatch, "_closed_window_for", window)
+    audit = InMemoryAuditEventStore()
+
+    async def cycle(instant: datetime) -> DeploymentSnapshot:
+        _Clock.instant = instant
+        with execution_audit_scope(audit), decision_journal_scope(InMemoryDecisionJournalStore()):
+            await service._run_cycle(
+                store=store,
+                publication_store=Catalog(definition),
+                market_data=MarketDataService(DemoMarketData()),
+                paper_broker=PaperBroker(),
+                live_broker=None,
+                quote_reader=None,
+                risk_store=None,
+            )
+        return await store.get_deployment(snapshot.deployment.id)
+
+    paused = await cycle(_CLOSE + timedelta(seconds=120))
+    assert paused.deployment.status is DeploymentStatus.PAUSED
+    if before_resume:
+        await store.save_deployment(replace(paused.deployment, **before_resume))
+    window_candles.append(full)
+    expected.append(full[13].starts_at)
+    return await cycle(_CLOSE + timedelta(hours=1, seconds=60)), audit
+
+
+async def test_a_data_gap_pause_clears_itself_once_the_window_is_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quiet newest bar pauses at the deadline; the next published bar resumes the book."""
+    resumed, audit = await _gap_then_whole(monkeypatch)
+    assert resumed.deployment.status is DeploymentStatus.RUNNING
+    assert resumed.deployment.mismatch_detail is None
+    assert resumed.deployment.last_evaluated_bar == candles(14)[13].starts_at
+    assert [event.action for event in await audit.list_recent(limit=500)].count(
+        "data_gap_pause_cleared"
+    ) == 1
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"mismatch_detail": None},
+        {"daily_loss_latched": True},
+        {
+            "mismatch_detail": (
+                "HTF market-data window is gapped or missing the latest completed HTF bar."
+            )
+        },
+    ],
+)
+async def test_other_pauses_never_clear_with_the_window(
+    monkeypatch: pytest.MonkeyPatch, change: dict[str, object]
+) -> None:
+    """Operator pauses, breaker latches and other data pauses stay until the operator acts."""
+    resumed, audit = await _gap_then_whole(monkeypatch, before_resume=change)
+    assert resumed.deployment.status is DeploymentStatus.PAUSED
+    assert "data_gap_pause_cleared" not in [
+        event.action for event in await audit.list_recent(limit=500)
+    ]

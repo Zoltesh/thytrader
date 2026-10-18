@@ -26,6 +26,7 @@ from thytrader.execution_worker.strategy_step_common import (
 )
 from thytrader.execution_worker.supervision import (
     USER_FEED_PAUSE_DETAIL,
+    _clear_data_gap_only_pause,
     _pause_five_minute_live_if_feed_down,
     _pause_running_for_data_gap,
     _supervise_warming_window,
@@ -240,6 +241,8 @@ async def _advance_strategy_ready(
             candles=candles,
         )
         return
+    # Due bars on a complete window: a pause caused only by an earlier gap is over.
+    snapshot = await _clear_data_gap_only_pause(snapshot, store=store)
     covered = lockstep_product_ids(strategy)
     if len(covered) > 1:
         await _advance_multi_instrument(
