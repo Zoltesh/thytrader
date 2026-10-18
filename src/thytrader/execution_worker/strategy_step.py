@@ -259,7 +259,7 @@ async def _advance_strategy_ready(
             due=due,
             memory_store=memory_store,
         )
-        await _clear_data_gap_only_pause(snapshot, store=store, evaluated_through=due[-1].starts_at)
+        # Multi-instrument books keep the sticky data-gap pause (ADR 0146 scope).
         return
     htf_candles = await _closed_htf_window(
         market_data, strategy, deploy_anchor=deployment.created_at

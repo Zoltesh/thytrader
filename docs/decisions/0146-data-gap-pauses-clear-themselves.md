@@ -19,19 +19,22 @@ quiet interval, until an operator resumed them.
 
 ## Decision
 
-When a book's due bars have been evaluated on a complete decision window, a pause whose **only**
-reason is the decision-window gap is cleared automatically, after that evaluation: status RUNNING,
+When a **single-instrument** book's due bars have been evaluated on a complete decision window, a
+pause whose **only** reason is the decision-window gap is cleared automatically, after that
+evaluation: status RUNNING,
 mismatch cleared, audit `data_gap_pause_cleared` (naming the last evaluated bar). "Only" means the
 exact decision-window detail, no lifecycle command, and no daily-loss or drawdown latch, as for
 the user-feed pause. The clear re-reads the book, so the evaluation's writes stand, and it
 requires the evaluation to have reached the newest due bar: a step that returns before evaluating
-(another covered product's coverage gap, an HTF gap) never clears it.
+(an HTF gap) never clears it.
 
 - Operator pauses, lifecycle commands, breaker latches and every other mismatch never clear.
-- A book paused from RUNNING by an HTF, indicator-timeframe or multi-instrument coverage gap
-  keeps that detail and stays paused. A book that was already data-gap paused when such a gap
-  appeared keeps the data-gap detail and resumes only after a later cycle evaluates its due bars
-  with every window whole, so it cannot resume while any window is still gapped.
+- Multi-instrument (lockstep) books keep the sticky pause: their maintenance can advance cursors
+  without a complete lockstep evaluation, so they are out of scope here.
+- A book paused by an HTF or indicator-timeframe gap keeps that detail and stays paused; an
+  indicator-timeframe failure also replaces an earlier data-gap detail. A single-instrument book
+  that was already data-gap paused when its HTF window gapped keeps the data-gap detail and
+  resumes only after a later cycle evaluates its due bars with every window whole.
 - Catch-up bars, and the newest bar of the recovering cycle, are evaluated while still paused:
   no entry and no repricing of a working entry. Entries resume from the next due bar.
 - The deadline pause itself is unchanged.

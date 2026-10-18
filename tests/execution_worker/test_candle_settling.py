@@ -265,16 +265,25 @@ async def test_other_pauses_never_clear_with_the_window(
     assert "data_gap_pause_cleared" not in actions
 
 
-@pytest.mark.parametrize(("multi", "secondary", "htf"), [(True, True, False), (False, False, True)])
-async def test_a_step_that_returns_before_evaluating_never_clears_the_pause(
-    monkeypatch: pytest.MonkeyPatch, multi: bool, secondary: bool, htf: bool
+async def test_multi_instrument_books_keep_the_sticky_data_gap_pause(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Another product's coverage gap or an HTF gap keeps the book paused until it evaluates."""
+    """Lockstep books are out of scope: the pause stays even after every window is whole."""
     recovered, following, audit = await _gap_then_whole(
-        monkeypatch, multi=multi, secondary_gap_in_recovery=secondary, htf_gap_in_recovery=htf
+        monkeypatch, multi=True, secondary_gap_in_recovery=True
     )
     assert recovered.deployment.status is DeploymentStatus.PAUSED
+    assert following.deployment.status is DeploymentStatus.PAUSED
     actions = [event.action for event in await audit.list_recent(limit=500)]
-    assert actions.count("data_gap_pause_cleared") <= 1
-    if actions:
-        assert following.deployment.last_evaluated_bar is not None
+    assert "data_gap_pause_cleared" not in actions
+
+
+async def test_an_htf_gap_while_recovering_defers_the_clear_to_a_whole_evaluation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No clear while the HTF window is gapped; one clear after the next whole evaluation."""
+    recovered, following, audit = await _gap_then_whole(monkeypatch, htf_gap_in_recovery=True)
+    assert recovered.deployment.status is DeploymentStatus.PAUSED
+    assert following.deployment.status is DeploymentStatus.RUNNING
+    actions = [event.action for event in await audit.list_recent(limit=500)]
+    assert actions.count("data_gap_pause_cleared") == 1
