@@ -518,3 +518,59 @@ async def _user_feed_connected(store: UserOrderFeedStateStore | None) -> bool:
         return False
     age = (datetime.now(UTC) - heartbeat_at).total_seconds()
     return age < DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
+
+
+def _is_data_gap_only_pause(deployment: Deployment) -> bool:
+    """True when a decision-window data gap is the only reason this book is paused."""
+    return (
+        deployment.status is DeploymentStatus.PAUSED
+        and deployment.mismatch_detail == _MISSING_DECISION_CANDLES
+        and deployment.lifecycle_command is LifecycleCommand.NONE
+        and not deployment.daily_loss_latched
+        and not deployment.drawdown_latched
+    )
+
+
+async def _clear_data_gap_only_pause(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore, evaluated_through: datetime
+) -> DeploymentSnapshot:
+    """Resume a book paused solely by a decision-window gap after a whole window's bars ran.
+
+    Callers invoke this after the due bars (catch-up included) were evaluated while paused, so
+    no entry or repricing happens on a catch-up bar; entries resume from the next due bar. The
+    book is re-read first so the evaluation's own writes are never overwritten, and it clears
+    only when that evaluation reached ``evaluated_through`` (the newest due bar): a step that
+    returned early (another product's coverage gap, an HTF gap) leaves the pause in place.
+
+    A thin market's quiet newest bar has no candle until the next bar publishes, so the
+    bounded wait (ADR 0104) pauses the book; one bar later the hole is a confirmed no-trade
+    bar (ADR 0095) and the window is whole again. Like the user-feed pause, this system pause
+    clears itself; operator pauses, lifecycle commands, breaker latches and other data
+    pauses (HTF, indicator timeframe, multi-instrument coverage) stay until the operator acts.
+    """
+    current = await store.get_deployment(snapshot.deployment.id)
+    deployment = current.deployment
+    if (
+        not _is_data_gap_only_pause(deployment)
+        or deployment.last_evaluated_bar != evaluated_through
+    ):
+        return current
+    await store.save_deployment(
+        with_runtime(
+            deployment,
+            updated_at=utc_now(),
+            status=DeploymentStatus.RUNNING,
+            clear_mismatch=True,
+        )
+    )
+    await record_execution_audit(
+        action="data_gap_pause_cleared",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id} through_bar={deployment.last_evaluated_bar}: the "
+            "decision window is complete again and its due bars were evaluated without entries; "
+            "the data-gap pause was cleared automatically. Entries resume on the next due bar."
+        ),
+        product_id=deployment.product_id,
+    )
+    return await store.get_deployment(deployment.id)
