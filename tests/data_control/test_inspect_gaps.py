@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 
 from thytrader.config import Settings
 from thytrader.data_control.models import GapCause
-from thytrader.data_control.service import INSPECT_GAPS_MAX_BARS, inspect_gaps
+from thytrader.data_control.service import INSPECT_GAPS_MAX_BARS, _local_starts, inspect_gaps
 from thytrader.market_data.datasets import DatasetStore
 from thytrader.market_data.models import Candle, CandleInterval, CandleRangeReport
 from thytrader.market_data.quality import analyze_range
@@ -19,6 +19,8 @@ from thytrader.market_data_worker.service import ingest_once
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from thytrader.market_data.dataset_manifest import DatasetManifest
 
 
 class _EmptyProbeService:
@@ -503,3 +505,40 @@ def test_inspect_gaps_one_minute_watch_truncates_under_default_budgets(tmp_path:
         assert inspection.watch_complete is False
 
     asyncio.run(exercise())
+
+
+def test_local_starts_read_only_the_markets_newest_revision(tmp_path: Path) -> None:
+    """One market's newest island answers; the full historical listing is never re-verified."""
+    store = DatasetStore(tmp_path)
+    start = datetime(2026, 10, 1, tzinfo=UTC)
+    candles = tuple(
+        Candle(
+            starts_at=start + timedelta(hours=2 * index),
+            open=Decimal(1),
+            high=Decimal(1),
+            low=Decimal(1),
+            close=Decimal(1),
+            volume=Decimal(1),
+        )
+        for index in range(12)
+    )
+
+    class _Guarded(DatasetStore):
+        def list_verified(self) -> tuple[DatasetManifest, ...]:
+            raise AssertionError("inspect-gaps must not re-verify every historical revision")
+
+    interval = CandleInterval.TWO_HOURS
+    for count in (6, 12):
+        ends = start + interval.duration * count
+        store.write(
+            "coinbase", "BTC-USD", analyze_range(candles[:count], interval, start, ends, now=ends)
+        )
+    guarded = _Guarded(tmp_path)
+    starts, truncated = _local_starts(
+        guarded, "coinbase", "BTC-USD", CandleInterval.TWO_HOURS, max_candles=100
+    )
+    assert starts == {candle.starts_at for candle in candles}
+    assert not truncated
+    assert _local_starts(
+        guarded, "coinbase", "ETH-USD", CandleInterval.TWO_HOURS, max_candles=100
+    ) == (set(), False)
