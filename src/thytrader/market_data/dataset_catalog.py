@@ -66,6 +66,49 @@ class _DatasetCatalog(_DatasetVerifier):
                 del self._verified_cache[cached_path]
         return tuple(verified)
 
+    def list_verified_for(
+        self, provider: str, product_id: str, timeframe: str
+    ) -> tuple[DatasetManifest, ...]:
+        """Return every verified revision of one market, newest manifest path first.
+
+        Same deep verification as :meth:`list_verified`, but other markets' manifests are
+        skipped by their cached metadata before any content is verified, so one market's
+        listing never re-verifies the whole store. Manifest metadata is parsed fresh for the
+        filter and the verified manifest's own identity is rechecked, so the result equals the
+        filtered :meth:`list_verified`.
+        """
+        with self._catalog_lock:
+            manifests = self._root / "manifests"
+            if not manifests.exists():
+                return ()
+            identity = (provider, product_id, timeframe)
+            verified: list[DatasetManifest] = []
+            seen: set[Path] = set()
+            for path in sorted(manifests.glob("*.json"), reverse=True):
+                seen.add(path)
+                try:
+                    # Parsed fresh, not from the size/mtime cache: a stale entry must neither
+                    # hide this market's revision nor admit another's (about 2 s per 13k).
+                    candidate = self._load_catalog_candidate(path)
+                except DatasetStoreError, RuntimeError:  # e.g. RecursionError on nested JSON
+                    continue
+                if (candidate.provider, candidate.product_id, candidate.timeframe) != identity:
+                    continue
+                manifest = self._list_verified_manifest(path)
+                # The cached metadata only pre-filters: the verified manifest decides identity.
+                if (
+                    manifest is not None
+                    and (
+                        manifest.provider,
+                        manifest.product_id,
+                        manifest.timeframe,
+                    )
+                    == identity
+                ):
+                    verified.append(manifest)
+            self._prune_catalog_caches(seen)
+            return tuple(verified)
+
     def list_latest_verified(self) -> tuple[DatasetManifest, ...]:
         """Return the newest catalog-verified revision per provider/product/timeframe.
 

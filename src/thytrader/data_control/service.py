@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 import time
 from typing import TYPE_CHECKING
@@ -228,8 +229,9 @@ async def inspect_gaps(
     ends_at = interval.align_closed_end(now)
     starts_at = bounded_lookback_start(ends_at, lookback_hours, interval)
     deadline = time.monotonic() + max(0.05, time_budget_seconds)
-    local_starts, local_truncated = _local_starts(
-        dataset_store, provider, product_id, interval, max_candles=max_local_candles
+    # Dataset reads are blocking file I/O and hashing: keep them off the API's event loop.
+    local_starts, local_truncated = await asyncio.to_thread(
+        _local_starts, dataset_store, provider, product_id, interval, max_candles=max_local_candles
     )
     try:
         state = await state_store.get(provider, product_id, interval)
@@ -389,12 +391,13 @@ def _local_starts(
     *,
     max_candles: int,
 ) -> tuple[set[datetime], bool]:
-    """Return bar starts from verified islands, stopping at the row budget."""
-    identity = (provider, product_id, interval.value)
+    """Return bar starts from the market's verified islands, stopping at the row budget.
+
+    Only this market's revisions are verified and read (``list_verified_for``); listing every
+    revision of every market re-verified the whole store for one inspection.
+    """
     starts: set[datetime] = set()
-    for manifest in dataset_store.list_verified():
-        if (manifest.provider, manifest.product_id, manifest.timeframe) != identity:
-            continue
+    for manifest in dataset_store.list_verified_for(provider, product_id, interval.value):
         try:
             candles = dataset_store.load_candles(manifest.content_fingerprint)
         except Exception:  # noqa: BLE001, S112 - corrupt islands are skipped, not interpolated.
