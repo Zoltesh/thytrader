@@ -138,13 +138,27 @@ def _close(index: int) -> datetime:
 
 
 async def _gap_then_whole(
-    monkeypatch: pytest.MonkeyPatch, *, before_resume: dict[str, object] | None = None
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    before_resume: dict[str, object] | None = None,
+    multi: bool = False,
+    secondary_gap_in_recovery: bool = False,
+    htf_gap_in_recovery: bool = False,
 ) -> tuple[DeploymentSnapshot, DeploymentSnapshot, InMemoryAuditEventStore]:
     """Pause on a quiet newest bar, optionally alter the book, recover, then run one more bar.
 
-    Returns the book after the recovery cycle and after the following bar.
+    ``secondary_gap_in_recovery`` keeps a hole in the second product's window during the
+    recovering cycle; ``htf_gap_in_recovery`` makes the HTF window unavailable then. Returns the
+    book after the recovery cycle and after the following bar.
     """
     definition = strategy()
+    if multi:
+        payload = definition.model_dump(mode="python", by_alias=True)
+        payload["additional_instruments"] = [
+            {"product_id": "ETH-USD", "base_currency": "ETH", "quote_currency": "USD"}
+        ]
+        payload["portfolio_limits"]["max_concurrent_positions"] = 2
+        definition = StrategyDefinition.model_validate(payload)
     store, snapshot = await paper_book(definition)
     full = candles(_BARS)
     await store.save_deployment(
@@ -163,12 +177,22 @@ async def _gap_then_whole(
         as_of_closed_start: datetime | None = None,
     ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
         """The newest bar is missing on the first close and the window is whole afterwards."""
-        del market_data, product_id, timeframe, warmup_bars, deploy_anchor, as_of_closed_start
-        return product(), window_candles[-1], expected[-1]
+        del market_data, timeframe, warmup_bars, deploy_anchor, as_of_closed_start
+        selected = window_candles[-1]
+        if product_id == "ETH-USD" and secondary_gap_in_recovery and len(window_candles) == 2:
+            selected = (*selected[:-3], *selected[-2:])
+        current = replace(product(), product_id=product_id, base_currency=product_id[:3])
+        return current, selected, expected[-1]
+
+    async def htf(*args: object, **kwargs: object) -> tuple[Candle, ...] | None:
+        """No HTF filter: an empty window, or unavailable during the recovering cycle."""
+        del args, kwargs
+        return None if htf_gap_in_recovery and len(window_candles) == 2 else ()
 
     monkeypatch.setattr(candle_wait, "datetime", _Clock)
     patch_worker_global(monkeypatch, "utc_now", lambda: _Clock.instant)
     patch_worker_global(monkeypatch, "_closed_window_for", window)
+    patch_worker_global(monkeypatch, "_closed_htf_window", htf)
     audit = InMemoryAuditEventStore()
 
     async def cycle(instant: datetime) -> DeploymentSnapshot:
@@ -239,3 +263,18 @@ async def test_other_pauses_never_clear_with_the_window(
     assert following.deployment.status is DeploymentStatus.PAUSED
     actions = [event.action for event in await audit.list_recent(limit=500)]
     assert "data_gap_pause_cleared" not in actions
+
+
+@pytest.mark.parametrize(("multi", "secondary", "htf"), [(True, True, False), (False, False, True)])
+async def test_a_step_that_returns_before_evaluating_never_clears_the_pause(
+    monkeypatch: pytest.MonkeyPatch, multi: bool, secondary: bool, htf: bool
+) -> None:
+    """Another product's coverage gap or an HTF gap keeps the book paused until it evaluates."""
+    recovered, following, audit = await _gap_then_whole(
+        monkeypatch, multi=multi, secondary_gap_in_recovery=secondary, htf_gap_in_recovery=htf
+    )
+    assert recovered.deployment.status is DeploymentStatus.PAUSED
+    actions = [event.action for event in await audit.list_recent(limit=500)]
+    assert actions.count("data_gap_pause_cleared") <= 1
+    if actions:
+        assert following.deployment.last_evaluated_bar is not None

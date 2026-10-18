@@ -259,7 +259,7 @@ async def _advance_strategy_ready(
             due=due,
             memory_store=memory_store,
         )
-        await _clear_data_gap_only_pause(snapshot, store=store)
+        await _clear_data_gap_only_pause(snapshot, store=store, evaluated_through=due[-1].starts_at)
         return
     htf_candles = await _closed_htf_window(
         market_data, strategy, deploy_anchor=deployment.created_at
@@ -305,7 +305,7 @@ async def _advance_strategy_ready(
     )
     # The window is whole and its due bars, catch-up included, were evaluated while still
     # paused (no entries, no repricing); a pause caused only by the earlier gap is now over.
-    await _clear_data_gap_only_pause(snapshot, store=store)
+    await _clear_data_gap_only_pause(snapshot, store=store, evaluated_through=due[-1].starts_at)
 
 
 async def _evaluate_strategy_due_bars(

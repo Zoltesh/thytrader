@@ -532,13 +532,15 @@ def _is_data_gap_only_pause(deployment: Deployment) -> bool:
 
 
 async def _clear_data_gap_only_pause(
-    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore, evaluated_through: datetime
 ) -> DeploymentSnapshot:
     """Resume a book paused solely by a decision-window gap after a whole window's bars ran.
 
     Callers invoke this after the due bars (catch-up included) were evaluated while paused, so
     no entry or repricing happens on a catch-up bar; entries resume from the next due bar. The
-    book is re-read first so the evaluation's own writes are never overwritten.
+    book is re-read first so the evaluation's own writes are never overwritten, and it clears
+    only when that evaluation reached ``evaluated_through`` (the newest due bar): a step that
+    returned early (another product's coverage gap, an HTF gap) leaves the pause in place.
 
     A thin market's quiet newest bar has no candle until the next bar publishes, so the
     bounded wait (ADR 0104) pauses the book; one bar later the hole is a confirmed no-trade
@@ -548,7 +550,10 @@ async def _clear_data_gap_only_pause(
     """
     current = await store.get_deployment(snapshot.deployment.id)
     deployment = current.deployment
-    if not _is_data_gap_only_pause(deployment):
+    if (
+        not _is_data_gap_only_pause(deployment)
+        or deployment.last_evaluated_bar != evaluated_through
+    ):
         return current
     await store.save_deployment(
         with_runtime(
