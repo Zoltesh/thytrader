@@ -23,6 +23,7 @@ from thytrader.agent_desk.runner import (
     DEFAULT_TIMEOUT_SECONDS,
     DeskRunError,
     json_object,
+    resolve_template,
     schedule_text,
     wake,
 )
@@ -137,6 +138,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     schedule.add_argument("desk_id")
     schedule.add_argument("--style", choices=("systemd", "cron"), default="systemd")
+    schedule.add_argument(
+        "--command",
+        default=None,
+        dest="harness_command",
+        help="Harness command line to schedule (required when the desk's harness is not built in).",
+    )
     commands.add_parser("harnesses", parents=[trailing], help="Built-in harness command lines.")
     return parser
 
@@ -157,9 +164,19 @@ def _run(arguments: argparse.Namespace) -> str:
     base_url = resolve_api_base_url(explicit=arguments.base_url, settings=settings)
     require_matching_ops_contract(base_url)
     if command == "schedule":
-        desk = show_desk(base_url, arguments.desk_id)
-        cadence = _cadence(desk)
-        return schedule_text(arguments.desk_id, cadence_minutes=cadence, style=arguments.style)
+        desk = json_object(json_object(show_desk(base_url, arguments.desk_id)).get("desk"))
+        cadence = desk.get("cadence_minutes")
+        if not isinstance(cadence, int):
+            raise DeskControlError("DESK_NOT_FOUND: the desk has no cadence.")
+        if arguments.harness_command is None:
+            resolve_template(str(desk.get("harness") or ""), None)
+        return schedule_text(
+            arguments.desk_id,
+            cadence_minutes=cadence,
+            style=arguments.style,
+            base_url=base_url,
+            harness_command=arguments.harness_command,
+        )
     payload = _dispatch(command, arguments, base_url)
     if command == "briefing" and arguments.prompt and isinstance(payload, dict):
         return str(payload.get("prompt", ""))
@@ -235,14 +252,6 @@ def _read_response(path: str) -> str:
     if path == "-":
         return sys.stdin.read()
     return Path(path).read_text(encoding="utf-8")
-
-
-def _cadence(desk: object) -> int:
-    """The desk's cadence from ``show``."""
-    cadence = json_object(json_object(desk).get("desk")).get("cadence_minutes")
-    if isinstance(cadence, int):
-        return cadence
-    raise DeskControlError("DESK_NOT_FOUND: the desk has no cadence.")
 
 
 def _harnesses() -> dict[str, object]:

@@ -154,10 +154,11 @@ async def get_desk(
 ) -> DeskDetail:
     """One desk and every book it funded."""
     try:
-        desk = await desks.get_desk(desk_id)
-        if desk is None:
-            raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
-        return DeskDetail(desk=desk, books=await desks.list_books(desk_id))
+        async with desk_lock(desk_id):
+            desk = await desks.get_desk(desk_id)
+            if desk is None:
+                raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
+            return DeskDetail(desk=desk, books=await desks.list_books(desk_id))
     except DeskStoreUnavailableError as error:
         raise _unavailable(error) from None
 

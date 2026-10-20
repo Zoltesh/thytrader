@@ -82,6 +82,11 @@ class ApiDeskExecution:
         )
         return snapshot
 
+    async def find_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if any."""
+        intent = await self._store.get_intent_by_idempotency_key(idempotency_key)
+        return None if intent is None else str(intent.deployment_id)
+
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one desk book (managed, or flattening)."""
         return await set_deployment_status(

@@ -191,6 +191,15 @@ def test_schedules_wake_the_desk_on_its_cadence() -> None:
     assert "OnUnitActiveSec=30min" in timer
     assert "wake 0193abcd-desk --confirm" in timer
     assert cron.startswith("*/30 * * * * cd ")
+    custom = runner.schedule_text(
+        "d",
+        cadence_minutes=30,
+        style="cron",
+        base_url="http://127.0.0.1:9876",
+        harness_command="opencode run --model {model}",
+    )
+    assert "--base-url http://127.0.0.1:9876" in custom
+    assert "--command 'opencode run --model {model}'" in custom
     with pytest.raises(runner.DeskRunError, match="DESK_SCHEDULE_UNSUPPORTED"):
         runner.schedule_text("d", cadence_minutes=45, style="cron")
 

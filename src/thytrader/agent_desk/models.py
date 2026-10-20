@@ -60,6 +60,23 @@ class DeskCaps(_Frozen):
     daily_loss_fraction: Decimal = Field(default=Decimal("0.05"), gt=0, le=1)
 
 
+class PendingOpen(_Frozen):
+    """Pool cash reserved for one open whose placement has not been linked yet.
+
+    Set in the same write that debits the pool, before the order is placed, and cleared in the
+    write that links the placed book. One left behind by a crash is resolved on the next read:
+    the book found under ``idempotency_key`` is linked, otherwise the cash is refunded.
+    """
+
+    wake_id: str
+    idempotency_key: str
+    product_id: str
+    side: Literal["long", "short"]
+    allocated_quote: Decimal = Field(gt=0)
+    reserved_at: datetime
+    thesis: str = Field(default="", max_length=MAX_THESIS_CHARS)
+
+
 class Desk(_Frozen):
     """One desk: its pool, universe, cadence, harness and caps."""
 
@@ -79,6 +96,7 @@ class Desk(_Frozen):
     status: DeskStatus = DeskStatus.ACTIVE
     day_open_equity: Decimal | None = None
     day_open_at: datetime | None = None
+    pending_open: PendingOpen | None = None
     revision: int = Field(default=1, ge=1)
     created_at: datetime
     updated_at: datetime

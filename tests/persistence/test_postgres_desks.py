@@ -104,5 +104,12 @@ async def test_postgres_desk_round_trip() -> None:
         await store.add_wake(second)
         assert await store.list_wakes(desk.desk_id, limit=10) == (second, first)
         assert await store.list_wakes(desk.desk_id, limit=1) == (second,)
+        assert await store.last_equity_before(desk.desk_id, second.started_at) == Decimal(10000)
+        assert await store.last_equity_before(desk.desk_id, now) is None
+        third = _wake(desk.desk_id, now + timedelta(hours=1), WakeOutcome.APPLIED)
+        latest = await store.get_desk(desk.desk_id)
+        assert latest is not None
+        await store.save_desk(latest, expected_revision=latest.revision, wakes=(third,))
+        assert (await store.list_wakes(desk.desk_id, limit=1))[0] == third
     finally:
         await dispose(engine)

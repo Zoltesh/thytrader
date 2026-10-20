@@ -12,7 +12,14 @@ from uuid import UUID
 
 import pytest
 
-from thytrader.agent_desk.models import DeskCaps, DeskStatus, WakeOutcome
+from thytrader.agent_desk.models import (
+    Desk,
+    DeskBook,
+    DeskCaps,
+    DeskStatus,
+    DeskWake,
+    WakeOutcome,
+)
 from thytrader.agent_desk.service import (
     DeskError,
     DeskSpec,
@@ -21,7 +28,7 @@ from thytrader.agent_desk.service import (
     record_wake,
     score,
 )
-from thytrader.agent_desk.store import InMemoryDeskStore
+from thytrader.agent_desk.store import DeskStoreUnavailableError, InMemoryDeskStore
 from thytrader.execution.discretionary import place_discretionary_order
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import set_deployment_status
@@ -42,6 +49,8 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from thytrader.agent_desk.models import DeskWake
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.trading.store import ExecutionStore
@@ -73,6 +82,11 @@ class _Execution:
             ),
             live_allowed=False,
         )
+
+    async def find_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under the key belongs to."""
+        intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
+        return None if intent is None else str(intent.deployment_id)
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one book."""
@@ -320,8 +334,8 @@ async def test_concurrent_wakes_never_spend_the_pool_twice() -> None:
     desk = await store.get_desk(desk_id)
     books = await store.list_books(desk_id)
     assert desk is not None
-    assert applied, [wake.detail for wake in wakes[:2]]
-    assert len(books) == len(applied)
+    assert len(applied) == 2, [wake.detail for wake in wakes[:2]]
+    assert len(books) == 2
     assert desk.cash + sum(book.allocated_quote for book in books) == Decimal(10000)
 
 
@@ -376,3 +390,69 @@ async def test_a_new_day_opens_at_the_last_equity_journaled_before_midnight() ->
     assert rolled is not None
     assert rolled.day_open_equity == Decimal(10600)
     assert brief.desk.equity_quote == Decimal(10000)
+
+
+class _LinkFailingStore(InMemoryDeskStore):
+    """Fails the first write that links a book, like a crash after placement."""
+
+    def __init__(self) -> None:
+        """Arm one failure."""
+        super().__init__()
+        self.fail_link = True
+
+    async def save_desk(
+        self,
+        desk: Desk,
+        *,
+        expected_revision: int,
+        books: Sequence[DeskBook] = (),
+        wakes: Sequence[DeskWake] = (),
+    ) -> Desk:
+        """Raise once on the link write."""
+        if books and self.fail_link:
+            self.fail_link = False
+            raise DeskStoreUnavailableError("storage dropped")
+        return await super().save_desk(
+            desk, expected_revision=expected_revision, books=books, wakes=wakes
+        )
+
+
+async def test_an_open_interrupted_before_its_link_is_linked_on_recovery() -> None:
+    """The reservation paid for the book; the next read links it and journals the open."""
+    store = _LinkFailingStore()
+    execution = _Execution()
+    desk = await create_desk(
+        store,
+        DeskSpec(
+            name="crash", quote_currency="USD", starting_cash=Decimal(10000), products=("BTC-USD",)
+        ),
+        now=datetime.now(UTC),
+    )
+    with pytest.raises(DeskStoreUnavailableError):
+        await _wake(store, execution, desk.desk_id, _open(fraction="0.1"))
+    pending = await store.get_desk(desk.desk_id)
+    assert pending is not None
+    assert pending.pending_open is not None
+    assert pending.cash == Decimal(9000)
+    brief = await briefing(
+        desk.desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    recovered = await store.get_desk(desk.desk_id)
+    books = await store.list_books(desk.desk_id)
+    wakes = await store.list_wakes(desk.desk_id, limit=10)
+    assert recovered is not None
+    assert recovered.pending_open is None
+    assert recovered.cash == Decimal(9000)
+    assert [book.allocated_quote for book in books] == [Decimal(1000)]
+    assert [wake.outcome_code for wake in wakes] == ["DESK_OPEN_RECOVERED"]
+    assert brief.desk.open_positions == 1
+
+
+async def test_a_desk_holds_two_products_at_once() -> None:
+    """The second open's daily-loss evidence marks the first book's holding too."""
+    store, execution, desk_id = await _desk()
+    first = await _wake(store, execution, desk_id, _open(product="BTC-USD"))
+    second = await _wake(store, execution, desk_id, _open(product="ETH-USD"))
+    assert first.outcome is WakeOutcome.APPLIED, first.detail
+    assert second.outcome is WakeOutcome.APPLIED, second.detail
+    assert len(await store.list_books(desk_id)) == 2

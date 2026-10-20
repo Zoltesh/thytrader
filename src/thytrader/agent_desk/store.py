@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
+    from decimal import Decimal
 
     from thytrader.agent_desk.models import Desk, DeskBook, DeskWake
 
@@ -37,12 +39,17 @@ class DeskStore(Protocol):
         ...
 
     async def save_desk(
-        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+        self,
+        desk: Desk,
+        *,
+        expected_revision: int,
+        books: Sequence[DeskBook] = (),
+        wakes: Sequence[DeskWake] = (),
     ) -> Desk:
         """Replace a desk when its stored revision matches; the new revision is +1.
 
-        ``books`` are inserted or replaced in the same write, so pool cash and the books it
-        funded or settled never disagree.
+        ``books`` are inserted or replaced and ``wakes`` journaled in the same write, so pool
+        cash, the books it funded or settled, and the wake that decided it never disagree.
         """
         ...
 
@@ -56,6 +63,10 @@ class DeskStore(Protocol):
 
     async def list_wakes(self, desk_id: str, *, limit: int) -> tuple[DeskWake, ...]:
         """Return the newest wakes of a desk, newest first."""
+        ...
+
+    async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:
+        """The equity of the newest wake started before ``before`` that recorded one."""
         ...
 
 
@@ -84,9 +95,14 @@ class InMemoryDeskStore:
         return tuple(sorted(self.desks.values(), key=lambda d: d.created_at, reverse=True))
 
     async def save_desk(
-        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+        self,
+        desk: Desk,
+        *,
+        expected_revision: int,
+        books: Sequence[DeskBook] = (),
+        wakes: Sequence[DeskWake] = (),
     ) -> Desk:
-        """Replace a desk and its changed books when the stored revision matches."""
+        """Replace a desk, its changed books and new wakes when the stored revision matches."""
         current = self.desks.get(desk.desk_id)
         if current is None or current.revision != expected_revision:
             raise DeskConflictError("The desk changed; read it again before saving.")
@@ -94,6 +110,7 @@ class InMemoryDeskStore:
         self.desks[desk.desk_id] = saved
         for book in books:
             self.books[book.deployment_id] = book
+        self.wakes.extend(wakes)
         return saved
 
     async def list_books(self, desk_id: str) -> tuple[DeskBook, ...]:
@@ -113,3 +130,16 @@ class InMemoryDeskStore:
         """Return the newest wakes of a desk, newest first."""
         rows = [wake for wake in self.wakes if wake.desk_id == desk_id]
         return tuple(sorted(rows, key=lambda wake: wake.started_at, reverse=True)[:limit])
+
+    async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:
+        """The equity of the newest wake started before ``before`` that recorded one."""
+        rows = [
+            wake
+            for wake in self.wakes
+            if wake.desk_id == desk_id
+            and wake.started_at < before
+            and wake.equity_quote is not None
+        ]
+        if not rows:
+            return None
+        return max(rows, key=lambda wake: wake.started_at).equity_quote

@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.breaker_pause import _pause_mode_running
+from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.runtime_ops import _pause
 from thytrader.risk.accounting_evidence import accounting_snapshot
@@ -307,7 +308,11 @@ async def _require_entry_admission(
             as_of=as_of,
             proposed_price=entry_price,
             reference_price=reference_price,
-            marks={request.product_id: reference_price},
+            # Every held product needs a mark for daily-loss evidence, not just this one.
+            marks={
+                **await inventory_marks(market_data, peers),
+                request.product_id: reference_price,
+            },
         ),
         beta=beta,
         futures_collateral=futures_collateral,

@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, time
 from decimal import ROUND_DOWN, Decimal
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from thytrader.agent_desk.briefing import (
     DeskBriefing,
@@ -21,6 +21,7 @@ from thytrader.agent_desk.briefing import (
     wake_views,
 )
 from thytrader.agent_desk.decisions import DecisionParseError, parse_decision
+from thytrader.agent_desk.funding import open_funded, resolve_pending
 from thytrader.agent_desk.market import MarketRow, market_rows
 from thytrader.agent_desk.models import (
     MAX_RESPONSE_CHARS,
@@ -33,8 +34,8 @@ from thytrader.agent_desk.models import (
     DeskWake,
     WakeOutcome,
 )
+from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
-from thytrader.agent_desk.store import DeskConflictError
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
@@ -52,8 +53,6 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from thytrader.agent_desk.store import DeskStore
     from thytrader.market_data.service import MarketDataService
     from thytrader.trading.models import DeploymentSnapshot
@@ -72,30 +71,6 @@ def desk_lock(desk_id: str) -> asyncio.Lock:
     briefing's settlement and a status change from interleaving. The API is one process.
     """
     return _LOCKS.setdefault(desk_id, asyncio.Lock())
-
-
-class DeskError(RuntimeError):
-    """A desk request was refused; the message leads with a code."""
-
-
-class DeskExecution(Protocol):
-    """The discretionary paper book operations a desk needs (wired by the API process)."""
-
-    async def snapshot(self, deployment_id: str) -> DeploymentSnapshot:
-        """Return one book."""
-        ...
-
-    async def open_book(self, request: DiscretionaryOrderRequest) -> DeploymentSnapshot:
-        """Place one discretionary order on a fresh paper book."""
-        ...
-
-    async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
-        """Stop one book, flattening it when asked."""
-        ...
-
-    async def fee_rates(self) -> tuple[Decimal, Decimal] | None:
-        """The account's paper maker and taker rates, or None when unreadable."""
-        ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,8 +142,8 @@ async def briefing(
     moment = now or datetime.now(UTC)
     async with desk_lock(desk_id):
         state = await _state(desk_id, store=store, execution=execution, market_data=market_data)
+        wakes = await store.list_wakes(desk_id, limit=_HISTORY)
     rates = await execution.fee_rates()
-    wakes = await store.list_wakes(desk_id, limit=_HISTORY)
     return finish_briefing(
         DeskBriefing(
             generated_at=moment,
@@ -191,12 +166,14 @@ async def score(
     """Settle and mark the desk, then score it against buy-and-hold benchmarks."""
     async with desk_lock(desk_id):
         state = await _state(desk_id, store=store, execution=execution, market_data=market_data)
+        books = await store.list_books(desk_id)
+        wakes = await store.list_wakes(desk_id, limit=_SCORED_WAKES)
     rates = await execution.fee_rates()
     return await score_desk(
         state.desk,
         equity=state.equity,
-        books=await store.list_books(desk_id),
-        wakes=await store.list_wakes(desk_id, limit=_SCORED_WAKES),
+        books=books,
+        wakes=wakes,
         rows=state.market,
         market_data=market_data,
         taker_fee_rate=None if rates is None else rates[1],
@@ -294,8 +271,8 @@ async def _record_wake(
         }
     )
     try:
-        deployment_id = await _apply(
-            decision, state=state, store=store, execution=execution, wake_id=wake_id, now=moment
+        opened = await _apply(
+            decision, state=state, store=store, execution=execution, wake=decided, now=moment
         )
     except DeskError as error:
         code, _, detail = str(error).partition(": ")
@@ -307,7 +284,9 @@ async def _record_wake(
             "detail": str(error)[:500],
         }
     else:
-        outcome = {"outcome": WakeOutcome.APPLIED, "deployment_id": deployment_id}
+        if opened is not None:
+            return opened
+        outcome = {"outcome": WakeOutcome.APPLIED, "deployment_id": decision.deployment_id}
     wake = decided.model_copy(update=outcome)
     await store.add_wake(wake)
     return wake
@@ -322,6 +301,7 @@ async def _state(
 ) -> _State:
     """Settle, mark and roll the UTC day; the saved desk is the returned one."""
     desk = await _require_desk(store, desk_id)
+    desk = await resolve_pending(desk, store=store, execution=execution)
     desk = await _settle(desk, store=store, execution=execution)
     rows = await market_rows(market_data, desk.products)
     marks = {row.product_id: row.last_close for row in rows if row.last_close is not None}
@@ -376,21 +356,16 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
 async def _roll_day(desk: Desk, *, store: DeskStore, equity: Decimal | None) -> Desk:
     """Record each UTC day's opening equity for the daily loss cap.
 
-    The opening equity is the last equity journaled before midnight (within the previous day),
-    so a loss realized between midnight and the first wake still counts against the new day;
-    without such a wake it is the first equity seen today.
+    The opening equity is the last equity journaled before midnight, however many wakes ago,
+    so a loss realized between midnight and the first known equity still counts against the
+    new day; a desk with no earlier equity (its first day) opens at the first equity seen.
     """
     now = datetime.now(UTC)
     if equity is None or (desk.day_open_at is not None and desk.day_open_at.date() == now.date()):
         return desk
     midnight = datetime.combine(now.date(), time(), tzinfo=UTC)
-    before = [
-        wake.equity_quote
-        for wake in await store.list_wakes(desk.desk_id, limit=_HISTORY)
-        if midnight - timedelta(days=1) <= wake.started_at < midnight
-        and wake.equity_quote is not None
-    ]
-    opening = before[0] if before else equity
+    before = await store.last_equity_before(desk.desk_id, midnight)
+    opening = equity if before is None else before
     rolled = desk.model_copy(update={"day_open_equity": opening, "day_open_at": now})
     return await save_desk(rolled, store=store, previous=desk)
 
@@ -401,10 +376,10 @@ async def _apply(
     state: _State,
     store: DeskStore,
     execution: DeskExecution,
-    wake_id: str,
+    wake: DeskWake,
     now: datetime,
-) -> str | None:
-    """Apply one checked decision; return the book it touched."""
+) -> DeskWake | None:
+    """Apply one checked decision; an open returns its wake, journaled with the book link."""
     if decision.action == "no_trade":
         return None
     if state.desk.status is not DeskStatus.ACTIVE:
@@ -413,30 +388,18 @@ async def _apply(
         if decision.deployment_id not in {book.deployment_id for book, _ in state.open_books}:
             raise DeskError("DESK_UNKNOWN_BOOK: that deployment is not an open book of this desk.")
         await execution.stop_book(decision.deployment_id, flatten=True)
-        return decision.deployment_id
+        return None
     allocation = _check_open(decision, state)
-    request = _order_request(decision, state.desk, wake_id=wake_id, allocation=allocation)
-    snapshot = await execution.open_book(request)
-    deployment_id = str(snapshot.deployment.id)
-    # The pool debit and the book link are one write: a crash before it leaves an unlinked
-    # paper book (visible in the runtime list), never a book the pool did not pay for.
-    await save_desk(
-        state.desk.model_copy(update={"cash": state.desk.cash - allocation}),
+    request = _order_request(decision, state.desk, wake_id=wake.wake_id, allocation=allocation)
+    return await open_funded(
+        state.desk,
+        request=request,
+        allocation=allocation,
+        wake=wake,
+        now=now,
         store=store,
-        previous=state.desk,
-        books=(
-            DeskBook(
-                desk_id=state.desk.desk_id,
-                deployment_id=deployment_id,
-                product_id=request.product_id,
-                side="short" if request.side is PositionSide.SHORT else "long",
-                allocated_quote=allocation,
-                opened_at=now,
-                wake_id=wake_id,
-            ),
-        ),
+        execution=execution,
     )
-    return deployment_id
 
 
 def _check_open(decision: DeskDecision, state: _State) -> Decimal:
@@ -601,14 +564,3 @@ async def _require_desk(store: DeskStore, desk_id: str) -> Desk:
     if desk is None:
         raise DeskError(f"DESK_NOT_FOUND: no desk {desk_id}.")
     return desk
-
-
-async def save_desk(
-    updated: Desk, *, store: DeskStore, previous: Desk, books: Sequence[DeskBook] = ()
-) -> Desk:
-    """Save under the previous revision (with any books); a lost race is a retryable conflict."""
-    stamped = updated.model_copy(update={"updated_at": datetime.now(UTC)})
-    try:
-        return await store.save_desk(stamped, expected_revision=previous.revision, books=books)
-    except DeskConflictError as error:
-        raise DeskError(f"DESK_CONFLICT: {error}") from error

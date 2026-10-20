@@ -62,7 +62,7 @@ uv run thytrader-desk record DESK_ID --fingerprint sha256:... --response-file FI
 uv run thytrader-desk journal DESK_ID [--limit 20]
 uv run thytrader-desk score DESK_ID
 uv run thytrader-desk status DESK_ID active|paused|retired --confirm
-uv run thytrader-desk schedule DESK_ID [--style systemd|cron]
+uv run thytrader-desk schedule DESK_ID [--style systemd|cron] [--command CMD]
 ```
 
 HTTP: `POST|GET /api/v1/desks`, `GET /api/v1/desks/{id}`, `GET .../briefing`,
@@ -120,13 +120,16 @@ with the reason in `detail` (for example paper fees unavailable, or the risk pol
 `paper_capital_quote` / single-quote paper capital and running-slot caps, which desk books count
 against like any paper book). Harness
 failures: `DESK_HARNESS_NOT_FOUND`, `DESK_HARNESS_TIMEOUT`, `DESK_HARNESS_EXIT`,
-`DESK_HARNESS_EMPTY` (journaled as `error`).
+`DESK_HARNESS_EMPTY` (journaled as `error`). `DESK_OPEN_RECOVERED` marks an applied open
+whose own journal row was lost to an interrupted write and rebuilt on recovery.
 
 ## Scheduling
 
 ThyTrader does not run the harness itself. `schedule` prints a systemd user service/timer pair (or a
 crontab line for cadences dividing 60) that runs `thytrader-desk wake DESK_ID --confirm` from the
-current directory with the current `PATH`. Show it to the user; install it only when they ask.
+current directory with the current `PATH` and the resolved `--base-url`. A desk whose harness is
+not built in needs `schedule DESK_ID --command "..."`, which is carried into the wake command.
+Show it to the user; install it only when they ask.
 
 ## Scoring
 
@@ -145,6 +148,6 @@ Paper results are evidence, not a promise: judge a desk over weeks and many trad
   browser. A desk `close` flattens it. A plain runtime/browser stop is a managed stop that keeps
   the position, so the book settles into the pool only once it is flat; to end it now use
   `uv run thytrader-runtime stop BOOK_ID --flatten --confirm`.
-- An open places the order, then debits the pool and links the book in one write. If the API
-  dies in between, the paper book exists but is not the desk's (its note starts with the desk
-  name): stop it with `--flatten`; the pool never paid for it.
+- An open reserves the pool cash first, places the order, then links the book and journals the
+  wake in one write. If the API dies in between, the next briefing, wake or score links the book
+  it finds under the wake's key (journaled `DESK_OPEN_RECOVERED`) or refunds the reservation.

@@ -17,8 +17,8 @@ from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_paper import load_futures_legs
 from thytrader.execution.futures_visibility_fleet import load_live_futures_probes
+from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.market_data.instrument_ids import is_futures_product_id
-from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.accounting_evidence import accounting_snapshot, risk_market_data_scope
 from thytrader.risk.beta_evidence import load_entry_beta
 from thytrader.risk.breakers import FUTURES_SCOPE, EntryObservation, _product_quote
@@ -29,14 +29,11 @@ from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
     DeploymentMode,
     ExecutionStoreError,
-    resolved_product_id,
-    snapshot_positions,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
-    from decimal import Decimal
 
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.execution.futures_paper import FuturesRuntime
@@ -77,7 +74,7 @@ async def load_fleet_entry_health(
             as_of=as_of,
             proposed_price=None,
             reference_price=None,
-            marks=await _inventory_marks(market_data, snapshots),
+            marks=await inventory_marks(market_data, snapshots),
         )
         evidence = [
             await _scope_evidence(
@@ -126,31 +123,6 @@ async def _accounting_books(
                 )
             )
     return tuple(snapshots), tuple(unreadable)
-
-
-async def _inventory_marks(
-    market_data: MarketDataService | None, snapshots: Sequence[DeploymentSnapshot]
-) -> dict[str, Decimal]:
-    """Last-close marks for every product with open inventory; a failed read stays unmarked."""
-    marks: dict[str, Decimal] = {}
-    if market_data is None:
-        return marks
-    for snapshot in snapshots:
-        timeframe = snapshot.deployment.timeframe or "1h"
-        for position in snapshot_positions(snapshot):
-            product_id = resolved_product_id(position.product_id, snapshot.deployment)
-            if product_id in marks:
-                continue
-            try:
-                preview = await market_data.get_preview(
-                    product_id, parse_candle_interval(timeframe)
-                )
-            except _EVIDENCE_ERRORS:
-                continue
-            candles = preview.quality.candles
-            if candles:
-                marks[product_id] = candles[-1].close
-    return marks
 
 
 async def _scope_evidence(

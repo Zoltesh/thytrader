@@ -92,14 +92,26 @@ def wake(
         return recorded
 
 
-def schedule_text(desk_id: str, *, cadence_minutes: int, style: str) -> str:
+def schedule_text(
+    desk_id: str,
+    *,
+    cadence_minutes: int,
+    style: str,
+    base_url: str | None = None,
+    harness_command: str | None = None,
+) -> str:
     """A systemd user timer pair or a crontab line that wakes the desk on its cadence.
 
     The wake runs from the current directory (where ``.env`` and the credentials directory
-    resolve) with the current ``PATH`` (so the harness CLI is found).
+    resolve) with the current ``PATH`` (so the harness CLI is found), against ``base_url`` and
+    with ``harness_command`` when the desk's harness is not built in.
     """
     program = shlex.quote(_desk_program())
     command = f"{program} wake {shlex.quote(desk_id)} --confirm"
+    if base_url:
+        command += f" --base-url {shlex.quote(base_url)}"
+    if harness_command:
+        command += f" --command {shlex.quote(harness_command)}"
     workdir = Path.cwd()
     path = os.environ.get("PATH", "/usr/bin:/bin")
     if style == "cron":

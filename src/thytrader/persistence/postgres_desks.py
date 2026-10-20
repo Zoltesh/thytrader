@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import ValidationError
-from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import cast, select, update
+from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.agent_desk.models import Desk, DeskBook, DeskWake
@@ -16,6 +17,7 @@ from thytrader.persistence.schema import desk_books, desk_wakes, desks
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from sqlalchemy.ext.asyncio import AsyncEngine
     from sqlalchemy.sql import Executable
@@ -59,9 +61,14 @@ class PostgresDeskStore:
         return tuple(_parse(Desk, row) for row in rows)
 
     async def save_desk(
-        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+        self,
+        desk: Desk,
+        *,
+        expected_revision: int,
+        books: Sequence[DeskBook] = (),
+        wakes: Sequence[DeskWake] = (),
     ) -> Desk:
-        """Replace a desk and upsert its changed books in one transaction (revision +1)."""
+        """Replace a desk, upsert its books and journal wakes in one transaction (revision +1)."""
         saved = desk.model_copy(update={"revision": expected_revision + 1})
         statement = (
             update(desks)
@@ -79,6 +86,8 @@ class PostgresDeskStore:
                     raise DeskConflictError("The desk changed; read it again before saving.")
                 for book in books:
                     await connection.execute(_upsert_book(book))
+                for wake in wakes:
+                    await connection.execute(_insert_wake(wake))
         except (SQLAlchemyError, OSError) as error:
             raise DeskStoreUnavailableError(_UNAVAILABLE) from error
         return saved
@@ -94,15 +103,7 @@ class PostgresDeskStore:
 
     async def add_wake(self, wake: DeskWake) -> None:
         """Journal one wake."""
-        await self._write(
-            insert(desk_wakes).values(
-                wake_id=wake.wake_id,
-                desk_id=wake.desk_id,
-                started_at=wake.started_at,
-                outcome=wake.outcome.value,
-                wake_json=wake.model_dump_json(),
-            )
-        )
+        await self._write(_insert_wake(wake))
 
     async def list_wakes(self, desk_id: str, *, limit: int) -> tuple[DeskWake, ...]:
         """Return the newest wakes of a desk, newest first."""
@@ -113,6 +114,21 @@ class PostgresDeskStore:
             .limit(limit)
         )
         return tuple(_parse(DeskWake, row) for row in rows)
+
+    async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:
+        """The equity of the newest wake started before ``before`` that recorded one."""
+        equity = cast(desk_wakes.c.wake_json, JSONB)["equity_quote"].astext
+        rows = await self._rows(
+            select(equity)
+            .where(
+                desk_wakes.c.desk_id == desk_id,
+                desk_wakes.c.started_at < before,
+                equity.is_not(None),
+            )
+            .order_by(desk_wakes.c.started_at.desc())
+            .limit(1)
+        )
+        return Decimal(rows[0]) if rows else None
 
     async def _write(self, statement: Executable) -> None:
         """Execute one write in its own transaction."""
@@ -129,6 +145,17 @@ class PostgresDeskStore:
                 return list((await connection.execute(statement)).scalars())
         except (SQLAlchemyError, OSError) as error:
             raise DeskStoreUnavailableError(_UNAVAILABLE) from error
+
+
+def _insert_wake(wake: DeskWake) -> Executable:
+    """Journal one wake row."""
+    return insert(desk_wakes).values(
+        wake_id=wake.wake_id,
+        desk_id=wake.desk_id,
+        started_at=wake.started_at,
+        outcome=wake.outcome.value,
+        wake_json=wake.model_dump_json(),
+    )
 
 
 def _upsert_book(book: DeskBook) -> Executable:

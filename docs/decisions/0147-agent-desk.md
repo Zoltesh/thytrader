@@ -72,14 +72,20 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   or score read; until then it is a flat running discretionary book. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
-- Pool cash and book links change together: every operation on one desk (briefing settlement,
-  wake, score, status) holds that desk's lock in the API process; an open places the order and
-  then debits the pool and links the book in one transaction; settlement marks books settled and
-  credits the pool in one transaction. A crash between placement and that write leaves an
-  unlinked paper book the pool never paid for, never the reverse.
-- The daily loss baseline is the last equity journaled before midnight (else the first seen
-  today). Market rows whose newest closed hourly bar is over two hours stale carry no price, so
-  an open book on them leaves equity unknown and blocks entries.
+- Pool cash and book links change together: every operation on one desk (show, briefing
+  settlement, wake, score, status) holds that desk's lock in the API process. An open reserves
+  the cash with a `pending_open` marker in the pool debit's write, places the order under the
+  idempotency key `desk:{desk}:{wake}`, then clears the marker, links the book and journals the
+  wake in one transaction. A marker left by a failure is resolved on the next read: the book
+  found under the key is linked (journaled `DESK_OPEN_RECOVERED`) or the cash is refunded.
+  Settlement marks books settled and credits the pool in one transaction.
+- Discretionary entry admission now marks every held product of peer books (last close), as
+  fleet entry health does; before, any other book's inventory left daily-loss evidence
+  unavailable and refused the entry.
+- The daily loss baseline is the last equity journaled before midnight, however old (else, on a
+  desk's first day, the first equity seen). Market rows whose newest closed hourly bar is over
+  two hours stale carry no price, so an open book on them leaves equity unknown and blocks
+  entries.
 - HTTP: `/api/v1/desks` (create, list, show, briefing, wakes, score, status); CLI
   `thytrader-desk`; skill `skills/thytrader-desk`; ops contract v107 advertises
   `agent_desk_contract` `thytrader-agent-desk-v1`.
