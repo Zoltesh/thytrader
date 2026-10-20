@@ -15,7 +15,7 @@ import shlex
 import sys
 from typing import TYPE_CHECKING
 
-from thytrader.agent_desk.client import desk_briefing, record_wake
+from thytrader.agent_desk.client import desk_briefing, record_wake, show_desk
 from thytrader.agent_desk.harness import (
     BUILTIN_HARNESSES,
     HarnessError,
@@ -67,7 +67,8 @@ def wake(
         prompt = brief.get("prompt")
         if not isinstance(prompt, str):
             raise DeskRunError("DESK_BRIEFING_INVALID: the briefing has no prompt.")
-        desk = json_object(brief.get("desk"))
+        # The briefing is what the model reads; the harness settings live on the desk itself.
+        desk = json_object(json_object(show_desk(base_url, desk_id)).get("desk"))
         harness_name = harness or str(desk.get("harness") or "")
         model_name = model if model is not None else _optional(desk.get("model"))
         template = resolve_template(harness_name, command)
@@ -112,7 +113,7 @@ def schedule_text(desk_id: str, *, cadence_minutes: int, style: str) -> str:
             f"*/{cadence_minutes} * * * * cd {shlex.quote(str(workdir))} && "
             f"PATH={shlex.quote(path)} {command}\n"
         )
-    unit = f"thytrader-desk-{desk_id[:8]}"
+    unit = f"thytrader-desk-{_unit_safe(desk_id)}"
     return (
         f"# ~/.config/systemd/user/{unit}.service\n"
         "[Unit]\n"
@@ -140,8 +141,7 @@ def _desk_lock(desk_id: str) -> Iterator[bool]:
     """Hold the desk's wake lock if it is free; yields whether it was taken."""
     directory = _state_directory()
     directory.mkdir(parents=True, exist_ok=True)
-    safe = "".join(char for char in desk_id if char.isalnum() or char == "-") or "desk"
-    with (directory / f"{safe}.lock").open("a") as handle:
+    with (directory / f"{_unit_safe(desk_id)}.lock").open("a") as handle:
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -151,6 +151,11 @@ def _desk_lock(desk_id: str) -> Iterator[bool]:
             yield True
         finally:
             fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+def _unit_safe(desk_id: str) -> str:
+    """The whole desk id, limited to characters a unit or lock file name can carry."""
+    return "".join(char for char in desk_id if char.isalnum() or char == "-") or "desk"
 
 
 def _state_directory() -> Path:

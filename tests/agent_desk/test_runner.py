@@ -78,9 +78,14 @@ def _fake_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[dict[str,
     brief = {
         "fingerprint": "sha256:" + "a" * 64,
         "prompt": "decide",
-        "desk": {"harness": "claude", "model": None},
+        "desk": {"equity_quote": "10000"},
     }
     monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: brief)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"harness": "claude", "model": "configured-model"}},
+    )
 
     def record(_base: str, _desk: str, payload: dict[str, object]) -> dict[str, object]:
         posted.append(payload)
@@ -143,6 +148,33 @@ def test_an_overlapping_wake_is_skipped(monkeypatch: pytest.MonkeyPatch, tmp_pat
     assert posted == []
 
 
+def test_a_plain_wake_runs_the_desks_own_harness_and_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`wake DESK_ID --confirm`, the scheduled command, uses the harness and model on the desk."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    seen: list[tuple[str, str | None]] = []
+
+    def fake_run(
+        template: object, *, prompt: str, model: str | None, timeout_seconds: float
+    ) -> str:
+        del prompt, timeout_seconds
+        seen.append((getattr(template, "name", ""), model))
+        return '{"action": "no_trade", "thesis": "x"}'
+
+    monkeypatch.setattr(runner, "run_harness", fake_run)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    assert seen == [("claude", "configured-model")]
+    assert (posted[0]["harness"], posted[0]["model"]) == ("claude", "configured-model")
+
+
 def test_an_unknown_harness_is_refused_before_anything_runs() -> None:
     """Only built-ins resolve by name; anything else needs --command."""
     with pytest.raises(runner.DeskRunError, match="DESK_HARNESS_UNKNOWN"):
@@ -152,6 +184,9 @@ def test_an_unknown_harness_is_refused_before_anything_runs() -> None:
 def test_schedules_wake_the_desk_on_its_cadence() -> None:
     """The systemd timer repeats at the cadence; cron needs a cadence that divides an hour."""
     timer = runner.schedule_text("0193abcd-desk", cadence_minutes=30, style="systemd")
+    other = runner.schedule_text("0193abcd-desk-two", cadence_minutes=30, style="systemd")
+    assert "thytrader-desk-0193abcd-desk.timer" in timer
+    assert "thytrader-desk-0193abcd-desk-two.timer" in other
     cron = runner.schedule_text("0193abcd-desk", cadence_minutes=30, style="cron")
     assert "OnUnitActiveSec=30min" in timer
     assert "wake 0193abcd-desk --confirm" in timer

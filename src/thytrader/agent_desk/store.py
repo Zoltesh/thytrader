@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from thytrader.agent_desk.models import Desk, DeskBook, DeskWake
 
 
@@ -34,16 +36,14 @@ class DeskStore(Protocol):
         """Return every desk, newest first."""
         ...
 
-    async def save_desk(self, desk: Desk, *, expected_revision: int) -> Desk:
-        """Replace a desk when its stored revision matches; the new revision is +1."""
-        ...
+    async def save_desk(
+        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+    ) -> Desk:
+        """Replace a desk when its stored revision matches; the new revision is +1.
 
-    async def add_book(self, book: DeskBook) -> None:
-        """Record a book the desk funded."""
-        ...
-
-    async def save_book(self, book: DeskBook) -> None:
-        """Replace one book row (settlement)."""
+        ``books`` are inserted or replaced in the same write, so pool cash and the books it
+        funded or settled never disagree.
+        """
         ...
 
     async def list_books(self, desk_id: str) -> tuple[DeskBook, ...]:
@@ -83,22 +83,18 @@ class InMemoryDeskStore:
         """Return every desk, newest first."""
         return tuple(sorted(self.desks.values(), key=lambda d: d.created_at, reverse=True))
 
-    async def save_desk(self, desk: Desk, *, expected_revision: int) -> Desk:
-        """Replace a desk when its stored revision matches."""
+    async def save_desk(
+        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+    ) -> Desk:
+        """Replace a desk and its changed books when the stored revision matches."""
         current = self.desks.get(desk.desk_id)
         if current is None or current.revision != expected_revision:
             raise DeskConflictError("The desk changed; read it again before saving.")
         saved = desk.model_copy(update={"revision": expected_revision + 1})
         self.desks[desk.desk_id] = saved
+        for book in books:
+            self.books[book.deployment_id] = book
         return saved
-
-    async def add_book(self, book: DeskBook) -> None:
-        """Record a book the desk funded."""
-        self.books[book.deployment_id] = book
-
-    async def save_book(self, book: DeskBook) -> None:
-        """Replace one book row."""
-        self.books[book.deployment_id] = book
 
     async def list_books(self, desk_id: str) -> tuple[DeskBook, ...]:
         """Return every book of a desk, oldest first."""

@@ -90,9 +90,13 @@ async def test_postgres_desk_round_trip() -> None:
             opened_at=now,
             wake_id="w",
         )
-        await store.add_book(book)
+        funded = await store.save_desk(saved, expected_revision=saved.revision, books=(book,))
+        assert await store.list_books(desk.desk_id) == (book,)
         settled = book.model_copy(update={"settled_at": now, "settled_cash": Decimal("1012.5")})
-        await store.save_book(settled)
+        with pytest.raises(DeskConflictError):
+            await store.save_desk(funded, expected_revision=saved.revision, books=(settled,))
+        assert await store.list_books(desk.desk_id) == (book,)
+        await store.save_desk(funded, expected_revision=funded.revision, books=(settled,))
         assert await store.list_books(desk.desk_id) == (settled,)
         first = _wake(desk.desk_id, now, WakeOutcome.APPLIED)
         second = _wake(desk.desk_id, now + timedelta(minutes=30), WakeOutcome.INVALID)

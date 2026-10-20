@@ -147,11 +147,9 @@ def _beats(result: Decimal | None, benchmark: Benchmark) -> bool | None:
 async def _price_at(
     market_data: MarketDataService, product_id: str, moment: datetime
 ) -> Decimal | None:
-    """The open of the first hourly candle at or after ``moment``, if it has closed."""
-    starts_at = CandleInterval.ONE_HOUR.align_closed_end(moment)
-    if starts_at < moment:
-        starts_at += timedelta(hours=1)
-    ends_at = starts_at + timedelta(hours=3)
+    """The close of the last hourly candle closed at ``moment``: a price available then."""
+    ends_at = CandleInterval.ONE_HOUR.align_closed_end(moment)
+    starts_at = ends_at - timedelta(hours=3)
     try:
         report = await market_data.get_hourly_range(
             product_id, starts_at, ends_at, datetime.now(UTC)
@@ -159,7 +157,7 @@ async def _price_at(
     except Exception:  # noqa: BLE001 - an unreadable benchmark is reported, not raised.
         return None
     candles = report.quality.candles
-    return candles[0].open if candles else None
+    return candles[-1].close if candles else None
 
 
 def _q(value: Decimal) -> Decimal:

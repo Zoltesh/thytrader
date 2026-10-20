@@ -15,6 +15,8 @@ from thytrader.agent_desk.store import DeskConflictError, DeskStoreUnavailableEr
 from thytrader.persistence.schema import desk_books, desk_wakes, desks
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from sqlalchemy.ext.asyncio import AsyncEngine
     from sqlalchemy.sql import Executable
 
@@ -56,8 +58,10 @@ class PostgresDeskStore:
         rows = await self._rows(select(desks.c.desk_json).order_by(desks.c.created_at.desc()))
         return tuple(_parse(Desk, row) for row in rows)
 
-    async def save_desk(self, desk: Desk, *, expected_revision: int) -> Desk:
-        """Replace a desk when its stored revision matches; the saved revision is +1."""
+    async def save_desk(
+        self, desk: Desk, *, expected_revision: int, books: Sequence[DeskBook] = ()
+    ) -> Desk:
+        """Replace a desk and upsert its changed books in one transaction (revision +1)."""
         saved = desk.model_copy(update={"revision": expected_revision + 1})
         statement = (
             update(desks)
@@ -71,31 +75,13 @@ class PostgresDeskStore:
         try:
             async with self._engine.begin() as connection:
                 result = await connection.execute(statement)
+                if result.rowcount != 1:
+                    raise DeskConflictError("The desk changed; read it again before saving.")
+                for book in books:
+                    await connection.execute(_upsert_book(book))
         except (SQLAlchemyError, OSError) as error:
             raise DeskStoreUnavailableError(_UNAVAILABLE) from error
-        if result.rowcount != 1:
-            raise DeskConflictError("The desk changed; read it again before saving.")
         return saved
-
-    async def add_book(self, book: DeskBook) -> None:
-        """Record a book the desk funded."""
-        await self._write(
-            insert(desk_books).values(
-                deployment_id=UUID(book.deployment_id),
-                desk_id=book.desk_id,
-                opened_at=book.opened_at,
-                settled_at=book.settled_at,
-                book_json=book.model_dump_json(),
-            )
-        )
-
-    async def save_book(self, book: DeskBook) -> None:
-        """Replace one book row (settlement)."""
-        await self._write(
-            update(desk_books)
-            .where(desk_books.c.deployment_id == UUID(book.deployment_id))
-            .values(settled_at=book.settled_at, book_json=book.model_dump_json())
-        )
 
     async def list_books(self, desk_id: str) -> tuple[DeskBook, ...]:
         """Return every book of a desk, oldest first."""
@@ -143,6 +129,25 @@ class PostgresDeskStore:
                 return list((await connection.execute(statement)).scalars())
         except (SQLAlchemyError, OSError) as error:
             raise DeskStoreUnavailableError(_UNAVAILABLE) from error
+
+
+def _upsert_book(book: DeskBook) -> Executable:
+    """Insert a desk book, or replace its settlement and JSON when it exists."""
+    values = {
+        "deployment_id": UUID(book.deployment_id),
+        "desk_id": book.desk_id,
+        "opened_at": book.opened_at,
+        "settled_at": book.settled_at,
+        "book_json": book.model_dump_json(),
+    }
+    return (
+        insert(desk_books)
+        .values(**values)
+        .on_conflict_do_update(
+            index_elements=[desk_books.c.deployment_id],
+            set_={"settled_at": book.settled_at, "book_json": values["book_json"]},
+        )
+    )
 
 
 def _parse[T: (Desk, DeskBook, DeskWake)](model: type[T], stored: str) -> T:

@@ -40,7 +40,10 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
    it. Only the answer is applied. Built-in harness templates turn the harness's tools off where
    it allows (Claude Code `--tools ""`, Pi `--no-tools`); Codex runs in a read-only sandbox and
    Hermes keeps its toolsets. Every run starts in a new empty directory with `THYTRADER_*` and
-   `COINBASE_*` variables removed, so the harness holds no ThyTrader or venue credential. An agent
+   `COINBASE_*` variables removed. That is not a sandbox: a harness with tools runs as the
+   operator's user and can read `.env`, the credentials directory and the installation token, so
+   only the tool-less templates (Claude Code, Pi) keep the model to answering; the skill says so
+   and recommends them for unattended desks. An agent
    that wants its own tools can instead read the briefing and `record` an answer against the
    briefing fingerprint.
 4. **Every wake is journaled** in `desk_wakes`: time, harness and model, briefing fingerprint,
@@ -69,6 +72,14 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   or score read; until then it is a flat running discretionary book. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
+- Pool cash and book links change together: every operation on one desk (briefing settlement,
+  wake, score, status) holds that desk's lock in the API process; an open places the order and
+  then debits the pool and links the book in one transaction; settlement marks books settled and
+  credits the pool in one transaction. A crash between placement and that write leaves an
+  unlinked paper book the pool never paid for, never the reverse.
+- The daily loss baseline is the last equity journaled before midnight (else the first seen
+  today). Market rows whose newest closed hourly bar is over two hours stale carry no price, so
+  an open book on them leaves equity unknown and blocks entries.
 - HTTP: `/api/v1/desks` (create, list, show, briefing, wakes, score, status); CLI
   `thytrader-desk`; skill `skills/thytrader-desk`; ops contract v107 advertises
   `agent_desk_contract` `thytrader-agent-desk-v1`.

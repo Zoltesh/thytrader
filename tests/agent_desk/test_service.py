@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 import json
 from typing import TYPE_CHECKING
@@ -32,6 +33,7 @@ from thytrader.trading.models import (
     DeploymentKind,
     DeploymentSnapshot,
     DeploymentStatus,
+    ExecutionConflictError,
     IntentOrigin,
     IntentPurpose,
     OrderStatus,
@@ -58,7 +60,7 @@ class _Execution:
 
     async def snapshot(self, deployment_id: str) -> DeploymentSnapshot:
         """Return one book."""
-        return await self.store.get_deployment(UUID(deployment_id))
+        return await self.store.get_accounting_snapshot(UUID(deployment_id))
 
     async def open_book(self, request: DiscretionaryOrderRequest) -> DeploymentSnapshot:
         """Place on a fresh paper book (the account fee read is the fixed rates here)."""
@@ -137,6 +139,12 @@ async def test_a_desk_universe_must_match_its_quote_currency() -> None:
     """A USDC product on a USD desk is refused at creation."""
     with pytest.raises(DeskError, match="DESK_PRODUCT_INVALID"):
         await _desk(products=("BTC-USDC",))
+
+
+async def test_a_desk_timeframe_must_be_an_execution_timeframe() -> None:
+    """An unusable timeframe is refused at creation, not at the first open."""
+    with pytest.raises(DeskError, match="DESK_TIMEFRAME_INVALID"):
+        await _desk(timeframe="nonsense")
 
 
 async def test_the_briefing_carries_the_pool_market_and_one_prompt() -> None:
@@ -298,3 +306,73 @@ async def test_the_score_sets_the_desk_beside_fee_paying_buy_and_hold() -> None:
     assert result.btc.return_fraction is not None, result.btc.unavailable_reason
     assert result.universe.return_fraction is not None, result.universe.unavailable_reason
     assert result.beats_btc == (Decimal(0) > result.btc.return_fraction)
+
+
+async def test_concurrent_wakes_never_spend_the_pool_twice() -> None:
+    """Simultaneous opens and a settling briefing are serialized: the pool pays for each book."""
+    store, execution, desk_id = await _desk(caps=DeskCaps(max_open_positions=5))
+    wakes = await asyncio.gather(
+        _wake(store, execution, desk_id, _open(product="BTC-USD", fraction="0.2")),
+        _wake(store, execution, desk_id, _open(product="ETH-USD", fraction="0.2")),
+        briefing(desk_id, store=store, execution=execution, market_data=execution.market_data),
+    )
+    applied = [wake for wake in wakes[:2] if wake.outcome is WakeOutcome.APPLIED]
+    desk = await store.get_desk(desk_id)
+    books = await store.list_books(desk_id)
+    assert desk is not None
+    assert applied, [wake.detail for wake in wakes[:2]]
+    assert len(books) == len(applied)
+    assert desk.cash + sum(book.allocated_quote for book in books) == Decimal(10000)
+
+
+class _RefusingExecution(_Execution):
+    """Every placement is refused by the execution path."""
+
+    async def open_book(self, request: DiscretionaryOrderRequest) -> DeploymentSnapshot:
+        """Refuse like an unreadable account fee source."""
+        del request
+        raise ExecutionConflictError("PAPER_FEES_UNAVAILABLE: account rates unreadable.")
+
+
+async def test_a_refused_placement_moves_no_cash() -> None:
+    """The pool is debited only together with linking a placed book."""
+    store, _, desk_id = await _desk()
+    execution = _RefusingExecution()
+    wake = await _wake(store, execution, desk_id, _open())
+    desk = await store.get_desk(desk_id)
+    assert wake.outcome_code == "PAPER_FEES_UNAVAILABLE"
+    assert desk is not None
+    assert desk.cash == Decimal(10000)
+    assert await store.list_books(desk_id) == ()
+
+
+async def test_a_new_day_opens_at_the_last_equity_journaled_before_midnight() -> None:
+    """A loss realized after midnight but before the first wake still counts today."""
+    store, execution, desk_id = await _desk()
+    desk = await store.get_desk(desk_id)
+    assert desk is not None
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+    late = datetime.combine(datetime.now(UTC).date(), time(), tzinfo=UTC) - timedelta(minutes=5)
+    await store.save_desk(
+        desk.model_copy(update={"day_open_at": yesterday, "day_open_equity": Decimal(10000)}),
+        expected_revision=desk.revision,
+    )
+    quiet = await _wake(store, execution, desk_id, {"action": "no_trade", "thesis": "x"})
+    await store.add_wake(
+        quiet.model_copy(
+            update={"wake_id": "pre-midnight", "started_at": late, "equity_quote": Decimal(10600)}
+        )
+    )
+    reloaded = await store.get_desk(desk_id)
+    assert reloaded is not None
+    await store.save_desk(
+        reloaded.model_copy(update={"day_open_at": yesterday}),
+        expected_revision=reloaded.revision,
+    )
+    brief = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    rolled = await store.get_desk(desk_id)
+    assert rolled is not None
+    assert rolled.day_open_equity == Decimal(10600)
+    assert brief.desk.equity_quote == Decimal(10000)

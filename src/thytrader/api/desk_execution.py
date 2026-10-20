@@ -51,8 +51,8 @@ class ApiDeskExecution:
         self._audit = audit
 
     async def snapshot(self, deployment_id: str) -> DeploymentSnapshot:
-        """Return one book."""
-        return await self._store.get_deployment(UUID(deployment_id))
+        """Return one book from a single consistent accounting read (cash and inventory agree)."""
+        return await self._store.get_accounting_snapshot(UUID(deployment_id))
 
     async def open_book(self, request: DiscretionaryOrderRequest) -> DeploymentSnapshot:
         """Place one paper order on a fresh book and audit it like any discretionary order."""

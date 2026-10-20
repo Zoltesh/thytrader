@@ -31,6 +31,7 @@ from thytrader.agent_desk.service import (
     DeskSpec,
     briefing,
     create_desk,
+    desk_lock,
     record_wake,
     save_desk as save_desk_revision,
     score,
@@ -240,12 +241,13 @@ async def post_status(
 ) -> Desk:
     """Pause, resume or retire a desk; its open books keep their stops and targets."""
     try:
-        desk = await desks.get_desk(desk_id)
-        if desk is None:
-            raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
-        return await save_desk_revision(
-            desk.model_copy(update={"status": body.status}), store=desks, previous=desk
-        )
+        async with desk_lock(desk_id):
+            desk = await desks.get_desk(desk_id)
+            if desk is None:
+                raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
+            return await save_desk_revision(
+                desk.model_copy(update={"status": body.status}), store=desks, previous=desk
+            )
     except DeskError as error:
         raise _desk_http(error) from None
     except (DeskStoreUnavailableError, DeskConflictError) as error:

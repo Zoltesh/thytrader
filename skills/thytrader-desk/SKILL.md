@@ -85,8 +85,14 @@ Built-in harnesses (`harnesses` prints the exact argv):
 
 Any other harness: `--command "mytool run --model {model}"` (prompt on stdin) or put `{prompt}` in
 the command to pass it as an argument. Each run starts in a new empty directory, and
-`THYTRADER_*`/`COINBASE_*` variables are removed from its environment. The model's tools cannot
-act on ThyTrader; only the answer is applied, under the caps.
+`THYTRADER_*`/`COINBASE_*` variables are removed from its environment. ThyTrader applies only the
+answer, under the caps.
+
+**Isolation differs by harness.** `claude` and `pi` run with no tools, so the model can only
+answer. `codex` and `hermes` (and a `--command` harness with tools) run as your user: they can
+read any file that user can, including `.env`, the credentials directory and the installation
+token, and Hermes can also act. Prefer `claude` or `pi` for an unattended desk; use the others
+only on a machine where that access is acceptable.
 
 An agent that should think with its own tools can instead read `briefing`, decide, and `record`
 its answer with the briefing's `fingerprint`.
@@ -136,4 +142,9 @@ Paper results are evidence, not a promise: judge a desk over weeks and many trad
 - The briefing's market rows are hourly summaries from stored candles; a product with no data shows
   `unavailable_reason`.
 - A desk book is an ordinary discretionary paper book: it appears in `thytrader-runtime list` and the
-  browser, and stopping it there settles it into the pool like a `close`.
+  browser. A desk `close` flattens it. A plain runtime/browser stop is a managed stop that keeps
+  the position, so the book settles into the pool only once it is flat; to end it now use
+  `uv run thytrader-runtime stop BOOK_ID --flatten --confirm`.
+- An open places the order, then debits the pool and links the book in one write. If the API
+  dies in between, the paper book exists but is not the desk's (its note starts with the desk
+  name): stop it with `--flatten`; the pool never paid for it.

@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
 
 _HOURS = 24 * 7 + 16
+_STALE_HOURS = 2
 _ATR_PERIOD = 14
 
 
@@ -42,20 +43,36 @@ class MarketRow(BaseModel):
     unavailable_reason: str | None = None
 
 
-def summarize(product_id: str, candles: Sequence[Candle]) -> MarketRow:
-    """Summarize closed 1h candles, newest last."""
+def summarize(
+    product_id: str, candles: Sequence[Candle], *, newest_expected: datetime | None = None
+) -> MarketRow:
+    """Summarize closed 1h candles, newest last.
+
+    With ``newest_expected`` (the start of the latest closed hour), a newest bar more than
+    ``_STALE_HOURS`` older than it leaves the row without a price: stale evidence is unknown.
+    """
     if not candles:
         return MarketRow(product_id=product_id, unavailable_reason="no closed 1h candles")
-    closes = [candle.close for candle in candles]
     last = candles[-1]
+    if newest_expected is not None and last.starts_at < newest_expected - timedelta(
+        hours=_STALE_HOURS
+    ):
+        return MarketRow(
+            product_id=product_id,
+            last_bar_starts_at=last.starts_at,
+            unavailable_reason=(
+                f"stale: the newest closed 1h bar starts at {last.starts_at:%Y-%m-%dT%H:%MZ}"
+            ),
+        )
+    closes = {candle.starts_at: candle.close for candle in candles}
     return MarketRow(
         product_id=product_id,
         last_close=last.close,
         last_bar_starts_at=last.starts_at,
-        return_1h=_return(closes, 1),
-        return_4h=_return(closes, 4),
-        return_24h=_return(closes, 24),
-        return_7d=_return(closes, 24 * 7),
+        return_1h=_return(closes, last, 1),
+        return_4h=_return(closes, last, 4),
+        return_24h=_return(closes, last, 24),
+        return_7d=_return(closes, last, 24 * 7),
         atr_fraction=_atr_fraction(candles),
         volume_24h_vs_7d_avg=_relative_volume(candles),
     )
@@ -80,15 +97,17 @@ async def market_rows(
                 )
             )
             continue
-        rows.append(summarize(product_id, report.quality.candles))
+        newest = ends_at - timedelta(hours=1)
+        rows.append(summarize(product_id, report.quality.candles, newest_expected=newest))
     return tuple(rows)
 
 
-def _return(closes: Sequence[Decimal], bars: int) -> Decimal | None:
-    """Close-to-close return over ``bars`` hours, or None without that much history."""
-    if len(closes) <= bars or closes[-1 - bars] <= 0:
+def _return(closes: dict[datetime, Decimal], last: Candle, hours: int) -> Decimal | None:
+    """Close-to-close return over ``hours``, or None when the bar that long ago is missing."""
+    then = closes.get(last.starts_at - timedelta(hours=hours))
+    if then is None or then <= 0:
         return None
-    return _round(closes[-1] / closes[-1 - bars] - 1)
+    return _round(last.close / then - 1)
 
 
 def _atr_fraction(candles: Sequence[Candle]) -> Decimal | None:

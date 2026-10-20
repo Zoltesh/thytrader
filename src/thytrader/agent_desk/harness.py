@@ -4,7 +4,9 @@ Briefing in, decision out: the prompt goes in on stdin (or as ``{prompt}`` in th
 answer comes back on stdout, and ThyTrader alone applies it. Built-in templates turn tools off
 where the harness allows it. Each run starts in a new empty directory, so no project
 ``AGENTS.md``/``CLAUDE.md`` is picked up. ThyTrader and venue credentials are removed from the
-environment, so the harness cannot act on ThyTrader directly.
+environment. That is not a sandbox: a harness with tools (Codex, Hermes, most custom commands)
+runs as the operator's user and can read their files; only the tool-less templates keep the
+model to answering.
 """
 
 from __future__ import annotations
@@ -72,13 +74,13 @@ BUILTIN_HARNESSES: dict[str, HarnessTemplate] = {
         name="codex",
         argv=("codex", "exec", "--skip-git-repo-check", "--ephemeral", "--sandbox", "read-only"),
         model_argv=("-m", MODEL_PLACEHOLDER),
-        note="Codex exec in a read-only sandbox (Codex cannot turn its tools off).",
+        note="Codex exec, read-only sandbox: it can still read your files, credentials included.",
     ),
     "hermes": HarnessTemplate(
         name="hermes",
         argv=("hermes", "--ignore-rules", "-z", PROMPT_PLACEHOLDER),
         model_argv=("-m", MODEL_PLACEHOLDER),
-        note="Hermes one-shot without rules or memory injection; Hermes keeps its toolsets.",
+        note="Hermes one-shot without rules; Hermes keeps its tools and can read and act.",
     ),
 }
 
