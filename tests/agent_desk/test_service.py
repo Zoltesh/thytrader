@@ -12,12 +12,15 @@ from uuid import UUID
 
 import pytest
 
+from tests.persistence.test_postgres_fill_transaction import _pending_entry_book
+from thytrader.agent_desk.funding import created_by
 from thytrader.agent_desk.models import (
     Desk,
     DeskBook,
     DeskCaps,
     DeskStatus,
     DeskWake,
+    PendingOpen,
     WakeOutcome,
 )
 from thytrader.agent_desk.service import (
@@ -83,10 +86,15 @@ class _Execution:
             live_allowed=False,
         )
 
-    async def find_book(self, idempotency_key: str) -> str | None:
-        """The book an order placed under the key belongs to."""
-        intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
-        return None if intent is None else str(intent.deployment_id)
+    async def find_book(self, pending: PendingOpen) -> str | None:
+        """The book a reserved open created: by its order's key, else by its funding."""
+        intent = await self.store.get_intent_by_idempotency_key(pending.idempotency_key)
+        if intent is not None:
+            return str(intent.deployment_id)
+        for deployment in await self.store.list_deployments(limit=200):
+            if created_by(pending, deployment):
+                return str(deployment.id)
+        return None
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one book."""
@@ -456,3 +464,37 @@ async def test_a_desk_holds_two_products_at_once() -> None:
     assert first.outcome is WakeOutcome.APPLIED, first.detail
     assert second.outcome is WakeOutcome.APPLIED, second.detail
     assert len(await store.list_books(desk_id)) == 2
+
+
+async def test_a_reserved_book_without_its_order_is_linked_not_refunded() -> None:
+    """A book created before its order was recorded is found by its funding, not refunded."""
+    store, execution, desk_id = await _desk()
+    desk = await store.get_desk(desk_id)
+    assert desk is not None
+    now = datetime.now(UTC)
+    pending = PendingOpen(
+        wake_id="w-1",
+        idempotency_key=f"desk:{desk_id}:w-1",
+        product_id="BTC-USD",
+        side="long",
+        allocated_quote=Decimal(1000),
+        reserved_at=now,
+        thesis="interrupted",
+    )
+    await store.save_desk(
+        desk.model_copy(update={"cash": Decimal(9000), "pending_open": pending}),
+        expected_revision=desk.revision,
+    )
+    orphan = replace(
+        _pending_entry_book(),
+        product_id="BTC-USD",
+        created_at=now + timedelta(seconds=1),
+        updated_at=now + timedelta(seconds=1),
+    )
+    await execution.store.create_deployment(orphan)
+    await briefing(desk_id, store=store, execution=execution, market_data=execution.market_data)
+    resolved = await store.get_desk(desk_id)
+    assert resolved is not None
+    assert resolved.pending_open is None
+    assert resolved.cash == Decimal(9000)
+    assert [book.deployment_id for book in await store.list_books(desk_id)] == [str(orphan.id)]

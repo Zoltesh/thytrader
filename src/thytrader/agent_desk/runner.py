@@ -121,11 +121,13 @@ def schedule_text(
                 f"not {cadence_minutes}; use the systemd timer."
             )
             raise DeskRunError(message)
-        return (
-            f"*/{cadence_minutes} * * * * cd {shlex.quote(str(workdir))} && "
-            f"PATH={shlex.quote(path)} {command}\n"
-        )
+        line = f"cd {shlex.quote(str(workdir))} && PATH={shlex.quote(path)} {command}"
+        # cron ends the command at an unescaped % and feeds the rest to stdin.
+        return f"*/{cadence_minutes} * * * * {line.replace('%', chr(92) + '%')}\n"
     unit = f"thytrader-desk-{_unit_safe(desk_id)}"
+    # systemd expands %-specifiers in unit files; %% is a literal percent.
+    command = command.replace("%", "%%")
+    path = path.replace("%", "%%")
     return (
         f"# ~/.config/systemd/user/{unit}.service\n"
         "[Unit]\n"

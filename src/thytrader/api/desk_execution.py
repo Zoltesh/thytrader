@@ -6,6 +6,7 @@ import contextlib
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from thytrader.agent_desk.funding import created_by
 from thytrader.audit_events import AuditEvent, AuditEventCategory, AuditEventOutcome
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.discretionary import place_discretionary_order
@@ -16,6 +17,7 @@ from thytrader.trading.models import DeploymentStatus, ExecutionConflictError
 if TYPE_CHECKING:
     from decimal import Decimal
 
+    from thytrader.agent_desk.models import PendingOpen
     from thytrader.audit_events import AuditEventStore
     from thytrader.execution.broker import Broker
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
@@ -82,10 +84,15 @@ class ApiDeskExecution:
         )
         return snapshot
 
-    async def find_book(self, idempotency_key: str) -> str | None:
-        """The book an order placed under ``idempotency_key`` belongs to, if any."""
-        intent = await self._store.get_intent_by_idempotency_key(idempotency_key)
-        return None if intent is None else str(intent.deployment_id)
+    async def find_book(self, pending: PendingOpen) -> str | None:
+        """The book a reserved open created: by its order's key, else by its funding."""
+        intent = await self._store.get_intent_by_idempotency_key(pending.idempotency_key)
+        if intent is not None:
+            return str(intent.deployment_id)
+        for deployment in await self._store.list_deployments(limit=200):
+            if created_by(pending, deployment):
+                return str(deployment.id)
+        return None
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one desk book (managed, or flattening)."""

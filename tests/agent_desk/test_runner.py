@@ -200,6 +200,11 @@ def test_schedules_wake_the_desk_on_its_cadence() -> None:
     )
     assert "--base-url http://127.0.0.1:9876" in custom
     assert "--command 'opencode run --model {model}'" in custom
+    percent = 'printf %s \'{"action": "no_trade"}\''
+    cron_line = runner.schedule_text("d", cadence_minutes=30, style="cron", harness_command=percent)
+    unit = runner.schedule_text("d", cadence_minutes=30, style="systemd", harness_command=percent)
+    assert "printf \\%s" in cron_line
+    assert "printf %%s" in unit
     with pytest.raises(runner.DeskRunError, match="DESK_SCHEDULE_UNSUPPORTED"):
         runner.schedule_text("d", cadence_minutes=45, style="cron")
 

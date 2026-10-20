@@ -77,8 +77,12 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   the cash with a `pending_open` marker in the pool debit's write, places the order under the
   idempotency key `desk:{desk}:{wake}`, then clears the marker, links the book and journals the
   wake in one transaction. A marker left by a failure is resolved on the next read: the book
-  found under the key is linked (journaled `DESK_OPEN_RECOVERED`) or the cash is refunded.
-  Settlement marks books settled and credits the pool in one transaction.
+  found under the key (or, when its order was never recorded, the discretionary paper book on
+  that product funded with exactly that allocation within five minutes of the reservation) is
+  linked, journaled `DESK_OPEN_RECOVERED`; otherwise the cash is refunded.
+  Settlement marks books settled and credits the pool in one transaction. A close is journaled
+  after the flatten request; if that journal write fails the close still happened (the book's own
+  runtime audit records it) and the wake row is missing: a known gap, with no cash effect.
 - Discretionary entry admission now marks every held product of peer books (last close), as
   fleet entry health does; before, any other book's inventory left daily-loss evidence
   unavailable and refused the entry.

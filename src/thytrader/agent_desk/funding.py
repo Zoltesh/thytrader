@@ -11,6 +11,7 @@ reservation is refunded. The pool never pays for a book it does not own, nor own
 
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from thytrader.agent_desk.models import (
@@ -21,7 +22,7 @@ from thytrader.agent_desk.models import (
     WakeOutcome,
 )
 from thytrader.agent_desk.ports import save_desk
-from thytrader.trading.models import PositionSide
+from thytrader.trading.models import DeploymentKind, DeploymentMode, PositionSide
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -32,7 +33,9 @@ if TYPE_CHECKING:
     from thytrader.agent_desk.ports import DeskExecution
     from thytrader.agent_desk.store import DeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
+    from thytrader.trading.models import Deployment
 
+RESERVATION_WINDOW = timedelta(minutes=5)
 RECOVERED_DETAIL = "An open interrupted before it was linked was found and linked on recovery."
 
 
@@ -79,12 +82,23 @@ async def open_funded(
     return applied
 
 
+def created_by(pending: PendingOpen, deployment: Deployment) -> bool:
+    """Whether ``deployment`` is the book a reservation's placement created."""
+    return (
+        deployment.kind is DeploymentKind.DISCRETIONARY
+        and deployment.mode is DeploymentMode.PAPER
+        and deployment.product_id == pending.product_id
+        and deployment.paper_starting_cash == pending.allocated_quote
+        and pending.reserved_at <= deployment.created_at <= pending.reserved_at + RESERVATION_WINDOW
+    )
+
+
 async def resolve_pending(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> Desk:
     """Link the book a reservation paid for, or refund the reservation when there is none."""
     pending = desk.pending_open
     if pending is None:
         return desk
-    deployment_id = await execution.find_book(pending.idempotency_key)
+    deployment_id = await execution.find_book(pending)
     if deployment_id is None:
         return await save_desk(
             desk.model_copy(

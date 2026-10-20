@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from decimal import Decimal
 
-    from thytrader.agent_desk.models import Desk, DeskBook, DeskWake
+    from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, PendingOpen
     from thytrader.agent_desk.store import DeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.trading.models import DeploymentSnapshot
@@ -32,8 +32,13 @@ class DeskExecution(Protocol):
         """Place one discretionary order on a fresh paper book."""
         ...
 
-    async def find_book(self, idempotency_key: str) -> str | None:
-        """The book an order placed under ``idempotency_key`` belongs to, if any."""
+    async def find_book(self, pending: PendingOpen) -> str | None:
+        """The book a reserved open created, if any.
+
+        First the book of the order placed under the reservation's idempotency key; failing
+        that (the book was created but its order never recorded), the discretionary paper book
+        on that product funded with exactly that allocation within minutes of the reservation.
+        """
         ...
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
