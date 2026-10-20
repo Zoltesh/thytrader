@@ -80,6 +80,7 @@ class HealthOpsContract(BaseModel):
     instrument_kinds: list[str]
     futures_order_paths: list[str]
     futures_observations: list[str]
+    agent_desk_contract: str
     expected_schema_revision: str
 
 

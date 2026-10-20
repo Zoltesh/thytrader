@@ -11,6 +11,7 @@ Use only the shipped skills:
 - `thytrader-portfolio` — portfolios, sleeves, weights, limits, manager settings, portfolio backtests, journal, and the manager loop (briefing, proposals, a person's approve/decline) (`--confirm`; no deployment or order authority)
 - `thytrader-playbook` — data → research → optional paper via existing CLIs (`--confirm` forwarded; never live)
 - `thytrader-memory` — journals, sentiment/pattern hooks, monitor, notify, train/list-models/show-model (`--confirm`; YOLO never covers this lane)
+- `thytrader-desk` — paper agent desks a model harness wakes on a cadence: create, wake, record, journal, score, schedule, pause (`--confirm`; YOLO never covers this lane; paper only)
 
 Run every `uv run thytrader-*` command from the **repository root** (the parent of this `ops/`
 folder). JSON is the default CLI output.

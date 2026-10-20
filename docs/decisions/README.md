@@ -152,6 +152,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0144](0144-fee-tiers-from-coinbase.md) | Fee tiers come from Coinbase: the fee report carries the account's current and next tier from `transaction_summary`; the pinned public schedule and its `schedule_*` fields are removed | Accepted |
 | [0145](0145-futures-reference-instruments.md) | Futures strategies may read USD-quoted spot reference instruments (e.g. BTC-USD 1d) and gate entries on them like spot strategies; references feed indicators only, never capital or margin | Accepted |
 | [0146](0146-data-gap-pauses-clear-themselves.md) | A single-instrument book paused only by a decision-window data gap (a thin market's quiet newest bar) resumes automatically after its window is whole again and its due bars were evaluated without entries (audit `data_gap_pause_cleared`); operator pauses, latches, lifecycle commands, HTF/extra-timeframe pauses and multi-instrument books stay | Accepted |
+| [0147](0147-agent-desk.md) | Agent desks: a paper pool, universe and caps that an external model harness (Claude Code, Pi, Codex, Hermes or any command) wakes on a cadence; one JSON decision per wake applied to a fresh discretionary paper book under the caps, every wake journaled, scored against BTC and universe buy-and-hold | Accepted |
 
 ## Status values
 

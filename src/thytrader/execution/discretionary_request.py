@@ -46,6 +46,11 @@ class DiscretionaryOrderRequest:
     paper_maker_fee_rate: Decimal | None
     paper_taker_fee_rate: Decimal | None
     note: str | None = None
+    fresh_book: bool = False
+    """Always create a new book; a book already on the product (even flat) is a conflict.
+
+    Agent desks (ADR 0147) fund each trade from their own pool and must never inherit another
+    book's cash; ordinary tickets keep reusing a flat running book."""
 
 
 def parse_discretionary_request(

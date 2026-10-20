@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.execution.breaker_pause import _pause_mode_running
+from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.execution.paper_fees import paper_fee_rates
 from thytrader.execution.runtime_ops import _pause
 from thytrader.risk.accounting_evidence import accounting_snapshot
@@ -71,7 +72,11 @@ async def _book_for_entry(
     ``market_data`` supplies BTC-beta evidence when the policy sets a β cap (ADR 0125).
     """
     existing = await store.list_deployments()
-    reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
+    reusable = (
+        None
+        if request.fresh_book
+        else _reusable_book(existing, product_id=request.product_id, mode=request.mode)
+    )
     if reusable is not None:
         snapshot = await accounting_snapshot(store, reusable.id, as_of=utc_now())
         fresh = snapshot.deployment
@@ -303,7 +308,11 @@ async def _require_entry_admission(
             as_of=as_of,
             proposed_price=entry_price,
             reference_price=reference_price,
-            marks={request.product_id: reference_price},
+            # Every held product needs a mark for daily-loss evidence, not just this one.
+            marks={
+                **await inventory_marks(market_data, peers),
+                request.product_id: reference_price,
+            },
         ),
         beta=beta,
         futures_collateral=futures_collateral,

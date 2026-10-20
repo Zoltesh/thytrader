@@ -1,6 +1,10 @@
 {
   "components": {
     "agent_cli": [
+      "agent_desk.cli",
+      "agent_desk.client",
+      "agent_desk.harness",
+      "agent_desk.runner",
       "agent_http",
       "cli_errors",
       "agent_orchestration.cli",
@@ -84,6 +88,7 @@
     {
       "name": "coordination",
       "components": [
+        "agent_desk",
         "alerts",
         "fleet_control",
         "portfolios"

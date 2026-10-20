@@ -10829,6 +10829,12 @@
           "title": "Futures Observations",
           "type": "array"
         },
+        "agent_desk_contract": {
+          "const": "thytrader-agent-desk-v1",
+          "description": "Agent desk briefing and decision contract (ADR 0147, thytrader-desk).",
+          "title": "Agent Desk Contract",
+          "type": "string"
+        },
         "expected_schema_revision": {
           "maxLength": 32,
           "minLength": 1,
@@ -10898,6 +10904,7 @@
         "instrument_kinds",
         "futures_order_paths",
         "futures_observations",
+        "agent_desk_contract",
         "expected_schema_revision"
       ],
       "title": "OpsContractPayload",
