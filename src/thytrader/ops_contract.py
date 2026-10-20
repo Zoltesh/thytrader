@@ -140,7 +140,9 @@ instruments allowed; ADR 0145), or the live futures start (``futures_order_paths
 ``live_futures_start``, the ``i_understand_live_futures`` / ``fee_per_contract`` /
 ``futures_capital_usd`` start fields with HTTP 428 ``LIVE_FUTURES_ACK_REQUIRED``, CLI
 ``--i-understand-live-futures`` / ``--futures-capital-usd``, risk refusals led by their code,
-and spot allocations no longer gating futures books; ADR 0134 P2-7) change.
+and spot allocations no longer gating futures books; ADR 0134 P2-7), or agent desks (the
+``/api/v1/desks`` routes, ``thytrader-desk``, the ``agent_desk_contract`` briefing/decision id and
+Alembic ``0080``; ADR 0147) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -149,6 +151,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from thytrader.agent_desk.models import DESK_CONTRACT
 from thytrader.backtest.models import BACKTEST_DIAGNOSTICS_VERSION
 from thytrader.evaluation.models import BACKTEST_ENGINE
 from thytrader.execution.candle_wait import NEWEST_BAR_SETTLE_SECONDS
@@ -169,8 +172,8 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v106"
-EXPECTED_SCHEMA_REVISION = "0079"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v107"
+EXPECTED_SCHEMA_REVISION = "0080"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",
@@ -409,6 +412,7 @@ def expected_ops_contract() -> dict[str, object]:
         "instrument_kinds": list(INSTRUMENT_KINDS),
         "futures_order_paths": list(FUTURES_ORDER_PATHS),
         "futures_observations": list(FUTURES_OBSERVATIONS),
+        "agent_desk_contract": DESK_CONTRACT,
         "expected_schema_revision": EXPECTED_SCHEMA_REVISION,
     }
 

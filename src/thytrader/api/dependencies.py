@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, cast
 from fastapi import HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from thytrader.agent_desk.store import DeskStore, InMemoryDeskStore
 from thytrader.alerts.store import AlertStore, DisabledAlertStore
 from thytrader.api.futures_start_source import live_futures_start_source
 from thytrader.audit_events import AuditEventStore
@@ -30,6 +31,7 @@ from thytrader.persistence.portfolio_history import PortfolioHistoryStore
 from thytrader.persistence.postgres_adoption import PostgresInventoryAdoptionStore
 from thytrader.persistence.postgres_backtests import PostgresBacktestResultStore
 from thytrader.persistence.postgres_campaigns import PostgresCampaignStore
+from thytrader.persistence.postgres_desks import PostgresDeskStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
@@ -400,6 +402,23 @@ def get_futures_start(request: Request) -> FuturesStart | None:
             mirror=PostgresFuturesAccountStore(engine),
         ),
     )
+
+
+def get_desk_store(request: Request) -> DeskStore:
+    """Return the agent desk store (ADR 0147).
+
+    Tests may inject one on ``app.state.desk_store``; otherwise PostgreSQL backs it, and
+    without a database desks live in process memory for the life of the app.
+    """
+    injected = getattr(request.app.state, "desk_store", None)
+    if injected is not None:
+        return injected
+    engine = get_database_engine(request)
+    if engine is not None:
+        return PostgresDeskStore(engine)
+    store = InMemoryDeskStore()
+    request.app.state.desk_store = store
+    return store
 
 
 def get_database_engine(request: Request) -> AsyncEngine | None:

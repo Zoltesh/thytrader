@@ -12,7 +12,7 @@ so they load these skills without the contributor GitNexus workflow. The human b
 
 ## Offline evidence companion: `thytrader-replay`
 
-File-only export, inspect and replay, separate from all seven HTTP lanes:
+File-only export, inspect and replay, separate from all eight HTTP lanes:
 
 - Discover: `uv run thytrader-replay --help`.
 - Commands: `export --input FILE --root DIR`, `inspect MANIFEST`,
@@ -170,6 +170,18 @@ skips `--confirm`. Does not deploy, paper-trade, live-trade, arm, or cancel orde
 - Skill: [`thytrader-memory/SKILL.md`](thytrader-memory/SKILL.md)
 - CLI: `uv run thytrader-memory … --confirm`
 - HTTP: `/api/v1/memory`
+
+## `thytrader-desk`
+
+Paper agent desks ([ADR 0147](../docs/decisions/0147-agent-desk.md)): a paper pool, a universe and
+caps that a model harness (Claude Code, Pi, Codex, Hermes, or any command) wakes on a cadence. The
+model answers one JSON decision per wake; ThyTrader applies it to a fresh discretionary paper book
+under the caps and journals every wake. `--confirm` on create, wake, record and status; YOLO never
+skips it. Paper only.
+
+- Skill: [`thytrader-desk/SKILL.md`](thytrader-desk/SKILL.md)
+- CLI: `uv run thytrader-desk … --confirm`
+- HTTP: `/api/v1/desks`
 
 ## In-app operator chat
 

@@ -71,7 +71,11 @@ async def _book_for_entry(
     ``market_data`` supplies BTC-beta evidence when the policy sets a β cap (ADR 0125).
     """
     existing = await store.list_deployments()
-    reusable = _reusable_book(existing, product_id=request.product_id, mode=request.mode)
+    reusable = (
+        None
+        if request.fresh_book
+        else _reusable_book(existing, product_id=request.product_id, mode=request.mode)
+    )
     if reusable is not None:
         snapshot = await accounting_snapshot(store, reusable.id, as_of=utc_now())
         fresh = snapshot.deployment

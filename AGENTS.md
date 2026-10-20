@@ -330,8 +330,8 @@ scraping logs or inventing commands.
 
 When the user asks to diagnose ThyTrader, inspect paper/live status, change strategies, run
 backtests, or deploy/pause/resume/stop paper or live, **open the [`ops/`](ops/README.md)
-workspace** and use the shipped skills ([`skills/README.md`](skills/README.md) lists the seven
-lanes: operator, data, research, runtime, portfolio, playbook, memory) instead of scraping logs,
+workspace** and use the shipped skills ([`skills/README.md`](skills/README.md) lists the eight
+lanes: operator, data, research, runtime, portfolio, playbook, memory, desk) instead of scraping logs,
 querying PostgreSQL, or editing source. Do not edit `src/`, `compose.yaml`, Dockerfiles, Alembic,
 or tests while operating. Run `make run` only if the user asked to rebuild or restart, or if
 health/HTTP reports a stale Compose image. Run every `uv run thytrader-*` command from this

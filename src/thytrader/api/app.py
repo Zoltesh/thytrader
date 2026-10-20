@@ -31,6 +31,7 @@ from thytrader.api.routes.deployment_futures import router as deployment_futures
 from thytrader.api.routes.deployment_live_evidence import router as live_evidence_router
 from thytrader.api.routes.deployment_twins import router as deployment_twins_router
 from thytrader.api.routes.deployments import router as deployments_router
+from thytrader.api.routes.desks import router as desks_router
 from thytrader.api.routes.discretionary_orders import router as discretionary_orders_router
 from thytrader.api.routes.execution_quality import router as execution_quality_router
 from thytrader.api.routes.fees import router as fees_router
@@ -447,6 +448,7 @@ def create_app(
     app.include_router(decisions_router)
     app.include_router(execution_quality_router)
     app.include_router(discretionary_orders_router)
+    app.include_router(desks_router)
     app.include_router(inventory_adoption_router)
     app.include_router(live_evidence_router)
     app.include_router(risk_policy_router)
