@@ -788,6 +788,47 @@ def test_coinbase_market_data_ignores_open_candle_at_exclusive_range_boundary() 
     assert report.complete is True
 
 
+class StrictEndCoinbaseMarketClient(PagedCoinbaseMarketClient):
+    """Rejects ``start == end`` like Coinbase's futures candles endpoint."""
+
+    def get_candles(
+        self,
+        product_id: str,
+        start: str,
+        end: str,
+        granularity: str,
+        limit: int | None = None,
+    ) -> StubResponse:
+        """Refuse an empty interval, then answer like the paged stub."""
+        if int(start) >= int(end):
+            raise AssertionError("start must be before end")
+        return super().get_candles(product_id, start, end, granularity, limit)
+
+
+def test_a_one_candle_range_sends_an_end_after_its_start() -> None:
+    """The midnight-mark read (one hourly candle) works where start == end is refused."""
+    client = StrictEndCoinbaseMarketClient()
+    starts_at = datetime(2026, 7, 1, 23, tzinfo=UTC)
+    ends_at = datetime(2026, 7, 2, tzinfo=UTC)
+
+    report = asyncio.run(
+        CoinbaseMarketData(client).get_historical_range(
+            "BTC-USD",
+            CandleInterval.ONE_HOUR,
+            starts_at,
+            ends_at,
+            now=ends_at + CandleInterval.ONE_HOUR.duration,
+        )
+    )
+
+    assert report.complete is True
+    assert [candle.starts_at for candle in report.quality.candles] == [starts_at]
+    assert client.candle_calls[-1][1:3] == (
+        str(int(starts_at.timestamp())),
+        str(int(starts_at.timestamp()) + 1),
+    )
+
+
 def test_coinbase_market_data_maps_recent_lower_boundary_overflow() -> None:
     """A minimum-date preview request must fail as a controlled adapter error."""
     with pytest.raises(CoinbaseMarketDataError, match="represent"):

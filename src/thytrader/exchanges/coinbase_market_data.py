@@ -197,7 +197,7 @@ class CoinbaseMarketData:
                     self._client.get_candles,
                     product_id,
                     str(int(page_start.timestamp())),
-                    str(int(inclusive_end.timestamp())),
+                    str(int(_request_end(page_start, inclusive_end).timestamp())),
                     _granularity(interval),
                     _CANDLE_PAGE_LIMIT,
                 )
@@ -248,6 +248,18 @@ def _is_rate_limited(error: Exception) -> bool:
     response: object = getattr(error, "response", None)
     status: object = getattr(response, "status_code", None)
     return isinstance(status, int) and status == _HTTP_TOO_MANY_REQUESTS
+
+
+def _request_end(page_start: datetime, inclusive_end: datetime) -> datetime:
+    """The ``end`` sent for a page: one second past ``start`` for a one-candle page.
+
+    Spot accepts ``start == end`` for a single candle; the futures candles endpoint rejects it
+    ("start must be before end"). One second later still names no other candle start, and the
+    page filter keeps only candles that start by ``inclusive_end``.
+    """
+    if inclusive_end > page_start:
+        return inclusive_end
+    return page_start + timedelta(seconds=1)
 
 
 def _inclusive_page_end(page_start: datetime, ends_at: datetime, duration: timedelta) -> datetime:
