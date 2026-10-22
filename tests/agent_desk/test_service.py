@@ -41,6 +41,7 @@ from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
     DeploymentKind,
+    DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     ExecutionConflictError,
@@ -523,3 +524,43 @@ async def test_a_reserved_book_without_its_order_is_linked_not_refunded() -> Non
     assert resolved.pending_open is None
     assert resolved.cash == Decimal(9000)
     assert [book.deployment_id for book in await store.list_books(desk_id)] == [str(orphan.id)]
+
+
+async def test_a_live_cancel_settles_only_after_its_watermark() -> None:
+    """Until reconciliation settles a live cancel, a late fill could still arrive: hold the cash."""
+    store, execution, desk_id = await _desk()
+    first = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    close = next(row.last_close for row in first.market if row.product_id == "BTC-USD")
+    assert close is not None
+    limit = (close * Decimal("0.99")).quantize(Decimal("0.01"))
+    wake = await _wake(
+        store,
+        execution,
+        desk_id,
+        _open(entry="limit", limit_price=str(limit), stop_price=str(limit / 2)),
+    )
+    assert wake.outcome is WakeOutcome.APPLIED, wake.detail
+    book = await execution.snapshot(wake.deployment_id or "")
+    assert not book.fills
+    entry = book.orders[0]
+    await execution.store.save_order(replace(entry, status=OrderStatus.CANCELED))
+    await execution.store.save_deployment(
+        with_runtime(
+            replace(book.deployment, mode=DeploymentMode.LIVE),
+            updated_at=datetime.now(UTC),
+            status=DeploymentStatus.STOPPED,
+            phase=RuntimePhase.FLAT,
+        )
+    )
+    held = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    stored = (await execution.snapshot(wake.deployment_id or "")).orders[0]
+    await execution.store.save_order(replace(stored, settled_at=datetime.now(UTC)))
+    settled = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert held.desk.cash == Decimal(9000)
+    assert settled.desk.cash == Decimal(10000)

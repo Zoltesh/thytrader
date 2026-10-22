@@ -116,8 +116,8 @@ exits like any discretionary order.
 Refusal codes: `DESK_DECISION_INVALID`, `DESK_NOT_ACTIVE`, `DESK_PRODUCT_NOT_IN_UNIVERSE`,
 `DESK_PRODUCT_OCCUPIED`, `DESK_MAX_POSITIONS`, `DESK_MAX_ENTRIES_TODAY`, `DESK_EQUITY_UNKNOWN`,
 `DESK_DAILY_LOSS`, `DESK_POSITION_TOO_LARGE`, `DESK_CASH_SHORT`, `DESK_UNKNOWN_BOOK`, and
-`DESK_SHORT_LIVE_UNSUPPORTED`, `DISCRETIONARY_NOT_ALLOCATED` (a live desk the policy does not
-reserve), and execution refusals from the discretionary path, led by their own code or `DESK_ORDER_REFUSED`
+`DESK_SHORT_LIVE_UNSUPPORTED`, `DESK_LIVE_LIMIT_ONLY`, `DISCRETIONARY_NOT_ALLOCATED` (a live desk
+the policy does not reserve), and execution refusals from the discretionary path, led by their own code or `DESK_ORDER_REFUSED`
 with the reason in `detail` (for example paper fees unavailable, or the risk policy's
 `paper_capital_quote` / single-quote paper capital and running-slot caps, which desk books count
 against like any paper book). Harness
@@ -133,16 +133,20 @@ A live desk spends real money from the account. Two steps, both the operator's d
    `uv run thytrader-desk create ... --mode live --i-understand-live --confirm`. The desk records
    when live was acknowledged. YOLO never covers this.
 2. Reserve its capital in the risk policy (`thytrader-runtime` skill): while any `allocations`
-   are in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED` until the policy
-   lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation DESK_ID:QUOTE`). Each
+   or desk allocations are in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED`
+   until the policy lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation DESK_ID:QUOTE`). Each
    order is bounded by that reservation (`ALLOCATION_EXCEEDED`); the desk's pool bounds the
    total. `set-risk-policy` publishes a whole replacement policy, so carry every existing field
    and allocation forward.
 
-A live desk is long only (`DESK_SHORT_LIVE_UNSUPPORTED`) and uses the live discretionary path:
+A live desk is long only (`DESK_SHORT_LIVE_UNSUPPORTED`) and enters with post-only limit orders
+only (`DESK_LIVE_LIMIT_ONLY`): a limit fills at its price or better, so an order never spends more
+than its allocation. It uses the live discretionary path:
 the live broker, the venue's remaining quote, the account caps and breakers, and a stop and
 target attached at the venue. Desk books are valued by their own fills (allocation, plus sales,
 minus purchases and fees, plus held quantity at the mark), never by a live book's shared cash.
+A live book with a cancelled order settles only after reconciliation settles that cancel (a late
+fill can still arrive until then).
 `show`, `journal` and `score` work as on paper; `mode` is on the desk and in the briefing, and the
 model's prompt says it is trading real money. Pause a live desk with `status DESK_ID paused
 --confirm`; its open books keep their venue stops and targets.

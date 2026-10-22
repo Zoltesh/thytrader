@@ -25,18 +25,22 @@ over.
 2. **The policy reserves a live desk's capital.** `RiskPolicyDefinition.desk_allocations` lists
    `{desk_id, allocated_quote}` (CLI `set-risk-policy --desk-allocation DESK_ID:QUOTE`). It is
    omitted from canonical bytes when empty, so existing policies keep their fingerprints, and it
-   counts toward the same total as `allocations`. While allocations are in force, a live
-   discretionary order from a listed desk is a member and any other is still denied; the
+   counts toward the same total as `allocations`. While any strategy or desk allocation is in
+   force, live is an allowlist: a live discretionary order from a listed desk is a member and
+   any other is still denied; the
    refusal names `desk_allocations`. Each live desk order is bounded by its desk's reservation
    (`ALLOCATION_EXCEEDED`); the desk's own pool bounds its total, as on paper.
 3. **Live desk orders use the live discretionary path unchanged**: the live broker, the venue's
    remaining quote and unclaimed base, the shared-collateral scope, the exposure caps, the
    breakers, and venue-attached stop and target. A live spot desk is long only
-   (`DESK_SHORT_LIVE_UNSUPPORTED`).
+   (`DESK_SHORT_LIVE_UNSUPPORTED`) and enters with post-only limits only (`DESK_LIVE_LIMIT_ONLY`):
+   a market order is sized at a candle close but can fill higher, while a limit never fills
+   above its price, so an order's spend stays inside its allocation.
 4. **Books are valued by their own fills in both modes**: allocation, plus sale proceeds, minus
    purchase cost, minus fees, plus held quantity at the mark. Settlement returns that value when
-   the book is flat and stopped. Book `cash` is never read, so a shared venue balance cannot
-   leak into a pool.
+   the book is flat and stopped and, for a live book, every cancelled order has passed its
+   settlement watermark (ADR 0141), so a late fill cannot land after the pool was credited. Book
+   `cash` is never read, so a shared venue balance cannot leak into a pool.
 5. **The model is told.** A live desk's prompt says every order spends real money and that it
    may open long only. Fees are described as they are charged: limit entries at maker, market
    entries, stops and targets at taker.

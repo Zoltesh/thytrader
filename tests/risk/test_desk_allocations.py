@@ -122,3 +122,28 @@ def test_set_risk_policy_maps_desk_allocations() -> None:
     assert listed["desk_allocations"] == ({"desk_id": _DESK, "allocated_quote": "150"},)
     with pytest.raises(RuntimeControlError, match="desk_id:allocated_quote"):
         _risk_policy_payload(parser.parse_args([*_REQUIRED, "--desk-allocation", "nope"]))
+
+
+def test_a_desk_reservation_alone_keeps_other_live_orders_restricted() -> None:
+    """With only desk_allocations, tickets and unlisted desks are still denied live."""
+    policy = RiskPolicyDefinition.model_validate(
+        {
+            **compiled_default_risk_policy().model_dump(mode="json"),
+            "desk_allocations": [DeskAllocation(desk_id=_DESK, allocated_quote="100")],
+        }
+    )
+
+    def admit(desk_id: str | None) -> RiskVerdict:
+        return evaluate_new_deployment(
+            policy,
+            mode=DeploymentMode.LIVE,
+            product_id="BTC-USD",
+            strategy_id=None,
+            paper_starting_cash=None,
+            deployments=(),
+            desk_id=desk_id,
+        )
+
+    assert admit(_DESK).decision is RiskDecision.ALLOW
+    assert admit(None).reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED
+    assert admit("another-desk").reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED

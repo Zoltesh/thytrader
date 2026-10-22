@@ -148,7 +148,8 @@ Briefing:
 _LIVE = {
     "desk_kind": "a LIVE trading desk: every order spends real money from the account",
     "books": "real spot orders on the exchange",
-    "shorts": "Live spot cannot short: open long only.",
+    "shorts": 'Live spot cannot short: open long only, with entry "limit" (a market entry is '
+    "refused; a post-only limit never fills above its price).",
     "sides": '"long"',
 }
 _PAPER = {

@@ -40,7 +40,8 @@ _OPEN = {
     "product_id": "BTC-USD",
     "side": "long",
     "size_fraction": "0.25",
-    "entry": "market",
+    "entry": "limit",
+    "limit_price": "50000",
     "stop_price": "1",
     "take_profit_price": "100000000",
 }
@@ -110,15 +111,25 @@ def test_an_unreserved_live_desk_is_refused_and_a_reserved_one_trades_live() -> 
         desk_id = client.post("/api/v1/desks", json={**_DESK, "i_understand_live": True}).json()[
             "desk_id"
         ]
-        refused = _wake(client, desk_id, _OPEN)
+        market_rows = client.get(f"/api/v1/desks/{desk_id}/briefing").json()["market"]
+        close = Decimal(market_rows[0]["last_close"])
+        order = {**_OPEN, "limit_price": str((close * Decimal("0.999")).quantize(Decimal("0.01")))}
+        refused = _wake(client, desk_id, order)
         _publish(risk, DeskAllocation(desk_id=desk_id, allocated_quote="150"))
-        applied = _wake(client, desk_id, _OPEN)
-        short = _wake(client, desk_id, {**_OPEN, "side": "short"})
+        applied = _wake(client, desk_id, order)
+        short = _wake(client, desk_id, {**order, "side": "short"})
+        market = _wake(client, desk_id, {**order, "entry": "market"})
         detail = client.get(f"/api/v1/desks/{desk_id}").json()
-        book = client.get(f"/api/v1/deployments/{applied['deployment_id']}").json()
+        book = client.get(
+            f"/api/v1/deployments/{applied['deployment_id']}", params={"detail": "full"}
+        ).json()
     assert refused["outcome_code"] == "DISCRETIONARY_NOT_ALLOCATED", refused
     assert applied["outcome"] == "applied", applied
     assert book["mode"] == "live"
     assert broker.placed, "the live broker placed the entry"
     assert Decimal(detail["desk"]["cash"]) == Decimal("112.50")
     assert short["outcome_code"] == "DESK_SHORT_LIVE_UNSUPPORTED"
+    assert market["outcome_code"] == "DESK_LIVE_LIMIT_ONLY"
+    entry = book["orders"][0]
+    assert entry["kind"] == "post_only_limit"
+    assert Decimal(entry["quantity"]) * Decimal(entry["price"]) <= Decimal("37.50")

@@ -211,9 +211,11 @@ def _allocation_membership(
     are spot reservations; a futures book reserves its own ``futures_capital_usd`` inside
     ``futures.live_capital_usd`` (ADR 0134 P2-7), so ``futures`` books are not members.
     A discretionary order from an agent desk listed in ``desk_allocations`` is a member
-    (ADR 0148); any other discretionary order is denied.
+    (ADR 0148); any other discretionary order is denied. A desk reservation alone also puts
+    live in allowlist mode, so it never leaves other live orders unrestricted.
     """
-    if not policy.allocations or mode is not DeploymentMode.LIVE or futures:
+    reserving = bool(policy.allocations or policy.desk_allocations)
+    if not reserving or mode is not DeploymentMode.LIVE or futures:
         return _allow()
     if portfolio_member and strategy_id is not None:
         return _allow()

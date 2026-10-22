@@ -341,7 +341,7 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
         if book.settled_at is not None:
             continue
         snapshot = await execution.snapshot(book.deployment_id)
-        if not _flat(snapshot):
+        if not _flat(snapshot) or not _cancellations_settled(snapshot):
             continue
         if snapshot.deployment.status is not DeploymentStatus.STOPPED:
             snapshot = await execution.stop_book(book.deployment_id, flatten=False)
@@ -413,14 +413,22 @@ async def _apply(
     )
 
 
+def _check_live(decision: DeskDecision) -> None:
+    """A live spot desk buys, and only with a limit: it never fills above its price."""
+    if decision.side == "short":
+        raise DeskError("DESK_SHORT_LIVE_UNSUPPORTED: a live spot desk can only buy.")
+    if decision.entry != "limit":
+        raise DeskError("DESK_LIVE_LIMIT_ONLY: a live desk enters with limit orders only.")
+
+
 def _check_open(decision: DeskDecision, state: _State) -> Decimal:
     """Enforce the universe and caps; return the allocation in quote."""
     desk, caps = state.desk, state.desk.caps
     product_id = decision.product_id or ""
     if product_id not in desk.products:
         raise DeskError(f"DESK_PRODUCT_NOT_IN_UNIVERSE: {product_id} is not a desk product.")
-    if desk.mode == "live" and decision.side == "short":
-        raise DeskError("DESK_SHORT_LIVE_UNSUPPORTED: a live spot desk can only buy.")
+    if desk.mode == "live":
+        _check_live(decision)
     if product_id in {book.product_id for book, _ in state.open_books}:
         raise DeskError(f"DESK_PRODUCT_OCCUPIED: the desk already has a book on {product_id}.")
     if len(state.open_books) >= caps.max_open_positions:
@@ -561,6 +569,21 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
         and not snapshot.positions
         and snapshot.deployment.phase is RuntimePhase.FLAT
         and not any(order.status in _ACTIVE_ORDERS for order in snapshot.orders)
+    )
+
+
+def _cancellations_settled(snapshot: DeploymentSnapshot) -> bool:
+    """A live book's cancelled orders are past their settlement watermark (no late fill).
+
+    Paper cancellations are final at once; a live cancel can still be followed by a fill until
+    reconciliation settles it (ADR 0141), so the pool waits for that.
+    """
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return True
+    return all(
+        order.settled_at is not None
+        for order in snapshot.orders
+        if order.status is OrderStatus.CANCELED
     )
 
 
