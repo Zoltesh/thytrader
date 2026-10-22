@@ -870,7 +870,11 @@ live `place-order` (discretionary books) is denied and every strategy without it
 denied at live start and live entry. **Paper research is not blocked:** unlisted strategies and
 paper discretionary tickets still start and trade, sized by `--paper-capital-quote`; a listed
 strategy's paper starting cash stays bounded by its allocation (a rehearsal of the live
-reservation). The allocations may not sum above `--paper-capital-quote`. Omit `--allocation`
+reservation). `--desk-allocation DESK_ID:QUOTE` (repeatable) reserves live capital for a live
+agent desk ([ADR 0148](../../docs/decisions/0148-live-agent-desks.md); `DESK_ID` from
+`thytrader-desk list`): while allocations are in force, a live desk's orders are admitted only when
+its desk is listed, each bounded by its reservation; other discretionary orders stay denied.
+The allocations and desk allocations together may not sum above `--paper-capital-quote`. Omit `--allocation`
 unless the user wants exactly that live restriction.
 
 `list` and summary `show` return `positions[]`, `instrument_runtimes[]`, and aggregate

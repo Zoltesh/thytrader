@@ -255,6 +255,7 @@ async def _require_book_admission(
         paper_starting_cash=request.paper_starting_cash,
         deployments=deployments,
         policy_source=active.source,
+        desk_id=request.desk_id,
     )
     if verdict.decision is RiskDecision.DENY:
         raise ExecutionConflictError(verdict.detail)
@@ -301,6 +302,7 @@ async def _require_entry_admission(
             strategy_id=None,
             notional=notional,
             quantity=quantity,
+            desk_id=request.desk_id,
         ),
         snapshots=books,
         live_quote_cash=live_cash,

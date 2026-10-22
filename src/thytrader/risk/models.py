@@ -159,6 +159,25 @@ class CapitalAllocation(_FrozenModel):
         return value
 
 
+class DeskAllocation(_FrozenModel):
+    """Live quote reserved for one agent desk (ADR 0148).
+
+    While allocations are in force, live discretionary orders are denied unless they come
+    from a desk listed here; each such order is bounded by the desk's reservation.
+    """
+
+    desk_id: str = Field(min_length=1, max_length=36)
+    allocated_quote: DecimalText
+
+    @field_validator("allocated_quote")
+    @classmethod
+    def require_positive_allocation(cls, value: str) -> str:
+        """Reject zero or negative reserved capital."""
+        if Decimal(value) <= 0:
+            raise ValueError("allocated_quote must be greater than 0")
+        return value
+
+
 MAX_CONCURRENT_LIMIT = 128
 """Upper bound for the running-deployment and open-position counts a policy may allow.
 
@@ -217,6 +236,10 @@ class RiskPolicyDefinition(_FrozenModel):
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
     allocations: tuple[CapitalAllocation, ...] = ()
+    # Optional live reservations for agent desks (ADR 0148). Unset keeps fingerprints.
+    desk_allocations: tuple[DeskAllocation, ...] = Field(
+        default=(), exclude_if=lambda value: not value
+    )
     daily_loss_limit_fraction: DecimalText = DEFAULT_DAILY_LOSS_LIMIT_FRACTION
     max_strategy_drawdown_fraction: DecimalText = DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION
     max_entry_orders_per_minute: int = Field(
@@ -349,7 +372,13 @@ class RiskPolicyDefinition(_FrozenModel):
         strategy_ids = tuple(item.strategy_id for item in self.allocations)
         if len(strategy_ids) != len(set(strategy_ids)):
             raise ValueError("allocations must use unique strategy_id values")
-        reserved = sum((Decimal(item.allocated_quote) for item in self.allocations), Decimal("0"))
+        desk_ids = tuple(item.desk_id for item in self.desk_allocations)
+        if len(desk_ids) != len(set(desk_ids)):
+            raise ValueError("desk_allocations must use unique desk_id values")
+        reserved = sum(
+            (Decimal(item.allocated_quote) for item in (*self.allocations, *self.desk_allocations)),
+            Decimal("0"),
+        )
         if reserved > Decimal(self.paper_capital_quote):
             raise ValueError("sum of allocations cannot exceed paper_capital_quote")
         return self
@@ -374,6 +403,7 @@ class RiskPolicyWrite(_FrozenModel):
     per_product_max_exposure_fraction: DecimalText
     paper_capital_quote: DecimalText
     allocations: tuple[CapitalAllocation, ...] = ()
+    desk_allocations: tuple[DeskAllocation, ...] = ()
     daily_loss_limit_fraction: DecimalText = DEFAULT_DAILY_LOSS_LIMIT_FRACTION
     max_strategy_drawdown_fraction: DecimalText = DEFAULT_MAX_STRATEGY_DRAWDOWN_FRACTION
     max_entry_orders_per_minute: int = Field(

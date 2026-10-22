@@ -180,6 +180,9 @@ def _risk_policy_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "max_btc_beta_exposure_fraction": arguments.max_btc_beta_exposure_fraction,
         "max_btc_beta_exposure_quote": arguments.max_btc_beta_exposure_quote,
         "allocations": tuple(_parse_allocation(item) for item in arguments.allocation),
+        "desk_allocations": tuple(
+            _parse_desk_allocation(item) for item in arguments.desk_allocation
+        ),
         "futures": _futures_block(arguments),
         "start_safeguards": _start_safeguards(arguments),
     }
@@ -240,3 +243,11 @@ def _parse_allocation(value: str) -> dict[str, str]:
     if separator != ":" or not strategy_id or not allocated_quote:
         raise RuntimeControlError("Allocations must be strategy_id:allocated_quote.")
     return {"strategy_id": strategy_id, "allocated_quote": allocated_quote}
+
+
+def _parse_desk_allocation(value: str) -> dict[str, str]:
+    """Parse one desk_id:allocated_quote live desk reservation (ADR 0148)."""
+    desk_id, separator, allocated_quote = value.partition(":")
+    if separator != ":" or not desk_id or not allocated_quote:
+        raise RuntimeControlError("Desk allocations must be desk_id:allocated_quote.")
+    return {"desk_id": desk_id, "allocated_quote": allocated_quote}

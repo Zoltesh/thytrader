@@ -64,6 +64,7 @@ class DeskView(BaseModel):
 
     desk_id: str
     name: str
+    mode: str = "paper"
     quote_currency: str
     mandate: str
     starting_cash: Decimal
@@ -120,33 +121,46 @@ def wake_views(wakes: tuple[DeskWake, ...]) -> tuple[WakeView, ...]:
     return tuple(reversed(views))
 
 
-_INSTRUCTIONS = """You are the trader for a paper trading desk. Each wake you read the briefing
-below and make exactly one decision. ThyTrader applies it to paper books, enforces the desk caps
-whatever you say, and journals your thesis; your track record is scored after fees against
-buy-and-hold baselines. Not trading is a valid and often correct decision.
+_INSTRUCTIONS = """You are the trader for {desk_kind}. Each wake you read the briefing below and
+make exactly one decision. ThyTrader applies it to {books}, enforces the desk caps whatever you
+say, and journals your thesis; your track record is scored after fees against buy-and-hold
+baselines. Not trading is a valid and often correct decision.
 
 Rules:
 - Answer with exactly one JSON object and nothing else.
-- Only products in the market list. Spot shorts are paper-only simulations.
+- Only products in the market list. {shorts}
 - Size is a fraction of desk equity (size_fraction), at most caps.max_position_fraction.
 - Every open needs a stop_price and a take_profit_price on the correct sides of the entry.
-- Fees: maker_fee_rate / taker_fee_rate apply to each side of a trade; a round trip costs about
-  twice the taker rate on market entries. Do not trade moves smaller than the costs.
+- Fees: a market entry pays taker_fee_rate and a limit entry (post-only) pays maker_fee_rate;
+  stops and targets exit at taker_fee_rate. Do not trade moves smaller than the costs.
 - To exit early, close the book by its deployment_id. Stops and targets also exit on their own.
 - Use the mandate and your earlier theses for continuity; do not repeat a refused decision.
 
 Decision contract ({contract}):
   {{"action": "no_trade", "thesis": "why"}}
-  {{"action": "open", "thesis": "why", "product_id": "...", "side": "long"|"short",
+  {{"action": "open", "thesis": "why", "product_id": "...", "side": {sides},
     "size_fraction": 0.1, "entry": "market"|"limit", "limit_price": 1.23 (limit only),
     "stop_price": 1.0, "take_profit_price": 1.5}}
   {{"action": "close", "thesis": "why", "deployment_id": "..."}}
 
 Briefing:
 """
+_LIVE = {
+    "desk_kind": "a LIVE trading desk: every order spends real money from the account",
+    "books": "real spot orders on the exchange",
+    "shorts": "Live spot cannot short: open long only.",
+    "sides": '"long"',
+}
+_PAPER = {
+    "desk_kind": "a paper trading desk",
+    "books": "paper books",
+    "shorts": "Spot shorts are paper-only simulations.",
+    "sides": '"long"|"short"',
+}
 
 
 def _prompt(briefing: DeskBriefing) -> str:
     """Instructions, contract and the briefing JSON."""
     body = briefing.model_dump(mode="json", exclude={"prompt"})
-    return _INSTRUCTIONS.format(contract=briefing.contract) + json.dumps(body, indent=1)
+    wording = _LIVE if briefing.desk.mode == "live" else _PAPER
+    return _INSTRUCTIONS.format(contract=briefing.contract, **wording) + json.dumps(body, indent=1)

@@ -62,6 +62,7 @@ def _entry_membership(
         mode=mode,
         portfolio_member=portfolio_member,
         futures=is_futures_product_id(proposed.product_id),
+        desk_id=proposed.desk_id,
     )
     if allocated.decision is RiskDecision.DENY:
         return allocated
@@ -140,6 +141,13 @@ def _exposure_verdict(
             f"Product exposure exceeded for {proposed.product_id}: existing={existing_product}, "
             f"proposed={proposed.notional}, cap={product_cap}, capital={capital}.",
         )
+    desk_reserved = _desk_allocation_for(policy, proposed.desk_id, mode=mode)
+    if desk_reserved is not None and proposed.notional > desk_reserved:
+        # The desk's own pool bounds its total; the reservation bounds each order.
+        return _deny(
+            RiskReasonCode.ALLOCATION_EXCEEDED,
+            f"Desk allocation exceeded: proposed={proposed.notional}, allocation={desk_reserved}.",
+        )
     reserved = _allocation_for(policy, proposed.strategy_id)
     if reserved is None:
         return _allow()
@@ -190,8 +198,9 @@ def _allocation_membership(
     mode: DeploymentMode,
     portfolio_member: bool = False,
     futures: bool = False,
+    desk_id: str | None = None,
 ) -> RiskVerdict:
-    """When allocations exist, live requires a listed strategy and denies discretionary books.
+    """When allocations exist, live requires a listed strategy or desk; other books are denied.
 
     Allocations reserve real capital, so membership gates LIVE only. Paper research is not
     blocked by them: an unlisted paper strategy or discretionary paper book is allowed and
@@ -201,15 +210,24 @@ def _allocation_membership(
     capital is its reservation (ADR 0091). Standalone books keep these semantics. Allocations
     are spot reservations; a futures book reserves its own ``futures_capital_usd`` inside
     ``futures.live_capital_usd`` (ADR 0134 P2-7), so ``futures`` books are not members.
+    A discretionary order from an agent desk listed in ``desk_allocations`` is a member
+    (ADR 0148); any other discretionary order is denied.
     """
     if not policy.allocations or mode is not DeploymentMode.LIVE or futures:
         return _allow()
     if portfolio_member and strategy_id is not None:
         return _allow()
     if strategy_id is None:
+        if desk_id is not None and any(item.desk_id == desk_id for item in policy.desk_allocations):
+            return _allow()
         return _deny(
             RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED,
-            "Discretionary orders are denied when risk-policy allocations are in force.",
+            "Discretionary orders are denied when risk-policy allocations are in force"
+            + (
+                f"; list desk {desk_id} in desk_allocations to let it trade live."
+                if desk_id is not None
+                else "."
+            ),
         )
     if any(item.strategy_id == strategy_id for item in policy.allocations):
         return _allow()
@@ -217,6 +235,16 @@ def _allocation_membership(
         RiskReasonCode.STRATEGY_NOT_ALLOCATED,
         "Strategy is not listed in risk-policy allocations.",
     )
+
+
+def _desk_allocation_for(
+    policy: RiskPolicyDefinition, desk_id: str | None, *, mode: DeploymentMode
+) -> Decimal | None:
+    """Return a live desk's reserved quote, if the policy lists the desk."""
+    if desk_id is None or mode is not DeploymentMode.LIVE:
+        return None
+    match = next((item for item in policy.desk_allocations if item.desk_id == desk_id), None)
+    return None if match is None else Decimal(match.allocated_quote)
 
 
 def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> Decimal | None:

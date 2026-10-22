@@ -173,11 +173,12 @@ skips `--confirm`. Does not deploy, paper-trade, live-trade, arm, or cancel orde
 
 ## `thytrader-desk`
 
-Paper agent desks ([ADR 0147](../docs/decisions/0147-agent-desk.md)): a paper pool, a universe and
-caps that a model harness (Claude Code, Pi, Codex, Hermes, or any command) wakes on a cadence. The
-model answers one JSON decision per wake; ThyTrader applies it to a fresh discretionary paper book
-under the caps and journals every wake. `--confirm` on create, wake, record and status; YOLO never
-skips it. Paper only.
+Agent desks ([ADR 0147](../docs/decisions/0147-agent-desk.md)): a pool, a universe and caps that a
+model harness (Claude Code, Pi, Codex, Hermes, or any command) wakes on a cadence. The model answers
+one JSON decision per wake; ThyTrader applies it to a fresh discretionary book under the caps and
+journals every wake. `--confirm` on create, wake, record and status; YOLO never skips it. Paper by
+default; a live desk needs `--mode live --i-understand-live` and a `desk_allocations` reservation in
+the risk policy ([ADR 0148](../docs/decisions/0148-live-agent-desks.md)).
 
 - Skill: [`thytrader-desk/SKILL.md`](thytrader-desk/SKILL.md)
 - CLI: `uv run thytrader-desk … --confirm`

@@ -51,6 +51,9 @@ class DiscretionaryOrderRequest:
 
     Agent desks (ADR 0147) fund each trade from their own pool and must never inherit another
     book's cash; ordinary tickets keep reusing a flat running book."""
+    desk_id: str | None = None
+    """The agent desk placing this order; a live desk is admitted by its ``desk_allocations``
+    reservation when allocations are in force (ADR 0148)."""
 
 
 def parse_discretionary_request(

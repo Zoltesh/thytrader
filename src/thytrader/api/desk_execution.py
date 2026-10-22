@@ -1,4 +1,4 @@
-"""The discretionary paper book operations an agent desk uses, bound per request (ADR 0147)."""
+"""The discretionary book operations an agent desk uses, bound per request (ADR 0147, 0148)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,17 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from thytrader.agent_desk.funding import created_by
+from thytrader.api.live_order_inputs import (
+    broker_for_request,
+    currency_available,
+    unmanaged_base_available,
+)
 from thytrader.audit_events import AuditEvent, AuditEventCategory, AuditEventOutcome
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.discretionary import place_discretionary_order
 from thytrader.execution.service import set_deployment_status
+from thytrader.market_data.products import quote_currency as spot_quote_currency
+from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 from thytrader.trading.models import DeploymentStatus, ExecutionConflictError
 
@@ -19,6 +26,8 @@ if TYPE_CHECKING:
 
     from thytrader.agent_desk.models import PendingOpen
     from thytrader.audit_events import AuditEventStore
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
+    from thytrader.exchanges.protocols import ExchangeAccount
     from thytrader.execution.broker import Broker
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.execution.paper_fees import PaperFeeSource
@@ -42,9 +51,17 @@ class ApiDeskExecution:
         memory_store: ExperientialMemoryStore,
         paper_fee_source: PaperFeeSource,
         audit: AuditEventStore,
+        live_broker: Broker | None = None,
+        quote_reader: ExchangeAccount | None = None,
+        futures_account: FuturesAccountSnapshotStore | None = None,
+        live_allowed: bool = False,
     ) -> None:
-        """Bind the request's stores."""
+        """Bind the request's stores; live desks also need the live broker and venue reader."""
         self._store = store
+        self._live_broker = live_broker
+        self._quote_reader = quote_reader
+        self._futures_account = futures_account
+        self._live_allowed = live_allowed
         self._paper_broker = paper_broker
         self._market_data = market_data
         self._risk_store = risk_store
@@ -57,15 +74,32 @@ class ApiDeskExecution:
         return await self._store.get_accounting_snapshot(UUID(deployment_id))
 
     async def open_book(self, request: DiscretionaryOrderRequest) -> DeploymentSnapshot:
-        """Place one paper order on a fresh book and audit it like any discretionary order."""
-        with execution_audit_scope(self._audit):
+        """Place one order on a fresh book in the desk's mode; audit it like any ticket.
+
+        A live order goes through the same path as a live discretionary ticket: the live broker,
+        the venue's remaining quote and unclaimed base, and the shared-collateral scope.
+        """
+        broker = broker_for_request(
+            request, paper_broker=self._paper_broker, live_broker=self._live_broker
+        )
+        currency = spot_quote_currency(request.product_id)
+        with execution_audit_scope(self._audit), risk_futures_account_scope(self._futures_account):
             snapshot = await place_discretionary_order(
                 store=self._store,
-                broker=self._paper_broker,
+                broker=broker,
                 market_data=self._market_data,
                 request=request,
-                live_allowed=False,
+                live_allowed=self._live_allowed,
                 risk_store=self._risk_store,
+                live_quote_cash=await currency_available(
+                    self._quote_reader, mode=request.mode, currency=currency
+                ),
+                live_base_available=await unmanaged_base_available(
+                    self._quote_reader,
+                    store=self._store,
+                    mode=request.mode,
+                    product_id=request.product_id,
+                ),
                 memory_store=self._memory_store,
                 paper_fee_source=self._paper_fee_source,
             )
@@ -76,7 +110,8 @@ class ApiDeskExecution:
                 action="place_discretionary_order",
                 outcome=AuditEventOutcome.SUCCESS,
                 detail=(
-                    f"deployment_id={snapshot.deployment.id} mode=paper origin=agent "
+                    f"deployment_id={snapshot.deployment.id} "
+                    f"mode={snapshot.deployment.mode.value} origin=agent "
                     f"idempotency_key={request.idempotency_key}"
                 ),
                 product_id=request.product_id,

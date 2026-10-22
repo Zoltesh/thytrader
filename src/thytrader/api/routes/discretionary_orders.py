@@ -20,6 +20,11 @@ from thytrader.api.dependencies import (
     get_runtime_state,
 )
 from thytrader.api.live_ack import require_live_acknowledgement
+from thytrader.api.live_order_inputs import (
+    broker_for_request,
+    currency_available,
+    unmanaged_base_available,
+)
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.api.routes.deployment_models import DeploymentResponse
 from thytrader.api.routes.deployment_serializers import snapshot_response
@@ -45,15 +50,10 @@ from thytrader.memory.store import ExperientialMemoryStore
 from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.risk.store import RiskPolicyStore
 from thytrader.runtime import RuntimeState
-from thytrader.trading.geometry import base_currency
-from thytrader.trading.inventory_claims import unmanaged_available_base
 from thytrader.trading.models import DeploymentMode, ExecutionConflictError, ExecutionStoreError
 from thytrader.trading.store import ExecutionStore
 
 if TYPE_CHECKING:
-    from decimal import Decimal
-
-    from thytrader.exchanges.models import ExchangeBalance
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.trading.models import DeploymentSnapshot
 
@@ -129,7 +129,7 @@ async def post_discretionary_order(
             paper_taker_fee_rate=body.taker_fee_rate,
             note=body.note,
         )
-        broker = _broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
+        broker = broker_for_request(request, paper_broker=paper_broker, live_broker=live_broker)
         with execution_audit_scope(audit), risk_futures_account_scope(futures_account):
             snapshot = await _place(
                 request,
@@ -187,65 +187,12 @@ async def _place(
         request=request,
         live_allowed=live_allowed,
         risk_store=risk_store,
-        live_quote_cash=await _currency_available(
+        live_quote_cash=await currency_available(
             quote_reader, mode=request.mode, currency=spot_quote_currency(request.product_id)
         ),
-        live_base_available=await _unmanaged_base_available(
+        live_base_available=await unmanaged_base_available(
             quote_reader, store=store, mode=request.mode, product_id=request.product_id
         ),
         memory_store=memory_store,
         paper_fee_source=paper_fee_source,
     )
-
-
-def _broker_for_request(
-    request: DiscretionaryOrderRequest,
-    *,
-    paper_broker: Broker,
-    live_broker: Broker | None,
-) -> Broker:
-    """Select the paper or live broker; live still requires credentials."""
-    if request.mode is DeploymentMode.PAPER:
-        return paper_broker
-    if live_broker is None:
-        raise ExecutionConflictError("Live trading requires configured Coinbase credentials.")
-    return live_broker
-
-
-async def _unmanaged_base_available(
-    quote_reader: ExchangeAccount | None,
-    *,
-    store: ExecutionStore,
-    mode: DeploymentMode,
-    product_id: str,
-) -> Decimal | None:
-    """Base a live short may sell: available base no live book claims (ADR 0124).
-
-    Raw ``available`` includes base a managed long owns but has not yet protected.
-    Any unreadable live book leaves the quantity unknown, which refuses the short.
-    """
-    if mode is not DeploymentMode.LIVE or quote_reader is None:
-        return None
-    balances: tuple[ExchangeBalance, ...] = await quote_reader.list_balances()
-    books: list[DeploymentSnapshot] = []
-    for deployment in await store.list_deployments():
-        if deployment.mode is not DeploymentMode.LIVE:
-            continue
-        try:
-            books.append(await store.get_accounting_snapshot(deployment.id))
-        except ExecutionStoreError:
-            return None
-    return unmanaged_available_base(balances, books, base_currency(product_id))
-
-
-async def _currency_available(
-    quote_reader: ExchangeAccount | None, *, mode: DeploymentMode, currency: str
-) -> Decimal | None:
-    """Return remaining units of one venue currency when a live reader is attached."""
-    if mode is not DeploymentMode.LIVE or quote_reader is None:
-        return None
-    balances: tuple[ExchangeBalance, ...] = await quote_reader.list_balances()
-    for balance in balances:
-        if balance.currency == currency:
-            return balance.available
-    return None

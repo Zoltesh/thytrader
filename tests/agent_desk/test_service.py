@@ -8,7 +8,7 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 import json
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -46,6 +46,7 @@ from thytrader.trading.models import (
     ExecutionConflictError,
     IntentOrigin,
     IntentPurpose,
+    OrderSide,
     OrderStatus,
     RuntimePhase,
     with_runtime,
@@ -257,29 +258,53 @@ async def test_a_paused_desk_journals_but_never_trades() -> None:
     assert wake.outcome_code == "DESK_NOT_ACTIVE"
 
 
-async def test_a_flat_stopped_book_returns_its_cash_to_the_pool() -> None:
-    """Once the book is flat and stopped, its final cash settles back into the desk."""
+async def test_a_flat_stopped_book_returns_its_fill_value_to_the_pool() -> None:
+    """Settlement returns the allocation plus sale proceeds minus cost and fees, not book cash."""
     store, execution, desk_id = await _desk()
     wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
     book = await execution.snapshot(wake.deployment_id or "")
+    entry_fill = book.fills[0]
+    entry_order = next(order for order in book.orders if order.id == entry_fill.order_id)
+    exit_order = replace(
+        entry_order, id=uuid4(), side=OrderSide.SELL, client_order_id="exit", intent_id=uuid4()
+    )
+    await execution.store.save_order(exit_order)
+    exit_price = entry_fill.price * Decimal("1.05")
+    exit_fee = Decimal("1.25")
+    await execution.store.save_fill(
+        replace(
+            entry_fill,
+            id=uuid4(),
+            order_id=exit_order.id,
+            venue_fill_id="exit-fill",
+            price=exit_price,
+            fee=exit_fee,
+        )
+    )
     closed = with_runtime(
         book.deployment,
         updated_at=datetime.now(UTC),
         status=DeploymentStatus.STOPPED,
         phase=RuntimePhase.FLAT,
-        cash=Decimal("1012.50"),
+        cash=Decimal("123456"),
     )
     await execution.store.save_deployment(closed)
     for order in book.orders:
         if order.status in {OrderStatus.OPEN, OrderStatus.PENDING}:
             await execution.store.save_order(replace(order, status=OrderStatus.CANCELED))
-    if book.position is not None:
-        await execution.store.save_position(None, deployment_id=book.deployment.id)
+    await execution.store.save_position(None, deployment_id=book.deployment.id)
     brief = await briefing(
         desk_id, store=store, execution=execution, market_data=execution.market_data
     )
+    expected = (
+        Decimal(1000)
+        - entry_fill.price * entry_fill.quantity
+        - entry_fill.fee
+        + exit_price * entry_fill.quantity
+        - exit_fee
+    )
     assert brief.desk.open_positions == 0
-    assert brief.desk.cash == Decimal("10012.50")
+    assert brief.desk.cash == Decimal(9000) + expected
 
 
 async def test_a_harness_failure_is_journaled_as_an_error_wake() -> None:

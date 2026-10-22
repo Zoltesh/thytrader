@@ -84,6 +84,7 @@ def evaluate_new_deployment(
     policy_source: RiskPolicySource = RiskPolicySource.PUBLISHED,
     portfolio_sleeve: bool = False,
     live_futures: LiveFuturesStart | None = None,
+    desk_id: str | None = None,
 ) -> RiskVerdict:
     """Allow a new running deployment only when slots, allowlist, and paper capital permit it.
 
@@ -93,7 +94,8 @@ def evaluate_new_deployment(
     counts as allocation membership (ADR 0091); every other rule still applies.
     Futures ids are checked against ``futures.product_allowlist`` and their mode's futures
     envelope; a live futures start also passes the live gate with ``live_futures`` and is
-    denied without it (ADR 0134 §2).
+    denied without it (ADR 0134 §2). ``desk_id`` is the agent desk a discretionary book
+    serves; a desk listed in ``desk_allocations`` is an allocation member (ADR 0148).
     """
     if mode is DeploymentMode.LIVE and policy_source is RiskPolicySource.COMPILED_DEFAULT:
         return _deny(
@@ -109,7 +111,12 @@ def evaluate_new_deployment(
         if allowlisted.decision is RiskDecision.DENY:
             return allowlisted
     allocated = _allocation_membership(
-        policy, strategy_id, mode=mode, portfolio_member=portfolio_sleeve, futures=futures
+        policy,
+        strategy_id,
+        mode=mode,
+        portfolio_member=portfolio_sleeve,
+        futures=futures,
+        desk_id=desk_id,
     )
     if allocated.decision is RiskDecision.DENY:
         return allocated

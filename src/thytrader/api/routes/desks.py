@@ -2,7 +2,7 @@
 
 ``GET .../briefing`` is what a harness reads each wake; ``POST .../wakes`` hands ThyTrader the
 model's raw answer, which is parsed, checked against the desk caps, applied to paper books and
-journaled. Desks are paper only.
+journaled. A live desk (ADR 0148) is created only with the live acknowledgement.
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from thytrader.agent_desk.briefing import DeskBriefing
 from thytrader.agent_desk.models import (
@@ -41,26 +41,35 @@ from thytrader.api.dependencies import (
     get_audit_event_store,
     get_desk_store,
     get_execution_store,
+    get_futures_account_store,
+    get_live_broker,
     get_market_data_service,
     get_memory_store,
     get_paper_broker,
+    get_quote_reader,
     get_risk_policy_store,
+    get_runtime_state,
 )
 from thytrader.api.desk_execution import ApiDeskExecution
+from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
 from thytrader.audit_events import AuditEventStore  # noqa: TC001
+from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore  # noqa: TC001
+from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
 from thytrader.execution.paper_fees import PaperFeeSource  # noqa: TC001
 from thytrader.market_data.service import MarketDataService
 from thytrader.memory.store import ExperientialMemoryStore  # noqa: TC001
 from thytrader.risk.store import RiskPolicyStore  # noqa: TC001
+from thytrader.runtime import RuntimeState  # noqa: TC001
+from thytrader.trading.models import DeploymentMode
 from thytrader.trading.store import ExecutionStore  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/desks", tags=["agent desks"])
 
 
 class CreateDeskBody(BaseModel):
-    """A new paper desk."""
+    """A new desk: paper, or live with the operator's acknowledgement."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -74,6 +83,14 @@ class CreateDeskBody(BaseModel):
     model: str | None = Field(default=None, max_length=80)
     mandate: str = Field(default="", max_length=MAX_MANDATE_CHARS)
     caps: DeskCaps = DeskCaps()
+    mode: Literal["paper", "live"] = "paper"
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true for mode=live (HTTP 428 live_acknowledgement_required otherwise): "
+            "every open the desk's model makes then spends real money (ADR 0148)."
+        ),
+    )
 
 
 class WakeBody(BaseModel):
@@ -112,8 +129,14 @@ def _execution(
     memory_store: Annotated[ExperientialMemoryStore, Depends(get_memory_store)],
     paper_fee_source: Annotated[PaperFeeSource, Depends(get_paper_fee_source)],
     audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+    live_broker: Annotated[Broker | None, Depends(get_live_broker)],
+    quote_reader: Annotated[ExchangeAccount | None, Depends(get_quote_reader)],
+    futures_account: Annotated[
+        FuturesAccountSnapshotStore | None, Depends(get_futures_account_store)
+    ],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
 ) -> ApiDeskExecution:
-    """Bind the paper book operations for this request."""
+    """Bind the book operations for this request; live desks use the live broker (ADR 0148)."""
     return ApiDeskExecution(
         store=store,
         paper_broker=paper_broker,
@@ -122,6 +145,10 @@ def _execution(
         memory_store=memory_store,
         paper_fee_source=paper_fee_source,
         audit=audit,
+        live_broker=live_broker,
+        quote_reader=quote_reader,
+        futures_account=futures_account,
+        live_allowed=runtime.settings.coinbase_api_key_name is not None,
     )
 
 
@@ -129,8 +156,13 @@ def _execution(
 async def post_desk(
     body: CreateDeskBody, desks: Annotated[DeskStore, Depends(get_desk_store)]
 ) -> Desk:
-    """Create a paper desk with its pool, universe, cadence, harness and caps."""
-    spec = DeskSpec(**body.model_dump(exclude={"caps"}), caps=body.caps)
+    """Create a desk with its pool, universe, cadence, harness and caps (live needs the ack)."""
+    require_live_acknowledgement(DeploymentMode(body.mode), acknowledged=body.i_understand_live)
+    spec = DeskSpec(
+        **body.model_dump(exclude={"caps", "i_understand_live"}),
+        caps=body.caps,
+        live_acknowledged=body.i_understand_live,
+    )
     try:
         return await create_desk(desks, spec, now=datetime.now(UTC))
     except DeskError as error:

@@ -18,6 +18,12 @@ _ALLOCATION_HELP = (
     "thytrader-runtime show). Any allocation turns the policy into an allowlist: "
     "discretionary place-order and strategies without an allocation are denied."
 )
+_DESK_ALLOCATION_HELP = (
+    "Optional desk_id:allocated_quote live reservation for an agent desk (ADR 0148). "
+    "Repeatable. desk_id is from thytrader-desk list. While allocations are in force, a live "
+    "desk's orders are admitted only when its desk is listed here, and each order is bounded "
+    "by its allocation."
+)
 
 
 _FUTURES_GATE_FLAGS = (
@@ -365,6 +371,12 @@ def add_risk_policy_parsers(
         action="append",
         default=[],
         help=_ALLOCATION_HELP,
+    )
+    set_policy.add_argument(
+        "--desk-allocation",
+        action="append",
+        default=[],
+        help=_DESK_ALLOCATION_HELP,
     )
     set_policy.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
 

@@ -82,7 +82,8 @@ class Desk(_Frozen):
 
     desk_id: str
     name: str = Field(min_length=1, max_length=120)
-    mode: Literal["paper"] = "paper"
+    mode: Literal["paper", "live"] = "paper"
+    live_acknowledged_at: datetime | None = None
     quote_currency: str = Field(pattern=r"^(USD|USDC|USDT)$")
     starting_cash: Decimal = Field(gt=0)
     cash: Decimal = Field(ge=0)
