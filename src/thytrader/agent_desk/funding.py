@@ -23,7 +23,7 @@ from thytrader.agent_desk.models import (
     PendingOpen,
     WakeOutcome,
 )
-from thytrader.agent_desk.ports import save_desk
+from thytrader.agent_desk.ports import DeskError, save_desk
 from thytrader.ids import uuid7
 from thytrader.trading.models import PositionSide
 
@@ -54,9 +54,14 @@ async def open_funded(
     The reservation names the book's id before placing, so recovery finds exactly that book.
     If placement fails after the book exists, the book is linked and its applied wake returned.
     """
+    if await execution.intent_book(request.idempotency_key) is not None:
+        # The answer already placed its order (a retry or replay): never fund it twice.
+        message = "DESK_DUPLICATE_ANSWER: an order was already placed for this briefing."
+        raise DeskError(message)
     pending = PendingOpen(
         wake_id=wake.wake_id,
         idempotency_key=request.idempotency_key,
+        briefing_fingerprint=wake.briefing_fingerprint,
         deployment_id=str(uuid7(now)),
         mode=desk.mode,
         product_id=request.product_id,
@@ -153,7 +158,7 @@ def _recovered_wake(desk: Desk, pending: PendingOpen, deployment_id: str) -> Des
         started_at=pending.reserved_at,
         finished_at=pending.reserved_at,
         harness="thytrader",
-        briefing_fingerprint="",
+        briefing_fingerprint=pending.briefing_fingerprint,
         raw_response="",
         action=DeskAction.OPEN,
         outcome=WakeOutcome.APPLIED,

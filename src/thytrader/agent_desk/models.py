@@ -71,7 +71,8 @@ class PendingOpen(_Frozen):
 
     wake_id: str
     idempotency_key: str
-    deployment_id: str
+    deployment_id: str | None = None
+    briefing_fingerprint: str = ""
     mode: Literal["paper", "live"] = "paper"
     product_id: str
     side: Literal["long", "short"]

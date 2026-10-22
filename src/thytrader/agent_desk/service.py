@@ -8,7 +8,7 @@ caps here, whatever the model said; a refusal is journaled with its code.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from decimal import ROUND_DOWN, Decimal
 from typing import TYPE_CHECKING, Literal
@@ -22,7 +22,7 @@ from thytrader.agent_desk.briefing import (
 )
 from thytrader.agent_desk.decisions import DecisionParseError, parse_decision
 from thytrader.agent_desk.funding import open_funded, resolve_pending
-from thytrader.agent_desk.market import MarketRow, market_rows
+from thytrader.agent_desk.market import MarketRow, fresh_marks, market_rows
 from thytrader.agent_desk.models import (
     MAX_RESPONSE_CHARS,
     Desk,
@@ -38,7 +38,6 @@ from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
-from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
@@ -282,18 +281,6 @@ async def _record_wake(
             "decision": decision.model_dump(mode="json", exclude_none=True),
         }
     )
-    if decision.action == "open" and await _answered(
-        store, desk_id, briefing_fingerprint, before=wake_id
-    ):
-        wake = decided.model_copy(
-            update={
-                "outcome": WakeOutcome.REFUSED,
-                "outcome_code": "DESK_DUPLICATE_ANSWER",
-                "detail": "An open was already applied for this briefing fingerprint.",
-            }
-        )
-        await store.add_wake(wake)
-        return wake
     try:
         opened = await _apply(
             decision, state=state, store=store, execution=execution, wake=decided, now=moment
@@ -334,7 +321,7 @@ async def _state(
         (book, await execution.snapshot(book.deployment_id)) for book in books
     ]
     # Held books are marked at their own clock's latest close, fresher than the hourly row.
-    marks |= await inventory_marks(market_data, [snapshot for _, snapshot in open_books])
+    marks |= await fresh_marks(market_data, [snapshot for _, snapshot in open_books])
     positions: list[PositionView] = []
     equity: Decimal | None = desk.cash
     for book, snapshot in open_books:
@@ -424,6 +411,14 @@ async def _apply(
         allocation=allocation,
         committed=sum((book.allocated_quote for book, _ in state.open_books), Decimal(0)),
     )
+    # The reservation must hold the whole new allocation (its fee headroom included), not only
+    # the order's notional, so the gate sees committed + headroom + notional.
+    request = replace(
+        request,
+        desk_committed_quote=request.desk_committed_quote
+        + allocation
+        - (request.quote_notional or allocation),
+    )
     return await open_funded(
         state.desk,
         request=request,
@@ -432,17 +427,6 @@ async def _apply(
         now=now,
         store=store,
         execution=execution,
-    )
-
-
-async def _answered(store: DeskStore, desk_id: str, fingerprint: str, *, before: str) -> bool:
-    """Whether an open was already applied for this briefing (a retried or replayed answer)."""
-    return any(
-        wake.briefing_fingerprint == fingerprint
-        and wake.action is DeskAction.OPEN
-        and wake.outcome is WakeOutcome.APPLIED
-        and wake.wake_id != before
-        for wake in await store.list_wakes(desk_id, limit=_HISTORY)
     )
 
 
@@ -639,6 +623,8 @@ def _conflict_code(message: str) -> str:
         return "DESK_PRODUCT_OCCUPIED"
     if "risk-policy allocations are in force" in message:
         return "DISCRETIONARY_NOT_ALLOCATED"
+    if message.startswith("Desk allocation") or "allocation exceeded" in message.lower():
+        return "ALLOCATION_EXCEEDED"
     return "DESK_ORDER_REFUSED"
 
 

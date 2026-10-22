@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from tests.persistence.test_postgres_fill_transaction import _pending_entry_book
+from thytrader.agent_desk.market import fresh_marks
 from thytrader.agent_desk.models import (
     Desk,
     DeskBook,
@@ -89,7 +90,12 @@ class _Execution:
         )
 
     async def find_book(self, pending: PendingOpen) -> str | None:
-        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product."""
+        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product.
+
+        A reservation written before book ids were chosen is found by its order's key.
+        """
+        if pending.deployment_id is None:
+            return await self.intent_book(pending.idempotency_key)
         try:
             snapshot = await self.store.get_deployment(UUID(pending.deployment_id))
         except ExecutionStoreError as error:
@@ -101,6 +107,11 @@ class _Execution:
             message = f"Book {pending.deployment_id} does not match its desk reservation."
             raise ExecutionStoreError(message)
         return str(deployment.id)
+
+    async def intent_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
+        intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
+        return None if intent is None else str(intent.deployment_id)
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one book."""
@@ -591,7 +602,11 @@ async def test_a_replayed_answer_never_opens_twice() -> None:
     )
     assert first.outcome is WakeOutcome.APPLIED, first.detail
     assert again.outcome_code == "DESK_DUPLICATE_ANSWER"
-    assert len(await store.list_books(desk_id)) == 1
+    books = await store.list_books(desk_id)
+    desk = await store.get_desk(desk_id)
+    assert [book.allocated_quote for book in books] == [Decimal(1000)]
+    assert desk is not None
+    assert desk.cash == Decimal(9000)
 
 
 async def test_a_live_cancel_settles_only_after_its_watermark() -> None:
@@ -632,3 +647,37 @@ async def test_a_live_cancel_settles_only_after_its_watermark() -> None:
     )
     assert held.desk.cash == Decimal(9000)
     assert settled.desk.cash == Decimal(10000)
+
+
+async def test_a_legacy_reservation_without_a_book_id_is_found_by_its_order() -> None:
+    """Reservations written before book ids existed recover through their order's key."""
+    store, execution, desk_id = await _desk()
+    fingerprint = "sha256:" + "b" * 64
+    wake = await _wake(store, execution, desk_id, _open(), fingerprint=fingerprint)
+    book = await execution.snapshot(wake.deployment_id or "")
+    desk = await store.get_desk(desk_id)
+    assert desk is not None
+    key = book.intents[0].idempotency_key
+    assert key is not None
+    legacy = PendingOpen(
+        wake_id=wake.wake_id,
+        idempotency_key=key,
+        product_id="BTC-USD",
+        side="long",
+        allocated_quote=Decimal(1000),
+        reserved_at=datetime.now(UTC),
+    )
+    assert await execution.find_book(legacy) == wake.deployment_id
+
+
+async def test_a_stale_close_is_not_a_mark() -> None:
+    """A held book's close from long ago leaves its mark unknown."""
+    store, execution, desk_id = await _desk()
+    wake = await _wake(store, execution, desk_id, _open())
+    book = await execution.snapshot(wake.deployment_id or "")
+    current = await fresh_marks(execution.market_data, [book])
+    stale = await fresh_marks(
+        execution.market_data, [book], now=datetime.now(UTC) + timedelta(days=2)
+    )
+    assert current.get("BTC-USD") is not None
+    assert stale == {}

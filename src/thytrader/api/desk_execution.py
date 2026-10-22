@@ -123,7 +123,12 @@ class ApiDeskExecution:
         return snapshot
 
     async def find_book(self, pending: PendingOpen) -> str | None:
-        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product."""
+        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product.
+
+        A reservation written before book ids were chosen is found by its order's key.
+        """
+        if pending.deployment_id is None:
+            return await self.intent_book(pending.idempotency_key)
         try:
             snapshot = await self._store.get_deployment(UUID(pending.deployment_id))
         except ExecutionStoreError as error:
@@ -135,6 +140,11 @@ class ApiDeskExecution:
             message = f"Book {pending.deployment_id} does not match its desk reservation."
             raise ExecutionStoreError(message)
         return str(deployment.id)
+
+    async def intent_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
+        intent = await self._store.get_intent_by_idempotency_key(idempotency_key)
+        return None if intent is None else str(intent.deployment_id)
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one desk book (managed, or flattening)."""

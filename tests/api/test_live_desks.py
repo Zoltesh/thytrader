@@ -134,3 +134,19 @@ def test_an_unreserved_live_desk_is_refused_and_a_reserved_one_trades_live() -> 
     entry = book["orders"][0]
     assert entry["kind"] == "post_only_limit"
     assert Decimal(entry["quantity"]) * Decimal(entry["price"]) <= Decimal("37.50")
+
+
+def test_the_reservation_must_hold_the_whole_allocation_not_just_the_notional() -> None:
+    """A reservation between the order's notional and its allocation (fee headroom) is refused."""
+    risk = InMemoryRiskPolicyStore()
+    with _live_client(risk, _LiveFillBroker()) as client:
+        desk_id = client.post("/api/v1/desks", json={**_DESK, "i_understand_live": True}).json()[
+            "desk_id"
+        ]
+        _publish(risk, DeskAllocation(desk_id=desk_id, allocated_quote="37"))
+        market_rows = client.get(f"/api/v1/desks/{desk_id}/briefing").json()["market"]
+        close = Decimal(market_rows[0]["last_close"])
+        order = {**_OPEN, "limit_price": str((close * Decimal("0.999")).quantize(Decimal("0.01")))}
+        refused = _wake(client, desk_id, order)
+    # 25% of 150 is a 37.50 allocation: its 36.75 notional fits 37, the allocation does not.
+    assert refused["outcome_code"] == "ALLOCATION_EXCEEDED", refused

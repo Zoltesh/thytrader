@@ -13,13 +13,15 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from thytrader.market_data.models import CandleInterval
+from thytrader.market_data.models import CandleInterval, parse_candle_interval
+from thytrader.trading.models import resolved_product_id, snapshot_positions
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from thytrader.market_data.models import Candle
     from thytrader.market_data.service import MarketDataService
+    from thytrader.trading.models import DeploymentSnapshot
 
 _HOURS = 24 * 7 + 16
 _STALE_HOURS = 2
@@ -142,3 +144,42 @@ def _relative_volume(candles: Sequence[Candle]) -> Decimal | None:
 def _round(value: Decimal) -> Decimal:
     """Six significant decimals keep the briefing small and stable."""
     return value.quantize(Decimal("0.000001"))
+
+
+async def fresh_marks(
+    market_data: MarketDataService,
+    snapshots: Sequence[DeploymentSnapshot],
+    *,
+    now: datetime | None = None,
+) -> dict[str, Decimal]:
+    """Each held product's latest close on its book's clock, only when that close is current.
+
+    A newest candle that closed more than two of its intervals ago is not a mark: stale
+    evidence leaves the product to the hourly row, which itself refuses stale prices.
+    """
+    moment = now or datetime.now(UTC)
+    marks: dict[str, Decimal] = {}
+    for snapshot in snapshots:
+        interval = parse_candle_interval(snapshot.deployment.timeframe or "1h")
+        for position in snapshot_positions(snapshot):
+            product_id = resolved_product_id(position.product_id, snapshot.deployment)
+            if product_id in marks:
+                continue
+            mark = await _current_close(market_data, product_id, interval, moment)
+            if mark is not None:
+                marks[product_id] = mark
+    return marks
+
+
+async def _current_close(
+    market_data: MarketDataService, product_id: str, interval: CandleInterval, moment: datetime
+) -> Decimal | None:
+    """The newest close if that candle started within three intervals of ``moment``."""
+    try:
+        preview = await market_data.get_preview(product_id, interval)
+    except Exception:  # noqa: BLE001 - an unreadable mark stays unknown.
+        return None
+    candles = preview.quality.candles
+    if candles and candles[-1].starts_at + 3 * interval.duration >= moment:
+        return candles[-1].close
+    return None

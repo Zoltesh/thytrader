@@ -137,8 +137,8 @@ A live desk spends real money from the account. Two steps, both the operator's d
    desk allocation is in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED`
    until the policy lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation
    DESK_ID:QUOTE`, `QUOTE` in the policy's quote currency; the desk must trade that quote). The
-   reservation caps the desk's total: the allocations of its open books plus each new order
-   (`ALLOCATION_EXCEEDED` beyond it). Give the desk a pool no larger than its reservation.
+   reservation caps the desk's total: the allocations of its open books plus each new
+   allocation (`ALLOCATION_EXCEEDED` beyond it). Give the desk a pool no larger than its reservation.
    `set-risk-policy` publishes a whole replacement policy, so carry every existing field and
    allocation forward.
 
@@ -150,9 +150,10 @@ target attached at the venue. Desk books are valued by their own fills (allocati
 minus purchases and fees, plus held quantity at the mark), never by a live book's shared cash.
 A book settles only when every recorded fill is applied and matches the position, and, live,
 every cancel has passed its settlement watermark (ADR 0141); a late fill is not expected after
-that. Held books are marked at their own clock's latest close. Each answer is one order: the
-order is keyed on the briefing fingerprint, and a second applied open for the same briefing is
-refused `DESK_DUPLICATE_ANSWER`. An open reserves its book's id before placing, so an interrupted
+that. Held books are marked at their own clock's latest close while it is current (else equity is
+unknown and entries stop). Each answer is one order: the
+order is keyed on the briefing fingerprint, and an answer whose order already exists is refused
+`DESK_DUPLICATE_ANSWER` before any cash moves. An open reserves its book's id before placing, so an interrupted
 open links exactly that book (`DESK_OPEN_RECOVERED`) or refunds the reservation.
 `show`, `journal` and `score` work as on paper; `mode` is on the desk and in the briefing, and the
 model's prompt says it is trading real money. Pause a live desk with `status DESK_ID paused

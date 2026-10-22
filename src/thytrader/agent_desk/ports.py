@@ -39,6 +39,10 @@ class DeskExecution(Protocol):
         """
         ...
 
+    async def intent_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
+        ...
+
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one book, flattening it when asked."""
         ...

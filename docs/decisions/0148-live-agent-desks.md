@@ -28,8 +28,8 @@ over.
    policies keep their fingerprints, and it counts toward the same total as `allocations`. While
    any strategy or desk allocation is in force, live discretionary orders are an allowlist: only
    a listed desk's orders are members. Desk allocations never gate strategy books. The
-   reservation is cumulative: the desk passes the allocations its open books hold, and those
-   plus the new order must fit (`ALLOCATION_EXCEEDED`); a product quoted in another currency is
+   reservation is cumulative: the allocations the desk's open books hold plus the whole new
+   allocation (fee headroom included) must fit (`ALLOCATION_EXCEEDED`); a product quoted in another currency is
    refused.
 3. **Live desk orders use the live discretionary path unchanged**: the live broker, the venue's
    remaining quote and unclaimed base, the shared-collateral scope, the exposure caps, the
@@ -42,13 +42,14 @@ over.
    the book is flat and stopped, every recorded fill is applied and matches the position, and,
    live, every cancelled order has passed its settlement watermark (ADR 0141), after which a
    late fill is not expected. Book `cash` is never read, so a shared venue balance cannot leak
-   into a pool. Held books are marked at their own clock's latest close.
+   into a pool. Held books are marked at their own clock's latest close only while that close is
+   current (within three intervals); otherwise equity is unknown and entries stop.
 5. **The model is told.** A live desk's prompt says every order spends real money and that it
    may open long only. Fees are described as they are charged: limit entries at maker, market
    entries, stops and targets at taker.
 6. **One answer, one order; exact recovery.** A desk order's idempotency key is the briefing
-   fingerprint, and a second applied open for the same briefing is refused
-   (`DESK_DUPLICATE_ANSWER`), so a retried or replayed answer cannot buy twice. The reservation
+   fingerprint, and before reserving cash the desk asks execution whether an order already exists
+   under that key (`DESK_DUPLICATE_ANSWER`), so a retried or replayed answer cannot buy twice. The reservation
    chooses the new book's id before placing; recovery links exactly that book (in the desk's
    mode, on its product) or refunds, and a store outage never reads as "no book".
 
