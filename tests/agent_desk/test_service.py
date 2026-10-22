@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from tests.persistence.test_postgres_fill_transaction import _pending_entry_book
-from thytrader.agent_desk.market import fresh_marks
+from thytrader.agent_desk.market import MarketRow, fresh_marks, newest_marks
 from thytrader.agent_desk.models import (
     Desk,
     DeskBook,
@@ -679,5 +679,15 @@ async def test_a_stale_close_is_not_a_mark() -> None:
     stale = await fresh_marks(
         execution.market_data, [book], now=datetime.now(UTC) + timedelta(days=2)
     )
-    assert current.get("BTC-USD") is not None
+    assert "BTC-USD" in current
     assert stale == {}
+
+
+def test_the_newer_close_wins_between_the_hourly_row_and_the_book_clock() -> None:
+    """A 4h close that ended at 16:00 never replaces an hourly close that ended at 18:00."""
+    hour_start = datetime(2026, 10, 22, 17, tzinfo=UTC)
+    rows = [MarketRow(product_id="BTC-USD", last_close=Decimal(90), last_bar_starts_at=hour_start)]
+    slow = {"BTC-USD": (Decimal(100), datetime(2026, 10, 22, 16, tzinfo=UTC))}
+    fast = {"BTC-USD": (Decimal(95), datetime(2026, 10, 22, 18, 5, tzinfo=UTC))}
+    assert newest_marks(rows, slow) == {"BTC-USD": Decimal(90)}
+    assert newest_marks(rows, fast) == {"BTC-USD": Decimal(95)}

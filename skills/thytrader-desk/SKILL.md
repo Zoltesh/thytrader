@@ -150,8 +150,8 @@ target attached at the venue. Desk books are valued by their own fills (allocati
 minus purchases and fees, plus held quantity at the mark), never by a live book's shared cash.
 A book settles only when every recorded fill is applied and matches the position, and, live,
 every cancel has passed its settlement watermark (ADR 0141); a late fill is not expected after
-that. Held books are marked at their own clock's latest close while it is current (else equity is
-unknown and entries stop). Each answer is one order: the
+that. Held books are marked at the newer of the hourly close and their own clock's current close
+(if neither is current, equity is unknown and entries stop). Each answer is one order: the
 order is keyed on the briefing fingerprint, and an answer whose order already exists is refused
 `DESK_DUPLICATE_ANSWER` before any cash moves. An open reserves its book's id before placing, so an interrupted
 open links exactly that book (`DESK_OPEN_RECOVERED`) or refunds the reservation.

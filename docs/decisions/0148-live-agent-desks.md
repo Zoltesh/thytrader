@@ -42,8 +42,8 @@ over.
    the book is flat and stopped, every recorded fill is applied and matches the position, and,
    live, every cancelled order has passed its settlement watermark (ADR 0141), after which a
    late fill is not expected. Book `cash` is never read, so a shared venue balance cannot leak
-   into a pool. Held books are marked at their own clock's latest close only while that close is
-   current (within three intervals); otherwise equity is unknown and entries stop.
+   into a pool. Held books are marked at the newer of the hourly close and their own clock's current
+   close (by when the bar ended); if neither is current, equity is unknown and entries stop.
 5. **The model is told.** A live desk's prompt says every order spends real money and that it
    may open long only. Fees are described as they are charged: limit entries at maker, market
    entries, stops and targets at taker.

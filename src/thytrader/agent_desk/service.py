@@ -22,7 +22,7 @@ from thytrader.agent_desk.briefing import (
 )
 from thytrader.agent_desk.decisions import DecisionParseError, parse_decision
 from thytrader.agent_desk.funding import open_funded, resolve_pending
-from thytrader.agent_desk.market import MarketRow, fresh_marks, market_rows
+from thytrader.agent_desk.market import MarketRow, fresh_marks, market_rows, newest_marks
 from thytrader.agent_desk.models import (
     MAX_RESPONSE_CHARS,
     Desk,
@@ -315,13 +315,14 @@ async def _state(
     desk, _ = await resolve_pending(desk, store=store, execution=execution)
     desk = await _settle(desk, store=store, execution=execution)
     rows = await market_rows(market_data, desk.products)
-    marks = {row.product_id: row.last_close for row in rows if row.last_close is not None}
     books = [book for book in await store.list_books(desk_id) if book.settled_at is None]
     open_books: list[tuple[DeskBook, DeploymentSnapshot]] = [
         (book, await execution.snapshot(book.deployment_id)) for book in books
     ]
-    # Held books are marked at their own clock's latest close, fresher than the hourly row.
-    marks |= await fresh_marks(market_data, [snapshot for _, snapshot in open_books])
+    # Held books take the newer of the hourly close and their own clock's current close.
+    marks = newest_marks(
+        rows, await fresh_marks(market_data, [snapshot for _, snapshot in open_books])
+    )
     positions: list[PositionView] = []
     equity: Decimal | None = desk.cash
     for book, snapshot in open_books:
