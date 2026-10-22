@@ -1,26 +1,27 @@
 ---
 name: thytrader-desk
 description: >-
-  Run ThyTrader paper agent desks through thytrader-desk: a paper cash pool, a product
-  universe and caps that a model harness (Claude Code, Pi, Codex, Hermes, or any command)
-  wakes on a cadence. Each wake ThyTrader writes a briefing, the model answers with one JSON
-  decision (no_trade, open, close), and ThyTrader applies it to a fresh discretionary paper
-  book under the caps and journals it. Use when the user asks to create, wake, schedule,
-  pause, score or review an agent desk, or to let a model day-trade on paper. Mutations
-  require --confirm. YOLO never covers this lane. Paper only: never live, never arms, never
-  touches strategy bots or portfolios.
+  Run ThyTrader agent desks through thytrader-desk: a cash pool, a product universe and caps
+  that a model harness (Claude Code, Pi, Codex, Hermes, or any command) wakes on a cadence.
+  Each wake ThyTrader writes a briefing, the model answers with one JSON decision (no_trade,
+  open, close), and ThyTrader applies it to a fresh discretionary book under the caps and
+  journals it. Desks are paper unless created live with --i-understand-live and reserved in the
+  risk policy's desk_allocations. Use when the user asks to create, wake, schedule, pause,
+  score or review an agent desk, or to let a model trade. Mutations require --confirm. YOLO
+  never covers this lane. Never arms strategy bots or touches portfolios.
 ---
 
 # ThyTrader agent desk
 
-Paper discretionary trading by a model, inside hard caps
-([ADR 0147](../../docs/decisions/0147-agent-desk.md)). This skill is not an extension of
+Discretionary trading by a model, inside hard caps
+([ADR 0147](../../docs/decisions/0147-agent-desk.md); live desks
+[ADR 0148](../../docs/decisions/0148-live-agent-desks.md)). This skill is not an extension of
 `thytrader-runtime` (which places on-demand orders) or `thytrader-portfolio` (which manages strategy
-sleeves). A desk never trades live; there is no live flag.
+sleeves). Desks are paper by default; a live desk is described under "Live desks" below.
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v107`, schema revision `0080`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v108`, schema revision `0080`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
 `create`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 
@@ -28,7 +29,7 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
 
 - **Pool.** `starting_cash` in one quote currency (`USD`, `USDC`, `USDT`). Every product in the
   universe (up to 20 spot ids) must end in that quote (`DESK_PRODUCT_INVALID` otherwise).
-- **One trade, one book.** An `open` funds a **new** discretionary paper book (origin `agent`) with
+- **One trade, one book.** An `open` funds a **new** discretionary book (origin `agent`) with
   `size_fraction × equity` from the pool. The order notional is 98% of the allocation, so the book
   can pay fees. When the book is flat and stopped, its final cash returns to the pool at the next
   briefing, wake or score (settlement).
@@ -51,7 +52,7 @@ uv run thytrader-desk create --name "BTC/ETH desk" --quote-currency USDC --start
   --product BTC-USDC --product ETH-USDC --product SOL-USDC \
   --harness claude --cadence-minutes 30 [--model MODEL] [--mandate TEXT] \
   [--max-open-positions N] [--max-position-fraction F] [--max-entries-per-day N] \
-  [--daily-loss-fraction F] --confirm
+  [--daily-loss-fraction F] [--timeframe 5m] [--mode live --i-understand-live] --confirm
 uv run thytrader-desk list
 uv run thytrader-desk show DESK_ID                    # desk + every book it funded
 uv run thytrader-desk briefing DESK_ID [--prompt]     # --prompt prints only the prompt text
@@ -115,13 +116,48 @@ exits like any discretionary order.
 Refusal codes: `DESK_DECISION_INVALID`, `DESK_NOT_ACTIVE`, `DESK_PRODUCT_NOT_IN_UNIVERSE`,
 `DESK_PRODUCT_OCCUPIED`, `DESK_MAX_POSITIONS`, `DESK_MAX_ENTRIES_TODAY`, `DESK_EQUITY_UNKNOWN`,
 `DESK_DAILY_LOSS`, `DESK_POSITION_TOO_LARGE`, `DESK_CASH_SHORT`, `DESK_UNKNOWN_BOOK`, and
-execution refusals from the discretionary path, led by their own code or `DESK_ORDER_REFUSED`
+`DESK_SHORT_LIVE_UNSUPPORTED`, `DESK_LIVE_LIMIT_ONLY`, `DESK_DUPLICATE_ANSWER`,
+`DISCRETIONARY_NOT_ALLOCATED` (a live desk
+the policy does not reserve), and execution refusals from the discretionary path, led by their own code or `DESK_ORDER_REFUSED`
 with the reason in `detail` (for example paper fees unavailable, or the risk policy's
 `paper_capital_quote` / single-quote paper capital and running-slot caps, which desk books count
 against like any paper book). Harness
 failures: `DESK_HARNESS_NOT_FOUND`, `DESK_HARNESS_TIMEOUT`, `DESK_HARNESS_EXIT`,
 `DESK_HARNESS_EMPTY` (journaled as `error`). `DESK_OPEN_RECOVERED` marks an applied open
 whose own journal row was lost to an interrupted write and rebuilt on recovery.
+
+## Live desks
+
+A live desk spends real money from the account. Two steps, both the operator's decision:
+
+1. Create it live (HTTP `mode: "live"`, `i_understand_live: true`; 428 without the flag):
+   `uv run thytrader-desk create ... --mode live --i-understand-live --confirm`. The desk records
+   when live was acknowledged. YOLO never covers this.
+2. Reserve its capital in the risk policy (`thytrader-runtime` skill): while any strategy or
+   desk allocation is in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED`
+   until the policy lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation
+   DESK_ID:QUOTE`, `QUOTE` in the policy's quote currency; the desk must trade that quote). The
+   reservation caps the desk's total: the allocations of its open books plus each new
+   allocation (`ALLOCATION_EXCEEDED` beyond it). Give the desk a pool no larger than its reservation.
+   `set-risk-policy` publishes a whole replacement policy, so carry every existing field and
+   allocation forward.
+
+A live desk is long only (`DESK_SHORT_LIVE_UNSUPPORTED`) and enters with post-only limit orders
+only (`DESK_LIVE_LIMIT_ONLY`): a limit fills at its price or better, so an order never spends more
+than its allocation. It uses the live discretionary path:
+the live broker, the venue's remaining quote, the account caps and breakers, and a stop and
+target attached at the venue. Desk books are valued by their own fills (allocation, plus sales,
+minus purchases and fees, plus held quantity at the mark), never by a live book's shared cash.
+A book settles only when every recorded fill is applied and matches the position, and, live,
+every cancel has passed its settlement watermark (ADR 0141); a late fill is not expected after
+that. Held books are marked at the newer of the hourly close and their own clock's current close
+(if neither is current, equity is unknown and entries stop). Each answer is one order: the
+order is keyed on the briefing fingerprint, and an answer whose order already exists is refused
+`DESK_DUPLICATE_ANSWER` before any cash moves. An open reserves its book's id before placing, so an interrupted
+open links exactly that book (`DESK_OPEN_RECOVERED`) or refunds the reservation.
+`show`, `journal` and `score` work as on paper; `mode` is on the desk and in the briefing, and the
+model's prompt says it is trading real money. Pause a live desk with `status DESK_ID paused
+--confirm`; its open books keep their venue stops and targets.
 
 ## Scheduling
 
@@ -141,13 +177,13 @@ Paper results are evidence, not a promise: judge a desk over weeks and many trad
 
 ## Limits
 
-- Paper only. Promoting a desk to live is not implemented.
+- A desk's mode is fixed at creation. To trade a paper desk's idea live, create a live desk.
 - The briefing's market rows are hourly summaries from stored candles; a product with no data shows
   `unavailable_reason`.
-- A desk book is an ordinary discretionary paper book: it appears in `thytrader-runtime list` and the
+- A desk book is an ordinary discretionary book: it appears in `thytrader-runtime list` and the
   browser. A desk `close` flattens it. A plain runtime/browser stop is a managed stop that keeps
   the position, so the book settles into the pool only once it is flat; to end it now use
   `uv run thytrader-runtime stop BOOK_ID --flatten --confirm`.
-- An open reserves the pool cash first, places the order, then links the book and journals the
-  wake in one write. If the API dies in between, the next briefing, wake or score links the book
-  it finds under the wake's key (journaled `DESK_OPEN_RECOVERED`) or refunds the reservation.
+- An open reserves the pool cash (and the new book's id) first, places the order, then links the
+  book and journals the wake in one write. If the API dies in between, the next briefing, wake or
+  score links the book with that id (journaled `DESK_OPEN_RECOVERED`) or refunds the reservation.

@@ -8,10 +8,10 @@ caps here, whatever the model said; a refusal is journaled with its code.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from decimal import ROUND_DOWN, Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from thytrader.agent_desk.briefing import (
     DeskBriefing,
@@ -22,7 +22,7 @@ from thytrader.agent_desk.briefing import (
 )
 from thytrader.agent_desk.decisions import DecisionParseError, parse_decision
 from thytrader.agent_desk.funding import open_funded, resolve_pending
-from thytrader.agent_desk.market import MarketRow, market_rows
+from thytrader.agent_desk.market import MarketRow, fresh_marks, market_rows, newest_marks
 from thytrader.agent_desk.models import (
     MAX_RESPONSE_CHARS,
     Desk,
@@ -36,11 +36,12 @@ from thytrader.agent_desk.models import (
 )
 from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
+from thytrader.agent_desk.valuation import book_value
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
-from thytrader.trading.ledger import ledger_from_snapshot
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
@@ -87,6 +88,8 @@ class DeskSpec:
     model: str | None = None
     mandate: str = ""
     caps: DeskCaps = field(default_factory=DeskCaps)
+    mode: Literal["paper", "live"] = "paper"
+    live_acknowledged: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,7 +105,13 @@ class _State:
 
 
 async def create_desk(store: DeskStore, spec: DeskSpec, *, now: datetime) -> Desk:
-    """Validate the timeframe and the universe against the quote currency, then insert."""
+    """Validate the timeframe and the universe against the quote currency, then insert.
+
+    A live desk (ADR 0148) needs the operator's live acknowledgement, recorded on the desk; its
+    orders still need the risk policy to reserve the desk's capital in ``desk_allocations``.
+    """
+    if spec.mode == "live" and not spec.live_acknowledged:
+        raise DeskError("DESK_LIVE_ACK_REQUIRED: a live desk trades real money; acknowledge live.")
     if spec.timeframe not in EXECUTION_TIMEFRAMES:
         allowed = ", ".join(EXECUTION_TIMEFRAMES)
         raise DeskError(f"DESK_TIMEFRAME_INVALID: {spec.timeframe} is not one of {allowed}.")
@@ -124,6 +133,8 @@ async def create_desk(store: DeskStore, spec: DeskSpec, *, now: datetime) -> Des
         model=spec.model,
         mandate=spec.mandate,
         caps=spec.caps,
+        mode=spec.mode,
+        live_acknowledged_at=now if spec.mode == "live" else None,
         created_at=now,
         updated_at=now,
     )
@@ -301,17 +312,20 @@ async def _state(
 ) -> _State:
     """Settle, mark and roll the UTC day; the saved desk is the returned one."""
     desk = await _require_desk(store, desk_id)
-    desk = await resolve_pending(desk, store=store, execution=execution)
+    desk, _ = await resolve_pending(desk, store=store, execution=execution)
     desk = await _settle(desk, store=store, execution=execution)
     rows = await market_rows(market_data, desk.products)
-    marks = {row.product_id: row.last_close for row in rows if row.last_close is not None}
     books = [book for book in await store.list_books(desk_id) if book.settled_at is None]
-    open_books: list[tuple[DeskBook, DeploymentSnapshot]] = []
+    open_books: list[tuple[DeskBook, DeploymentSnapshot]] = [
+        (book, await execution.snapshot(book.deployment_id)) for book in books
+    ]
+    # Held books take the newer of the hourly close and their own clock's current close.
+    marks = newest_marks(
+        rows, await fresh_marks(market_data, [snapshot for _, snapshot in open_books])
+    )
     positions: list[PositionView] = []
     equity: Decimal | None = desk.cash
-    for book in books:
-        snapshot = await execution.snapshot(book.deployment_id)
-        open_books.append((book, snapshot))
+    for book, snapshot in open_books:
         view = _position_view(book, snapshot, marks.get(book.product_id))
         positions.append(view)
         equity = None if equity is None or view.equity_quote is None else equity + view.equity_quote
@@ -331,18 +345,19 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
         if book.settled_at is not None:
             continue
         snapshot = await execution.snapshot(book.deployment_id)
-        if not _flat(snapshot):
+        if not _flat(snapshot) or not _evidence_final(snapshot):
             continue
         if snapshot.deployment.status is not DeploymentStatus.STOPPED:
             snapshot = await execution.stop_book(book.deployment_id, flatten=False)
             if not _flat(snapshot) or snapshot.deployment.status is not DeploymentStatus.STOPPED:
                 continue
+        value = book_value(book, snapshot, None)
+        if value is None:
+            continue
         settled.append(
-            book.model_copy(
-                update={"settled_at": datetime.now(UTC), "settled_cash": snapshot.deployment.cash}
-            )
+            book.model_copy(update={"settled_at": datetime.now(UTC), "settled_cash": value})
         )
-        returned += snapshot.deployment.cash
+        returned += value
     if not settled:
         return desk
     return await save_desk(
@@ -390,7 +405,21 @@ async def _apply(
         await execution.stop_book(decision.deployment_id, flatten=True)
         return None
     allocation = _check_open(decision, state)
-    request = _order_request(decision, state.desk, wake_id=wake.wake_id, allocation=allocation)
+    request = _order_request(
+        decision,
+        state.desk,
+        fingerprint=wake.briefing_fingerprint,
+        allocation=allocation,
+        committed=sum((book.allocated_quote for book, _ in state.open_books), Decimal(0)),
+    )
+    # The reservation must hold the whole new allocation (its fee headroom included), not only
+    # the order's notional, so the gate sees committed + headroom + notional.
+    request = replace(
+        request,
+        desk_committed_quote=request.desk_committed_quote
+        + allocation
+        - (request.quote_notional or allocation),
+    )
     return await open_funded(
         state.desk,
         request=request,
@@ -402,12 +431,22 @@ async def _apply(
     )
 
 
+def _check_live(decision: DeskDecision) -> None:
+    """A live spot desk buys, and only with a limit: it never fills above its price."""
+    if decision.side == "short":
+        raise DeskError("DESK_SHORT_LIVE_UNSUPPORTED: a live spot desk can only buy.")
+    if decision.entry != "limit":
+        raise DeskError("DESK_LIVE_LIMIT_ONLY: a live desk enters with limit orders only.")
+
+
 def _check_open(decision: DeskDecision, state: _State) -> Decimal:
     """Enforce the universe and caps; return the allocation in quote."""
     desk, caps = state.desk, state.desk.caps
     product_id = decision.product_id or ""
     if product_id not in desk.products:
         raise DeskError(f"DESK_PRODUCT_NOT_IN_UNIVERSE: {product_id} is not a desk product.")
+    if desk.mode == "live":
+        _check_live(decision)
     if product_id in {book.product_id for book, _ in state.open_books}:
         raise DeskError(f"DESK_PRODUCT_OCCUPIED: the desk already has a book on {product_id}.")
     if len(state.open_books) >= caps.max_open_positions:
@@ -432,30 +471,43 @@ def _check_open(decision: DeskDecision, state: _State) -> Decimal:
 
 
 def _order_request(
-    decision: DeskDecision, desk: Desk, *, wake_id: str, allocation: Decimal
+    decision: DeskDecision,
+    desk: Desk,
+    *,
+    fingerprint: str,
+    allocation: Decimal,
+    committed: Decimal,
 ) -> DiscretionaryOrderRequest:
-    """The discretionary paper order for an open decision (fresh book, account fee rates)."""
+    """The discretionary order for an open decision: a fresh book in the desk's mode.
+
+    Paper books start with the allocation as their cash and the account's fee rates; live
+    orders are sized to the allocation and admitted by the desk's policy reservation.
+    """
     market = decision.entry == "market"
     header = f"[desk {desk.name} | {desk.harness}{'/' + desk.model if desk.model else ''}] "
+    live = desk.mode == "live"
     return DiscretionaryOrderRequest(
-        mode=DeploymentMode.PAPER,
+        mode=DeploymentMode.LIVE if live else DeploymentMode.PAPER,
         product_id=decision.product_id or "",
         entry_kind=OrderKind.MARKETABLE if market else OrderKind.POST_ONLY_LIMIT,
         stop_price=decision.stop_price or Decimal(0),
         take_profit_price=decision.take_profit_price or Decimal(0),
         origin=IntentOrigin.AGENT,
-        idempotency_key=f"desk:{desk.desk_id}:{wake_id}"[:128],
+        # One answer to one briefing is one order, however often the answer is posted.
+        idempotency_key=f"desk:{desk.desk_id}:{fingerprint.removeprefix('sha256:')[:32]}",
         timeframe=desk.timeframe,
         side=PositionSide.SHORT if decision.side == "short" else PositionSide.LONG,
         quantity=None,
         # Leave room for entry fees inside the book's own cash.
         quote_notional=(allocation * Decimal("0.98")).quantize(_CENT, rounding=ROUND_DOWN),
         limit_price=None if market else decision.limit_price,
-        paper_starting_cash=allocation,
+        paper_starting_cash=None if live else allocation,
         paper_maker_fee_rate=None,
         paper_taker_fee_rate=None,
         note=(header + decision.thesis)[:4000],
         fresh_book=True,
+        desk_id=desk.desk_id,
+        desk_committed_quote=committed,
     )
 
 
@@ -469,6 +521,7 @@ def _desk_view(state: _State, rates: tuple[Decimal, Decimal] | None) -> DeskView
     return DeskView(
         desk_id=desk.desk_id,
         name=desk.name,
+        mode=desk.mode,
         quote_currency=desk.quote_currency,
         mandate=desk.mandate,
         starting_cash=desk.starting_cash,
@@ -512,11 +565,7 @@ def _position_view(
     """One open book, marked when a close is known."""
     deployment = snapshot.deployment
     position = snapshot.position
-    equity = None
-    if position is None and not snapshot.positions:
-        equity = deployment.cash
-    elif mark is not None:
-        equity = ledger_from_snapshot(snapshot, mark_price=mark).equity
+    equity = book_value(book, snapshot, mark)
     return PositionView(
         deployment_id=book.deployment_id,
         product_id=book.product_id,
@@ -548,6 +597,24 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
     )
 
 
+def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
+    """Every execution is applied and, live, every cancel is past its settlement watermark.
+
+    A FILLED order whose fills are not all recorded and applied, or applied inventory the
+    position does not show, would settle cash the book still spends. A live cancel can still be
+    followed by a fill until reconciliation settles it (ADR 0141); paper cancels are final.
+    """
+    if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
+        return False
+    if snapshot.deployment.mode is not DeploymentMode.LIVE:
+        return True
+    return all(
+        order.settled_at is not None
+        for order in snapshot.orders
+        if order.status is OrderStatus.CANCELED
+    )
+
+
 def _conflict_code(message: str) -> str:
     """A leading CODE: of an execution refusal, else a generic desk code."""
     head = message.split(":", 1)[0].strip()
@@ -555,6 +622,10 @@ def _conflict_code(message: str) -> str:
         return head
     if "occupied discretionary book" in message:
         return "DESK_PRODUCT_OCCUPIED"
+    if "risk-policy allocations are in force" in message:
+        return "DISCRETIONARY_NOT_ALLOCATED"
+    if message.startswith("Desk allocation") or "allocation exceeded" in message.lower():
+        return "ALLOCATION_EXCEEDED"
     return "DESK_ORDER_REFUSED"
 
 

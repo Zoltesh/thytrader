@@ -10835,6 +10835,18 @@
           "title": "Agent Desk Contract",
           "type": "string"
         },
+        "agent_desk_modes": {
+          "description": "Desk modes; live needs i_understand_live and desk_allocations (ADR 0148).",
+          "items": {
+            "enum": [
+              "paper",
+              "live"
+            ],
+            "type": "string"
+          },
+          "title": "Agent Desk Modes",
+          "type": "array"
+        },
         "expected_schema_revision": {
           "maxLength": 32,
           "minLength": 1,
@@ -10905,6 +10917,7 @@
         "futures_order_paths",
         "futures_observations",
         "agent_desk_contract",
+        "agent_desk_modes",
         "expected_schema_revision"
       ],
       "title": "OpsContractPayload",

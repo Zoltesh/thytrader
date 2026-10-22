@@ -33,12 +33,14 @@ class DeskExecution(Protocol):
         ...
 
     async def find_book(self, pending: PendingOpen) -> str | None:
-        """The book a reserved open created, if any.
+        """The reservation's own book (its pre-chosen id, in its mode, on its product), if any.
 
-        First the book of the order placed under the reservation's idempotency key; failing
-        that (the book was created but its order never recorded), the discretionary paper book
-        on that product funded with exactly that allocation within minutes of the reservation.
+        A store outage must raise, never read as "no book": a refund then would fund twice.
         """
+        ...
+
+    async def intent_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
         ...
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:

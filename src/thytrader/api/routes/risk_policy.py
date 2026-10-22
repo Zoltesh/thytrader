@@ -22,6 +22,7 @@ from thytrader.risk.models import (
     MAX_FLEET_ENTRY_WINDOW_MINUTES,
     ActiveRiskPolicy,
     CapitalAllocation,
+    DeskAllocation,
     RiskPolicyWrite,
 )
 from thytrader.risk.service import publish_risk_policy
@@ -54,6 +55,13 @@ class RiskPolicyWriteBody(BaseModel):
     per_product_max_exposure_fraction: str
     paper_capital_quote: str
     allocations: tuple[AllocationBody, ...] = ()
+    desk_allocations: tuple[DeskAllocation, ...] = Field(
+        default=(),
+        description=(
+            "Live quote reserved per agent desk (ADR 0148): while allocations are in force, "
+            "a live desk's orders are admitted only when its desk_id is listed here."
+        ),
+    )
     daily_loss_limit_fraction: str = "1"
     max_strategy_drawdown_fraction: str = "1"
     max_entry_orders_per_minute: int = Field(default=60, ge=1, le=1000)
@@ -100,6 +108,7 @@ class RiskPolicyResponse(BaseModel):
     per_product_max_exposure_fraction: str
     paper_capital_quote: str
     allocations: tuple[AllocationBody, ...]
+    desk_allocations: tuple[DeskAllocation, ...] = ()
     daily_loss_limit_fraction: str
     max_strategy_drawdown_fraction: str
     max_entry_orders_per_minute: int
@@ -180,6 +189,7 @@ def _write_from_body(body: RiskPolicyWriteBody) -> RiskPolicyWrite:
         per_product_max_exposure_fraction=body.per_product_max_exposure_fraction,
         paper_capital_quote=body.paper_capital_quote,
         allocations=allocations,
+        desk_allocations=body.desk_allocations,
         daily_loss_limit_fraction=body.daily_loss_limit_fraction,
         max_strategy_drawdown_fraction=body.max_strategy_drawdown_fraction,
         max_entry_orders_per_minute=body.max_entry_orders_per_minute,
@@ -237,6 +247,7 @@ def _response(active: ActiveRiskPolicy) -> RiskPolicyResponse:
         fleet_entry_window_minutes=definition.fleet_entry_window_minutes,
         max_btc_beta_exposure_fraction=definition.max_btc_beta_exposure_fraction,
         max_btc_beta_exposure_quote=definition.max_btc_beta_exposure_quote,
+        desk_allocations=definition.desk_allocations,
         futures=definition.futures,
         start_safeguards=definition.start_safeguards,
     )

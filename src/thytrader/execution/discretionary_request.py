@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import re
+from typing import TYPE_CHECKING
 
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES, parse_candle_interval
 from thytrader.market_data.products import SPOT_PRODUCT_ID_PATTERN
@@ -22,6 +23,9 @@ from thytrader.trading.models import (
     OrderKind,
     PositionSide,
 )
+
+if TYPE_CHECKING:
+    from uuid import UUID
 
 _PRODUCT = re.compile(SPOT_PRODUCT_ID_PATTERN)
 
@@ -51,6 +55,15 @@ class DiscretionaryOrderRequest:
 
     Agent desks (ADR 0147) fund each trade from their own pool and must never inherit another
     book's cash; ordinary tickets keep reusing a flat running book."""
+    desk_id: str | None = None
+    """The agent desk placing this order; a live desk is admitted by its ``desk_allocations``
+    reservation when allocations are in force (ADR 0148)."""
+    desk_committed_quote: Decimal = Decimal(0)
+    """Quote the desk's other open books already hold; with this order it must fit the desk's
+    reservation (ADR 0148)."""
+    book_id: UUID | None = None
+    """Identity for the new book, chosen by the caller so an interrupted placement can be
+    found exactly (agent desks reserve it before placing; ADR 0147)."""
 
 
 def parse_discretionary_request(

@@ -8,12 +8,12 @@ from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 import json
 from typing import TYPE_CHECKING
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 
 from tests.persistence.test_postgres_fill_transaction import _pending_entry_book
-from thytrader.agent_desk.funding import created_by
+from thytrader.agent_desk.market import MarketRow, fresh_marks, newest_marks
 from thytrader.agent_desk.models import (
     Desk,
     DeskBook,
@@ -41,11 +41,14 @@ from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
     DeploymentKind,
+    DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
     ExecutionConflictError,
+    ExecutionStoreError,
     IntentOrigin,
     IntentPurpose,
+    OrderSide,
     OrderStatus,
     RuntimePhase,
     with_runtime,
@@ -87,14 +90,28 @@ class _Execution:
         )
 
     async def find_book(self, pending: PendingOpen) -> str | None:
-        """The book a reserved open created: by its order's key, else by its funding."""
-        intent = await self.store.get_intent_by_idempotency_key(pending.idempotency_key)
-        if intent is not None:
-            return str(intent.deployment_id)
-        for deployment in await self.store.list_deployments(limit=200):
-            if created_by(pending, deployment):
-                return str(deployment.id)
-        return None
+        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product.
+
+        A reservation written before book ids were chosen is found by its order's key.
+        """
+        if pending.deployment_id is None:
+            return await self.intent_book(pending.idempotency_key)
+        try:
+            snapshot = await self.store.get_deployment(UUID(pending.deployment_id))
+        except ExecutionStoreError as error:
+            if "not found" in str(error).lower():
+                return None
+            raise
+        deployment = snapshot.deployment
+        if deployment.mode.value != pending.mode or deployment.product_id != pending.product_id:
+            message = f"Book {pending.deployment_id} does not match its desk reservation."
+            raise ExecutionStoreError(message)
+        return str(deployment.id)
+
+    async def intent_book(self, idempotency_key: str) -> str | None:
+        """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
+        intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
+        return None if intent is None else str(intent.deployment_id)
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one book."""
@@ -125,7 +142,11 @@ async def _desk(**changes: object) -> tuple[InMemoryDeskStore, _Execution, str]:
 
 
 async def _wake(
-    store: InMemoryDeskStore, execution: _Execution, desk_id: str, answer: object
+    store: InMemoryDeskStore,
+    execution: _Execution,
+    desk_id: str,
+    answer: object,
+    fingerprint: str | None = None,
 ) -> DeskWake:
     """Record one wake with ``answer`` as the model's text."""
     text = answer if isinstance(answer, str) else json.dumps(answer)
@@ -137,7 +158,7 @@ async def _wake(
         raw_response=text,
         harness="test",
         model=None,
-        briefing_fingerprint="sha256:" + "0" * 64,
+        briefing_fingerprint=fingerprint or "sha256:" + uuid4().hex + uuid4().hex,
         started_at=datetime.now(UTC),
     )
 
@@ -257,29 +278,96 @@ async def test_a_paused_desk_journals_but_never_trades() -> None:
     assert wake.outcome_code == "DESK_NOT_ACTIVE"
 
 
-async def test_a_flat_stopped_book_returns_its_cash_to_the_pool() -> None:
-    """Once the book is flat and stopped, its final cash settles back into the desk."""
+async def test_a_flat_stopped_book_returns_its_fill_value_to_the_pool() -> None:
+    """Settlement returns the allocation plus sale proceeds minus cost and fees, not book cash."""
     store, execution, desk_id = await _desk()
     wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
     book = await execution.snapshot(wake.deployment_id or "")
+    entry_fill = book.fills[0]
+    entry_order = next(order for order in book.orders if order.id == entry_fill.order_id)
+    exit_order = replace(
+        entry_order, id=uuid4(), side=OrderSide.SELL, client_order_id="exit", intent_id=uuid4()
+    )
+    await execution.store.save_order(exit_order)
+    exit_price = entry_fill.price * Decimal("1.05")
+    exit_fee = Decimal("1.25")
+    await execution.store.save_fill(
+        replace(
+            entry_fill,
+            id=uuid4(),
+            order_id=exit_order.id,
+            venue_fill_id="exit-fill",
+            price=exit_price,
+            fee=exit_fee,
+        )
+    )
     closed = with_runtime(
         book.deployment,
         updated_at=datetime.now(UTC),
         status=DeploymentStatus.STOPPED,
         phase=RuntimePhase.FLAT,
-        cash=Decimal("1012.50"),
+        cash=Decimal("123456"),
     )
     await execution.store.save_deployment(closed)
     for order in book.orders:
         if order.status in {OrderStatus.OPEN, OrderStatus.PENDING}:
             await execution.store.save_order(replace(order, status=OrderStatus.CANCELED))
-    if book.position is not None:
-        await execution.store.save_position(None, deployment_id=book.deployment.id)
+    await execution.store.save_position(None, deployment_id=book.deployment.id)
     brief = await briefing(
         desk_id, store=store, execution=execution, market_data=execution.market_data
     )
+    expected = (
+        Decimal(1000)
+        - entry_fill.price * entry_fill.quantity
+        - entry_fill.fee
+        + exit_price * entry_fill.quantity
+        - exit_fee
+    )
     assert brief.desk.open_positions == 0
-    assert brief.desk.cash == Decimal("10012.50")
+    assert brief.desk.cash == Decimal(9000) + expected
+
+
+async def test_unapplied_fill_evidence_holds_settlement() -> None:
+    """A fill recorded but not yet applied could still move cash: the pool waits for it."""
+    store, execution, desk_id = await _desk()
+    wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
+    book = await execution.snapshot(wake.deployment_id or "")
+    entry_fill = book.fills[0]
+    entry_order = next(order for order in book.orders if order.id == entry_fill.order_id)
+    exit_order = replace(
+        entry_order, id=uuid4(), side=OrderSide.SELL, client_order_id="exit", intent_id=uuid4()
+    )
+    await execution.store.save_order(exit_order)
+    exit_price = entry_fill.price * Decimal("1.05")
+    exit_fee = Decimal("1.25")
+    await execution.store.save_fill(
+        replace(
+            entry_fill,
+            id=uuid4(),
+            order_id=exit_order.id,
+            venue_fill_id="exit-fill",
+            price=exit_price,
+            fee=exit_fee,
+            economics_applied_at=None,
+        )
+    )
+    closed = with_runtime(
+        book.deployment,
+        updated_at=datetime.now(UTC),
+        status=DeploymentStatus.STOPPED,
+        phase=RuntimePhase.FLAT,
+        cash=Decimal("123456"),
+    )
+    await execution.store.save_deployment(closed)
+    for order in book.orders:
+        if order.status in {OrderStatus.OPEN, OrderStatus.PENDING}:
+            await execution.store.save_order(replace(order, status=OrderStatus.CANCELED))
+    await execution.store.save_position(None, deployment_id=book.deployment.id)
+    brief = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert brief.desk.open_positions == 1
+    assert brief.desk.cash == Decimal(9000)
 
 
 async def test_a_harness_failure_is_journaled_as_an_error_wake() -> None:
@@ -466,15 +554,19 @@ async def test_a_desk_holds_two_products_at_once() -> None:
     assert len(await store.list_books(desk_id)) == 2
 
 
-async def test_a_reserved_book_without_its_order_is_linked_not_refunded() -> None:
-    """A book created before its order was recorded is found by its funding, not refunded."""
+async def test_a_reservation_links_only_its_own_book_by_its_chosen_id() -> None:
+    """Recovery finds the book by the id the reservation chose; another book is never claimed."""
     store, execution, desk_id = await _desk()
     desk = await store.get_desk(desk_id)
     assert desk is not None
     now = datetime.now(UTC)
+    unrelated = replace(_pending_entry_book(), product_id="BTC-USD", created_at=now, updated_at=now)
+    await execution.store.create_deployment(unrelated)
+    own = replace(unrelated, id=uuid4())
     pending = PendingOpen(
         wake_id="w-1",
         idempotency_key=f"desk:{desk_id}:w-1",
+        deployment_id=str(own.id),
         product_id="BTC-USD",
         side="long",
         allocated_quote=Decimal(1000),
@@ -485,16 +577,117 @@ async def test_a_reserved_book_without_its_order_is_linked_not_refunded() -> Non
         desk.model_copy(update={"cash": Decimal(9000), "pending_open": pending}),
         expected_revision=desk.revision,
     )
-    orphan = replace(
-        _pending_entry_book(),
-        product_id="BTC-USD",
-        created_at=now + timedelta(seconds=1),
-        updated_at=now + timedelta(seconds=1),
-    )
-    await execution.store.create_deployment(orphan)
     await briefing(desk_id, store=store, execution=execution, market_data=execution.market_data)
-    resolved = await store.get_desk(desk_id)
-    assert resolved is not None
-    assert resolved.pending_open is None
-    assert resolved.cash == Decimal(9000)
-    assert [book.deployment_id for book in await store.list_books(desk_id)] == [str(orphan.id)]
+    refunded = await store.get_desk(desk_id)
+    assert refunded is not None
+    assert refunded.cash == Decimal(10000)
+    assert await store.list_books(desk_id) == ()
+    await execution.store.create_deployment(own)
+    again = refunded.model_copy(update={"cash": Decimal(9000), "pending_open": pending})
+    await store.save_desk(again, expected_revision=refunded.revision)
+    await briefing(desk_id, store=store, execution=execution, market_data=execution.market_data)
+    linked = await store.get_desk(desk_id)
+    assert linked is not None
+    assert linked.cash == Decimal(9000)
+    assert [book.deployment_id for book in await store.list_books(desk_id)] == [str(own.id)]
+
+
+async def test_a_replayed_answer_never_opens_twice() -> None:
+    """The same answer to the same briefing, posted again, is refused DESK_DUPLICATE_ANSWER."""
+    store, execution, desk_id = await _desk()
+    fingerprint = "sha256:" + "a" * 64
+    first = await _wake(store, execution, desk_id, _open(), fingerprint=fingerprint)
+    again = await _wake(
+        store, execution, desk_id, _open(product="ETH-USD"), fingerprint=fingerprint
+    )
+    assert first.outcome is WakeOutcome.APPLIED, first.detail
+    assert again.outcome_code == "DESK_DUPLICATE_ANSWER"
+    books = await store.list_books(desk_id)
+    desk = await store.get_desk(desk_id)
+    assert [book.allocated_quote for book in books] == [Decimal(1000)]
+    assert desk is not None
+    assert desk.cash == Decimal(9000)
+
+
+async def test_a_live_cancel_settles_only_after_its_watermark() -> None:
+    """Until reconciliation settles a live cancel, a late fill could still arrive: hold the cash."""
+    store, execution, desk_id = await _desk()
+    first = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    close = next(row.last_close for row in first.market if row.product_id == "BTC-USD")
+    assert close is not None
+    limit = (close * Decimal("0.99")).quantize(Decimal("0.01"))
+    wake = await _wake(
+        store,
+        execution,
+        desk_id,
+        _open(entry="limit", limit_price=str(limit), stop_price=str(limit / 2)),
+    )
+    assert wake.outcome is WakeOutcome.APPLIED, wake.detail
+    book = await execution.snapshot(wake.deployment_id or "")
+    assert not book.fills
+    entry = book.orders[0]
+    await execution.store.save_order(replace(entry, status=OrderStatus.CANCELED))
+    await execution.store.save_deployment(
+        with_runtime(
+            replace(book.deployment, mode=DeploymentMode.LIVE),
+            updated_at=datetime.now(UTC),
+            status=DeploymentStatus.STOPPED,
+            phase=RuntimePhase.FLAT,
+        )
+    )
+    held = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    stored = (await execution.snapshot(wake.deployment_id or "")).orders[0]
+    await execution.store.save_order(replace(stored, settled_at=datetime.now(UTC)))
+    settled = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert held.desk.cash == Decimal(9000)
+    assert settled.desk.cash == Decimal(10000)
+
+
+async def test_a_legacy_reservation_without_a_book_id_is_found_by_its_order() -> None:
+    """Reservations written before book ids existed recover through their order's key."""
+    store, execution, desk_id = await _desk()
+    fingerprint = "sha256:" + "b" * 64
+    wake = await _wake(store, execution, desk_id, _open(), fingerprint=fingerprint)
+    book = await execution.snapshot(wake.deployment_id or "")
+    desk = await store.get_desk(desk_id)
+    assert desk is not None
+    key = book.intents[0].idempotency_key
+    assert key is not None
+    legacy = PendingOpen(
+        wake_id=wake.wake_id,
+        idempotency_key=key,
+        product_id="BTC-USD",
+        side="long",
+        allocated_quote=Decimal(1000),
+        reserved_at=datetime.now(UTC),
+    )
+    assert await execution.find_book(legacy) == wake.deployment_id
+
+
+async def test_a_stale_close_is_not_a_mark() -> None:
+    """A held book's close from long ago leaves its mark unknown."""
+    store, execution, desk_id = await _desk()
+    wake = await _wake(store, execution, desk_id, _open())
+    book = await execution.snapshot(wake.deployment_id or "")
+    current = await fresh_marks(execution.market_data, [book])
+    stale = await fresh_marks(
+        execution.market_data, [book], now=datetime.now(UTC) + timedelta(days=2)
+    )
+    assert "BTC-USD" in current
+    assert stale == {}
+
+
+def test_the_newer_close_wins_between_the_hourly_row_and_the_book_clock() -> None:
+    """A 4h close that ended at 16:00 never replaces an hourly close that ended at 18:00."""
+    hour_start = datetime(2026, 10, 22, 17, tzinfo=UTC)
+    rows = [MarketRow(product_id="BTC-USD", last_close=Decimal(90), last_bar_starts_at=hour_start)]
+    slow = {"BTC-USD": (Decimal(100), datetime(2026, 10, 22, 16, tzinfo=UTC))}
+    fast = {"BTC-USD": (Decimal(95), datetime(2026, 10, 22, 18, 5, tzinfo=UTC))}
+    assert newest_marks(rows, slow) == {"BTC-USD": Decimal(90)}
+    assert newest_marks(rows, fast) == {"BTC-USD": Decimal(95)}

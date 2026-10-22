@@ -65,11 +65,15 @@ class PendingOpen(_Frozen):
 
     Set in the same write that debits the pool, before the order is placed, and cleared in the
     write that links the placed book. One left behind by a crash is resolved on the next read:
-    the book found under ``idempotency_key`` is linked, otherwise the cash is refunded.
+    the book with ``deployment_id`` (chosen before placing) is linked, otherwise the cash is
+    refunded.
     """
 
     wake_id: str
     idempotency_key: str
+    deployment_id: str | None = None
+    briefing_fingerprint: str = ""
+    mode: Literal["paper", "live"] = "paper"
     product_id: str
     side: Literal["long", "short"]
     allocated_quote: Decimal = Field(gt=0)
@@ -82,7 +86,8 @@ class Desk(_Frozen):
 
     desk_id: str
     name: str = Field(min_length=1, max_length=120)
-    mode: Literal["paper"] = "paper"
+    mode: Literal["paper", "live"] = "paper"
+    live_acknowledged_at: datetime | None = None
     quote_currency: str = Field(pattern=r"^(USD|USDC|USDT)$")
     starting_cash: Decimal = Field(gt=0)
     cash: Decimal = Field(ge=0)

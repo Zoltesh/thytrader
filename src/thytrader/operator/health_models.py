@@ -197,6 +197,9 @@ class OpsContractPayload(_FrozenModel):
     agent_desk_contract: Literal["thytrader-agent-desk-v1"] = Field(
         description="Agent desk briefing and decision contract (ADR 0147, thytrader-desk)."
     )
+    agent_desk_modes: tuple[Literal["paper", "live"], ...] = Field(
+        description="Desk modes; live needs i_understand_live and desk_allocations (ADR 0148)."
+    )
     expected_schema_revision: str = Field(min_length=1, max_length=32)
 
 

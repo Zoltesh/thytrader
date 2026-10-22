@@ -18,7 +18,7 @@ from tests.adoption_support import (
     entry_intent,
     live_book,
 )
-from thytrader.api.routes.discretionary_orders import _unmanaged_base_available
+from thytrader.api.live_order_inputs import unmanaged_base_available
 from thytrader.execution_worker.live_sizing import _short_sellable_base
 from thytrader.trading.adoption_write import (
     ADOPTION_BALANCE_UNAVAILABLE,
@@ -285,7 +285,7 @@ async def test_live_short_base_excludes_an_unprotected_managed_long() -> None:
     owner = await adopted_book(store)
     trader = await store.create_deployment(live_book(kind=DeploymentKind.DISCRETIONARY))
     reader = _Balances(balance("DOGE", "150"))
-    route = await _unmanaged_base_available(
+    route = await unmanaged_base_available(
         reader,
         store=store,
         mode=DeploymentMode.LIVE,
@@ -296,7 +296,7 @@ async def test_live_short_base_excludes_an_unprotected_managed_long() -> None:
     )
     assert route == worker == Decimal(50)
     assert (
-        await _unmanaged_base_available(
+        await unmanaged_base_available(
             reader,
             store=store,
             mode=DeploymentMode.PAPER,

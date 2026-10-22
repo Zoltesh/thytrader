@@ -37,6 +37,7 @@ from thytrader.agent_orchestration.confirmation import require_mutation_confirma
 from thytrader.cli_errors import describe_unexpected_failure
 from thytrader.cli_parse import trailing_options
 from thytrader.config import Settings
+from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.operator.redaction import configured_secrets, dumps_redacted
 
 if TYPE_CHECKING:
@@ -58,16 +59,21 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thytrader-desk",
         description=(
-            "Paper agent desks (ADR 0147). A desk is a paper cash pool, a product universe and "
+            "Agent desks (ADR 0147, 0148). A desk is a cash pool, a product universe and "
             "caps. Each wake ThyTrader writes a briefing, a model harness (claude, pi, codex, "
             "hermes, or any --command) answers with one JSON decision, and ThyTrader applies it "
-            "to a fresh discretionary paper book under the caps and journals the wake. Paper "
-            "only; mutations require --confirm."
+            "to a fresh discretionary book under the caps and journals the wake. Desks are paper "
+            "unless created with --mode live --i-understand-live, whose orders also need the risk "
+            "policy to reserve the desk in desk_allocations. Mutations require --confirm."
         ),
         parents=[shared],
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    create = commands.add_parser("create", parents=[trailing], help="Create a paper desk.")
+    create = commands.add_parser(
+        "create",
+        parents=[trailing],
+        help="Create a desk (paper; live with --mode live --i-understand-live).",
+    )
     create.add_argument("--name", required=True)
     create.add_argument("--quote-currency", required=True, choices=("USD", "USDC", "USDT"))
     create.add_argument("--starting-cash", required=True, help="Paper pool, e.g. 10000.")
@@ -80,6 +86,12 @@ def _parser() -> argparse.ArgumentParser:
     )
     create.add_argument("--cadence-minutes", type=int, default=30)
     create.add_argument(
+        "--timeframe",
+        default="5m",
+        choices=EXECUTION_TIMEFRAMES,
+        help="Book clock its stop and target are worked on (default 5m; 1h suits swing desks).",
+    )
+    create.add_argument(
         "--harness", default="claude", help=f"Default harness: {', '.join(BUILTIN_HARNESSES)}."
     )
     create.add_argument("--model", default=None, help="Model the harness runs, if it takes one.")
@@ -88,6 +100,17 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--max-position-fraction", default=None, help="Of equity, e.g. 0.25.")
     create.add_argument("--max-entries-per-day", type=int, default=None)
     create.add_argument("--daily-loss-fraction", default=None, help="Of day-open equity: 0.05.")
+    create.add_argument(
+        "--mode",
+        choices=("paper", "live"),
+        default="paper",
+        help="live trades real money (ADR 0148); it also needs --i-understand-live.",
+    )
+    create.add_argument(
+        "--i-understand-live",
+        action="store_true",
+        help="Acknowledge that a live desk's model spends real money. YOLO never covers it.",
+    )
     create.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     commands.add_parser("list", parents=[trailing], help="List desks.")
     for name, text in (
@@ -153,6 +176,10 @@ def _run(arguments: argparse.Namespace) -> str:
     command = arguments.command
     if command == "harnesses":
         return json.dumps(_harnesses(), indent=2)
+    if command == "create" and arguments.mode == "live" and not arguments.i_understand_live:
+        raise DeskControlError(
+            "A live desk trades real money: pass --i-understand-live with --mode live."
+        )
     if command in _MUTATIONS:
         require_mutation_confirmation(
             confirmed=bool(arguments.confirm),
@@ -238,9 +265,12 @@ def _create_payload(arguments: argparse.Namespace) -> dict[str, object]:
         "starting_cash": arguments.starting_cash,
         "products": arguments.products,
         "cadence_minutes": arguments.cadence_minutes,
+        "timeframe": arguments.timeframe,
         "harness": arguments.harness,
         "model": arguments.model,
         "mandate": arguments.mandate,
+        "mode": arguments.mode,
+        "i_understand_live": bool(arguments.i_understand_live),
     }
     if caps:
         payload["caps"] = caps
