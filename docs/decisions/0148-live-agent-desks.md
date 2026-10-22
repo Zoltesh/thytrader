@@ -23,13 +23,14 @@ over.
    `live_acknowledgement_required` otherwise; CLI `--mode live --i-understand-live`, which YOLO
    never covers). The acknowledgement time is stored on the desk. Paper stays the default.
 2. **The policy reserves a live desk's capital.** `RiskPolicyDefinition.desk_allocations` lists
-   `{desk_id, allocated_quote}` (CLI `set-risk-policy --desk-allocation DESK_ID:QUOTE`). It is
-   omitted from canonical bytes when empty, so existing policies keep their fingerprints, and it
-   counts toward the same total as `allocations`. While any strategy or desk allocation is in
-   force, live is an allowlist: a live discretionary order from a listed desk is a member and
-   any other is still denied; the
-   refusal names `desk_allocations`. Each live desk order is bounded by its desk's reservation
-   (`ALLOCATION_EXCEEDED`); the desk's own pool bounds its total, as on paper.
+   `{desk_id, allocated_quote}` in the policy's quote currency (CLI `set-risk-policy
+   --desk-allocation DESK_ID:QUOTE`). It is omitted from canonical bytes when empty, so existing
+   policies keep their fingerprints, and it counts toward the same total as `allocations`. While
+   any strategy or desk allocation is in force, live discretionary orders are an allowlist: only
+   a listed desk's orders are members. Desk allocations never gate strategy books. The
+   reservation is cumulative: the desk passes the allocations its open books hold, and those
+   plus the new order must fit (`ALLOCATION_EXCEEDED`); a product quoted in another currency is
+   refused.
 3. **Live desk orders use the live discretionary path unchanged**: the live broker, the venue's
    remaining quote and unclaimed base, the shared-collateral scope, the exposure caps, the
    breakers, and venue-attached stop and target. A live spot desk is long only
@@ -38,17 +39,23 @@ over.
    above its price, so an order's spend stays inside its allocation.
 4. **Books are valued by their own fills in both modes**: allocation, plus sale proceeds, minus
    purchase cost, minus fees, plus held quantity at the mark. Settlement returns that value when
-   the book is flat and stopped and, for a live book, every cancelled order has passed its
-   settlement watermark (ADR 0141), so a late fill cannot land after the pool was credited. Book
-   `cash` is never read, so a shared venue balance cannot leak into a pool.
+   the book is flat and stopped, every recorded fill is applied and matches the position, and,
+   live, every cancelled order has passed its settlement watermark (ADR 0141), after which a
+   late fill is not expected. Book `cash` is never read, so a shared venue balance cannot leak
+   into a pool. Held books are marked at their own clock's latest close.
 5. **The model is told.** A live desk's prompt says every order spends real money and that it
    may open long only. Fees are described as they are charged: limit entries at maker, market
    entries, stops and targets at taker.
+6. **One answer, one order; exact recovery.** A desk order's idempotency key is the briefing
+   fingerprint, and a second applied open for the same briefing is refused
+   (`DESK_DUPLICATE_ANSWER`), so a retried or replayed answer cannot buy twice. The reservation
+   chooses the new book's id before placing; recovery links exactly that book (in the desk's
+   mode, on its product) or refunds, and a store outage never reads as "no book".
 
 ## Consequences
 
 - Ops contract v108 advertises `agent_desk_modes` `["paper", "live"]`.
-- Live desk capital is the smaller of the desk's pool and its policy reservation per order; the
-  account's own balance and the policy's account caps still apply.
+- A live desk can hold at most its policy reservation across its open books, and at most its
+  pool; the account's own balance and the policy's account caps still apply.
 - A desk cannot be switched between modes; create a new desk.
 - Promotion is the operator's call. ThyTrader does not move a paper desk live.

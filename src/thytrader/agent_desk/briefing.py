@@ -132,7 +132,8 @@ Rules:
 - Size is a fraction of desk equity (size_fraction), at most caps.max_position_fraction.
 - Every open needs a stop_price and a take_profit_price on the correct sides of the entry.
 - Fees: a market entry pays taker_fee_rate and a limit entry (post-only) pays maker_fee_rate;
-  stops and targets exit at taker_fee_rate. Do not trade moves smaller than the costs.
+  a stop exits at taker_fee_rate and a target (a resting limit) at maker_fee_rate. Do not
+  trade moves smaller than the costs.
 - To exit early, close the book by its deployment_id. Stops and targets also exit on their own.
 - Use the mandate and your earlier theses for continuity; do not repeat a refused decision.
 

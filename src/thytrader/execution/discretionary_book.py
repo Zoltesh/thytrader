@@ -155,7 +155,7 @@ def _new_discretionary_book(
     cash = _initial_cash(request, live_quote_cash=live_quote_cash)
     initial = cash if cash > 0 else live_quote_cash
     return Deployment(
-        id=uuid7(now),
+        id=request.book_id or uuid7(now),
         strategy_fingerprint=None,
         strategy_id=None,
         product_id=request.product_id,
@@ -303,6 +303,7 @@ async def _require_entry_admission(
             notional=notional,
             quantity=quantity,
             desk_id=request.desk_id,
+            desk_committed=request.desk_committed_quote,
         ),
         snapshots=books,
         live_quote_cash=live_cash,

@@ -38,9 +38,11 @@ from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
+from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
@@ -280,6 +282,18 @@ async def _record_wake(
             "decision": decision.model_dump(mode="json", exclude_none=True),
         }
     )
+    if decision.action == "open" and await _answered(
+        store, desk_id, briefing_fingerprint, before=wake_id
+    ):
+        wake = decided.model_copy(
+            update={
+                "outcome": WakeOutcome.REFUSED,
+                "outcome_code": "DESK_DUPLICATE_ANSWER",
+                "detail": "An open was already applied for this briefing fingerprint.",
+            }
+        )
+        await store.add_wake(wake)
+        return wake
     try:
         opened = await _apply(
             decision, state=state, store=store, execution=execution, wake=decided, now=moment
@@ -311,17 +325,19 @@ async def _state(
 ) -> _State:
     """Settle, mark and roll the UTC day; the saved desk is the returned one."""
     desk = await _require_desk(store, desk_id)
-    desk = await resolve_pending(desk, store=store, execution=execution)
+    desk, _ = await resolve_pending(desk, store=store, execution=execution)
     desk = await _settle(desk, store=store, execution=execution)
     rows = await market_rows(market_data, desk.products)
     marks = {row.product_id: row.last_close for row in rows if row.last_close is not None}
     books = [book for book in await store.list_books(desk_id) if book.settled_at is None]
-    open_books: list[tuple[DeskBook, DeploymentSnapshot]] = []
+    open_books: list[tuple[DeskBook, DeploymentSnapshot]] = [
+        (book, await execution.snapshot(book.deployment_id)) for book in books
+    ]
+    # Held books are marked at their own clock's latest close, fresher than the hourly row.
+    marks |= await inventory_marks(market_data, [snapshot for _, snapshot in open_books])
     positions: list[PositionView] = []
     equity: Decimal | None = desk.cash
-    for book in books:
-        snapshot = await execution.snapshot(book.deployment_id)
-        open_books.append((book, snapshot))
+    for book, snapshot in open_books:
         view = _position_view(book, snapshot, marks.get(book.product_id))
         positions.append(view)
         equity = None if equity is None or view.equity_quote is None else equity + view.equity_quote
@@ -341,7 +357,7 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
         if book.settled_at is not None:
             continue
         snapshot = await execution.snapshot(book.deployment_id)
-        if not _flat(snapshot) or not _cancellations_settled(snapshot):
+        if not _flat(snapshot) or not _evidence_final(snapshot):
             continue
         if snapshot.deployment.status is not DeploymentStatus.STOPPED:
             snapshot = await execution.stop_book(book.deployment_id, flatten=False)
@@ -401,7 +417,13 @@ async def _apply(
         await execution.stop_book(decision.deployment_id, flatten=True)
         return None
     allocation = _check_open(decision, state)
-    request = _order_request(decision, state.desk, wake_id=wake.wake_id, allocation=allocation)
+    request = _order_request(
+        decision,
+        state.desk,
+        fingerprint=wake.briefing_fingerprint,
+        allocation=allocation,
+        committed=sum((book.allocated_quote for book, _ in state.open_books), Decimal(0)),
+    )
     return await open_funded(
         state.desk,
         request=request,
@@ -410,6 +432,17 @@ async def _apply(
         now=now,
         store=store,
         execution=execution,
+    )
+
+
+async def _answered(store: DeskStore, desk_id: str, fingerprint: str, *, before: str) -> bool:
+    """Whether an open was already applied for this briefing (a retried or replayed answer)."""
+    return any(
+        wake.briefing_fingerprint == fingerprint
+        and wake.action is DeskAction.OPEN
+        and wake.outcome is WakeOutcome.APPLIED
+        and wake.wake_id != before
+        for wake in await store.list_wakes(desk_id, limit=_HISTORY)
     )
 
 
@@ -453,7 +486,12 @@ def _check_open(decision: DeskDecision, state: _State) -> Decimal:
 
 
 def _order_request(
-    decision: DeskDecision, desk: Desk, *, wake_id: str, allocation: Decimal
+    decision: DeskDecision,
+    desk: Desk,
+    *,
+    fingerprint: str,
+    allocation: Decimal,
+    committed: Decimal,
 ) -> DiscretionaryOrderRequest:
     """The discretionary order for an open decision: a fresh book in the desk's mode.
 
@@ -470,7 +508,8 @@ def _order_request(
         stop_price=decision.stop_price or Decimal(0),
         take_profit_price=decision.take_profit_price or Decimal(0),
         origin=IntentOrigin.AGENT,
-        idempotency_key=f"desk:{desk.desk_id}:{wake_id}"[:128],
+        # One answer to one briefing is one order, however often the answer is posted.
+        idempotency_key=f"desk:{desk.desk_id}:{fingerprint.removeprefix('sha256:')[:32]}",
         timeframe=desk.timeframe,
         side=PositionSide.SHORT if decision.side == "short" else PositionSide.LONG,
         quantity=None,
@@ -483,6 +522,7 @@ def _order_request(
         note=(header + decision.thesis)[:4000],
         fresh_book=True,
         desk_id=desk.desk_id,
+        desk_committed_quote=committed,
     )
 
 
@@ -572,12 +612,15 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
     )
 
 
-def _cancellations_settled(snapshot: DeploymentSnapshot) -> bool:
-    """A live book's cancelled orders are past their settlement watermark (no late fill).
+def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
+    """Every execution is applied and, live, every cancel is past its settlement watermark.
 
-    Paper cancellations are final at once; a live cancel can still be followed by a fill until
-    reconciliation settles it (ADR 0141), so the pool waits for that.
+    A FILLED order whose fills are not all recorded and applied, or applied inventory the
+    position does not show, would settle cash the book still spends. A live cancel can still be
+    followed by a fill until reconciliation settles it (ADR 0141); paper cancels are final.
     """
+    if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
+        return False
     if snapshot.deployment.mode is not DeploymentMode.LIVE:
         return True
     return all(

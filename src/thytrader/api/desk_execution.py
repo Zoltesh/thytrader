@@ -6,7 +6,6 @@ import contextlib
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from thytrader.agent_desk.funding import created_by
 from thytrader.api.live_order_inputs import (
     broker_for_request,
     currency_available,
@@ -19,7 +18,11 @@ from thytrader.execution.service import set_deployment_status
 from thytrader.market_data.products import quote_currency as spot_quote_currency
 from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
-from thytrader.trading.models import DeploymentStatus, ExecutionConflictError
+from thytrader.trading.models import (
+    DeploymentStatus,
+    ExecutionConflictError,
+    ExecutionStoreError,
+)
 
 if TYPE_CHECKING:
     from decimal import Decimal
@@ -120,14 +123,18 @@ class ApiDeskExecution:
         return snapshot
 
     async def find_book(self, pending: PendingOpen) -> str | None:
-        """The book a reserved open created: by its order's key, else by its funding."""
-        intent = await self._store.get_intent_by_idempotency_key(pending.idempotency_key)
-        if intent is not None:
-            return str(intent.deployment_id)
-        for deployment in await self._store.list_deployments(limit=200):
-            if created_by(pending, deployment):
-                return str(deployment.id)
-        return None
+        """The reservation's own book: the pre-chosen id, in the desk's mode, on its product."""
+        try:
+            snapshot = await self._store.get_deployment(UUID(pending.deployment_id))
+        except ExecutionStoreError as error:
+            if "not found" in str(error).lower():
+                return None
+            raise
+        deployment = snapshot.deployment
+        if deployment.mode.value != pending.mode or deployment.product_id != pending.product_id:
+            message = f"Book {pending.deployment_id} does not match its desk reservation."
+            raise ExecutionStoreError(message)
+        return str(deployment.id)
 
     async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
         """Stop one desk book (managed, or flattening)."""

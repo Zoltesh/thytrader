@@ -40,7 +40,8 @@ class ProposedEntry:
     (ADR 0129 §6) needs it and stays gross without it.
 
     ``desk_id`` names the agent desk a discretionary entry comes from (ADR 0148): a live
-    desk listed in ``desk_allocations`` is an allocation member, bounded per order.
+    desk listed in ``desk_allocations`` is a member; ``desk_committed`` (the quote its other
+    open books hold) plus this order must fit the desk's reservation.
     """
 
     product_id: str
@@ -52,6 +53,7 @@ class ProposedEntry:
     readmits_working_entry: bool = False
     side: Literal["long", "short"] | None = None
     desk_id: str | None = None
+    desk_committed: Decimal = Decimal(0)
 
     @property
     def in_kind(self) -> bool:

@@ -10,7 +10,7 @@ DESKS_API_PREFIX = "/api/v1/desks"
 
 
 def create_desk(base_url: str, payload: dict[str, object]) -> object:
-    """Create a paper desk."""
+    """Create a desk (paper, or live with the acknowledgement)."""
     return request_mutation_json(
         method="POST", url=f"{base_url}{DESKS_API_PREFIX}", payload=payload
     )

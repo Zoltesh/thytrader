@@ -52,6 +52,7 @@ def _publish(risk: InMemoryRiskPolicyStore, *desks: DeskAllocation) -> None:
     policy = RiskPolicyDefinition.model_validate(
         {
             **compiled_default_risk_policy().model_dump(mode="json"),
+            "quote_currency": "USD",
             "allocations": [CapitalAllocation(strategy_id=_STRATEGY, allocated_quote="100")],
             "desk_allocations": list(desks),
         }

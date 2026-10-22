@@ -92,23 +92,28 @@ def test_each_live_desk_order_is_bounded_by_its_allocation() -> None:
     """An order above the desk's reservation is denied; one within it is admitted."""
     policy = _policy(DeskAllocation(desk_id=_DESK, allocated_quote="150"))
 
-    def entry(notional: str) -> RiskVerdict:
+    def entry(notional: str, committed: str = "0", product: str = "BTC-USDC") -> RiskVerdict:
         return evaluate_new_entry(
             policy,
             mode=DeploymentMode.LIVE,
             proposed=ProposedEntry(
-                product_id="BTC-USD",
+                product_id=product,
                 strategy_id=None,
                 notional=Decimal(notional),
                 desk_id=_DESK,
+                desk_committed=Decimal(committed),
             ),
             snapshots=(),
             live_quote_cash=Decimal("10000"),
         )
 
     assert entry("50").decision is RiskDecision.ALLOW
-    over = entry("151")
-    assert over.reason_code is RiskReasonCode.ALLOCATION_EXCEEDED
+    assert entry("151").reason_code is RiskReasonCode.ALLOCATION_EXCEEDED
+    # Cumulative: what the desk's open books hold counts against the same reservation.
+    assert entry("50", committed="100").decision is RiskDecision.ALLOW
+    assert entry("51", committed="100").reason_code is RiskReasonCode.ALLOCATION_EXCEEDED
+    # The reservation is in the policy's quote currency; a USD product is not compared to it.
+    assert entry("10", product="BTC-USD").reason_code is RiskReasonCode.ALLOCATION_EXCEEDED
 
 
 def test_set_risk_policy_maps_desk_allocations() -> None:
@@ -147,3 +152,13 @@ def test_a_desk_reservation_alone_keeps_other_live_orders_restricted() -> None:
     assert admit(_DESK).decision is RiskDecision.ALLOW
     assert admit(None).reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED
     assert admit("another-desk").reason_code is RiskReasonCode.DISCRETIONARY_NOT_ALLOCATED
+    # Desk reservations never gate strategy books.
+    strategy = evaluate_new_deployment(
+        policy,
+        mode=DeploymentMode.LIVE,
+        product_id="BTC-USD",
+        strategy_id=_STRATEGY,
+        paper_starting_cash=None,
+        deployments=(),
+    )
+    assert strategy.decision is RiskDecision.ALLOW

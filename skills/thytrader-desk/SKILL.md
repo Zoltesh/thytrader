@@ -116,7 +116,8 @@ exits like any discretionary order.
 Refusal codes: `DESK_DECISION_INVALID`, `DESK_NOT_ACTIVE`, `DESK_PRODUCT_NOT_IN_UNIVERSE`,
 `DESK_PRODUCT_OCCUPIED`, `DESK_MAX_POSITIONS`, `DESK_MAX_ENTRIES_TODAY`, `DESK_EQUITY_UNKNOWN`,
 `DESK_DAILY_LOSS`, `DESK_POSITION_TOO_LARGE`, `DESK_CASH_SHORT`, `DESK_UNKNOWN_BOOK`, and
-`DESK_SHORT_LIVE_UNSUPPORTED`, `DESK_LIVE_LIMIT_ONLY`, `DISCRETIONARY_NOT_ALLOCATED` (a live desk
+`DESK_SHORT_LIVE_UNSUPPORTED`, `DESK_LIVE_LIMIT_ONLY`, `DESK_DUPLICATE_ANSWER`,
+`DISCRETIONARY_NOT_ALLOCATED` (a live desk
 the policy does not reserve), and execution refusals from the discretionary path, led by their own code or `DESK_ORDER_REFUSED`
 with the reason in `detail` (for example paper fees unavailable, or the risk policy's
 `paper_capital_quote` / single-quote paper capital and running-slot caps, which desk books count
@@ -132,12 +133,14 @@ A live desk spends real money from the account. Two steps, both the operator's d
 1. Create it live (HTTP `mode: "live"`, `i_understand_live: true`; 428 without the flag):
    `uv run thytrader-desk create ... --mode live --i-understand-live --confirm`. The desk records
    when live was acknowledged. YOLO never covers this.
-2. Reserve its capital in the risk policy (`thytrader-runtime` skill): while any `allocations`
-   or desk allocations are in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED`
-   until the policy lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation DESK_ID:QUOTE`). Each
-   order is bounded by that reservation (`ALLOCATION_EXCEEDED`); the desk's pool bounds the
-   total. `set-risk-policy` publishes a whole replacement policy, so carry every existing field
-   and allocation forward.
+2. Reserve its capital in the risk policy (`thytrader-runtime` skill): while any strategy or
+   desk allocation is in force, a live desk's orders are refused `DISCRETIONARY_NOT_ALLOCATED`
+   until the policy lists it in `desk_allocations` (`set-risk-policy ... --desk-allocation
+   DESK_ID:QUOTE`, `QUOTE` in the policy's quote currency; the desk must trade that quote). The
+   reservation caps the desk's total: the allocations of its open books plus each new order
+   (`ALLOCATION_EXCEEDED` beyond it). Give the desk a pool no larger than its reservation.
+   `set-risk-policy` publishes a whole replacement policy, so carry every existing field and
+   allocation forward.
 
 A live desk is long only (`DESK_SHORT_LIVE_UNSUPPORTED`) and enters with post-only limit orders
 only (`DESK_LIVE_LIMIT_ONLY`): a limit fills at its price or better, so an order never spends more
@@ -145,8 +148,12 @@ than its allocation. It uses the live discretionary path:
 the live broker, the venue's remaining quote, the account caps and breakers, and a stop and
 target attached at the venue. Desk books are valued by their own fills (allocation, plus sales,
 minus purchases and fees, plus held quantity at the mark), never by a live book's shared cash.
-A live book with a cancelled order settles only after reconciliation settles that cancel (a late
-fill can still arrive until then).
+A book settles only when every recorded fill is applied and matches the position, and, live,
+every cancel has passed its settlement watermark (ADR 0141); a late fill is not expected after
+that. Held books are marked at their own clock's latest close. Each answer is one order: the
+order is keyed on the briefing fingerprint, and a second applied open for the same briefing is
+refused `DESK_DUPLICATE_ANSWER`. An open reserves its book's id before placing, so an interrupted
+open links exactly that book (`DESK_OPEN_RECOVERED`) or refunds the reservation.
 `show`, `journal` and `score` work as on paper; `mode` is on the desk and in the briefing, and the
 model's prompt says it is trading real money. Pause a live desk with `status DESK_ID paused
 --confirm`; its open books keep their venue stops and targets.
@@ -176,6 +183,6 @@ Paper results are evidence, not a promise: judge a desk over weeks and many trad
   browser. A desk `close` flattens it. A plain runtime/browser stop is a managed stop that keeps
   the position, so the book settles into the pool only once it is flat; to end it now use
   `uv run thytrader-runtime stop BOOK_ID --flatten --confirm`.
-- An open reserves the pool cash first, places the order, then links the book and journals the
-  wake in one write. If the API dies in between, the next briefing, wake or score links the book
-  it finds under the wake's key (journaled `DESK_OPEN_RECOVERED`) or refunds the reservation.
+- An open reserves the pool cash (and the new book's id) first, places the order, then links the
+  book and journals the wake in one write. If the API dies in between, the next briefing, wake or
+  score links the book with that id (journaled `DESK_OPEN_RECOVERED`) or refunds the reservation.

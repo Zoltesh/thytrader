@@ -4,15 +4,17 @@
 2. Place the order (idempotent under the desk's key).
 3. Link: one write clears the reservation, links the book and journals the wake.
 
-A failed placement, or a reservation a crash left behind, is resolved by looking up the key:
-a book that exists is linked (it is the desk's, paid for by the reservation); otherwise the
-reservation is refunded. The pool never pays for a book it does not own, nor owns one unpaid.
+A failed placement, or a reservation a crash left behind, is resolved by the book id the
+reservation chose before placing: a book with that id (in the desk's mode, on the product) is
+linked, paid for by the reservation; otherwise the reservation is refunded. The pool never
+pays for a book it does not own, nor owns one unpaid.
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
+from dataclasses import replace
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from thytrader.agent_desk.models import (
     DeskAction,
@@ -22,10 +24,10 @@ from thytrader.agent_desk.models import (
     WakeOutcome,
 )
 from thytrader.agent_desk.ports import save_desk
-from thytrader.trading.models import DeploymentKind, DeploymentMode, PositionSide
+from thytrader.ids import uuid7
+from thytrader.trading.models import PositionSide
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
     from datetime import datetime
     from decimal import Decimal
 
@@ -33,9 +35,7 @@ if TYPE_CHECKING:
     from thytrader.agent_desk.ports import DeskExecution
     from thytrader.agent_desk.store import DeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
-    from thytrader.trading.models import Deployment
 
-RESERVATION_WINDOW = timedelta(minutes=5)
 RECOVERED_DETAIL = "An open interrupted before it was linked was found and linked on recovery."
 
 
@@ -49,10 +49,16 @@ async def open_funded(
     store: DeskStore,
     execution: DeskExecution,
 ) -> DeskWake:
-    """Reserve, place and link one open; return the applied wake, journaled with the link."""
+    """Reserve, place and link one open; return the applied wake, journaled with the link.
+
+    The reservation names the book's id before placing, so recovery finds exactly that book.
+    If placement fails after the book exists, the book is linked and its applied wake returned.
+    """
     pending = PendingOpen(
         wake_id=wake.wake_id,
         idempotency_key=request.idempotency_key,
+        deployment_id=str(uuid7(now)),
+        mode=desk.mode,
         product_id=request.product_id,
         side="short" if request.side is PositionSide.SHORT else "long",
         allocated_quote=allocation,
@@ -65,10 +71,12 @@ async def open_funded(
         previous=desk,
     )
     try:
-        snapshot = await execution.open_book(request)
-    except Exception:
-        await resolve_pending(reserved, store=store, execution=execution)
-        raise
+        snapshot = await execution.open_book(replace(request, book_id=UUID(pending.deployment_id)))
+    except Exception as error:
+        _, linked = await resolve_pending(reserved, store=store, execution=execution, wake=wake)
+        if linked is None:
+            raise
+        return linked.model_copy(update={"detail": f"placement raised: {error}"[:500]})
     applied = wake.model_copy(
         update={"outcome": WakeOutcome.APPLIED, "deployment_id": str(snapshot.deployment.id)}
     )
@@ -82,41 +90,46 @@ async def open_funded(
     return applied
 
 
-def created_by(pending: PendingOpen, deployment: Deployment) -> bool:
-    """Whether ``deployment`` is the book a reservation's placement created."""
-    return (
-        deployment.kind is DeploymentKind.DISCRETIONARY
-        and deployment.mode is DeploymentMode.PAPER
-        and deployment.product_id == pending.product_id
-        and deployment.paper_starting_cash == pending.allocated_quote
-        and pending.reserved_at <= deployment.created_at <= pending.reserved_at + RESERVATION_WINDOW
-    )
+async def resolve_pending(
+    desk: Desk,
+    *,
+    store: DeskStore,
+    execution: DeskExecution,
+    wake: DeskWake | None = None,
+) -> tuple[Desk, DeskWake | None]:
+    """Link the book a reservation created, or refund the reservation when there is none.
 
-
-async def resolve_pending(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> Desk:
-    """Link the book a reservation paid for, or refund the reservation when there is none."""
+    Returns the desk and, when a book was linked, its applied wake (``wake`` when the caller
+    still holds the decision, else a rebuilt ``DESK_OPEN_RECOVERED`` row unless already
+    journaled).
+    """
     pending = desk.pending_open
     if pending is None:
-        return desk
+        return desk, None
     deployment_id = await execution.find_book(pending)
     if deployment_id is None:
-        return await save_desk(
+        refunded = await save_desk(
             desk.model_copy(
                 update={"cash": desk.cash + pending.allocated_quote, "pending_open": None}
             ),
             store=store,
             previous=desk,
         )
-    linked: Sequence[DeskWake] = ()
-    if not await _journaled(store, desk.desk_id, pending.wake_id):
-        linked = (_recovered_wake(desk, pending, deployment_id),)
-    return await save_desk(
+        return refunded, None
+    linked = (
+        wake.model_copy(update={"outcome": WakeOutcome.APPLIED, "deployment_id": deployment_id})
+        if wake is not None
+        else _recovered_wake(desk, pending, deployment_id)
+    )
+    journal = () if await _journaled(store, desk.desk_id, pending.wake_id) else (linked,)
+    saved = await save_desk(
         desk.model_copy(update={"pending_open": None}),
         store=store,
         previous=desk,
         books=(_book(desk.desk_id, pending, deployment_id),),
-        wakes=linked,
+        wakes=journal,
     )
+    return saved, linked
 
 
 def _book(desk_id: str, pending: PendingOpen, deployment_id: str) -> DeskBook:

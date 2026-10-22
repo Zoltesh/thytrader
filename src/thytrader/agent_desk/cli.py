@@ -69,7 +69,11 @@ def _parser() -> argparse.ArgumentParser:
         parents=[shared],
     )
     commands = parser.add_subparsers(dest="command", required=True)
-    create = commands.add_parser("create", parents=[trailing], help="Create a paper desk.")
+    create = commands.add_parser(
+        "create",
+        parents=[trailing],
+        help="Create a desk (paper; live with --mode live --i-understand-live).",
+    )
     create.add_argument("--name", required=True)
     create.add_argument("--quote-currency", required=True, choices=("USD", "USDC", "USDT"))
     create.add_argument("--starting-cash", required=True, help="Paper pool, e.g. 10000.")

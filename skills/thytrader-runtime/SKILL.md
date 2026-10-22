@@ -872,9 +872,10 @@ paper discretionary tickets still start and trade, sized by `--paper-capital-quo
 strategy's paper starting cash stays bounded by its allocation (a rehearsal of the live
 reservation). `--desk-allocation DESK_ID:QUOTE` (repeatable) reserves live capital for a live
 agent desk ([ADR 0148](../../docs/decisions/0148-live-agent-desks.md); `DESK_ID` from
-`thytrader-desk list`): while allocations are in force, a live desk's orders are admitted only when
-its desk is listed, each bounded by its reservation; other discretionary orders stay denied. A
-desk allocation alone also makes live an allowlist, exactly like `--allocation`.
+`thytrader-desk list`, `QUOTE` in the policy's `--quote-currency`). While any strategy or desk
+allocation is in force, live discretionary orders are denied unless they come from a listed desk;
+the desk's open books plus each new order must fit its reservation. Desk allocations never gate
+strategy bots: only `--allocation` turns the strategy side into an allowlist.
 The allocations and desk allocations together may not sum above `--paper-capital-quote`. Omit `--allocation`
 unless the user wants exactly that live restriction.
 

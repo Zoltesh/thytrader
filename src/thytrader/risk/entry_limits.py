@@ -15,6 +15,7 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 
 from thytrader.market_data.instrument_ids import is_futures_product_id
+from thytrader.market_data.products import quote_currency
 from thytrader.risk.gate_common import (
     ProposedEntry,
     _allow,
@@ -141,13 +142,9 @@ def _exposure_verdict(
             f"Product exposure exceeded for {proposed.product_id}: existing={existing_product}, "
             f"proposed={proposed.notional}, cap={product_cap}, capital={capital}.",
         )
-    desk_reserved = _desk_allocation_for(policy, proposed.desk_id, mode=mode)
-    if desk_reserved is not None and proposed.notional > desk_reserved:
-        # The desk's own pool bounds its total; the reservation bounds each order.
-        return _deny(
-            RiskReasonCode.ALLOCATION_EXCEEDED,
-            f"Desk allocation exceeded: proposed={proposed.notional}, allocation={desk_reserved}.",
-        )
+    desk_verdict = _desk_reservation_verdict(policy, proposed, mode=mode)
+    if desk_verdict is not None:
+        return desk_verdict
     reserved = _allocation_for(policy, proposed.strategy_id)
     if reserved is None:
         return _allow()
@@ -211,15 +208,16 @@ def _allocation_membership(
     are spot reservations; a futures book reserves its own ``futures_capital_usd`` inside
     ``futures.live_capital_usd`` (ADR 0134 P2-7), so ``futures`` books are not members.
     A discretionary order from an agent desk listed in ``desk_allocations`` is a member
-    (ADR 0148); any other discretionary order is denied. A desk reservation alone also puts
-    live in allowlist mode, so it never leaves other live orders unrestricted.
+    (ADR 0148); while any strategy or desk allocation is in force, every other discretionary
+    order is denied. Desk allocations never gate strategy books.
     """
-    reserving = bool(policy.allocations or policy.desk_allocations)
-    if not reserving or mode is not DeploymentMode.LIVE or futures:
-        return _allow()
-    if portfolio_member and strategy_id is not None:
+    if mode is not DeploymentMode.LIVE or futures:
         return _allow()
     if strategy_id is None:
+        # Discretionary: any reservation (strategy or desk) makes live an allowlist, and only a
+        # listed desk is a member. Desk reservations never gate strategy books.
+        if not (policy.allocations or policy.desk_allocations):
+            return _allow()
         if desk_id is not None and any(item.desk_id == desk_id for item in policy.desk_allocations):
             return _allow()
         return _deny(
@@ -231,6 +229,10 @@ def _allocation_membership(
                 else "."
             ),
         )
+    if not policy.allocations:
+        return _allow()
+    if portfolio_member:
+        return _allow()
     if any(item.strategy_id == strategy_id for item in policy.allocations):
         return _allow()
     return _deny(
@@ -239,14 +241,34 @@ def _allocation_membership(
     )
 
 
-def _desk_allocation_for(
-    policy: RiskPolicyDefinition, desk_id: str | None, *, mode: DeploymentMode
-) -> Decimal | None:
-    """Return a live desk's reserved quote, if the policy lists the desk."""
-    if desk_id is None or mode is not DeploymentMode.LIVE:
+def _desk_reservation_verdict(
+    policy: RiskPolicyDefinition, proposed: ProposedEntry, *, mode: DeploymentMode
+) -> RiskVerdict | None:
+    """Deny a live desk order beyond its reservation or in another quote; None otherwise.
+
+    The reservation is cumulative: the quote the desk's other open books hold plus this order.
+    """
+    if proposed.desk_id is None or mode is not DeploymentMode.LIVE:
         return None
-    match = next((item for item in policy.desk_allocations if item.desk_id == desk_id), None)
-    return None if match is None else Decimal(match.allocated_quote)
+    match = next(
+        (item for item in policy.desk_allocations if item.desk_id == proposed.desk_id), None
+    )
+    if match is None:
+        return None
+    if quote_currency(proposed.product_id) != policy.quote_currency:
+        return _deny(
+            RiskReasonCode.ALLOCATION_EXCEEDED,
+            f"Desk allocations are in {policy.quote_currency}; "
+            f"{proposed.product_id} is quoted in {quote_currency(proposed.product_id)}.",
+        )
+    reserved = Decimal(match.allocated_quote)
+    if proposed.desk_committed + proposed.notional > reserved:
+        return _deny(
+            RiskReasonCode.ALLOCATION_EXCEEDED,
+            f"Desk allocation exceeded: committed={proposed.desk_committed}, "
+            f"proposed={proposed.notional}, allocation={reserved}.",
+        )
+    return None
 
 
 def _allocation_for(policy: RiskPolicyDefinition, strategy_id: UUID | None) -> Decimal | None:
