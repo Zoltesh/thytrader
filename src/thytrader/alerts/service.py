@@ -20,6 +20,7 @@ from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from thytrader.alerts.models import AlertCode
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL
 from thytrader.config import NotifyProvider
 from thytrader.memory.models import ActorOrigin, DeliveryStatus, NotificationRecord, NotifySeverity
@@ -154,6 +155,8 @@ class AlertService:
                         alert.id, provider=provider.value, now=now, detail=detail
                     )
                 return
+            if _within_entry_block_grace(alert, now=now, thresholds=self._thresholds):
+                return
             claim = await self._store.claim_delivery(
                 alert.id,
                 provider=provider.value,
@@ -185,6 +188,15 @@ class AlertService:
             )
         except Exception:  # noqa: BLE001 - storage/provider callbacks cannot fail supervision.
             _logger.warning("alert_delivery_unavailable code=%s", alert.code.value)
+
+
+def _within_entry_block_grace(
+    alert: OperatorAlert, *, now: datetime, thresholds: AlertThresholds
+) -> bool:
+    """A fleet entry block younger than the grace stays pending (it often heals in a poll)."""
+    if alert.code is not AlertCode.FLEET_ENTRIES_BLOCKED:
+        return False
+    return now - alert.first_seen_at < timedelta(seconds=thresholds.entry_block_grace_seconds)
 
 
 def _notification_record(

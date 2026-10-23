@@ -326,3 +326,79 @@ async def test_raising_the_minimum_never_erases_failed_delivery_evidence() -> No
     row = (await store.list_open_alerts())[0]
     assert row.delivery_status == "failed"
     assert sender.delivered == []
+
+
+def _entry_block() -> SupervisionFinding:
+    """A fleet entry block from a one-poll venue read failure (exits continue)."""
+    return SupervisionFinding(
+        code=AlertCode.FLEET_ENTRIES_BLOCKED,
+        scope=AlertScope.FLEET,
+        subject="fleet:live:USDC",
+        severity=AlertSeverity.CRITICAL,
+        detail="futures_collateral=FUTURES_COLLATERAL_UNKNOWN",
+    )
+
+
+async def test_an_entry_block_pages_only_once_it_outlasts_the_grace() -> None:
+    """A blip that clears inside the grace is kept locally; a lasting block still pages."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store,
+        sender,
+        thresholds=AlertThresholds(entry_block_grace_seconds=300),
+        min_severity=lambda: "critical",
+    )
+    block = _entry_block()
+    await service.apply((block, _critical()), now=_NOW)
+    assert [record.title for record in sender.delivered] == ["[thytrader] CRITICAL: STOP_UNCOVERED"]
+    await service.apply((block,), now=_NOW + timedelta(seconds=120))
+    assert len(sender.delivered) == 1
+    await service.apply((block,), now=_NOW + timedelta(seconds=301))
+    assert sender.delivered[-1].title == "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+
+
+async def test_an_entry_block_that_heals_inside_the_grace_is_never_paged() -> None:
+    """Resolved before the grace ends: recorded, not delivered; a zero grace pages at once."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    block = _entry_block()
+    await service.apply((block,), now=_NOW)
+    await service.apply(
+        (), now=_NOW + timedelta(seconds=90), evaluated=(AlertCheck(block.code, block.subject),)
+    )
+    await service.apply((), now=_NOW + timedelta(seconds=600))
+    assert sender.delivered == []
+    assert len(await store.list_alerts(limit=10)) == 1
+    immediate = AlertService(
+        InMemoryAlertStore(),
+        sender,
+        thresholds=AlertThresholds(entry_block_grace_seconds=0),
+        min_severity=lambda: "critical",
+    )
+    await immediate.apply((block,), now=_NOW)
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
+
+
+async def test_a_lasting_entry_block_is_sent_by_dispatch_alone_after_the_grace() -> None:
+    """After a restart no new finding arrives; the delivery loop still sends it once due."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await service.apply((_entry_block(),), now=_NOW)
+    restarted = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await restarted.dispatch_pending(now=_NOW + timedelta(seconds=299))
+    assert sender.delivered == []
+    await restarted.dispatch_pending(now=_NOW + timedelta(seconds=300))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]

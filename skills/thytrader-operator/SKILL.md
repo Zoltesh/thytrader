@@ -595,6 +595,12 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   bots), `sizing_skips` (for example `NOTIONAL_BELOW_MINIMUM` on 2+ bars), `warmup_stuck`
   (12+ warmup skips on one bot). `truncated` means counts are a floor.
 - `payload.open_fleet_alerts`: the open `FLEET_ENTRIES_BLOCKED` alerts the worker raised.
+- Notification grace: a `FLEET_ENTRIES_BLOCKED` alert is recorded at once (it is in `alerts`
+  and `fleet-health` immediately) but sent to the notifier only after it has stayed open for
+  `alert_entry_block_grace_seconds` (env `THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS` in `.env`,
+  passed to the Compose services; default 300; 0 sends at once; recreate the stack to apply).
+  A one-poll venue read blip that clears inside the grace is never
+  paged. Exits continue during any entry block; other alerts are never delayed.
 
 The same `entries` object is `fleet_entries` in `readiness` and `risk`. Report the blocking
 record to the user. This lane never repairs records or resets breakers: a repair is a person's

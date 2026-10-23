@@ -12,6 +12,8 @@ x-backend-environment: &backend-environment
   # Alert webhook destination and optional HMAC key (ADR 0138). notify_provider stays YAML.
   THYTRADER_NOTIFY_WEBHOOK_URL: ${THYTRADER_NOTIFY_WEBHOOK_URL:-}
   THYTRADER_NOTIFY_WEBHOOK_SECRET: ${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}
+  # Seconds a fleet entry block must stay open before it is sent (0 = at once).
+  THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS: ${THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS:-300}
 
 services:
   postgres:
