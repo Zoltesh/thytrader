@@ -78,7 +78,10 @@ bookkeeping never changes safety observation timestamps.
 
 Thresholds are optional settings with explicit defaults:
 `alert_consecutive_failure_cycles` (3), `alert_decision_missed_bars` (2),
-`alert_delivery_max_attempts` (5).
+`alert_delivery_max_attempts` (5), `alert_entry_block_grace_seconds` (300: a
+`FLEET_ENTRIES_BLOCKED` alert is recorded at once but delivered only after it has stayed open
+that long, so a self-healing one-poll venue blip is not paged; entry blocks never stop exits;
+added 2026-10-23).
 
 Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
 `operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is

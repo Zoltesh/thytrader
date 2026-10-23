@@ -71,6 +71,7 @@ async def run() -> None:
             consecutive_failure_cycles=settings.alert_consecutive_failure_cycles,
             decision_missed_bars=settings.alert_decision_missed_bars,
             delivery_max_attempts=settings.alert_delivery_max_attempts,
+            entry_block_grace_seconds=settings.alert_entry_block_grace_seconds,
         ),
         min_severity=lambda: settings_store.current().notify_min_severity,
     )

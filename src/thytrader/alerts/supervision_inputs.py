@@ -28,12 +28,15 @@ class AlertThresholds:
     ``decision_missed_bars`` is how many closed decision bars behind the venue
     clock a running book may lag before the missed-deadline alert fires; the
     settling grace above still applies per missed bar. ``delivery_max_attempts``
-    bounds notification retries for one open alert.
+    bounds notification retries for one open alert. ``entry_block_grace_seconds`` holds the
+    notification of a fleet entry block (exits continue) until it has lasted that long, so a
+    one-poll venue blip that heals itself is recorded locally but never paged; 0 pages at once.
     """
 
     consecutive_failure_cycles: int = 3
     decision_missed_bars: int = 2
     delivery_max_attempts: int = 5
+    entry_block_grace_seconds: int = 300
 
     def __post_init__(self) -> None:
         """Reject thresholds that would supervise nothing or flood delivery."""
@@ -46,6 +49,9 @@ class AlertThresholds:
             if value < 1:
                 message = f"{name} must be at least 1"
                 raise ValueError(message)
+        if self.entry_block_grace_seconds < 0:
+            message = "entry_block_grace_seconds must be at least 0"
+            raise ValueError(message)
 
 
 @dataclass(frozen=True, slots=True)
