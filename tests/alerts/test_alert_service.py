@@ -383,3 +383,22 @@ async def test_an_entry_block_that_heals_inside_the_grace_is_never_paged() -> No
     assert [record.title for record in sender.delivered] == [
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
     ]
+
+
+async def test_a_lasting_entry_block_is_sent_by_dispatch_alone_after_the_grace() -> None:
+    """After a restart no new finding arrives; the delivery loop still sends it once due."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await service.apply((_entry_block(),), now=_NOW)
+    restarted = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    await restarted.dispatch_pending(now=_NOW + timedelta(seconds=299))
+    assert sender.delivered == []
+    await restarted.dispatch_pending(now=_NOW + timedelta(seconds=300))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
