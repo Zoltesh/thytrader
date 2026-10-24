@@ -11,6 +11,7 @@ import asyncio
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, time
 from decimal import ROUND_DOWN, Decimal
+import logging
 from typing import TYPE_CHECKING, Literal
 
 from thytrader.agent_desk.briefing import (
@@ -36,7 +37,7 @@ from thytrader.agent_desk.models import (
 )
 from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
-from thytrader.agent_desk.valuation import book_value
+from thytrader.agent_desk.valuation import book_value, net_quantity
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
@@ -47,6 +48,8 @@ from thytrader.trading.models import (
     DeploymentStatus,
     ExecutionConflictError,
     IntentOrigin,
+    IntentPurpose,
+    LifecycleCommand,
     OrderKind,
     OrderStatus,
     PositionSide,
@@ -58,6 +61,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.trading.models import DeploymentSnapshot
 
+_logger = logging.getLogger(__name__)
 _ACTIVE_ORDERS = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
 _CENT = Decimal("0.01")
 _HISTORY = 50
@@ -345,6 +349,18 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
         if book.settled_at is not None:
             continue
         snapshot = await execution.snapshot(book.deployment_id)
+        if (
+            _stranded(snapshot)
+            and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
+        ):
+            # A closed book still resting a stray exit order: cancel it (nothing is sold, the
+            # book holds nothing). The worker carries this out; a later read settles the book.
+            _logger.warning(
+                "desk_book_stranded_orders desk_id=%s deployment_id=%s",
+                desk.desk_id,
+                book.deployment_id,
+            )
+            snapshot = await execution.stop_book(book.deployment_id, flatten=True)
         if not _flat(snapshot) or not _evidence_final(snapshot):
             continue
         if snapshot.deployment.status is not DeploymentStatus.STOPPED:
@@ -595,6 +611,17 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
         and snapshot.deployment.phase is RuntimePhase.FLAT
         and not any(order.status in _ACTIVE_ORDERS for order in snapshot.orders)
     )
+
+
+def _stranded(snapshot: DeploymentSnapshot) -> bool:
+    """A closed book (fills net to zero, flat, no position) that still rests a non-entry order."""
+    if snapshot.position is not None or snapshot.positions or not snapshot.fills:
+        return False
+    if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
+        return False
+    entries = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    resting = [order for order in snapshot.orders if order.status in _ACTIVE_ORDERS]
+    return bool(resting) and all(order.intent_id not in entries for order in resting)
 
 
 def _evidence_final(snapshot: DeploymentSnapshot) -> bool:

@@ -18,6 +18,18 @@ if TYPE_CHECKING:
     from thytrader.trading.models import DeploymentSnapshot
 
 
+def net_quantity(snapshot: DeploymentSnapshot) -> Decimal | None:
+    """Bought minus sold base quantity, or None when a fill's order is unknown."""
+    sides = {order.id: order.side for order in snapshot.orders}
+    quantity = Decimal(0)
+    for fill in snapshot.fills:
+        side = sides.get(fill.order_id)
+        if side is None:
+            return None
+        quantity += fill.quantity if side is OrderSide.BUY else -fill.quantity
+    return quantity
+
+
 def book_value(
     book: DeskBook, snapshot: DeploymentSnapshot, mark: Decimal | None
 ) -> Decimal | None:
