@@ -48,6 +48,7 @@ from thytrader.trading.models import (
     ExecutionStoreError,
     IntentOrigin,
     IntentPurpose,
+    LifecycleCommand,
     OrderSide,
     OrderStatus,
     RuntimePhase,
@@ -691,3 +692,67 @@ def test_the_newer_close_wins_between_the_hourly_row_and_the_book_clock() -> Non
     fast = {"BTC-USD": (Decimal(95), datetime(2026, 10, 22, 18, 5, tzinfo=UTC))}
     assert newest_marks(rows, slow) == {"BTC-USD": Decimal(90)}
     assert newest_marks(rows, fast) == {"BTC-USD": Decimal(95)}
+
+
+async def test_a_closed_book_resting_a_stray_exit_is_flattened_then_settled() -> None:
+    """A stopped-out book whose take-profit still rests is cleaned up by the desk itself."""
+    store, execution, desk_id = await _desk()
+    wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
+    book = await execution.snapshot(wake.deployment_id or "")
+    entry_fill = book.fills[0]
+    entry_order = next(order for order in book.orders if order.id == entry_fill.order_id)
+    stray = next(order for order in book.orders if order.status is OrderStatus.OPEN)
+    exit_order = replace(
+        entry_order, id=uuid4(), side=OrderSide.SELL, client_order_id="stop", intent_id=uuid4()
+    )
+    await execution.store.save_order(exit_order)
+    await execution.store.save_fill(
+        replace(entry_fill, id=uuid4(), order_id=exit_order.id, venue_fill_id="stop-fill")
+    )
+    await execution.store.save_position(None, deployment_id=book.deployment.id)
+    await execution.store.save_deployment(
+        with_runtime(book.deployment, updated_at=datetime.now(UTC), phase=RuntimePhase.FLAT)
+    )
+    first = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    flattening = await execution.snapshot(wake.deployment_id or "")
+    assert flattening.deployment.lifecycle_command is LifecycleCommand.FLATTEN
+    assert first.desk.cash == Decimal(9000)
+    # The worker carries out the flatten: the stray order is cancelled, nothing is sold.
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    second = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert second.desk.open_positions == 0
+    # Exited at the entry price: the round trip cost exactly the two fees.
+    assert second.desk.cash == Decimal(10000) - 2 * entry_fill.fee
+
+
+async def test_a_book_with_unapplied_fills_is_never_flattened_as_stranded() -> None:
+    """Fills that net to zero but are not all applied may hide inventory: leave the book alone."""
+    store, execution, desk_id = await _desk()
+    wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
+    book = await execution.snapshot(wake.deployment_id or "")
+    entry_fill = book.fills[0]
+    entry_order = next(order for order in book.orders if order.id == entry_fill.order_id)
+    exit_order = replace(
+        entry_order, id=uuid4(), side=OrderSide.SELL, client_order_id="stop", intent_id=uuid4()
+    )
+    await execution.store.save_order(exit_order)
+    await execution.store.save_fill(
+        replace(
+            entry_fill,
+            id=uuid4(),
+            order_id=exit_order.id,
+            venue_fill_id="stop-fill",
+            economics_applied_at=None,
+        )
+    )
+    await execution.store.save_position(None, deployment_id=book.deployment.id)
+    await execution.store.save_deployment(
+        with_runtime(book.deployment, updated_at=datetime.now(UTC), phase=RuntimePhase.FLAT)
+    )
+    await briefing(desk_id, store=store, execution=execution, market_data=execution.market_data)
+    untouched = await execution.snapshot(wake.deployment_id or "")
+    assert untouched.deployment.lifecycle_command is not LifecycleCommand.FLATTEN

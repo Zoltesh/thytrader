@@ -33,6 +33,9 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   `size_fraction × equity` from the pool. The order notional is 98% of the allocation, so the book
   can pay fees. When the book is flat and stopped, its final cash returns to the pool at the next
   briefing, wake or score (settlement).
+  A closed book that still rests a stray exit order (for example a take-profit left after its
+  stop filled) is flattened by the desk itself: the order is cancelled, nothing is sold, the API
+  logs `desk_book_stranded_orders`, and the book settles at a later read.
 - **Fees** are the account's Coinbase maker/taker rates, read from the account at each order (the
   same source as paper starts, ADR 0122). With no readable account the open is refused; nothing is
   assumed.
