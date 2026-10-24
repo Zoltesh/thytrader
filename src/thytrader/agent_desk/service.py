@@ -54,6 +54,7 @@ from thytrader.trading.models import (
     OrderStatus,
     PositionSide,
     RuntimePhase,
+    is_venue_protection,
 )
 
 if TYPE_CHECKING:
@@ -614,14 +615,19 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
 
 
 def _stranded(snapshot: DeploymentSnapshot) -> bool:
-    """A closed book (fills net to zero, flat, no position) that still rests a non-entry order."""
+    """A closed book (complete fills net to zero, flat, no position) resting only exit orders."""
     if snapshot.position is not None or snapshot.positions or not snapshot.fills:
         return False
     if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
         return False
+    if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
+        return False  # recorded fills may not tell the whole story yet: never flatten blind
     entries = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
     resting = [order for order in snapshot.orders if order.status in _ACTIVE_ORDERS]
-    return bool(resting) and all(order.intent_id not in entries for order in resting)
+    # A venue-attached exit shares its entry's intent but is protection, not a working entry.
+    return bool(resting) and all(
+        order.intent_id not in entries or is_venue_protection(order.kind) for order in resting
+    )
 
 
 def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
