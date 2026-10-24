@@ -600,7 +600,11 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   `alert_entry_block_grace_seconds` (env `THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS` in `.env`,
   passed to the Compose services; default 300; 0 sends at once; recreate the stack to apply).
   A one-poll venue read blip that clears inside the grace is never
-  paged. Exits continue during any entry block; other alerts are never delayed.
+  paged. A block that clears and returns within the grace continues the same episode: the
+  episode is paged once when it has lasted the grace, and its later returns are recorded
+  `skipped` ("continues the entry-block episode already sent as alert ..."). While waiting
+  out the grace the row shows `delivery.status` `pending`. With notifications off it is
+  `skipped` at once. Exits continue during any entry block; other alerts are never delayed.
 
 The same `entries` object is `fleet_entries` in `readiness` and `risk`. Report the blocking
 record to the user. This lane never repairs records or resets breakers: a repair is a person's

@@ -81,7 +81,10 @@ Thresholds are optional settings with explicit defaults:
 `alert_delivery_max_attempts` (5), `alert_entry_block_grace_seconds` (300: a
 `FLEET_ENTRIES_BLOCKED` alert is recorded at once but delivered only after it has stayed open
 that long, so a self-healing one-poll venue blip is not paged; entry blocks never stop exits;
-added 2026-10-23).
+added 2026-10-23). The grace counts from when the fleet was read, not from cycle start, and a
+block that returns within the grace of its last resolution continues one episode: a flapping
+block is paged once its episode has lasted the grace, and its later returns are recorded as
+skipped, not paged again (2026-10-24).
 
 Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
 `operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is

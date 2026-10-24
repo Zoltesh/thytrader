@@ -45,6 +45,9 @@ _SEVERITY_TO_NOTIFY: dict[str, NotifySeverity] = {
 _RECOVERY_DETAIL = "condition cleared; next observation confirmed recovery"
 _SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
 _TITLE_BOUND = 200
+_SENT = frozenset({"logged", "delivered"})
+# Recent rows read to join a returning entry block to its episode (open rows come first).
+_EPISODE_HISTORY = 200
 _BODY_BOUND = 4000
 
 
@@ -155,7 +158,12 @@ class AlertService:
                         alert.id, provider=provider.value, now=now, detail=detail
                     )
                 return
-            if _within_entry_block_grace(alert, now=now, thresholds=self._thresholds):
+            if (
+                provider is not NotifyProvider.NONE
+                and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
+                and alert.delivery_status in {"pending", "skipped"}
+                and not await self._entry_block_due(alert, provider=provider, now=now)
+            ):
                 return
             claim = await self._store.claim_delivery(
                 alert.id,
@@ -189,14 +197,57 @@ class AlertService:
         except Exception:  # noqa: BLE001 - storage/provider callbacks cannot fail supervision.
             _logger.warning("alert_delivery_unavailable code=%s", alert.code.value)
 
+    async def _entry_block_due(
+        self, alert: OperatorAlert, *, provider: NotifyProvider, now: datetime
+    ) -> bool:
+        """An entry block is sent once its episode outlasts the grace; a return is not resent."""
+        grace = timedelta(seconds=self._thresholds.entry_block_grace_seconds)
+        if grace <= timedelta(0):
+            return True
+        history = await self._store.list_alerts(limit=_EPISODE_HISTORY)
+        started, sent = _entry_block_episode(alert, history, grace=grace)
+        if sent is not None:
+            if alert.delivery_status == "skipped":
+                return False
+            await self._store.skip_delivery(
+                alert.id,
+                provider=provider.value,
+                now=now,
+                detail=f"continues the entry-block episode already sent as alert {sent.id}",
+            )
+            return False
+        return now - started >= grace
 
-def _within_entry_block_grace(
-    alert: OperatorAlert, *, now: datetime, thresholds: AlertThresholds
-) -> bool:
-    """A fleet entry block younger than the grace stays pending (it often heals in a poll)."""
-    if alert.code is not AlertCode.FLEET_ENTRIES_BLOCKED:
-        return False
-    return now - alert.first_seen_at < timedelta(seconds=thresholds.entry_block_grace_seconds)
+
+def _entry_block_episode(
+    alert: OperatorAlert, history: Sequence[OperatorAlert], *, grace: timedelta
+) -> tuple[datetime, OperatorAlert | None]:
+    """When this block's episode began, and the episode's already-sent row, if any.
+
+    A block that clears and returns within the grace continues the same episode, so a
+    flapping block accumulates time toward a page and is paged once, not once per return.
+    """
+    started = alert.first_seen_at
+    earlier = sorted(
+        (
+            row
+            for row in history
+            if row.code is alert.code
+            and row.subject == alert.subject
+            and row.id != alert.id
+            and row.resolved_at is not None
+            and row.resolved_at <= started
+        ),
+        key=lambda row: row.resolved_at or row.first_seen_at,
+        reverse=True,
+    )
+    for row in earlier:
+        if row.resolved_at is None or started - row.resolved_at > grace:
+            break
+        started = min(started, row.first_seen_at)
+        if row.delivery_status in _SENT:
+            return started, row
+    return started, None
 
 
 def _notification_record(

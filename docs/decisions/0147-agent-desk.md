@@ -69,8 +69,12 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
 - Discretionary books stay single-trade from the desk's point of view; per-order amend and
   partial closes are out of scope.
 - A desk book that turns flat between wakes is stopped and settled at the next briefing, wake
-  or score read (a flat book still resting a stray non-entry order is flattened first, which
-  cancels it and sells nothing); until then it is a flat running discretionary book. Those reads therefore
+  or score read; until then it is a flat running discretionary book. A flat book whose
+  evidence is final (every fill applied, live cancels settled, no fault) and that still rests
+  only stray exits (orders on the reducing side under an exit intent, or venue protection
+  attached to the entry) is flattened first: the worker re-reads the venue on its next cycle,
+  cancels the stray order and exits anything it finds; a later read settles the book. A lost
+  write race on that stop is logged (`desk_book_stop_deferred`) and retried at the next read. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
 - Pool cash and book links change together: every operation on one desk (show, briefing

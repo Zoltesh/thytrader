@@ -402,3 +402,49 @@ async def test_a_lasting_entry_block_is_sent_by_dispatch_alone_after_the_grace()
     assert [record.title for record in sender.delivered] == [
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
     ]
+
+
+async def test_a_flapping_entry_block_is_paged_once_for_its_episode() -> None:
+    """Blocked 3 of every 4 minutes for an hour: one page, not none and not one per return."""
+    await assert_flapping_block_pages_once(InMemoryAlertStore())
+
+
+async def assert_flapping_block_pages_once(store: AlertStore) -> None:
+    """A block that keeps returning within the grace is one episode, paged once."""
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for minute in range(60):
+        now = _NOW + timedelta(minutes=minute)
+        if minute % 4 == 3:
+            await service.apply((), now=now, evaluated=(check,))
+        else:
+            await service.apply((block,), now=now)
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
+    rows = await store.list_alerts(limit=50)
+    assert len(rows) == 15
+    assert {row.delivery_status for row in rows} == {"delivered", "skipped", "pending"}
+
+
+async def test_an_entry_block_with_delivery_off_records_skipped_at_once() -> None:
+    """With no notifier the grace has nothing to hold: the row says delivery is disabled."""
+    store = InMemoryAlertStore()
+    service = AlertService(
+        store,
+        DisabledNotificationSender(),
+        thresholds=AlertThresholds(),
+        min_severity=lambda: "critical",
+    )
+    block = _entry_block()
+    await service.apply((block,), now=_NOW)
+    await service.apply(
+        (), now=_NOW + timedelta(seconds=90), evaluated=(AlertCheck(block.code, block.subject),)
+    )
+    row = (await store.list_alerts(limit=1))[0]
+    assert row.delivery_status == "skipped"
+    assert row.delivery_detail == DELIVERY_DISABLED_DETAIL
