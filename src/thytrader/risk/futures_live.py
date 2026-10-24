@@ -572,7 +572,9 @@ def _margin_capacity_verdict(
     if initial is None or not initial.is_finite() or initial <= 0:
         return _deny(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
-            "A finite positive proposed initial margin is required for admission.",
+            "The proposed initial margin is unknown: it needs the contract's catalog margin "
+            "rate and a fresh closed hourly price. After a venue maintenance window the price "
+            "stays stale until the first new hourly close; retry then.",
         )
     buying_power = venue.buying_power_usd
     current = venue.initial_margin_usd

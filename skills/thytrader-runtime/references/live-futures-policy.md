@@ -33,7 +33,8 @@ uv run thytrader-runtime start --strategy-id ID --mode live \
   `FUTURES_LIVE_CAPITAL_UNSET`, `PRODUCT_NOT_ALLOWLISTED`, `FUTURES_LIVE_CAPITAL_EXCEEDED`,
   `FUTURES_PRODUCT_OCCUPIED` (one live book per perp), `FUTURES_EXTERNAL_POSITION_ON_PRODUCT`
   (a position or open order you did not start through ThyTrader), `FUTURES_LIVE_DATED_UNSUPPORTED`,
-  `FUTURES_COLLATERAL_UNKNOWN` (a CFM read or price failed: retry later), `FUTURES_BUYING_POWER_SHORT`
+  `FUTURES_COLLATERAL_UNKNOWN` (a CFM read or price failed: retry later; right after a
+  venue maintenance window the closed hourly price stays stale until the first new hourly close), `FUTURES_BUYING_POWER_SHORT`
   (buying power below one contract's initial margin), `FUTURES_COLLATERAL_RESERVE_SHORT`,
   `FUTURES_VENUE_KILLSWITCH`, `FUTURES_VENUE_MAINTENANCE`, `FUTURES_CONTRACT_DRIFT`. Fix the cause;
   never loosen policy to get past a code without the operator's decision.
