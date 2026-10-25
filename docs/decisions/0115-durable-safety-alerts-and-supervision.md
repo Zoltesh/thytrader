@@ -81,8 +81,8 @@ Thresholds are optional settings with explicit defaults:
 `alert_delivery_max_attempts` (5), `alert_entry_block_grace_seconds` (300: a
 `FLEET_ENTRIES_BLOCKED` alert is recorded at once but delivered only after it has stayed open
 that long, so a self-healing one-poll venue blip is not paged; entry blocks never stop exits;
-added 2026-10-23). The grace counts from when the fleet read began (the start of its evidence pass, as for every
-observation timestamp), not from cycle start,
+added 2026-10-23). The grace counts from when the fleet read began (the start of its evidence pass), not from
+cycle start, so a fleet read slower than the grace can still page a blip,
 and a block that returns within the grace of its last resolution continues one episode: a
 flapping block is paged once its episode has lasted the grace, and its later returns are not
 paged again (a return the delivery task sees is recorded as skipped) (2026-10-24). The episode
@@ -92,8 +92,9 @@ return waits while an earlier send is in flight, and a send acknowledged after i
 still counts. Coverage is the severity actually sent (`covered_severity`, Alembic `0081`; a
 continuation skip inherits its page's), never the row's later observed severity, so a block
 that escalated in place after a warning page is paged when it returns, and one downgraded after
-a critical page is not. A row sent before `0081` covers nothing. A walk that uses up all 500
-rows without a gap or a covering page is due at once, since its true start lies beyond them.
+a critical page is not. A row sent before `0081` covers nothing. A walk of 500 rows that finds
+no gap or covering page while an older row still exists is due at once, since the episode's
+start lies beyond the window.
 If more than 500 returns pass unseen by the delivery task (for example while it is down), or
 the episode spans the `0081` upgrade, it may be paged early or a second time: a duplicate,
 never a missed page. Known gap (every

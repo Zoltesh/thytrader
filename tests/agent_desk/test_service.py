@@ -805,6 +805,73 @@ async def test_a_flat_book_with_a_retained_fault_still_settles(
     assert settled.deployment.mismatch_detail is None
 
 
+async def _stopped_clean_book(
+    store: InMemoryDeskStore, execution: _Execution, desk_id: str, **runtime: object
+) -> DeploymentSnapshot:
+    """A stopped-out book whose stray exit is cancelled, stopped with ``runtime`` fields."""
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    current = await execution.snapshot(str(book.deployment.id))
+    await execution.store.save_deployment(
+        replace(current.deployment, status=DeploymentStatus.STOPPED, **runtime)
+    )
+    return await execution.snapshot(str(book.deployment.id))
+
+
+async def test_a_stopped_book_without_a_fault_settles_without_a_write() -> None:
+    """No write races the worker's fenced writes on a book that needs nothing changed."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(store, execution, desk_id)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 0
+    after = await execution.snapshot(str(stopped.deployment.id))
+    assert after.deployment.revision == stopped.deployment.revision
+
+
+async def test_a_stopped_book_still_flattening_is_left_to_the_worker() -> None:
+    """The worker's flatten settlement clears the fault and records it; the desk waits."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(
+        store,
+        execution,
+        desk_id,
+        lifecycle_command=LifecycleCommand.FLATTEN,
+        mismatch_detail=CANCEL_BEFORE_EXIT_DETAIL,
+    )
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 1
+    after = await execution.snapshot(str(stopped.deployment.id))
+    assert after.deployment.lifecycle_command is LifecycleCommand.FLATTEN
+
+
+async def test_a_write_after_the_check_defers_a_stopped_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The re-read fences the settlement: a worker write in between defers it to a later read."""
+    store, execution, desk_id = await _desk()
+    await _stopped_clean_book(store, execution, desk_id)
+    read = execution.snapshot
+    reads = 0
+
+    async def worker_writes_between(deployment_id: str) -> DeploymentSnapshot:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            current = await read(deployment_id)
+            await execution.store.save_deployment(current.deployment)
+        return await read(deployment_id)
+
+    monkeypatch.setattr(execution, "snapshot", worker_writes_between)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 1
+
+
 async def test_a_venue_child_not_yet_imported_holds_settlement() -> None:
     """A parent naming a venue child with no local row may still rest an order at the venue."""
     store, execution, desk_id = await _desk()

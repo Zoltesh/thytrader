@@ -599,9 +599,12 @@ async def _closed_book(
 
     The desk acts on evidence, not on fault text: an order whose venue state is pending or
     unknown, a venue child not yet imported, or fills and cancels not yet final hold the book
-    whatever its fault says. Every settlement writes a stop bound to the revision checked here
-    (even for an already-stopped book), so a fault or fill written after it refuses the stop,
-    and the settled book keeps no stale fault.
+    whatever its fault says. A running or paused book is settled through a stop bound to the
+    revision checked here, so a fault or fill written after it refuses the stop. A book already
+    stopped is settled without a write when it carries no fault (a re-read confirms the revision,
+    so the worker's own fenced writes never conflict with the desk); a stopped book whose fault
+    remains is stopped again to clear it, unless its flatten is still settling, which clears the
+    fault itself.
     """
     try:
         snapshot = await execution.snapshot(book.deployment_id)
@@ -627,8 +630,19 @@ async def _closed_book(
         snapshot = await _stop(execution, book, snapshot, flatten=True)
         if snapshot is None:
             return None
-    if not _flat(snapshot) or not _evidence_final(snapshot):
+    if not _flat(snapshot):
         return None
+    if not _evidence_final(snapshot):
+        _logger.info("desk_book_settlement_held deployment_id=%s", book.deployment_id)
+        return None
+    deployment = snapshot.deployment
+    if deployment.status is DeploymentStatus.STOPPED and deployment.mismatch_detail is None:
+        return await _unchanged(execution, book, snapshot)
+    if (
+        deployment.status is DeploymentStatus.STOPPED
+        and deployment.lifecycle_command is LifecycleCommand.FLATTEN
+    ):
+        return None  # the worker's flatten settlement clears the fault and records it
     snapshot = await _stop(execution, book, snapshot, flatten=False)
     if (
         snapshot is None
@@ -638,6 +652,20 @@ async def _closed_book(
     ):
         return None
     return snapshot
+
+
+async def _unchanged(
+    execution: DeskExecution, book: DeskBook, checked: DeploymentSnapshot
+) -> DeploymentSnapshot | None:
+    """Re-read a stopped book: settle only if nothing was written since the desk checked it."""
+    try:
+        current = await execution.snapshot(book.deployment_id)
+    except ExecutionStoreError:
+        return None
+    if current.deployment.revision != checked.deployment.revision:
+        _logger.warning("desk_book_stop_deferred deployment_id=%s", book.deployment_id)
+        return None
+    return current
 
 
 def _flat(snapshot: DeploymentSnapshot) -> bool:

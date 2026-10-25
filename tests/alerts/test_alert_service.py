@@ -487,6 +487,29 @@ async def test_a_flap_that_fills_the_history_window_still_pages(
     ]
 
 
+async def test_a_window_that_is_exactly_full_does_not_page_early(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a row beyond the window makes the episode's start unknown."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 20)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for step in range(20):
+        start = _NOW + timedelta(seconds=6 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=120))
+    assert sender.delivered == []
+    await service.apply((), now=_NOW + timedelta(seconds=125), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=126))
+    assert len(sender.delivered) == 1
+
+
 async def test_an_in_place_severity_change_pages_by_what_was_sent() -> None:
     """Coverage is the severity sent: an escalation pages on return, a downgrade never does."""
     await assert_severity_changes_page_by_coverage(InMemoryAlertStore())
