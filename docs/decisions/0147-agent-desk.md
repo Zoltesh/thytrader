@@ -77,7 +77,8 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   cycle (a live book reconciles its orders first and exits at market any inventory a late fill
   opened); a later read settles the book. The stop is bound to the revision the desk checked,
   so a fault or fill written after that read refuses it instead of being cleared; a refused or
-  lost write is logged (`desk_book_stop_deferred`) and re-checked at the next read. Those reads therefore
+  lost write is logged (`desk_book_stop_deferred`) and re-checked at the next read. A flat book
+  with a live fault is neither stopped nor settled until the worker clears it. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
 - Pool cash and book links change together: every operation on one desk (show, briefing

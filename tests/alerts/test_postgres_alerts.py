@@ -23,6 +23,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from tests.alerts.test_alert_service import (
     assert_disabled_preserves_active_claim,
     assert_flapping_block_pages_once,
+    assert_severity_changes_page_by_coverage,
 )
 from tests.alerts.test_supervision import _no_candles
 from tests.execution_worker.test_safety_supervision import _deployment
@@ -419,6 +420,11 @@ async def test_a_flapping_entry_block_is_paged_once_in_postgres(
 ) -> None:
     """The episode join reads PostgreSQL history the same way as the in-memory store."""
     await assert_flapping_block_pages_once(store)
+
+
+async def test_severity_coverage_is_what_was_sent_in_postgres(store: PostgresAlertStore) -> None:
+    """Covered severity survives the PostgreSQL round trip and drives escalation paging."""
+    await assert_severity_changes_page_by_coverage(store)
 
 
 async def test_reserved_migration_0066_roundtrip_on_private_database(

@@ -197,7 +197,13 @@ class PostgresAlertStore:
         return DeliveryClaim(_parse(row), token) if row is not None else None
 
     async def skip_delivery(
-        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+        self,
+        alert_id: UUID,
+        *,
+        provider: str,
+        now: datetime,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
         """Record a deliberate skip on an open, unclaimed row without spending an attempt.
 
@@ -218,6 +224,7 @@ class PostgresAlertStore:
                 delivery_detail=clip_alert_text(detail),
                 delivery_token=None,
                 delivery_expires_at=None,
+                **_coverage(covered_severity),
             )
         )
         try:
@@ -226,8 +233,40 @@ class PostgresAlertStore:
         except SQLAlchemyError as error:
             raise AlertStoreError("Alert delivery skip is unavailable.") from error
 
+    async def reopen_delivery(self, alert_id: UUID, *, now: datetime, detail: str) -> None:
+        """Return an escalated covered row to ``pending`` with a fresh attempt budget."""
+        statement = (
+            update(operator_alerts)
+            .where(
+                operator_alerts.c.id == alert_id,
+                operator_alerts.c.resolved_at.is_(None),
+                operator_alerts.c.covered_severity.is_not(None),
+                operator_alerts.c.delivery_status.in_(("logged", "delivered", "skipped")),
+                operator_alerts.c.delivery_expires_at.is_(None)
+                | (operator_alerts.c.delivery_expires_at <= now),
+            )
+            .values(
+                delivery_status="pending",
+                delivery_detail=clip_alert_text(detail),
+                delivery_attempts=0,
+                delivery_token=None,
+                delivery_expires_at=None,
+            )
+        )
+        try:
+            async with self._engine.begin() as connection:
+                await connection.execute(statement)
+        except SQLAlchemyError as error:
+            raise AlertStoreError("Alert delivery reopen is unavailable.") from error
+
     async def finish_delivery(
-        self, alert_id: UUID, token: UUID, *, status: str, detail: str
+        self,
+        alert_id: UUID,
+        token: UUID,
+        *,
+        status: str,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
         """Only the current claim can acknowledge, even after its alert resolved."""
         statement = (
@@ -241,6 +280,7 @@ class PostgresAlertStore:
                 delivery_detail=clip_alert_text(detail),
                 delivery_token=None,
                 delivery_expires_at=None,
+                **_coverage(covered_severity),
             )
         )
         try:
@@ -331,7 +371,15 @@ def _row_values(alert: OperatorAlert) -> dict[str, object]:
         "delivery_status": alert.delivery_status,
         "delivery_attempts": alert.delivery_attempts,
         "delivery_detail": alert.delivery_detail,
+        "covered_severity": None
+        if alert.covered_severity is None
+        else alert.covered_severity.value,
     }
+
+
+def _coverage(severity: AlertSeverity | None) -> dict[str, str]:
+    """Set the covered severity only when one is given; otherwise keep the stored one."""
+    return {} if severity is None else {"covered_severity": severity.value}
 
 
 def _parse(row: RowMapping) -> OperatorAlert:
@@ -356,4 +404,7 @@ def _parse(row: RowMapping) -> OperatorAlert:
         delivery_detail=row["delivery_detail"],
         delivery_token=row["delivery_token"],
         delivery_expires_at=row["delivery_expires_at"],
+        covered_severity=(
+            None if row["covered_severity"] is None else AlertSeverity(row["covered_severity"])
+        ),
     )

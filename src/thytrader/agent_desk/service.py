@@ -595,7 +595,11 @@ def _position_view(
 async def _closed_book(
     desk: Desk, book: DeskBook, *, execution: DeskExecution
 ) -> DeploymentSnapshot | None:
-    """The book stopped and flat with final evidence, ready to settle, or None for now."""
+    """The book stopped and flat with final evidence, ready to settle, or None for now.
+
+    A live fault (anything but a stale one about the closed position) holds the book: stopping
+    would clear it, and settling would credit cash the venue may not confirm.
+    """
     try:
         snapshot = await execution.snapshot(book.deployment_id)
     except ExecutionStoreError as error:
@@ -604,6 +608,8 @@ async def _closed_book(
             book.deployment_id,
             type(error).__name__,
         )
+        return None
+    if not _stale_fault(snapshot.deployment.mismatch_detail):
         return None
     if (
         _stranded(book, snapshot)

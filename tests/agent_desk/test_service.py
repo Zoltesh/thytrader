@@ -774,6 +774,24 @@ async def test_a_faulted_book_is_never_flattened_by_the_desk() -> None:
     assert kept.deployment.mismatch_detail == "Venue order read failed."
 
 
+async def test_a_flat_book_with_a_live_fault_is_never_settled() -> None:
+    """With no stray order to cancel, a live fault still holds the stop and the settlement."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    faulted = await execution.snapshot(str(book.deployment.id))
+    await execution.store.save_deployment(
+        replace(faulted.deployment, mismatch_detail="Venue order read failed.")
+    )
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    kept = await execution.snapshot(str(book.deployment.id))
+    assert kept.deployment.status is DeploymentStatus.RUNNING
+    assert kept.deployment.mismatch_detail == "Venue order read failed."
+    assert shown.desk.cash == Decimal(9000)
+
+
 @pytest.mark.parametrize("fault", [CANCEL_BEFORE_EXIT_DETAIL, FLAT_AFTER_FAULT_DETAIL])
 async def test_a_stale_position_fault_never_strands_a_closed_book(fault: str) -> None:
     """A fault that only described the closed position's protection is cleared by the flatten."""

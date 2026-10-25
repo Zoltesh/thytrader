@@ -32,7 +32,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
 
-    from thytrader.alerts.models import AlertCheck, OperatorAlert, SupervisionFinding
+    from thytrader.alerts.models import (
+        AlertCheck,
+        AlertSeverity,
+        OperatorAlert,
+        SupervisionFinding,
+    )
     from thytrader.alerts.store import AlertApplication, AlertStore
     from thytrader.alerts.supervision_inputs import AlertThresholds
 
@@ -116,10 +121,29 @@ class AlertService:
         application = await self._store.apply_observations(
             tuple(ordered.values()), evaluated, now=now, detail=_RECOVERY_DETAIL
         )
+        await self._reopen_escalations(application, now=now)
         # The execution safety loop uses dispatch=False; a separate task handles I/O.
         if dispatch:
             await self.dispatch_pending(now=now)
         return application
+
+    async def _reopen_escalations(self, application: AlertApplication, *, now: datetime) -> None:
+        """Make a row deliverable again once its severity rises above what its page covered."""
+        for change in application.changes:
+            alert = change.alert
+            if alert.covered_severity is None or _rank(alert.severity) <= _rank(
+                alert.covered_severity
+            ):
+                continue
+            try:
+                await self._store.reopen_delivery(
+                    alert.id,
+                    now=now,
+                    detail=f"escalated to {alert.severity.value} after a "
+                    f"{alert.covered_severity.value} page",
+                )
+            except Exception:  # noqa: BLE001 - delivery bookkeeping cannot fail supervision.
+                _logger.warning("alert_escalation_unavailable code=%s", alert.code.value)
 
     async def dispatch_pending(self, *, now: datetime) -> None:
         """Retry open alerts independently of market evidence and signal evaluation."""
@@ -196,6 +220,7 @@ class AlertService:
                     if status is DeliveryStatus.SKIPPED
                     else f"notification outcome: {status.value}"
                 ),
+                covered_severity=claim.alert.severity if status.value in _SENT else None,
             )
         except Exception:  # noqa: BLE001 - storage/provider callbacks cannot fail supervision.
             _logger.warning("alert_delivery_unavailable code=%s", alert.code.value)
@@ -221,6 +246,7 @@ class AlertService:
                 provider=provider.value,
                 now=now,
                 detail=f"{_EPISODE_SKIP} (see alert {episode.sent.id})",
+                covered_severity=_covered(episode.sent),
             )
             return False
         return now - episode.started >= grace
@@ -242,14 +268,16 @@ def _entry_block_episode(
 
     A block that clears and returns within the grace continues the same episode, so a
     flapping block accumulates time toward a page and is paged once, not once per return.
-    A row sent (or skipped as a continuation) at this severity or higher covers the return;
-    a lower-severity page does not, so an escalation is paged. A send still in flight on an
-    earlier row holds the return until it is acknowledged or its claim expires. A history
+    A row whose page covered this severity or higher (sent, or skipped as a continuation of
+    such a page) covers the return; a lower-severity page does not, so an escalation is paged.
+    Coverage is the severity actually sent, never the row's later observed severity. A send
+    still in flight on an earlier row holds the return until it is acknowledged or its claim
+    expires. A history
     longer than ``_EPISODE_HISTORY`` without a gap is treated as unsent: a duplicate page,
     never a missed one.
     """
     started = alert.first_seen_at
-    rank = _SEVERITY_RANK[alert.severity.value]
+    rank = _rank(alert.severity)
     for row in history:
         if row.id == alert.id or row.resolved_at is None or row.resolved_at > started:
             continue
@@ -258,16 +286,22 @@ def _entry_block_episode(
         started = min(started, row.first_seen_at)
         if row.delivery_expires_at is not None and row.delivery_expires_at > now:
             return _Episode(started, sending=True)
-        if _SEVERITY_RANK[row.severity.value] >= rank and _covers(row):
+        covered = _covered(row)
+        if covered is not None and _rank(covered) >= rank:
             return _Episode(started, sent=row)
     return _Episode(started)
 
 
-def _covers(row: OperatorAlert) -> bool:
-    """Whether this row was paged, or skipped because its episode already was."""
-    return row.delivery_status in _SENT or (
-        row.delivery_status == "skipped" and row.delivery_detail.startswith(_EPISODE_SKIP)
-    )
+def _covered(row: OperatorAlert) -> AlertSeverity | None:
+    """The severity this row's page covered (rows sent before 0081: their severity)."""
+    if row.covered_severity is not None:
+        return row.covered_severity
+    return row.severity if row.delivery_status in _SENT else None
+
+
+def _rank(severity: AlertSeverity) -> int:
+    """Order info < warning < critical."""
+    return _SEVERITY_RANK[severity.value]
 
 
 def _notification_record(

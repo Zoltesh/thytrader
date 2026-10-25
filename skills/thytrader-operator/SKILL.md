@@ -360,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v108`, schema revision `0080`) and exits on any
+   this checkout's (`thytrader-ops-contract-v109`, schema revision `0081`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -604,7 +604,8 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   episode is paged once when it has lasted the grace, and its later returns are not paged
   again; one still open when the delivery task runs is recorded `skipped` ("continues an
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
-  page (warning, then critical) is paged. While waiting
+  page (warning, then critical) is paged, and so is any alert row whose severity rises above
+  what its page covered ("escalated to critical after a warning page"). While waiting
   out the grace the row shows `delivery.status` `pending`. With notifications off it is
   `skipped` at once. Exits continue during any entry block; other alerts are never delayed.
 

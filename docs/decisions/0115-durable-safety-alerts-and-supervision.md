@@ -85,10 +85,14 @@ added 2026-10-23). The grace counts from when the fleet read finished, not from 
 and a block that returns within the grace of its last resolution continues one episode: a
 flapping block is paged once its episode has lasted the grace, and its later returns are not
 paged again (a return the delivery task sees is recorded as skipped) (2026-10-24). The episode
-is read from that block's own resolved rows, never the bounded operator feed. A page covers
-returns of the same or lower severity, so an escalation to critical is paged; a return waits
-while an earlier send is in flight, and a send acknowledged after its row resolved still
-counts (2026-10-25).
+is read from that block's own resolved rows (newest 500), never the bounded operator feed. A
+page covers returns of the same or lower severity, so an escalation to critical is paged; a
+return waits while an earlier send is in flight, and a send acknowledged after its row resolved
+still counts. Coverage is the severity actually sent (`covered_severity`, Alembic `0081`; a
+continuation skip inherits its page's), never the row's later observed severity: any alert row
+whose severity rises above what its page covered is delivered again, and a downgrade never
+re-pages. If more than 500 returns pass unseen by the delivery task (for example while it is
+down), the episode may be paged a second time: a duplicate, never a missed page (2026-10-25).
 
 Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
 `operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is

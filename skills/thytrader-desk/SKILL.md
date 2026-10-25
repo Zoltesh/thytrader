@@ -21,7 +21,7 @@ sleeves). Desks are paper by default; a live desk is described under "Live desks
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v108`, schema revision `0080`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v109`, schema revision `0081`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
 `create`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 
@@ -41,8 +41,10 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   is exited at market), and the book settles at a later read. A resting order that could add
   inventory, or whose venue state is pending or unknown, keeps the book open. The stop applies
   only to the revision the desk checked: `desk_book_stop_deferred` means the book changed or
-  the write lost a race, and the next read re-checks it; `desk_book_read_deferred` means a
-  book could not be read, and its siblings still settle.
+  the write lost a race, and the next read re-checks it. A flat book with a live fault is
+  neither stopped nor settled until the worker clears the fault. `desk_book_read_deferred`
+  means a book could not be read: its siblings still settle, but that briefing, wake or score
+  fails until the book can be read again.
 - **Fees** are the account's Coinbase maker/taker rates, read from the account at each order (the
   same source as paper starts, ADR 0122). With no readable account the open is refused; nothing is
   assumed.
