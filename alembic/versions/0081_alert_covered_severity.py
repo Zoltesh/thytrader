@@ -8,7 +8,8 @@ Additive: one nullable column and one index, no existing row or constraint chang
 
 * ``operator_alerts.covered_severity``: the severity actually sent to the notifier, or the
   severity of the page a continuation skip relied on. The row's ``severity`` keeps tracking the
-  observation, so an escalation past the page can be paged and a downgrade never re-pages.
+  observation, so a block returning above the page's severity is paged and one returning at or
+  below it is not. (An open row that escalates in place is not re-sent; ADR 0115.)
 * ``ix_operator_alerts_history``: ``(code, subject, resolved_at)`` for the entry-block episode
   walk over one alert's resolved rows.
 

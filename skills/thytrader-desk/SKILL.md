@@ -34,18 +34,20 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   can pay fees. When the book is flat and stopped, its final cash returns to the pool at the next
   briefing, wake or score (settlement).
   A closed book that still rests a stray exit order (for example a take-profit left after its
-  stop filled) is flattened by the desk itself once its evidence is final (fills applied, live
-  cancels settled, accounting complete): the API logs `desk_book_stranded_orders`, the worker cancels the order
-  on its next cycle (a live book reconciles its orders first, and inventory a late fill opened
-  is exited at market), and the book settles at a later read. A resting order that could add
-  inventory, or whose venue state is pending or unknown, keeps the book open. The stop applies
-  only to the revision the desk checked: `desk_book_stop_deferred` means the book changed or
-  the write lost a race, and the next read re-checks it. The desk acts on that evidence, not
-  on fault text: a fault left on a book whose evidence is final (for example an old read
-  failure or data-gap pause) is cleared by its stop, so it never locks pool cash; a failed
-  venue read leaves the order unknown and holds the book. `desk_book_read_deferred`
-  means a book could not be read: its siblings still settle, but that briefing, wake or score
-  fails until the book can be read again.
+  stop filled) is flattened by the desk itself once its evidence is final (fills applied and
+  netting to zero, accounting complete, live cancels settled, every venue child imported): the
+  API logs `desk_book_stranded_orders`, the worker cancels the order on its next cycle, and the
+  book settles at a later read. If the stray order fills before the cancel, that fill cannot be
+  projected onto the closed book: it holds settlement until the inventory is reconciled or
+  repaired (nothing exits it automatically). A resting order that could add inventory, or whose
+  venue state is pending or unknown, keeps the book open. Every settlement writes a stop bound
+  to the revision the desk checked, even for a book already stopped: `desk_book_stop_deferred`
+  means the book changed or the write lost a race, and the next read re-checks it. The desk acts
+  on that evidence, not on fault text: a fault left on a book whose evidence is final (for
+  example an old read failure or data-gap pause) is cleared by that stop, so it never locks pool
+  cash; a failed venue read leaves the order unknown and holds the book.
+  `desk_book_read_deferred` means a book could not be read: its settlement waits for the next
+  read, and its siblings still settle.
 - **Fees** are the account's Coinbase maker/taker rates, read from the account at each order (the
   same source as paper starts, ADR 0122). With no readable account the open is refused; nothing is
   assumed.

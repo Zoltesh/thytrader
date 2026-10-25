@@ -37,19 +37,20 @@ async def _supervise_fleet_entries(
 ) -> None:
     """Raise or resolve the fleet entry block alerts; never fail the worker cycle.
 
-    The observation is stamped once the fleet has been read, so a slow read never backdates
-    a new entry block past its notification grace.
+    The observation is stamped as the fleet read begins (ADR 0115: a timestamp marks the start
+    of its evidence pass), not at cycle start, so the per-book work before it never backdates a
+    new entry block past its notification grace.
     """
     if alert_service is None:
         return
     try:
+        observed_at = clock()
         health = await load_fleet_entry_health(
             store,
             policy,
             market_data=market_data,
             futures_account=bound_futures_account_store(),
         )
-        observed_at = clock()
         previous = await alert_service.open_alerts()
         evidence = fleet_entry_evidence(health, prior_alerts=previous)
         application = await alert_service.apply(

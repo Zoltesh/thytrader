@@ -38,6 +38,7 @@ from thytrader.agent_desk.models import (
 from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value, net_quantity
+from thytrader.execution.attached import child_order_for
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
@@ -597,8 +598,10 @@ async def _closed_book(
     """The book stopped and flat with final evidence, ready to settle, or None for now.
 
     The desk acts on evidence, not on fault text: an order whose venue state is pending or
-    unknown, or fills and cancels not yet final, hold the book whatever its fault says. A stop
-    is bound to the revision checked here, so a fault or fill written after it refuses the stop.
+    unknown, a venue child not yet imported, or fills and cancels not yet final hold the book
+    whatever its fault says. Every settlement writes a stop bound to the revision checked here
+    (even for an already-stopped book), so a fault or fill written after it refuses the stop,
+    and the settled book keeps no stale fault.
     """
     try:
         snapshot = await execution.snapshot(book.deployment_id)
@@ -614,9 +617,8 @@ async def _closed_book(
         and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
     ):
         # A closed book still resting a stray exit order. The worker's flatten cancels it on
-        # its next cycle (a live book reconciles its orders first, and inventory a late fill
-        # opened is exited at market); a later read settles the book. The stop is bound to the
-        # revision checked here, so a newer fault or fill refuses it.
+        # its next cycle; a later read settles the book. If the stray order fills first, the
+        # fill cannot be projected onto the closed book, so it holds settlement for repair.
         _logger.warning(
             "desk_book_stranded_orders desk_id=%s deployment_id=%s",
             desk.desk_id,
@@ -627,14 +629,14 @@ async def _closed_book(
             return None
     if not _flat(snapshot) or not _evidence_final(snapshot):
         return None
-    if snapshot.deployment.status is not DeploymentStatus.STOPPED:
-        snapshot = await _stop(execution, book, snapshot, flatten=False)
-        if (
-            snapshot is None
-            or not _flat(snapshot)
-            or snapshot.deployment.status is not DeploymentStatus.STOPPED
-        ):
-            return None
+    snapshot = await _stop(execution, book, snapshot, flatten=False)
+    if (
+        snapshot is None
+        or not _flat(snapshot)
+        or not _evidence_final(snapshot)
+        or snapshot.deployment.status is not DeploymentStatus.STOPPED
+    ):
+        return None
     return snapshot
 
 
@@ -676,9 +678,7 @@ def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
     """
     if snapshot.position is not None or snapshot.positions:
         return False
-    if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
-        return False
-    if not snapshot.accounting_complete:
+    if snapshot.deployment.phase is not RuntimePhase.FLAT:
         return False
     if not _evidence_final(snapshot):
         return False  # recorded fills or cancels may not tell the whole story yet
@@ -705,13 +705,22 @@ def _exit_order(order: Order, purpose: IntentPurpose | None) -> bool:
 
 
 def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
-    """Every execution is applied and, live, every cancel is past its settlement watermark.
+    """The book's records are complete and final enough to settle or flatten on.
 
-    A FILLED order whose fills are not all recorded and applied, or applied inventory the
-    position does not show, would settle cash the book still spends. A live cancel can still be
-    followed by a fill until reconciliation settles it (ADR 0141); paper cancels are final.
+    Accounting must be complete and the fills must net to zero. A FILLED order whose fills are
+    not all recorded and applied, or applied inventory the position does not show, would settle
+    cash the book still spends. A venue child the parent names but that is not imported yet
+    may still rest at the venue. A live cancel can still be followed by a fill until
+    reconciliation settles it (ADR 0141); paper cancels are final.
     """
+    if not snapshot.accounting_complete or net_quantity(snapshot) != 0:
+        return False
     if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
+        return False
+    if any(
+        order.attached_child_venue_order_id and child_order_for(snapshot, order) is None
+        for order in snapshot.orders
+    ):
         return False
     if snapshot.deployment.mode is not DeploymentMode.LIVE:
         return True

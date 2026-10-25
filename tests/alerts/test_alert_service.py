@@ -10,6 +10,7 @@ from uuid import uuid4
 
 import pytest
 
+from thytrader.alerts import service as alert_service_module
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -461,6 +462,28 @@ async def test_an_entry_block_escalated_past_its_page_is_paged_again() -> None:
     assert [record.title for record in sender.delivered] == [
         "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
+    ]
+
+
+async def test_a_flap_that_fills_the_history_window_still_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A walk that uses up the window cannot let the episode start slide forward forever."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 20)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for step in range(200):
+        start = _NOW + timedelta(seconds=6 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.dispatch_pending(now=start + timedelta(seconds=2))
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
     ]
 
 

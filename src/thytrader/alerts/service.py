@@ -253,9 +253,9 @@ def _entry_block_episode(
     such a page) covers the return; a lower-severity page does not, so an escalation is paged.
     Coverage is the severity actually sent, never the row's later observed severity. A send
     still in flight on an earlier row holds the return until it is acknowledged or its claim
-    expires. A history
-    longer than ``_EPISODE_HISTORY`` without a gap is treated as unsent: a duplicate page,
-    never a missed one.
+    expires. A walk that uses up a full ``_EPISODE_HISTORY`` window without a gap or a
+    covering row is due at once: its true start is older than the window, so the start must
+    not slide forward with it (a duplicate page, never a missed one).
     """
     started = alert.first_seen_at
     rank = _rank(alert.severity)
@@ -270,6 +270,9 @@ def _entry_block_episode(
         covered = _covered(row)
         if covered is not None and _rank(covered) >= rank:
             return _Episode(started, sent=row)
+    else:
+        if len(history) >= _EPISODE_HISTORY:
+            return _Episode(started - grace)
     return _Episode(started)
 
 

@@ -69,18 +69,20 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
 - Discretionary books stay single-trade from the desk's point of view; per-order amend and
   partial closes are out of scope.
 - A desk book that turns flat between wakes is stopped and settled at the next briefing, wake
-  or score read; until then it is a flat running discretionary book. A flat book whose
-  evidence is final (every fill applied, live cancels settled, accounting complete) and that
-  still rests only stray exits
-  (confirmed-open orders on the reducing side under an exit intent, or venue protection
-  attached to the entry) is flattened first: the worker cancels the stray order on its next
-  cycle (a live book reconciles its orders first and exits at market any inventory a late fill
-  opened); a later read settles the book. The stop is bound to the revision the desk checked,
-  so a fault or fill written after that read refuses it instead of being cleared; a refused or
-  lost write is logged (`desk_book_stop_deferred`) and re-checked at the next read. The desk
-  acts on that evidence, not on fault text: a fault left on a book whose evidence is final is
-  cleared by its stop (2026-10-25: holding on fault text stranded books whose faults the worker
-  never clears), while a failed venue read leaves an order unknown and holds the book. Those reads therefore
+  or score read; until then it is a flat running discretionary book. Evidence is final when
+  every fill is applied and the fills net to zero, accounting is complete, live cancels are
+  settled and every venue child a parent names is imported. A flat book with final evidence
+  that still rests only stray exits (confirmed-open orders on the reducing side under an exit
+  intent, or venue protection attached to the entry) is flattened first: the worker cancels the
+  stray order on its next cycle and a later read settles the book. A stray fill that lands
+  before the cancel cannot be projected onto the closed book, so it holds settlement for
+  reconciliation or repair. Every settlement writes a stop bound to the revision the desk
+  checked (even for a book already stopped), so a fault or fill written after that read refuses
+  it instead of being cleared; a refused or lost write is logged (`desk_book_stop_deferred`) and
+  re-checked at the next read. The desk acts on that evidence, not on fault text: a fault left on
+  a book whose evidence is final is cleared by its stop (2026-10-25: holding on fault text
+  stranded books whose faults the worker never clears), while a failed venue read leaves an
+  order unknown and holds the book. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
 - Pool cash and book links change together: every operation on one desk (show, briefing

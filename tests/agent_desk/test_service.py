@@ -779,19 +779,58 @@ async def test_a_retained_fault_never_strands_a_closed_book(fault: str) -> None:
     assert await _flattened(store, execution, desk_id, book)
 
 
+@pytest.mark.parametrize("status", [DeploymentStatus.RUNNING, DeploymentStatus.STOPPED])
 @pytest.mark.parametrize("fault", _RETAINED_FAULTS)
-async def test_a_flat_book_with_a_retained_fault_still_settles(fault: str) -> None:
-    """With every order terminal and evidence final, a leftover fault never locks pool cash."""
+async def test_a_flat_book_with_a_retained_fault_still_settles(
+    fault: str, status: DeploymentStatus
+) -> None:
+    """With every order terminal and evidence final, a leftover fault never locks pool cash.
+
+    The settlement's stop clears it, even on a book that was already stopped.
+    """
     store, execution, desk_id = await _desk()
     book, stray = await _stopped_out_book(store, execution, desk_id)
     await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
     faulted = await execution.snapshot(str(book.deployment.id))
-    await execution.store.save_deployment(replace(faulted.deployment, mismatch_detail=fault))
+    await execution.store.save_deployment(
+        replace(faulted.deployment, status=status, mismatch_detail=fault)
+    )
     shown = await briefing(
         desk_id, store=store, execution=execution, market_data=execution.market_data
     )
     assert shown.desk.open_positions == 0
     assert shown.desk.cash == Decimal(10000) - 2 * book.fills[0].fee
+    settled = await execution.snapshot(str(book.deployment.id))
+    assert settled.deployment.status is DeploymentStatus.STOPPED
+    assert settled.deployment.mismatch_detail is None
+
+
+async def test_a_venue_child_not_yet_imported_holds_settlement() -> None:
+    """A parent naming a venue child with no local row may still rest an order at the venue."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    exit_order = next(order for order in book.orders if order.client_order_id == "stop")
+    await execution.store.save_order(
+        replace(exit_order, attached_child_venue_order_id="venue-child-not-imported")
+    )
+    held = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert held.desk.open_positions == 1
+    child = replace(
+        stray,
+        id=uuid4(),
+        client_order_id="imported-child",
+        venue_order_id="venue-child-not-imported",
+        parent_order_id=exit_order.id,
+        status=OrderStatus.CANCELED,
+    )
+    await execution.store.save_order(child)
+    settled = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert settled.desk.open_positions == 0
 
 
 @pytest.mark.parametrize("status", [OrderStatus.PENDING, OrderStatus.UNKNOWN])
