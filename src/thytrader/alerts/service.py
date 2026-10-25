@@ -121,29 +121,10 @@ class AlertService:
         application = await self._store.apply_observations(
             tuple(ordered.values()), evaluated, now=now, detail=_RECOVERY_DETAIL
         )
-        await self._reopen_escalations(application, now=now)
         # The execution safety loop uses dispatch=False; a separate task handles I/O.
         if dispatch:
             await self.dispatch_pending(now=now)
         return application
-
-    async def _reopen_escalations(self, application: AlertApplication, *, now: datetime) -> None:
-        """Make a row deliverable again once its severity rises above what its page covered."""
-        for change in application.changes:
-            alert = change.alert
-            if alert.covered_severity is None or _rank(alert.severity) <= _rank(
-                alert.covered_severity
-            ):
-                continue
-            try:
-                await self._store.reopen_delivery(
-                    alert.id,
-                    now=now,
-                    detail=f"escalated to {alert.severity.value} after a "
-                    f"{alert.covered_severity.value} page",
-                )
-            except Exception:  # noqa: BLE001 - delivery bookkeeping cannot fail supervision.
-                _logger.warning("alert_escalation_unavailable code=%s", alert.code.value)
 
     async def dispatch_pending(self, *, now: datetime) -> None:
         """Retry open alerts independently of market evidence and signal evaluation."""
@@ -293,10 +274,12 @@ def _entry_block_episode(
 
 
 def _covered(row: OperatorAlert) -> AlertSeverity | None:
-    """The severity this row's page covered (rows sent before 0081: their severity)."""
-    if row.covered_severity is not None:
-        return row.covered_severity
-    return row.severity if row.delivery_status in _SENT else None
+    """The severity this row's page covered; a row sent before 0081 covers nothing.
+
+    Never the row's observed severity, which supervision rewrites after a page: an unknown
+    coverage can only cause a duplicate page, never a missed one.
+    """
+    return row.covered_severity
 
 
 def _rank(severity: AlertSeverity) -> int:

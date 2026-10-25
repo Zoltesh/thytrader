@@ -233,32 +233,6 @@ class PostgresAlertStore:
         except SQLAlchemyError as error:
             raise AlertStoreError("Alert delivery skip is unavailable.") from error
 
-    async def reopen_delivery(self, alert_id: UUID, *, now: datetime, detail: str) -> None:
-        """Return an escalated covered row to ``pending`` with a fresh attempt budget."""
-        statement = (
-            update(operator_alerts)
-            .where(
-                operator_alerts.c.id == alert_id,
-                operator_alerts.c.resolved_at.is_(None),
-                operator_alerts.c.covered_severity.is_not(None),
-                operator_alerts.c.delivery_status.in_(("logged", "delivered", "skipped")),
-                operator_alerts.c.delivery_expires_at.is_(None)
-                | (operator_alerts.c.delivery_expires_at <= now),
-            )
-            .values(
-                delivery_status="pending",
-                delivery_detail=clip_alert_text(detail),
-                delivery_attempts=0,
-                delivery_token=None,
-                delivery_expires_at=None,
-            )
-        )
-        try:
-            async with self._engine.begin() as connection:
-                await connection.execute(statement)
-        except SQLAlchemyError as error:
-            raise AlertStoreError("Alert delivery reopen is unavailable.") from error
-
     async def finish_delivery(
         self,
         alert_id: UUID,

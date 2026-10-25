@@ -137,13 +137,6 @@ class AlertStore(Protocol):
         """
         ...
 
-    async def reopen_delivery(self, alert_id: UUID, *, now: datetime, detail: str) -> None:
-        """Make an open, covered, unclaimed row deliverable again after it escalated.
-
-        Its coverage is kept, so the page it already sent still covers lower severities.
-        """
-        ...
-
 
 def observation_keys(
     findings: Sequence[SupervisionFinding], evaluated: Sequence[AlertCheck]
@@ -313,26 +306,6 @@ class InMemoryAlertStore:
                 delivery_token=None,
                 delivery_expires_at=None,
                 covered_severity=covered_severity or row.covered_severity,
-            )
-            return
-
-    async def reopen_delivery(self, alert_id: UUID, *, now: datetime, detail: str) -> None:
-        """Return an escalated covered row to ``pending`` with a fresh attempt budget."""
-        for rows in self.history.values():
-            row = rows[-1]
-            if row.id != alert_id or not row.is_open or row.covered_severity is None:
-                continue
-            if row.delivery_status not in {"logged", "delivered", "skipped"}:
-                return
-            if row.delivery_expires_at is not None and row.delivery_expires_at > now:
-                return
-            rows[-1] = replace(
-                row,
-                delivery_status="pending",
-                delivery_detail=clip_alert_text(detail),
-                delivery_attempts=0,
-                delivery_token=None,
-                delivery_expires_at=None,
             )
             return
 

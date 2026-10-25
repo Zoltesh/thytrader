@@ -39,7 +39,6 @@ from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value, net_quantity
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
-from thytrader.execution.exit_guards import FLAT_AFTER_FAULT_DETAIL, stale_position_fault
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
@@ -597,8 +596,9 @@ async def _closed_book(
 ) -> DeploymentSnapshot | None:
     """The book stopped and flat with final evidence, ready to settle, or None for now.
 
-    A live fault (anything but a stale one about the closed position) holds the book: stopping
-    would clear it, and settling would credit cash the venue may not confirm.
+    The desk acts on evidence, not on fault text: an order whose venue state is pending or
+    unknown, or fills and cancels not yet final, hold the book whatever its fault says. A stop
+    is bound to the revision checked here, so a fault or fill written after it refuses the stop.
     """
     try:
         snapshot = await execution.snapshot(book.deployment_id)
@@ -608,8 +608,6 @@ async def _closed_book(
             book.deployment_id,
             type(error).__name__,
         )
-        return None
-    if not _stale_fault(snapshot.deployment.mismatch_detail):
         return None
     if (
         _stranded(book, snapshot)
@@ -669,18 +667,18 @@ async def _stop(
 
 
 def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
-    """A closed book (final evidence, net zero, flat, no live fault) resting only stray exits.
+    """A closed book (final evidence, complete accounting, net zero, flat) resting stray exits.
 
     Every resting order must be confirmed open, reduce the book's side and be an exit: an
     exit intent, or a venue-attached child of the entry. Anything that could add inventory, or
-    an order whose venue state is pending or unknown, keeps the book open. A fault that only
-    described the closed position's protection is stale and does not.
+    an order whose venue state is pending or unknown (as after a failed venue read), keeps the
+    book open.
     """
     if snapshot.position is not None or snapshot.positions:
         return False
     if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
         return False
-    if not _stale_fault(snapshot.deployment.mismatch_detail) or not snapshot.accounting_complete:
+    if not snapshot.accounting_complete:
         return False
     if not _evidence_final(snapshot):
         return False  # recorded fills or cancels may not tell the whole story yet
@@ -693,11 +691,6 @@ def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
         and _exit_order(order, purposes.get(order.intent_id))
         for order in resting
     )
-
-
-def _stale_fault(detail: str | None) -> bool:
-    """No fault, or one that only described the now-closed position's protection or exit."""
-    return detail is None or detail == FLAT_AFTER_FAULT_DETAIL or stale_position_fault(detail)
 
 
 def _exit_order(order: Order, purpose: IntentPurpose | None) -> bool:

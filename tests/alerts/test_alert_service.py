@@ -465,12 +465,12 @@ async def test_an_entry_block_escalated_past_its_page_is_paged_again() -> None:
 
 
 async def test_an_in_place_severity_change_pages_by_what_was_sent() -> None:
-    """An open row escalated past its page is paged again; a downgrade never re-pages."""
+    """Coverage is the severity sent: an escalation pages on return, a downgrade never does."""
     await assert_severity_changes_page_by_coverage(InMemoryAlertStore())
 
 
 async def assert_severity_changes_page_by_coverage(store: AlertStore) -> None:
-    """Warning page, in-place critical (paged), in-place warning, then a critical return."""
+    """A warning page escalated in place, then a critical page downgraded in place."""
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = AlertService(store, sender, thresholds=AlertThresholds())
     critical = _entry_block()
@@ -479,19 +479,38 @@ async def assert_severity_changes_page_by_coverage(store: AlertStore) -> None:
     for minute in range(7):
         await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
     await service.apply((critical,), now=_NOW + timedelta(minutes=7))
-    await service.apply((warning,), now=_NOW + timedelta(minutes=8))
-    await service.apply((), now=_NOW + timedelta(minutes=9), evaluated=(check,))
-    await service.apply((critical,), now=_NOW + timedelta(minutes=10))
+    await service.apply((), now=_NOW + timedelta(minutes=8), evaluated=(check,))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=9))
+    await service.apply((warning,), now=_NOW + timedelta(minutes=10))
+    await service.apply((), now=_NOW + timedelta(minutes=11), evaluated=(check,))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=12))
     assert [record.title for record in sender.delivered] == [
         "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
     ]
-    paged = (await store.list_resolved(critical.code.value, critical.subject, limit=1))[0]
-    assert paged.severity is AlertSeverity.WARNING
-    assert paged.covered_severity is AlertSeverity.CRITICAL
+    downgraded = (await store.list_resolved(critical.code.value, critical.subject, limit=1))[0]
+    assert downgraded.severity is AlertSeverity.WARNING
+    assert downgraded.covered_severity is AlertSeverity.CRITICAL
     returned = (await store.list_open_alerts())[0]
     assert returned.delivery_status == "skipped"
     assert returned.covered_severity is AlertSeverity.CRITICAL
+
+
+async def test_a_row_sent_before_coverage_was_recorded_covers_nothing() -> None:
+    """Unknown coverage never trusts the observed severity: a duplicate page, never a miss."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    await service.apply((block,), now=_NOW, dispatch=False)
+    identity = (block.code.value, block.subject)
+    store.history[identity][-1] = replace(store.history[identity][-1], delivery_status="delivered")
+    await service.apply((), now=_NOW + timedelta(minutes=6), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(minutes=7))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
 
 
 async def test_a_continuation_that_escalates_before_delivery_still_pages() -> None:

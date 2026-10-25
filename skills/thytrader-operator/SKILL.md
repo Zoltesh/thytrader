@@ -604,8 +604,9 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   episode is paged once when it has lasted the grace, and its later returns are not paged
   again; one still open when the delivery task runs is recorded `skipped` ("continues an
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
-  page (warning, then critical) is paged, and so is any alert row whose severity rises above
-  what its page covered ("escalated to critical after a warning page"). While waiting
+  page (warning, then critical) is paged. An open row that escalates in place after its page
+  is not re-sent until it clears and returns, so read `alerts` for the current severity.
+  While waiting
   out the grace the row shows `delivery.status` `pending`. With notifications off it is
   `skipped` at once. Exits continue during any entry block; other alerts are never delayed.
 

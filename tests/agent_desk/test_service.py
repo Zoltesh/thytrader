@@ -762,43 +762,36 @@ async def test_a_resting_order_that_could_add_inventory_is_never_flattened() -> 
     assert not await _flattened(store, execution, desk_id, book)
 
 
-async def test_a_faulted_book_is_never_flattened_by_the_desk() -> None:
-    """A book paused on a live fault keeps it for the worker to reconcile."""
-    store, execution, desk_id = await _desk()
-    book, _ = await _stopped_out_book(store, execution, desk_id)
-    await execution.store.save_deployment(
-        replace(book.deployment, mismatch_detail="Venue order read failed.")
-    )
-    assert not await _flattened(store, execution, desk_id, book)
-    kept = await execution.snapshot(str(book.deployment.id))
-    assert kept.deployment.mismatch_detail == "Venue order read failed."
+_RETAINED_FAULTS = [
+    CANCEL_BEFORE_EXIT_DETAIL,
+    FLAT_AFTER_FAULT_DETAIL,
+    "Market-data window is gapped or missing the latest closed bar.",
+    "Order reconciliation is unconfirmed: order read failed.",
+]
 
 
-async def test_a_flat_book_with_a_live_fault_is_never_settled() -> None:
-    """With no stray order to cancel, a live fault still holds the stop and the settlement."""
-    store, execution, desk_id = await _desk()
-    book, stray = await _stopped_out_book(store, execution, desk_id)
-    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
-    faulted = await execution.snapshot(str(book.deployment.id))
-    await execution.store.save_deployment(
-        replace(faulted.deployment, mismatch_detail="Venue order read failed.")
-    )
-    shown = await briefing(
-        desk_id, store=store, execution=execution, market_data=execution.market_data
-    )
-    kept = await execution.snapshot(str(book.deployment.id))
-    assert kept.deployment.status is DeploymentStatus.RUNNING
-    assert kept.deployment.mismatch_detail == "Venue order read failed."
-    assert shown.desk.cash == Decimal(9000)
-
-
-@pytest.mark.parametrize("fault", [CANCEL_BEFORE_EXIT_DETAIL, FLAT_AFTER_FAULT_DETAIL])
-async def test_a_stale_position_fault_never_strands_a_closed_book(fault: str) -> None:
-    """A fault that only described the closed position's protection is cleared by the flatten."""
+@pytest.mark.parametrize("fault", _RETAINED_FAULTS)
+async def test_a_retained_fault_never_strands_a_closed_book(fault: str) -> None:
+    """A closed book with final evidence is flattened whatever fault the worker left on it."""
     store, execution, desk_id = await _desk()
     book, _ = await _stopped_out_book(store, execution, desk_id)
     await execution.store.save_deployment(replace(book.deployment, mismatch_detail=fault))
     assert await _flattened(store, execution, desk_id, book)
+
+
+@pytest.mark.parametrize("fault", _RETAINED_FAULTS)
+async def test_a_flat_book_with_a_retained_fault_still_settles(fault: str) -> None:
+    """With every order terminal and evidence final, a leftover fault never locks pool cash."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    faulted = await execution.snapshot(str(book.deployment.id))
+    await execution.store.save_deployment(replace(faulted.deployment, mismatch_detail=fault))
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 0
+    assert shown.desk.cash == Decimal(10000) - 2 * book.fills[0].fee
 
 
 @pytest.mark.parametrize("status", [OrderStatus.PENDING, OrderStatus.UNKNOWN])
