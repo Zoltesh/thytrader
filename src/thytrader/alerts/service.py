@@ -254,10 +254,10 @@ def _entry_block_episode(
     such a page) covers the return; a lower-severity page does not, so an escalation is paged.
     Coverage is the severity actually sent, never the row's later observed severity. A send
     still in flight on an earlier row holds the return until it is acknowledged or its claim
-    expires. Only ``_EPISODE_HISTORY`` rows are walked: when a row exists beyond them and the
-    walk found no gap or covering row, the episode's start is older than the window, so it is
-    due at once rather than letting the start slide forward (an early or duplicate page, never
-    a missed one).
+    expires. Only ``_EPISODE_HISTORY`` rows are walked: when the walk found no gap or covering
+    row and the next older row still joins the episode, its start is older than the window, so
+    it is due at once rather than letting the start slide forward (an early or duplicate page,
+    never a missed one).
     """
     started = alert.first_seen_at
     rank = _rank(alert.severity)
@@ -273,9 +273,15 @@ def _entry_block_episode(
         if covered is not None and _rank(covered) >= rank:
             return _Episode(started, sent=row)
     else:
-        if len(history) > _EPISODE_HISTORY:
+        beyond = history[_EPISODE_HISTORY:]
+        if beyond and _continues(beyond[0], started, grace=grace):
             return _Episode(started - grace)
     return _Episode(started)
+
+
+def _continues(row: OperatorAlert, started: datetime, *, grace: timedelta) -> bool:
+    """Whether an older resolved row joins an episode that began at ``started``."""
+    return row.resolved_at is not None and started - row.resolved_at <= grace
 
 
 def _covered(row: OperatorAlert) -> AlertSeverity | None:

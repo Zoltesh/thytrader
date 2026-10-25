@@ -606,8 +606,8 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
   page (warning, then critical) is paged. An open row that escalates in place after its page
   is not re-sent until it clears and returns, so read `alerts` for the current severity.
-  Rare exceptions page an episode early or a second time, never miss it: more than 500 returns
-  the delivery task never saw, or an episode spanning the Alembic `0081` upgrade (ADR 0115).
+  Rare exceptions page an episode early or a second time, never miss it: an episode with more
+  than 500 returns, or one spanning the Alembic `0081` upgrade (ADR 0115).
   While waiting
   out the grace the row shows `delivery.status` `pending`. With notifications off it is
   `skipped` at once. Exits continue during any entry block; other alerts are never delayed.

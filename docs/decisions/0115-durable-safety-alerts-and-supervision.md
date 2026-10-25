@@ -93,11 +93,11 @@ still counts. Coverage is the severity actually sent (`covered_severity`, Alembi
 continuation skip inherits its page's), never the row's later observed severity, so a block
 that escalated in place after a warning page is paged when it returns, and one downgraded after
 a critical page is not. A row sent before `0081` covers nothing. A walk of 500 rows that finds
-no gap or covering page while an older row still exists is due at once, since the episode's
-start lies beyond the window.
-If more than 500 returns pass unseen by the delivery task (for example while it is down), or
-the episode spans the `0081` upgrade, it may be paged early or a second time: a duplicate,
-never a missed page. Known gap (every
+no gap or covering page while the next older row still joins the episode is due at once,
+since the episode's start lies beyond the window.
+An episode with more than 500 returns (for example a fast flap, or returns the delivery task
+never saw while it was down), or one spanning the `0081` upgrade, may be paged early or a
+second time: a duplicate, never a missed page. Known gap (every
 alert code, unchanged): an open row that escalates in place after its page is not re-sent
 until it resolves and returns; re-sending it needs a per-page notification id, since receivers
 dedupe the alert id (2026-10-25).

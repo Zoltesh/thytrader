@@ -510,6 +510,29 @@ async def test_a_window_that_is_exactly_full_does_not_page_early(
     assert len(sender.delivered) == 1
 
 
+async def test_a_row_past_the_window_after_a_gap_does_not_page_early(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The extra row counts only if it still joins the episode, not if a gap separates it."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 3)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    earlier = _NOW - timedelta(hours=5)
+    await service.apply((block,), now=earlier, dispatch=False)
+    await service.apply((), now=earlier + timedelta(seconds=5), evaluated=(check,))
+    for step in range(3):
+        start = _NOW + timedelta(seconds=15 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=45))
+    assert sender.delivered == []
+
+
 async def test_an_in_place_severity_change_pages_by_what_was_sent() -> None:
     """Coverage is the severity sent: an escalation pages on return, a downgrade never does."""
     await assert_severity_changes_page_by_coverage(InMemoryAlertStore())

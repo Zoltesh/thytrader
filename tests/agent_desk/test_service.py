@@ -830,22 +830,47 @@ async def test_a_stopped_book_without_a_fault_settles_without_a_write() -> None:
     assert after.deployment.revision == stopped.deployment.revision
 
 
-async def test_a_stopped_book_still_flattening_is_left_to_the_worker() -> None:
-    """The worker's flatten settlement clears the fault and records it; the desk waits."""
+async def test_a_flattening_book_with_a_fault_settles_and_keeps_its_flatten() -> None:
+    """The desk clears the fault itself and keeps the flatten command, never waiting on a worker."""
     store, execution, desk_id = await _desk()
     stopped = await _stopped_clean_book(
         store,
         execution,
         desk_id,
         lifecycle_command=LifecycleCommand.FLATTEN,
-        mismatch_detail=CANCEL_BEFORE_EXIT_DETAIL,
+        mismatch_detail="Live broker is unavailable.",
     )
     shown = await briefing(
         desk_id, store=store, execution=execution, market_data=execution.market_data
     )
-    assert shown.desk.open_positions == 1
+    assert shown.desk.open_positions == 0
     after = await execution.snapshot(str(stopped.deployment.id))
     assert after.deployment.lifecycle_command is LifecycleCommand.FLATTEN
+    assert after.deployment.mismatch_detail is None
+
+
+async def test_an_order_turning_unknown_between_reads_defers_a_stopped_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Order rows change without a revision bump, so the re-read checks the evidence again."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(store, execution, desk_id)
+    read = execution.snapshot
+    reads = 0
+
+    async def read_fails_between(deployment_id: str) -> DeploymentSnapshot:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            order = next(o for o in stopped.orders if o.status is OrderStatus.CANCELED)
+            await execution.store.save_order(replace(order, status=OrderStatus.UNKNOWN))
+        return await read(deployment_id)
+
+    monkeypatch.setattr(execution, "snapshot", read_fails_between)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 1
 
 
 async def test_a_write_after_the_check_defers_a_stopped_settlement(

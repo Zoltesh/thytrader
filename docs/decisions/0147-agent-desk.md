@@ -76,12 +76,14 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   intent, or venue protection attached to the entry) is flattened first: the worker cancels the
   stray order on its next cycle and a later read settles the book. A stray fill that lands
   before the cancel has its cash applied but builds no position on the closed book, so the book
-  pauses with a fault and holds settlement for reconciliation or repair. A running or paused
-  book settles through a stop bound to the revision the desk checked, so a fault or fill written
-  after that read refuses it instead of being cleared; a stopped book without a fault settles
-  with no write once a re-read confirms its revision (no write to race the worker's fenced
-  ones), and a stopped book still flattening is left to the worker's flatten settlement. A
-  refused or lost write is logged (`desk_book_stop_deferred`) and re-checked at the next read. The desk acts on that evidence, not on fault text: a fault left on
+  keeps a fault (still stopped, not paused) and holds settlement for reconciliation or repair. A
+  running or paused book settles through a stop bound to the revision the desk checked, so a
+  fault or fill written after that read refuses it instead of being cleared; a stopped book
+  without a fault settles with no write once a re-read confirms its revision and its final
+  evidence (no write to race the worker's fenced ones), and a stopped book with a fault is
+  stopped again to clear it, keeping a flatten command it carries, so it never waits on a
+  worker pass that may not run. A refused or lost write is logged (`desk_book_stop_deferred`)
+  and re-checked at the next read. The desk acts on that evidence, not on fault text: a fault left on
   a book whose evidence is final is cleared by its stop (2026-10-25: holding on fault text
   stranded books whose faults the worker never clears), while a failed venue read leaves an
   order unknown and holds the book. Those reads therefore

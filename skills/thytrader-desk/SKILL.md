@@ -38,16 +38,17 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   netting to zero, accounting complete, live cancels settled, every venue child imported): the
   API logs `desk_book_stranded_orders`, the worker cancels the order on its next cycle, and the
   book settles at a later read. If the stray order fills before the cancel, its cash is applied
-  but no position can be built on the closed book: the book is paused with a fault and holds
-  settlement until an operator reconciles or repairs it (nothing exits it automatically).
-  `desk_book_settlement_held` (info) means a flat book's evidence is not final yet: a live cancel
-  inside its settlement watermark, a venue child not imported yet, or fills that do not net to
-  zero. A resting order that could add inventory, or whose venue state is pending or unknown,
-  keeps the book open. A running or paused book settles through a stop bound to the revision the
-  desk checked; a stopped book without a fault settles with no write once a re-read shows the
-  same revision; a stopped book still flattening is left to the worker, whose flatten settlement
-  clears its fault. `desk_book_stop_deferred` means the book changed or the write lost a race,
-  and the next read re-checks it. The desk acts on that evidence, not on fault text: a fault left
+  but no position can be built on the closed book: the book keeps a fault (it stays stopped, it
+  is not paused, so it cannot be resumed) and holds settlement until an operator reconciles or
+  repairs it (nothing exits it automatically). `desk_book_settlement_held` (info) means a flat
+  book's evidence is not final yet: a live cancel inside its settlement watermark, a venue child
+  not imported yet, fill economics not applied, inventory the position does not show, or fills
+  that do not net to zero. A resting order that could add inventory, or whose venue state is
+  pending or unknown, keeps the book open. A running or paused book settles through a stop bound
+  to the revision the desk checked; a stopped book without a fault settles with no write once a
+  re-read shows the same revision and the same final evidence; a stopped book with a fault is
+  stopped again to clear it, keeping a flatten command it carries. `desk_book_stop_deferred`
+  means the book changed or the write lost a race, and the next read re-checks it. The desk acts on that evidence, not on fault text: a fault left
   on a book whose evidence is final (for example an old read failure or data-gap pause) is
   cleared by that stop, so it never locks pool cash; a failed venue read leaves the order unknown
   and holds the book. `desk_book_read_deferred` means a book could not be read: its settlement
