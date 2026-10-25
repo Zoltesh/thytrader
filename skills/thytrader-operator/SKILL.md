@@ -601,8 +601,10 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   passed to the Compose services; default 300; 0 sends at once; recreate the stack to apply).
   A one-poll venue read blip that clears inside the grace is never
   paged. A block that clears and returns within the grace continues the same episode: the
-  episode is paged once when it has lasted the grace, and its later returns are recorded
-  `skipped` ("continues the entry-block episode already sent as alert ..."). While waiting
+  episode is paged once when it has lasted the grace, and its later returns are not paged
+  again; one still open when the delivery task runs is recorded `skipped` ("continues an
+  entry-block episode already sent (see alert ...)"). A return at a higher severity than the
+  page (warning, then critical) is paged. While waiting
   out the grace the row shows `delivery.status` `pending`. With notifications off it is
   `skipped` at once. Exits continue during any entry block; other alerts are never delayed.
 

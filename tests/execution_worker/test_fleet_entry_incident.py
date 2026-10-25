@@ -106,7 +106,7 @@ async def _supervise(
         store=store,
         market_data=MarketDataService(DemoMarketData()),
         policy=incident_policy(),
-        observed_at=at,
+        clock=lambda: at,
     )
 
 

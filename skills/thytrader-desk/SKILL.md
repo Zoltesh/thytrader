@@ -35,10 +35,14 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   briefing, wake or score (settlement).
   A closed book that still rests a stray exit order (for example a take-profit left after its
   stop filled) is flattened by the desk itself once its evidence is final (fills applied, live
-  cancels settled, no fault): the API logs `desk_book_stranded_orders`, the worker re-reads the
-  venue on its next cycle and cancels the order (it would exit any inventory it found), and the
-  book settles at a later read. A resting order that could add inventory keeps the book open.
-  `desk_book_stop_deferred` means the stop lost a write race; the next read retries it.
+  cancels settled, no live fault; a fault that only described the closed position's protection
+  is stale and cleared): the API logs `desk_book_stranded_orders`, the worker cancels the order
+  on its next cycle (a live book reconciles its orders first, and inventory a late fill opened
+  is exited at market), and the book settles at a later read. A resting order that could add
+  inventory, or whose venue state is pending or unknown, keeps the book open. The stop applies
+  only to the revision the desk checked: `desk_book_stop_deferred` means the book changed or
+  the write lost a race, and the next read re-checks it; `desk_book_read_deferred` means a
+  book could not be read, and its siblings still settle.
 - **Fees** are the account's Coinbase maker/taker rates, read from the account at each order (the
   same source as paper starts, ADR 0122). With no readable account the open is refused; nothing is
   assumed.

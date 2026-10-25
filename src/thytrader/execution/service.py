@@ -392,6 +392,7 @@ async def set_deployment_status(
     flatten: bool = False,
     require_convergence_warmup: bool = False,
     warnings: list[str] | None = None,
+    expected_revision: int | None = None,
 ) -> DeploymentSnapshot:
     """Pause, resume, or stop one existing deployment.
 
@@ -399,9 +400,12 @@ async def set_deployment_status(
     exposure remains in account-level risk. Pass ``flatten=True`` to marketably
     exit and then cancel remainders. Resuming a strategy book whose snapshot predates the
     convergence warmup policy (ADR 0140) appends a warning to ``warnings``; with the opt-in
-    ``require_convergence_warmup`` safeguard it is refused instead (ADR 0142).
+    ``require_convergence_warmup`` safeguard it is refused instead (ADR 0142). A caller that
+    decided from an earlier read passes ``expected_revision``; any newer write refuses.
     """
     snapshot = await store.get_deployment(deployment_id)
+    if expected_revision is not None and snapshot.deployment.revision != expected_revision:
+        raise ExecutionConflictError("The deployment changed since it was read.")
     current = snapshot.deployment.status
     if current is DeploymentStatus.STOPPED and status is not DeploymentStatus.STOPPED:
         raise ExecutionConflictError("A stopped deployment cannot be resumed.")

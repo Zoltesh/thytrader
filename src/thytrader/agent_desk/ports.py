@@ -43,8 +43,10 @@ class DeskExecution(Protocol):
         """The book an order placed under ``idempotency_key`` belongs to, if one was placed."""
         ...
 
-    async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
-        """Stop one book, flattening it when asked."""
+    async def stop_book(
+        self, deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
+        """Stop one book, flattening it when asked; refuse if it changed since that revision."""
         ...
 
     async def fee_rates(self) -> tuple[Decimal, Decimal] | None:

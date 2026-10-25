@@ -125,6 +125,22 @@ class PostgresAlertStore:
         )
         return tuple(_parse(row) for row in await self._fetch_all(statement))
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        statement = (
+            select(operator_alerts)
+            .where(
+                operator_alerts.c.code == code,
+                operator_alerts.c.subject == subject,
+                operator_alerts.c.resolved_at.is_not(None),
+            )
+            .order_by(operator_alerts.c.resolved_at.desc(), operator_alerts.c.last_seen_at.desc())
+            .limit(limit)
+        )
+        return tuple(_parse(row) for row in await self._fetch_all(statement))
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -213,12 +229,11 @@ class PostgresAlertStore:
     async def finish_delivery(
         self, alert_id: UUID, token: UUID, *, status: str, detail: str
     ) -> None:
-        """Only a current open claim can acknowledge, never a delayed stale callback."""
+        """Only the current claim can acknowledge, even after its alert resolved."""
         statement = (
             update(operator_alerts)
             .where(
                 operator_alerts.c.id == alert_id,
-                operator_alerts.c.resolved_at.is_(None),
                 operator_alerts.c.delivery_token == token,
             )
             .values(

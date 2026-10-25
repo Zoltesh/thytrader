@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -409,15 +410,30 @@ async def test_a_flapping_entry_block_is_paged_once_for_its_episode() -> None:
     await assert_flapping_block_pages_once(InMemoryAlertStore())
 
 
-async def assert_flapping_block_pages_once(store: AlertStore) -> None:
+@pytest.mark.parametrize(("crowd", "minutes"), [(250, 60), (0, 900)])
+async def test_a_flapping_entry_block_is_paged_once_however_crowded_or_long(
+    crowd: int, minutes: int
+) -> None:
+    """Other open alerts, or a flap lasting many hours, never lose or repeat the episode page."""
+    await assert_flapping_block_pages_once(InMemoryAlertStore(), crowd=crowd, minutes=minutes)
+
+
+async def assert_flapping_block_pages_once(
+    store: AlertStore, *, crowd: int = 0, minutes: int = 60
+) -> None:
     """A block that keeps returning within the grace is one episode, paged once."""
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = AlertService(
         store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
     )
+    others = tuple(
+        replace(_finding(), subject=f"crowd-{index}", severity=AlertSeverity.WARNING)
+        for index in range(crowd)
+    )
+    await service.apply(others, now=_NOW - timedelta(minutes=1))
     block = _entry_block()
     check = AlertCheck(block.code, block.subject)
-    for minute in range(60):
+    for minute in range(minutes):
         now = _NOW + timedelta(minutes=minute)
         if minute % 4 == 3:
             await service.apply((), now=now, evaluated=(check,))
@@ -426,9 +442,50 @@ async def assert_flapping_block_pages_once(store: AlertStore) -> None:
     assert [record.title for record in sender.delivered] == [
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
     ]
-    rows = await store.list_alerts(limit=50)
-    assert len(rows) == 15
+    rows = await store.list_resolved(block.code.value, block.subject, limit=minutes)
+    assert len(rows) == minutes // 4
     assert {row.delivery_status for row in rows} == {"delivered", "skipped", "pending"}
+
+
+async def test_an_entry_block_escalated_past_its_page_is_paged_again() -> None:
+    """A warning page does not cover the same block returning as critical."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    warning = replace(_entry_block(), severity=AlertSeverity.WARNING)
+    check = AlertCheck(warning.code, warning.subject)
+    for minute in range(7):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    await service.apply((), now=_NOW + timedelta(minutes=7), evaluated=(check,))
+    await service.apply((_entry_block(),), now=_NOW + timedelta(minutes=8))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
+    ]
+
+
+async def test_a_send_acknowledged_after_recovery_still_covers_its_episode() -> None:
+    """A return waits for an in-flight page; once acknowledged, that page covers it."""
+    store = InMemoryAlertStore()
+    sender = _BlockingSender()
+    service = _service(store, sender)
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    await service.apply((block,), now=_NOW, dispatch=False)
+    sending = asyncio.create_task(service.dispatch_pending(now=_NOW + timedelta(seconds=300)))
+    await sender.started.wait()
+    await service.apply((), now=_NOW + timedelta(seconds=301), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=302))
+    assert len(sender.delivered) == 1
+    sender.release.set()
+    await sending
+    await service.dispatch_pending(now=_NOW + timedelta(seconds=303))
+    assert len(sender.delivered) == 1
+    paged = (await store.list_resolved(block.code.value, block.subject, limit=1))[0]
+    assert paged.delivery_status == "logged"
+    returned = (await store.list_open_alerts())[0]
+    assert returned.delivery_status == "skipped"
+    assert returned.delivery_detail.startswith("continues an entry-block episode")
 
 
 async def test_an_entry_block_with_delivery_off_records_skipped_at_once() -> None:

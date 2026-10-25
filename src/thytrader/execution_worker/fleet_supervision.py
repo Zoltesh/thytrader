@@ -15,8 +15,10 @@ from thytrader.alerts.supervision_fleet import fleet_entry_evidence
 from thytrader.execution.fleet_entry_evidence import load_fleet_entry_health
 from thytrader.execution_worker.ports import _logger
 from thytrader.risk.futures_collateral import bound_futures_account_store
+from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from thytrader.alerts.service import AlertService
@@ -31,9 +33,13 @@ async def _supervise_fleet_entries(
     store: ExecutionStore,
     market_data: MarketDataService,
     policy: RiskPolicyDefinition,
-    observed_at: datetime,
+    clock: Callable[[], datetime] = utc_now,
 ) -> None:
-    """Raise or resolve the fleet entry block alerts; never fail the worker cycle."""
+    """Raise or resolve the fleet entry block alerts; never fail the worker cycle.
+
+    The observation is stamped once the fleet has been read, so a slow read never backdates
+    a new entry block past its notification grace.
+    """
     if alert_service is None:
         return
     try:
@@ -43,6 +49,7 @@ async def _supervise_fleet_entries(
             market_data=market_data,
             futures_account=bound_futures_account_store(),
         )
+        observed_at = clock()
         previous = await alert_service.open_alerts()
         evidence = fleet_entry_evidence(health, prior_alerts=previous)
         application = await alert_service.apply(

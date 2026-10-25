@@ -39,6 +39,7 @@ from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value, net_quantity
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
+from thytrader.execution.exit_guards import FLAT_AFTER_FAULT_DETAIL, stale_position_fault
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
@@ -352,32 +353,9 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
     for book in await store.list_books(desk.desk_id):
         if book.settled_at is not None:
             continue
-        snapshot = await execution.snapshot(book.deployment_id)
-        if (
-            _stranded(book, snapshot)
-            and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
-        ):
-            # A closed book still resting a stray exit order. The worker's flatten cancels it
-            # on its next cycle (it re-reads the venue first and exits anything it finds);
-            # a later read settles the book.
-            _logger.warning(
-                "desk_book_stranded_orders desk_id=%s deployment_id=%s",
-                desk.desk_id,
-                book.deployment_id,
-            )
-            snapshot = await _stop(execution, book, flatten=True)
-            if snapshot is None:
-                continue
-        if not _flat(snapshot) or not _evidence_final(snapshot):
+        snapshot = await _closed_book(desk, book, execution=execution)
+        if snapshot is None:
             continue
-        if snapshot.deployment.status is not DeploymentStatus.STOPPED:
-            snapshot = await _stop(execution, book, flatten=False)
-            if (
-                snapshot is None
-                or not _flat(snapshot)
-                or snapshot.deployment.status is not DeploymentStatus.STOPPED
-            ):
-                continue
         value = book_value(book, snapshot, None)
         if value is None:
             continue
@@ -614,6 +592,48 @@ def _position_view(
     )
 
 
+async def _closed_book(
+    desk: Desk, book: DeskBook, *, execution: DeskExecution
+) -> DeploymentSnapshot | None:
+    """The book stopped and flat with final evidence, ready to settle, or None for now."""
+    try:
+        snapshot = await execution.snapshot(book.deployment_id)
+    except ExecutionStoreError as error:
+        _logger.warning(
+            "desk_book_read_deferred deployment_id=%s type=%s",
+            book.deployment_id,
+            type(error).__name__,
+        )
+        return None
+    if (
+        _stranded(book, snapshot)
+        and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
+    ):
+        # A closed book still resting a stray exit order. The worker's flatten cancels it on
+        # its next cycle (a live book reconciles its orders first, and inventory a late fill
+        # opened is exited at market); a later read settles the book. The stop is bound to the
+        # revision checked here, so a newer fault or fill refuses it.
+        _logger.warning(
+            "desk_book_stranded_orders desk_id=%s deployment_id=%s",
+            desk.desk_id,
+            book.deployment_id,
+        )
+        snapshot = await _stop(execution, book, snapshot, flatten=True)
+        if snapshot is None:
+            return None
+    if not _flat(snapshot) or not _evidence_final(snapshot):
+        return None
+    if snapshot.deployment.status is not DeploymentStatus.STOPPED:
+        snapshot = await _stop(execution, book, snapshot, flatten=False)
+        if (
+            snapshot is None
+            or not _flat(snapshot)
+            or snapshot.deployment.status is not DeploymentStatus.STOPPED
+        ):
+            return None
+    return snapshot
+
+
 def _flat(snapshot: DeploymentSnapshot) -> bool:
     """No position, no working order, and a flat phase."""
     return (
@@ -625,11 +645,13 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
 
 
 async def _stop(
-    execution: DeskExecution, book: DeskBook, *, flatten: bool
+    execution: DeskExecution, book: DeskBook, checked: DeploymentSnapshot, *, flatten: bool
 ) -> DeploymentSnapshot | None:
-    """Stop one book, or None when the write lost a race; the next read retries it."""
+    """Stop the revision just checked, or None when it changed; the next read re-checks it."""
     try:
-        return await execution.stop_book(book.deployment_id, flatten=flatten)
+        return await execution.stop_book(
+            book.deployment_id, flatten=flatten, expected_revision=checked.deployment.revision
+        )
     except (ExecutionConflictError, ExecutionStoreError) as error:
         _logger.warning(
             "desk_book_stop_deferred deployment_id=%s flatten=%s type=%s",
@@ -641,16 +663,18 @@ async def _stop(
 
 
 def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
-    """A closed book (final evidence, net zero, flat, no fault) resting only stray exits.
+    """A closed book (final evidence, net zero, flat, no live fault) resting only stray exits.
 
-    Every resting order must reduce the book's side and be an exit: an exit intent, or a
-    venue-attached child of the entry. Anything that could add inventory keeps the book open.
+    Every resting order must be confirmed open, reduce the book's side and be an exit: an
+    exit intent, or a venue-attached child of the entry. Anything that could add inventory, or
+    an order whose venue state is pending or unknown, keeps the book open. A fault that only
+    described the closed position's protection is stale and does not.
     """
     if snapshot.position is not None or snapshot.positions:
         return False
     if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
         return False
-    if snapshot.deployment.mismatch_detail is not None or not snapshot.accounting_complete:
+    if not _stale_fault(snapshot.deployment.mismatch_detail) or not snapshot.accounting_complete:
         return False
     if not _evidence_final(snapshot):
         return False  # recorded fills or cancels may not tell the whole story yet
@@ -658,9 +682,16 @@ def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
     reducing = OrderSide.SELL if book.side == "long" else OrderSide.BUY
     resting = [order for order in snapshot.orders if order.status in _ACTIVE_ORDERS]
     return bool(resting) and all(
-        order.side is reducing and _exit_order(order, purposes.get(order.intent_id))
+        order.status is OrderStatus.OPEN
+        and order.side is reducing
+        and _exit_order(order, purposes.get(order.intent_id))
         for order in resting
     )
+
+
+def _stale_fault(detail: str | None) -> bool:
+    """No fault, or one that only described the now-closed position's protection or exit."""
+    return detail is None or detail == FLAT_AFTER_FAULT_DETAIL or stale_position_fault(detail)
 
 
 def _exit_order(order: Order, purpose: IntentPurpose | None) -> bool:

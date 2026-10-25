@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -46,8 +47,10 @@ _RECOVERY_DETAIL = "condition cleared; next observation confirmed recovery"
 _SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
 _TITLE_BOUND = 200
 _SENT = frozenset({"logged", "delivered"})
-# Recent rows read to join a returning entry block to its episode (open rows come first).
-_EPISODE_HISTORY = 200
+# Resolved rows of one block read to join a return to its episode; the walk stops at the
+# newest covering row, so only returns never seen by the delivery task count toward it.
+_EPISODE_HISTORY = 500
+_EPISODE_SKIP = "continues an entry-block episode already sent"
 _BODY_BOUND = 4000
 
 
@@ -204,50 +207,67 @@ class AlertService:
         grace = timedelta(seconds=self._thresholds.entry_block_grace_seconds)
         if grace <= timedelta(0):
             return True
-        history = await self._store.list_alerts(limit=_EPISODE_HISTORY)
-        started, sent = _entry_block_episode(alert, history, grace=grace)
-        if sent is not None:
+        history = await self._store.list_resolved(
+            alert.code.value, alert.subject, limit=_EPISODE_HISTORY
+        )
+        episode = _entry_block_episode(alert, history, grace=grace, now=now)
+        if episode.sending:
+            return False
+        if episode.sent is not None:
             if alert.delivery_status == "skipped":
                 return False
             await self._store.skip_delivery(
                 alert.id,
                 provider=provider.value,
                 now=now,
-                detail=f"continues the entry-block episode already sent as alert {sent.id}",
+                detail=f"{_EPISODE_SKIP} (see alert {episode.sent.id})",
             )
             return False
-        return now - started >= grace
+        return now - episode.started >= grace
+
+
+@dataclass(frozen=True, slots=True)
+class _Episode:
+    """When an entry-block episode began, its covering sent row, and any send in flight."""
+
+    started: datetime
+    sent: OperatorAlert | None = None
+    sending: bool = False
 
 
 def _entry_block_episode(
-    alert: OperatorAlert, history: Sequence[OperatorAlert], *, grace: timedelta
-) -> tuple[datetime, OperatorAlert | None]:
-    """When this block's episode began, and the episode's already-sent row, if any.
+    alert: OperatorAlert, history: Sequence[OperatorAlert], *, grace: timedelta, now: datetime
+) -> _Episode:
+    """Walk this block's resolved rows back to the first gap longer than the grace.
 
     A block that clears and returns within the grace continues the same episode, so a
     flapping block accumulates time toward a page and is paged once, not once per return.
+    A row sent (or skipped as a continuation) at this severity or higher covers the return;
+    a lower-severity page does not, so an escalation is paged. A send still in flight on an
+    earlier row holds the return until it is acknowledged or its claim expires. A history
+    longer than ``_EPISODE_HISTORY`` without a gap is treated as unsent: a duplicate page,
+    never a missed one.
     """
     started = alert.first_seen_at
-    earlier = sorted(
-        (
-            row
-            for row in history
-            if row.code is alert.code
-            and row.subject == alert.subject
-            and row.id != alert.id
-            and row.resolved_at is not None
-            and row.resolved_at <= started
-        ),
-        key=lambda row: row.resolved_at or row.first_seen_at,
-        reverse=True,
-    )
-    for row in earlier:
-        if row.resolved_at is None or started - row.resolved_at > grace:
+    rank = _SEVERITY_RANK[alert.severity.value]
+    for row in history:
+        if row.id == alert.id or row.resolved_at is None or row.resolved_at > started:
+            continue
+        if started - row.resolved_at > grace:
             break
         started = min(started, row.first_seen_at)
-        if row.delivery_status in _SENT:
-            return started, row
-    return started, None
+        if row.delivery_expires_at is not None and row.delivery_expires_at > now:
+            return _Episode(started, sending=True)
+        if _SEVERITY_RANK[row.severity.value] >= rank and _covers(row):
+            return _Episode(started, sent=row)
+    return _Episode(started)
+
+
+def _covers(row: OperatorAlert) -> bool:
+    """Whether this row was paged, or skipped because its episode already was."""
+    return row.delivery_status in _SENT or (
+        row.delivery_status == "skipped" and row.delivery_detail.startswith(_EPISODE_SKIP)
+    )
 
 
 def _notification_record(

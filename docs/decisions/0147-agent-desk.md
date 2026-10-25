@@ -70,11 +70,14 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
   partial closes are out of scope.
 - A desk book that turns flat between wakes is stopped and settled at the next briefing, wake
   or score read; until then it is a flat running discretionary book. A flat book whose
-  evidence is final (every fill applied, live cancels settled, no fault) and that still rests
-  only stray exits (orders on the reducing side under an exit intent, or venue protection
-  attached to the entry) is flattened first: the worker re-reads the venue on its next cycle,
-  cancels the stray order and exits anything it finds; a later read settles the book. A lost
-  write race on that stop is logged (`desk_book_stop_deferred`) and retried at the next read. Those reads therefore
+  evidence is final (every fill applied, live cancels settled, no fault other than a stale one
+  that only described the closed position's protection) and that still rests only stray exits
+  (confirmed-open orders on the reducing side under an exit intent, or venue protection
+  attached to the entry) is flattened first: the worker cancels the stray order on its next
+  cycle (a live book reconciles its orders first and exits at market any inventory a late fill
+  opened); a later read settles the book. The stop is bound to the revision the desk checked,
+  so a fault or fill written after that read refuses it instead of being cleared; a refused or
+  lost write is logged (`desk_book_stop_deferred`) and re-checked at the next read. Those reads therefore
   write (settlement is deterministic bookkeeping, not a decision), while trading decisions stay
   behind authenticated POSTs.
 - Pool cash and book links change together: every operation on one desk (show, briefing

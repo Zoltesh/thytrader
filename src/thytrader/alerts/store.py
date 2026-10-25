@@ -78,6 +78,12 @@ class AlertStore(Protocol):
         """Return a bounded operator feed, open first then recent resolutions."""
         ...
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        ...
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -93,7 +99,11 @@ class AlertStore(Protocol):
     async def finish_delivery(
         self, alert_id: UUID, token: UUID, *, status: str, detail: str
     ) -> None:
-        """Acknowledge only the currently owned claim, without changing evidence age."""
+        """Acknowledge only the currently owned claim, without changing evidence age.
+
+        A send that completes after its alert resolved is still acknowledged: the recipient
+        got it, and a returning entry block must see that its episode was paged.
+        """
         ...
 
     async def skip_delivery(
@@ -194,6 +204,13 @@ class InMemoryAlertStore:
         rows = [row for rows in self.history.values() for row in rows]
         return _ordered_for_report(rows)[:limit]
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        rows = [row for row in self.history.get((code, subject), ()) if not row.is_open]
+        return _ordered_for_report(rows)[:limit]
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -268,17 +285,18 @@ class InMemoryAlertStore:
     async def finish_delivery(
         self, alert_id: UUID, token: UUID, *, status: str, detail: str
     ) -> None:
-        """Ignore delayed callbacks that lost their claim or whose alert resolved."""
+        """Ignore delayed callbacks that lost their claim; a resolved row still records one."""
         for rows in self.history.values():
-            row = rows[-1]
-            if row.id == alert_id and row.is_open and row.delivery_token == token:
-                rows[-1] = replace(
-                    row,
-                    delivery_status=status,
-                    delivery_detail=clip_alert_text(detail),
-                    delivery_token=None,
-                    delivery_expires_at=None,
-                )
+            for index, row in enumerate(rows):
+                if row.id == alert_id and row.delivery_token == token:
+                    rows[index] = replace(
+                        row,
+                        delivery_status=status,
+                        delivery_detail=clip_alert_text(detail),
+                        delivery_token=None,
+                        delivery_expires_at=None,
+                    )
+                    return
 
 
 def _ordered_for_report(rows: Sequence[OperatorAlert]) -> tuple[OperatorAlert, ...]:

@@ -33,6 +33,7 @@ from thytrader.agent_desk.service import (
 )
 from thytrader.agent_desk.store import DeskStoreUnavailableError, InMemoryDeskStore
 from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.exit_guards import CANCEL_BEFORE_EXIT_DETAIL, FLAT_AFTER_FAULT_DETAIL
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import set_deployment_status
 from thytrader.market_data.demo import DemoMarketData
@@ -115,7 +116,9 @@ class _Execution:
         intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
         return None if intent is None else str(intent.deployment_id)
 
-    async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
+    async def stop_book(
+        self, deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
         """Stop one book."""
         return await set_deployment_status(
             store=self.store,
@@ -123,6 +126,7 @@ class _Execution:
             status=DeploymentStatus.STOPPED,
             publication_store=DisabledStrategySnapshotStore(),
             flatten=flatten,
+            expected_revision=expected_revision,
         )
 
     async def fee_rates(self) -> tuple[Decimal, Decimal] | None:
@@ -759,15 +763,58 @@ async def test_a_resting_order_that_could_add_inventory_is_never_flattened() -> 
 
 
 async def test_a_faulted_book_is_never_flattened_by_the_desk() -> None:
-    """A book paused on a mismatch keeps its fault for the worker to reconcile."""
+    """A book paused on a live fault keeps it for the worker to reconcile."""
     store, execution, desk_id = await _desk()
     book, _ = await _stopped_out_book(store, execution, desk_id)
     await execution.store.save_deployment(
-        replace(book.deployment, mismatch_detail="Could not cancel resting orders.")
+        replace(book.deployment, mismatch_detail="Venue order read failed.")
     )
     assert not await _flattened(store, execution, desk_id, book)
     kept = await execution.snapshot(str(book.deployment.id))
-    assert kept.deployment.mismatch_detail == "Could not cancel resting orders."
+    assert kept.deployment.mismatch_detail == "Venue order read failed."
+
+
+@pytest.mark.parametrize("fault", [CANCEL_BEFORE_EXIT_DETAIL, FLAT_AFTER_FAULT_DETAIL])
+async def test_a_stale_position_fault_never_strands_a_closed_book(fault: str) -> None:
+    """A fault that only described the closed position's protection is cleared by the flatten."""
+    store, execution, desk_id = await _desk()
+    book, _ = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_deployment(replace(book.deployment, mismatch_detail=fault))
+    assert await _flattened(store, execution, desk_id, book)
+
+
+@pytest.mark.parametrize("status", [OrderStatus.PENDING, OrderStatus.UNKNOWN])
+async def test_a_stray_order_of_unknown_venue_state_holds_the_flatten(
+    status: OrderStatus,
+) -> None:
+    """Only an exit the venue confirmed open is cancelled; an unconfirmed one may have filled."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=status))
+    assert not await _flattened(store, execution, desk_id, book)
+
+
+async def test_the_flatten_is_bound_to_the_revision_the_desk_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fault the worker writes after the desk's read refuses the stop instead of clearing."""
+    store, execution, desk_id = await _desk()
+    book, _ = await _stopped_out_book(store, execution, desk_id)
+    stop_book = execution.stop_book
+
+    async def worker_wins(
+        deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
+        current = await execution.snapshot(deployment_id)
+        await execution.store.save_deployment(
+            replace(current.deployment, mismatch_detail="Venue order read failed.")
+        )
+        return await stop_book(deployment_id, flatten=flatten, expected_revision=expected_revision)
+
+    monkeypatch.setattr(execution, "stop_book", worker_wins)
+    assert not await _flattened(store, execution, desk_id, book)
+    kept = await execution.snapshot(str(book.deployment.id))
+    assert kept.deployment.mismatch_detail == "Venue order read failed."
 
 
 async def test_a_live_cancel_before_its_watermark_holds_the_flatten() -> None:

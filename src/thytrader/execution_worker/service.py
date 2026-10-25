@@ -372,14 +372,11 @@ async def _run_cycle(
                 observed_at=utc_now(),
             )
         with timer.phase("fleet_supervision"):
-            # Stamped when the fleet is read, not at cycle start: a slow cycle must not
-            # backdate a new entry block past its notification grace.
             await _supervise_fleet_entries(
                 alert_service=alert_service,
                 store=store,
                 market_data=market_data,
                 policy=policy,
-                observed_at=utc_now(),
             )
     return _cycle_report(
         timer, deployments, book_failures=len(cycle_failures), shared_reads=reads.hits
