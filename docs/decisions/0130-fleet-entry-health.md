@@ -105,8 +105,8 @@ unnoticed.
   2026-10-26: the probe priced a contract only at an open position's venue mark, so a flat
   live futures book always read FUTURES_COLLATERAL_UNKNOWN (a standing false critical alert).
   A flat book's probe now runs every check that needs no price, including the price-independent
-  part of I8 (known balances, the quote, a declared reserve, the reserve against margin already
-  held), and leaves sizing the entry's own margin to the real entry; a candle close was rejected
+  part of I8 (known balances, buying power above zero, the quote, a declared reserve, the
+  reserve against margin already held), and leaves sizing the entry's own margin to the real entry; a candle close was rejected
   as its price, since a close up to two hours old can clear or raise a capacity block the
   current market contradicts. The futures-books report likewise prices admission only at a
   fresh venue mark, never its journal close. A scope with an admissible flat book is not blocked

@@ -132,7 +132,8 @@ def test_visibility_probe_runs_real_live_gate(change: dict[str, object], code: s
     ("change", "codes"),
     [
         ({}, set()),
-        ({"buying_power_usd": Decimal(0)}, set()),
+        ({"buying_power_usd": Decimal(0)}, {"FUTURES_BUYING_POWER_SHORT"}),
+        ({"buying_power_usd": Decimal("0.01")}, set()),
         ({"killswitch_enabled": True}, {"FUTURES_VENUE_KILLSWITCH"}),
         ({"external_order_products": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
         ({"buying_power_usd": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
@@ -183,6 +184,24 @@ def test_a_flat_probe_still_denies_a_policy_that_cannot_cover_any_entry(
         policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
     )
     assert {verdict.reason_code.value for verdict in verdicts} == {code}
+
+
+def test_an_inexact_held_margin_never_falsely_blocks_a_flat_probe() -> None:
+    """Held margin x haircut that is not exactly representable proves nothing; entry decides."""
+    book, policy, venue = _probe_inputs()
+    assert policy.futures is not None
+    policy = policy.model_copy(
+        update={
+            "futures": policy.futures.model_copy(
+                update={"peg_haircut": "1.123456789012345678901234567"}
+            )
+        }
+    )
+    venue = replace(venue, initial_margin_usd=Decimal(9), buying_power_usd=Decimal(1000))
+    verdicts = live_probe_verdicts(
+        policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
+    )
+    assert verdicts == ()
 
 
 @pytest.mark.anyio

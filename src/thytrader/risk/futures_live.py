@@ -704,6 +704,12 @@ def _unpriced_capacity_verdict(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
             "CFM buying power or initial margin is unknown; entries are denied.",
         )
+    if buying_power <= 0:
+        # Every admissible entry has a positive initial margin, so none fits.
+        return _deny(
+            RiskReasonCode.FUTURES_BUYING_POWER_SHORT,
+            f"Futures buying power {buying_power} USD covers no entry's initial margin.",
+        )
     if policy.quote_currency not in {"USD", "USDC"}:
         return _deny(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
@@ -724,8 +730,8 @@ def _unpriced_capacity_verdict(
             context.traps[Inexact] = True
             held = current * haircut
     except DecimalException:
-        held = None
-    if held is None or not held.is_finite() or Decimal(reserve) <= held:
+        return None  # not exactly representable here; the real entry decides exactly
+    if held.is_finite() and Decimal(reserve) <= held:
         return _deny(
             RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
             f"Declared reserve {reserve} {policy.quote_currency} does not exceed the margin "

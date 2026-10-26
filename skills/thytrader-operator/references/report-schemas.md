@@ -101,9 +101,9 @@ probe is priced only at a fresh venue mark of an open position (here and in the 
 check; the journal close shown as `mark_price` is never an admission price). A flat book has
 no position and so no mark: its probe runs every check that needs no price (funding overdue,
 opt-in, binding, occupancy, venue evidence, drift, external orders, contracts, venue state,
-known balances, the quote, a declared reserve, and the reserve against the margin already
-held) and leaves only the entry's own margin (buying power and the projected reserve) to the
-real entry, which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh
+known balances, buying power above zero, the quote, a declared reserve, and the reserve
+against the margin already held) and leaves only comparing a positive buying power and the
+projected reserve against the entry's own margin to the real entry, which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh
 positive mark is required" therefore means a book holding inventory (a position, or fills not
 yet projected or settled) has no fresh venue mark.
 
