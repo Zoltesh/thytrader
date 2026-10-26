@@ -11,6 +11,7 @@ from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_account_report import _Store
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
+from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.audit_events import (
@@ -24,9 +25,11 @@ from thytrader.execution.futures_live import (
     FuturesLiveAccount,
     FuturesLiveRuntime,
     live_futures_runtime_scope,
+    prepare_live_futures_book,
 )
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker import futures_supervision, service
+from thytrader.market_data.cycle_reads import CycleReads, cycle_reads_scope
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
 from thytrader.risk.futures_collateral import risk_futures_account_scope
@@ -228,7 +231,7 @@ async def test_stale_evidence_on_a_flat_book_still_pages_at_once() -> None:
     store = await _flat_live_store(created_at=_AT - timedelta(days=1))
     alerts = InMemoryAlertStore()
     venue = FakeVenue()
-    venue.now, venue.threshold = _AT - timedelta(minutes=4), Decimal(0)
+    venue.now, venue.threshold = _AT - timedelta(seconds=181), Decimal(0)
     with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
         await futures_supervision.supervise_futures(
             alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: _AT
@@ -264,6 +267,77 @@ async def test_a_slow_pass_never_resolves_a_newer_failure() -> None:
         await futures_supervision.supervise_futures(
             alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: venue.now
         )
+    assert not [
+        row
+        for row in await alerts.list_open_alerts()
+        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
+    ]
+
+
+async def test_a_receipt_later_than_the_judged_time_still_pages() -> None:
+    """A receipt dated after the post-read evaluation time is future-dated and pages at once."""
+    store = await _flat_live_store(created_at=_AT - timedelta(days=1))
+    alerts = InMemoryAlertStore()
+    venue = FakeVenue()
+    venue.now, venue.threshold = _AT + timedelta(minutes=10), Decimal(0)
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: _AT
+        )
+    assert any(
+        row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for row in await alerts.list_open_alerts()
+    )
+
+
+async def test_observer_reuses_the_book_loop_read_and_judges_it_after_the_pass() -> None:
+    """The cycle's shared receipt is reused, not re-read, and is fresh at the later time."""
+    store = await _flat_live_store(created_at=_AT - timedelta(days=1))
+    (deployment,) = await store.list_deployments()
+    alerts = InMemoryAlertStore()
+    venue = FakeVenue()
+    venue.now, venue.threshold = _AT - timedelta(seconds=20), Decimal(0)
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)), cycle_reads_scope(CycleReads()):
+        book = await store.get_accounting_snapshot(deployment.id)
+        await prepare_live_futures_book(book, portfolio=(book,))
+        venue.now = _AT
+        await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: venue.now
+        )
+    assert venue.account_reads == 1
+    assert not [
+        row
+        for row in await alerts.list_open_alerts()
+        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
+    ]
+
+
+async def test_cycle_clock_reaches_the_observer_of_a_book_started_mid_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Through the real cycle: no book-loop read, a patched worker clock, no false page."""
+
+    async def noop(**kwargs: object) -> None:
+        """The book started after the cycle listed its books, so the loop never read it."""
+        del kwargs
+
+    monkeypatch.setattr(service, "_process_one", noop)
+    store = await _flat_live_store(created_at=_AT - timedelta(seconds=30))
+    venue = _SlowVenue()
+    venue.now, venue.threshold = _AT, Decimal(0)
+    patch_worker_global(monkeypatch, "utc_now", lambda: venue.now)
+    alerts = InMemoryAlertStore()
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        await service._run_cycle(
+            store=store,
+            publication_store=InMemoryStrategyStore(),
+            market_data=MarketDataService(DemoMarketData()),
+            paper_broker=PaperBroker(),
+            live_broker=None,
+            quote_reader=None,
+            risk_store=None,
+            alert_service=_service(alerts),
+        )
+    assert venue.account_reads >= 1
     assert not [
         row
         for row in await alerts.list_open_alerts()

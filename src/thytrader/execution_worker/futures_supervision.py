@@ -35,7 +35,7 @@ async def supervise_futures(
     alert_service: AlertService | None,
     store: ExecutionStore,
     policy: RiskPolicyDefinition,
-    clock: Callable[[], datetime] = utc_now,
+    clock: Callable[[], datetime] | None = None,
 ) -> Literal["observed", "failed", "disabled"]:
     """Report failure distinctly and never apply all-clear after an incomplete read.
 
@@ -46,11 +46,13 @@ async def supervise_futures(
     resolves a newer failure. Freshness is judged at a time taken after the account read:
     a book started mid-cycle has no shared read yet, so this observer reads the venue
     itself, and a time taken before that read would make the fresh receipt look
-    future-dated.
+    future-dated. Without ``clock`` the module's ``utc_now`` is read at call time, so a
+    patched worker clock reaches this observer.
     """
     if alert_service is None:
         return "disabled"
-    observed_at = clock()
+    now = clock or utc_now
+    observed_at = now()
     try:
         audit = bound_execution_audit_store()
         if audit is not None:
@@ -71,7 +73,7 @@ async def supervise_futures(
         books = tuple(book for book in snapshots if visibility_scope(book) is not False)
         account, failed = await _account(books, snapshots)
         evidence = futures_safety_evidence(
-            snapshots, account=account, policy=policy, now=clock(), observation_failed=failed
+            snapshots, account=account, policy=policy, now=now(), observation_failed=failed
         )
         await alert_service.apply(
             evidence.findings,
