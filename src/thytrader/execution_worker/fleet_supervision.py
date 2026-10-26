@@ -33,18 +33,19 @@ async def _supervise_fleet_entries(
     store: ExecutionStore,
     market_data: MarketDataService,
     policy: RiskPolicyDefinition,
-    clock: Callable[[], datetime] = utc_now,
+    clock: Callable[[], datetime] | None = None,
 ) -> None:
     """Raise or resolve the fleet entry block alerts; never fail the worker cycle.
 
     The observation is stamped as the fleet read begins (ADR 0115: a timestamp marks the start
     of its evidence pass), not at cycle start, so the per-book work before it never backdates a
-    new entry block past its notification grace.
+    new entry block past its notification grace. Without ``clock`` the module's ``utc_now`` is
+    read at call time, so a patched worker clock reaches this pass.
     """
     if alert_service is None:
         return
     try:
-        observed_at = clock()
+        observed_at = (utc_now if clock is None else clock)()
         health = await load_fleet_entry_health(
             store,
             policy,

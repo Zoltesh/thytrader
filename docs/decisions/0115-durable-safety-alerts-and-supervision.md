@@ -26,7 +26,12 @@ complete deployment inventory can prove intentional removal; alert history survi
 Each check has a persistent observation watermark (`operator_alert_checks`). Recording
 findings and explicit clears is one transaction. Older/replayed observations cannot clear
 newer failures or reopen after a newer recovery; a failure wins an equal-timestamp tie.
-Timestamps identify the beginning of the evidence pass, not its late completion.
+Timestamps identify the beginning of the evidence pass, not its late completion. Evidence
+freshness is judged separately, at a time taken after the venue reads its evidence came from,
+so a receipt read during the pass is never mistaken for future-dated. The futures observer
+judges after its own account read; the safety supervisor judges after the cycle's reads but
+before its own closed-candle reads, which carry no receipt freshness; the live CFM fleet pass
+still judges at its start, a known gap.
 
 Alert codes:
 

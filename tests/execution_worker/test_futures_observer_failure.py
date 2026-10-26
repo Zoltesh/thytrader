@@ -36,7 +36,10 @@ async def test_observer_requires_full_accounting_inventory(monkeypatch: pytest.M
     read = AsyncMock(wraps=store.get_accounting_snapshot)
     monkeypatch.setattr(store, "get_accounting_snapshot", read)
     await supervise_futures(
-        alert_service=_service(InMemoryAlertStore()), store=store, policy=_policy(), observed_at=_AT
+        alert_service=_service(InMemoryAlertStore()),
+        store=store,
+        policy=_policy(),
+        clock=lambda: _AT,
     )
     read.assert_awaited_once_with(book.deployment.id)
 
@@ -59,7 +62,7 @@ async def test_partial_stopped_read_keeps_observer_health_unknown(
     monkeypatch.setattr(store, "get_accounting_snapshot", AsyncMock(return_value=book))
     alerts = InMemoryAlertStore()
     result = await supervise_futures(
-        alert_service=_service(alerts), store=store, policy=_policy(), observed_at=_AT
+        alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: _AT
     )
     assert result == "failed"
     assert any(a.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for a in await alerts.list_open_alerts())
@@ -90,7 +93,7 @@ async def stopped_failure_scenario(store: ExecutionStore, alerts: AlertStore, du
     await store.create_deployment(deployment)
     with risk_futures_account_scope(_Store(None, fail=True)):
         outcome = await supervise_futures(
-            alert_service=_service(alerts), store=store, policy=_policy(), observed_at=_AT
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: _AT
         )
     if duty == "none":
         assert outcome == "observed"
@@ -104,7 +107,7 @@ async def stopped_failure_scenario(store: ExecutionStore, alerts: AlertStore, du
             alert_service=_service(alerts),
             store=store,
             policy=_policy(),
-            observed_at=_AT + timedelta(seconds=1),
+            clock=lambda: _AT + timedelta(seconds=1),
         )
     assert any(a.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for a in await alerts.list_open_alerts())
     venue = FakeVenue()
@@ -112,7 +115,10 @@ async def stopped_failure_scenario(store: ExecutionStore, alerts: AlertStore, du
         venue.now = _AT + timedelta(seconds=seconds)
         with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
             await supervise_futures(
-                alert_service=_service(alerts), store=store, policy=_policy(), observed_at=venue.now
+                alert_service=_service(alerts),
+                store=store,
+                policy=_policy(),
+                clock=lambda: venue.now,
             )
         unknown = any(
             a.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for a in await alerts.list_open_alerts()
