@@ -365,12 +365,7 @@ async def _run_cycle(
                 worker_interval_seconds=worker_interval_seconds,
                 observed_at=cycle_started_at,
             )
-            await supervise_futures(
-                alert_service=alert_service,
-                store=store,
-                policy=policy,
-                observed_at=utc_now(),
-            )
+            await supervise_futures(alert_service=alert_service, store=store, policy=policy)
         with timer.phase("fleet_supervision"):
             await _supervise_fleet_entries(
                 alert_service=alert_service,

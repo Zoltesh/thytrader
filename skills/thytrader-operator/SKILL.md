@@ -671,7 +671,9 @@ of a successful observation or permission to trade.
   managed live inventory (including stopped books with durable duties) has unknown/stale
   CFM margin evidence. An explicit read failure is immediate; never-observed evidence has
   a 180-second grace from the durable obligation/creation lower bound. Existing receipt
-  age never resets on a local write. Recovery needs fresh finite margin and the shared
+  age never resets on a local write. Receipt age is judged at a time taken after the
+  observer's own account read, so a book started mid-cycle (whose first read the observer
+  makes itself) is not paged as future-dated. Recovery needs fresh finite margin and the shared
   strict ownership/position proof, or authoritative removal of the managed scope.
   Unknown evidence never resolves an existing alert; historical flat stopped books without
   duties do not cause extra CFM reads.

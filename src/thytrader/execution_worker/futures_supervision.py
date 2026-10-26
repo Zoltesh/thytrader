@@ -16,9 +16,11 @@ from thytrader.execution.futures_visibility import mirror_live_account, visibili
 from thytrader.execution_worker.ports import _logger
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_collateral import bound_futures_account_store
+from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from datetime import datetime
 
     from thytrader.alerts.service import AlertService
@@ -33,16 +35,20 @@ async def supervise_futures(
     alert_service: AlertService | None,
     store: ExecutionStore,
     policy: RiskPolicyDefinition,
-    observed_at: datetime,
+    clock: Callable[[], datetime] = utc_now,
 ) -> Literal["observed", "failed", "disabled"]:
     """Report failure distinctly and never apply all-clear after an incomplete read.
 
     Spot-only inventories perform no CFM read. A composed live source reuses the cycle's
     shared account read; without one, the existing durable mirror is used.
     No broker is constructed, no order is sent, and no book or policy is modified here.
+    Freshness is judged at a time taken after the account read: a book started mid-cycle
+    has no shared read yet, so this observer reads the venue itself, and a time taken
+    before that read would make the fresh receipt look future-dated.
     """
     if alert_service is None:
         return "disabled"
+    observed_at = clock()
     try:
         audit = bound_execution_audit_store()
         if audit is not None:
@@ -62,6 +68,7 @@ async def supervise_futures(
         )
         books = tuple(book for book in snapshots if visibility_scope(book) is not False)
         account, failed = await _account(books, snapshots)
+        observed_at = clock()
         evidence = futures_safety_evidence(
             snapshots, account=account, policy=policy, now=observed_at, observation_failed=failed
         )
