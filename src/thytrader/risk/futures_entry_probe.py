@@ -13,6 +13,7 @@ from thytrader.risk.futures_live import (
 )
 from thytrader.risk.gate_common import ProposedEntry, _deny
 from thytrader.risk.models import RiskReasonCode
+from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -46,8 +47,9 @@ def live_probe_verdicts(
     This is an advisory one-contract probe, not a strategy signal or a guarantee of a
     future order. Missing evidence denies; protective exits never consume this helper.
     The probe is priced at an open position's venue mark. A flat book has no position and so
-    no mark: its probe runs every price-independent check and leaves the margin capacity to
-    the real entry, which is sized at its own price. A book holding a position without a
+    no mark: its probe runs every check that needs no price, including the price-independent
+    part of the margin check, and leaves sizing the entry's own margin to the real entry. A
+    book holding inventory (a position, or fills not yet projected or settled) without a
     fresh mark is unknown evidence and denies.
     """
     opt_in = live_futures_opt_in_verdict(policy, book.deployment.product_id)
@@ -66,7 +68,7 @@ def live_probe_verdicts(
     margin = probe.state.margin
     price = probe.price
     priced = price is not None and price.is_finite() and price > 0
-    if not priced and (book.position is not None or book.positions):
+    if not priced and _holds_inventory(book):
         return (
             _deny(
                 RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
@@ -151,3 +153,13 @@ def _standing_verdicts(
             return ()
         results.append(verdict)
     return tuple(results)
+
+
+def _holds_inventory(book: DeploymentSnapshot) -> bool:
+    """A position, or fills whose inventory is not projected or settled yet."""
+    return (
+        book.position is not None
+        or bool(book.positions)
+        or bool(unprojected_inventory_products(book))
+        or unsettled_fill_evidence(book)
+    )

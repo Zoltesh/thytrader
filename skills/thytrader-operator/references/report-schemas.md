@@ -97,12 +97,15 @@ covers current margin; the P2-3 probe additionally checks proposed margin. Book 
 live allocation plus ledger equity, not the account total. Comparison does not clear duties.
 `entry_blocks` carries actual gate reasons for minimum one-contract probes in both directions;
 an empty list is not a live-start capability or approval of a particular strategy order. A
-probe is priced at an open position's venue mark. A flat book has no position and so no mark:
-its probe runs every price-independent check (opt-in, binding, occupancy, venue evidence,
-drift, external orders, contracts, venue state) and leaves margin capacity to the real entry,
-which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh positive mark is
-required" therefore means a book holding a position has no fresh mark. The fleet-health check
-uses the same probe.
+probe is priced only at a fresh venue mark of an open position (here and in the fleet-health
+check; the journal close shown as `mark_price` is never an admission price). A flat book has
+no position and so no mark: its probe runs every check that needs no price (funding overdue,
+opt-in, binding, occupancy, venue evidence, drift, external orders, contracts, venue state,
+known balances, the quote, a declared reserve, and the reserve against the margin already
+held) and leaves only the entry's own margin (buying power and the projected reserve) to the
+real entry, which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh
+positive mark is required" therefore means a book holding inventory (a position, or fills not
+yet projected or settled) has no fresh venue mark.
 
 Reconciliation futures rows carry `classification`, `deployment_id`, `book_contracts` and
 `comparison_reason`. `managed_mismatch` adds critical `FUTURES_MANAGED_POSITION_MISMATCH`.

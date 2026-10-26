@@ -135,6 +135,9 @@ def test_visibility_probe_runs_real_live_gate(change: dict[str, object], code: s
         ({"buying_power_usd": Decimal(0)}, set()),
         ({"killswitch_enabled": True}, {"FUTURES_VENUE_KILLSWITCH"}),
         ({"external_order_products": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
+        ({"buying_power_usd": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
+        ({"initial_margin_usd": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
+        ({"initial_margin_usd": Decimal(5000)}, {"FUTURES_COLLATERAL_RESERVE_SHORT"}),
     ],
 )
 def test_a_flat_book_without_a_mark_runs_every_check_but_capacity(
@@ -151,6 +154,57 @@ def test_a_flat_book_without_a_mark_runs_every_check_but_capacity(
         policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
     )
     assert {verdict.reason_code.value for verdict in verdicts} == codes
+
+
+@pytest.mark.parametrize(
+    ("update", "code"),
+    [
+        ({"quote_currency": "EUR"}, "FUTURES_COLLATERAL_UNKNOWN"),
+        ({"reserve": None}, "FUTURES_COLLATERAL_RESERVE_SHORT"),
+    ],
+)
+def test_a_flat_probe_still_denies_a_policy_that_cannot_cover_any_entry(
+    update: dict[str, object], code: str
+) -> None:
+    """The quote and the declared reserve need no price: a flat probe still checks them."""
+    book, policy, venue = _probe_inputs()
+    if "reserve" in update:
+        assert policy.futures is not None
+        policy = policy.model_copy(
+            update={
+                "futures": policy.futures.model_copy(
+                    update={"live_spot_collateral_reserve_quote": update["reserve"]}
+                )
+            }
+        )
+    else:
+        policy = policy.model_copy(update=update)
+    verdicts = live_probe_verdicts(
+        policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
+    )
+    assert {verdict.reason_code.value for verdict in verdicts} == {code}
+
+
+@pytest.mark.anyio
+async def test_inventory_not_yet_projected_is_held_without_a_mark() -> None:
+    """Applied fills with no position row are inventory, not a flat book."""
+    _, policy, venue = _probe_inputs()
+    filled = await _filled_book(InMemoryExecutionStore())
+    unprojected = replace(
+        filled,
+        position=None,
+        positions=(),
+        deployment=replace(filled.deployment, mode=DeploymentMode.LIVE),
+    )
+    verdicts = live_probe_verdicts(
+        policy,
+        book=unprojected,
+        probe=_probe(unprojected, None),
+        snapshots=(unprojected,),
+        venue=venue,
+        now=_AT,
+    )
+    assert {verdict.reason_code.value for verdict in verdicts} == {"FUTURES_COLLATERAL_UNKNOWN"}
 
 
 @pytest.mark.anyio

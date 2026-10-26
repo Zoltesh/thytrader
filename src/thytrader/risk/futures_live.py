@@ -262,7 +262,7 @@ def live_futures_standing_verdict(
     venue: FuturesVenueEvidence | None,
     as_of: datetime | None,
 ) -> RiskVerdict | None:
-    """Every live entry check except the price-dependent margin capacity (I2-I5, I8, I11).
+    """Every live entry check, with I8 limited to its price-independent part (I2-I5, I8, I11).
 
     For an advisory probe with no price to size against: ``proposed.notional`` is not read.
     """
@@ -273,14 +273,17 @@ def live_futures_standing_verdict(
             "The live futures book's contract binding or margin terms are not loaded.",
         )
     return _first(
-        _standing_checks(
-            policy,
-            proposed=proposed,
-            book=book,
-            binding=binding,
-            snapshots=snapshots,
-            venue=venue,
-            as_of=as_of,
+        (
+            *_standing_checks(
+                policy,
+                proposed=proposed,
+                book=book,
+                binding=binding,
+                snapshots=snapshots,
+                venue=venue,
+                as_of=as_of,
+            ),
+            lambda: _unpriced_capacity_verdict(policy, venue),
         )
     )
 
@@ -679,6 +682,54 @@ def _margin_capacity_verdict(
             f"Declared reserve {reserve} {policy.quote_currency} is below projected initial "
             f"margin ({current} + {initial}) USD x haircut {haircut} = {required} USD "
             "(threshold under a declared peg; the currencies are not added).",
+        )
+    return None
+
+
+def _unpriced_capacity_verdict(
+    policy: RiskPolicyDefinition, venue: FuturesVenueEvidence | None
+) -> RiskVerdict | None:
+    """The part of I8 that needs no entry price, in the priced order.
+
+    For an advisory probe of a flat book with no mark: known balances, the quote, a declared
+    reserve, and the reserve against the margin already held. Only the comparisons that need
+    the entry's own margin are left to the real entry.
+    """
+    if venue is None:
+        return None
+    buying_power = venue.buying_power_usd
+    current = venue.initial_margin_usd
+    if buying_power is None or current is None:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "CFM buying power or initial margin is unknown; entries are denied.",
+        )
+    if policy.quote_currency not in {"USD", "USDC"}:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "Live futures require a declared USD/USDC collateral reserve; "
+            "other policy quotes cannot cover CFM USD margin.",
+        )
+    futures = policy.futures
+    reserve = None if futures is None else futures.live_spot_collateral_reserve_quote
+    if futures is None or reserve is None:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            "Declare futures.live_spot_collateral_reserve_quote: live futures margin shares "
+            "the USDC pool, and the reserve must cover it.",
+        )
+    haircut = Decimal(futures.peg_haircut)
+    try:
+        with localcontext() as context:
+            context.traps[Inexact] = True
+            held = current * haircut
+    except DecimalException:
+        held = None
+    if held is None or not held.is_finite() or Decimal(reserve) <= held:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            f"Declared reserve {reserve} {policy.quote_currency} does not exceed the margin "
+            f"already held ({current} USD x haircut {haircut}); no entry can be covered.",
         )
     return None
 
