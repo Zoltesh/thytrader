@@ -131,28 +131,22 @@ def _standing_verdicts(
     venue: FuturesVenueEvidence | None,
     now: datetime,
 ) -> tuple[RiskVerdict, ...]:
-    """A flat book's probe without a price: every check except the margin capacity."""
-    results: list[RiskVerdict] = []
-    for side in ("long", "short"):
-        verdict = live_futures_standing_verdict(
-            policy,
-            proposed=ProposedEntry(
-                product_id=book.deployment.product_id,
-                strategy_id=book.deployment.strategy_id,
-                quantity=contract_size,
-                notional=Decimal(0),
-                side=side,
-            ),
-            book=book,
-            state=probe.state,
-            snapshots=snapshots,
-            venue=venue,
-            as_of=now,
-        )
-        if verdict is None:
-            return ()
-        results.append(verdict)
-    return tuple(results)
+    """A flat book's probe without a price; no check it runs depends on the side."""
+    verdict = live_futures_standing_verdict(
+        policy,
+        proposed=ProposedEntry(
+            product_id=book.deployment.product_id,
+            strategy_id=book.deployment.strategy_id,
+            quantity=contract_size,
+            notional=Decimal(0),
+        ),
+        book=book,
+        state=probe.state,
+        snapshots=snapshots,
+        venue=venue,
+        as_of=now,
+    )
+    return () if verdict is None else (verdict,)
 
 
 def _holds_inventory(book: DeploymentSnapshot) -> bool:

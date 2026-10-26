@@ -186,22 +186,33 @@ def test_a_flat_probe_still_denies_a_policy_that_cannot_cover_any_entry(
     assert {verdict.reason_code.value for verdict in verdicts} == {code}
 
 
-def test_an_inexact_held_margin_never_falsely_blocks_a_flat_probe() -> None:
-    """Held margin x haircut that is not exactly representable proves nothing; entry decides."""
+@pytest.mark.parametrize(
+    ("current", "reserve", "codes"),
+    [
+        (Decimal(9), "1000", set()),
+        (Decimal(9), "9", {"FUTURES_COLLATERAL_RESERVE_SHORT"}),
+        (Decimal("9e999999"), "1000", {"FUTURES_COLLATERAL_RESERVE_SHORT"}),
+    ],
+)
+def test_held_margin_against_the_reserve_is_compared_exactly(
+    current: Decimal, reserve: str, codes: set[str]
+) -> None:
+    """A long haircut needs more digits, never a guess; an unrepresentable one is unproven."""
     book, policy, venue = _probe_inputs()
     assert policy.futures is not None
+    haircut = "1.123456789012345678901234567" if current == 9 else "1.25"
     policy = policy.model_copy(
         update={
             "futures": policy.futures.model_copy(
-                update={"peg_haircut": "1.123456789012345678901234567"}
+                update={"peg_haircut": haircut, "live_spot_collateral_reserve_quote": reserve}
             )
         }
     )
-    venue = replace(venue, initial_margin_usd=Decimal(9), buying_power_usd=Decimal(1000))
+    venue = replace(venue, initial_margin_usd=current, buying_power_usd=Decimal(1000))
     verdicts = live_probe_verdicts(
         policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
     )
-    assert verdicts == ()
+    assert {verdict.reason_code.value for verdict in verdicts} == codes
 
 
 @pytest.mark.anyio

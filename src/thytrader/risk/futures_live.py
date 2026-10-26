@@ -725,13 +725,22 @@ def _unpriced_capacity_verdict(
             "the USDC pool, and the reserve must cover it.",
         )
     haircut = Decimal(futures.peg_haircut)
+    # Exact: a product needs at most the sum of its factors' digits.
+    digits = len(current.as_tuple().digits) + len(haircut.as_tuple().digits)
     try:
         with localcontext() as context:
+            context.prec = max(context.prec, digits)
             context.traps[Inexact] = True
             held = current * haircut
     except DecimalException:
-        return None  # not exactly representable here; the real entry decides exactly
-    if held.is_finite() and Decimal(reserve) <= held:
+        held = None
+    if held is None or not held.is_finite():
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            "The margin already held and the haircut cannot establish a finite reserve "
+            "requirement; collateral coverage is unproven.",
+        )
+    if Decimal(reserve) <= held:
         return _deny(
             RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
             f"Declared reserve {reserve} {policy.quote_currency} does not exceed the margin "
