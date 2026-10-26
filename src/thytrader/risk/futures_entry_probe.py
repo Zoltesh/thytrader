@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import DecimalException, Inexact, localcontext
+from decimal import Decimal, DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
-from thytrader.risk.futures_live import live_futures_entry_verdict, live_futures_opt_in_verdict
+from thytrader.risk.futures_live import (
+    live_futures_entry_verdict,
+    live_futures_opt_in_verdict,
+    live_futures_standing_verdict,
+)
 from thytrader.risk.gate_common import ProposedEntry, _deny
 from thytrader.risk.models import RiskReasonCode
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
-    from decimal import Decimal
 
     from thytrader.risk.futures_live import FuturesVenueEvidence
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
@@ -42,6 +45,10 @@ def live_probe_verdicts(
 
     This is an advisory one-contract probe, not a strategy signal or a guarantee of a
     future order. Missing evidence denies; protective exits never consume this helper.
+    The probe is priced at an open position's venue mark. A flat book has no position and so
+    no mark: its probe runs every price-independent check and leaves the margin capacity to
+    the real entry, which is sized at its own price. A book holding a position without a
+    fresh mark is unknown evidence and denies.
     """
     opt_in = live_futures_opt_in_verdict(policy, book.deployment.product_id)
     if opt_in is not None:
@@ -56,20 +63,32 @@ def live_probe_verdicts(
     block = probe.state.entry_block()
     if block is not None:
         return (_deny(RiskReasonCode(block[0]), block[1]),)
-    if probe.price is None or not probe.price.is_finite() or probe.price <= 0:
+    margin = probe.state.margin
+    price = probe.price
+    priced = price is not None and price.is_finite() and price > 0
+    if not priced and (book.position is not None or book.positions):
         return (
             _deny(
                 RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
                 "A fresh positive mark is required for a minimum one-contract admission probe.",
             ),
         )
-    margin = probe.state.margin
     if margin is None:
         return (_deny(RiskReasonCode.FUTURES_MARGIN_UNKNOWN, "Margin terms are unknown."),)
+    if price is None or not priced:
+        return _standing_verdicts(
+            policy,
+            book=book,
+            probe=probe,
+            contract_size=margin.contract_size,
+            snapshots=snapshots,
+            venue=venue,
+            now=now,
+        )
     try:
         with localcontext() as context:
             context.traps[Inexact] = True
-            notional = margin.contract_size * probe.price
+            notional = margin.contract_size * price
     except DecimalException:
         return (
             _deny(
@@ -86,6 +105,40 @@ def live_probe_verdicts(
                 strategy_id=book.deployment.strategy_id,
                 quantity=margin.contract_size,
                 notional=notional,
+                side=side,
+            ),
+            book=book,
+            state=probe.state,
+            snapshots=snapshots,
+            venue=venue,
+            as_of=now,
+        )
+        if verdict is None:
+            return ()
+        results.append(verdict)
+    return tuple(results)
+
+
+def _standing_verdicts(
+    policy: RiskPolicyDefinition,
+    *,
+    book: DeploymentSnapshot,
+    probe: LiveFuturesProbe,
+    contract_size: Decimal,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    now: datetime,
+) -> tuple[RiskVerdict, ...]:
+    """A flat book's probe without a price: every check except the margin capacity."""
+    results: list[RiskVerdict] = []
+    for side in ("long", "short"):
+        verdict = live_futures_standing_verdict(
+            policy,
+            proposed=ProposedEntry(
+                product_id=book.deployment.product_id,
+                strategy_id=book.deployment.strategy_id,
+                quantity=contract_size,
+                notional=Decimal(0),
                 side=side,
             ),
             book=book,

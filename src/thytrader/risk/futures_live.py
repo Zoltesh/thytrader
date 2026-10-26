@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from thytrader.risk.futures_policy import FuturesRiskPolicy
     from thytrader.risk.gate_common import ProposedEntry
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
-    from thytrader.trading.futures_book import FuturesBookState
+    from thytrader.trading.futures_book import BoundFuturesContract, FuturesBookState
     from thytrader.trading.futures_sizing import FuturesSide
     from thytrader.trading.models import Deployment, DeploymentSnapshot
 
@@ -220,7 +220,6 @@ def live_futures_entry_verdict(
             RiskReasonCode.FUTURES_CONTRACT_UNBOUND,
             "The live futures book's contract binding or margin terms are not loaded.",
         )
-    contract_size = Decimal(binding.contract.contract_size)
     side: FuturesSide = proposed.side or state.side
     if not proposed.notional.is_finite() or proposed.notional <= 0:
         return _deny(
@@ -238,7 +237,67 @@ def live_futures_entry_verdict(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
             "Proposed initial margin cannot be represented as a finite positive USD amount.",
         )
-    checks: tuple[Callable[[], RiskVerdict | None], ...] = (
+    checks = (
+        *_standing_checks(
+            policy,
+            proposed=proposed,
+            book=book,
+            binding=binding,
+            snapshots=snapshots,
+            venue=venue,
+            as_of=as_of,
+        ),
+        lambda: _margin_capacity_verdict(policy, venue, initial),
+    )
+    return _first(checks)
+
+
+def live_futures_standing_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    proposed: ProposedEntry,
+    book: DeploymentSnapshot,
+    state: FuturesBookState,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    as_of: datetime | None,
+) -> RiskVerdict | None:
+    """Every live entry check except the price-dependent margin capacity (I2-I5, I8, I11).
+
+    For an advisory probe with no price to size against: ``proposed.notional`` is not read.
+    """
+    binding = state.binding
+    if binding is None or state.margin is None:
+        return _deny(
+            RiskReasonCode.FUTURES_CONTRACT_UNBOUND,
+            "The live futures book's contract binding or margin terms are not loaded.",
+        )
+    return _first(
+        _standing_checks(
+            policy,
+            proposed=proposed,
+            book=book,
+            binding=binding,
+            snapshots=snapshots,
+            venue=venue,
+            as_of=as_of,
+        )
+    )
+
+
+def _standing_checks(
+    policy: RiskPolicyDefinition,
+    *,
+    proposed: ProposedEntry,
+    book: DeploymentSnapshot,
+    binding: BoundFuturesContract,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    as_of: datetime | None,
+) -> tuple[Callable[[], RiskVerdict | None], ...]:
+    """The live entry checks that do not depend on the entry's price, in gate order."""
+    contract_size = Decimal(binding.contract.contract_size)
+    return (
         lambda: live_futures_opt_in_verdict(policy, proposed.product_id),
         lambda: _contract_kind_verdict(binding.contract),
         lambda: _binding_product_verdict(proposed.product_id, binding.contract),
@@ -252,9 +311,7 @@ def live_futures_entry_verdict(
         lambda: _external_entry_verdict(proposed.product_id, book, contract_size, venue),
         lambda: _contracts_verdict(policy, proposed, book, contract_size),
         lambda: _venue_state_verdict(proposed.product_id, venue, as_of),
-        lambda: _margin_capacity_verdict(policy, venue, initial),
     )
-    return _first(checks)
 
 
 def _first(checks: Sequence[Callable[[], RiskVerdict | None]]) -> RiskVerdict | None:

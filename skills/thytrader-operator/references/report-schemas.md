@@ -96,7 +96,13 @@ The reserve is one quote currency under a declared peg, never USD added to USDC.
 covers current margin; the P2-3 probe additionally checks proposed margin. Book equity uses
 live allocation plus ledger equity, not the account total. Comparison does not clear duties.
 `entry_blocks` carries actual gate reasons for minimum one-contract probes in both directions;
-an empty list is not a live-start capability or approval of a particular strategy order.
+an empty list is not a live-start capability or approval of a particular strategy order. A
+probe is priced at an open position's venue mark. A flat book has no position and so no mark:
+its probe runs every price-independent check (opt-in, binding, occupancy, venue evidence,
+drift, external orders, contracts, venue state) and leaves margin capacity to the real entry,
+which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh positive mark is
+required" therefore means a book holding a position has no fresh mark. The fleet-health check
+uses the same probe.
 
 Reconciliation futures rows carry `classification`, `deployment_id`, `book_contracts` and
 `comparison_reason`. `managed_mismatch` adds critical `FUTURES_MANAGED_POSITION_MISMATCH`.

@@ -102,6 +102,11 @@ unnoticed.
 - P2-6 closes the live CFM gate gap with actual P2-3 minimum one-contract long/short probes,
   including binding, funding, opt-in, venue state and reserve checks. A probe is advisory,
   not permission for a particular strategy order. Paper retains its existing shared checks.
+  2026-10-26: the probe priced a contract only at an open position's venue mark, so a flat
+  live futures book always read FUTURES_COLLATERAL_UNKNOWN (a standing false critical alert).
+  A flat book's probe now runs every price-independent check and leaves margin capacity to the
+  real entry; a candle close was rejected as its price, since a close up to two hours old can
+  clear or raise a capacity block the current market contradicts.
 - Known gaps: decision-log flags are not alerted; a single bot's persistent reference-data or freshness block is visible only in
   its decisions; a failed supervision pass is logged, not recorded as a heartbeat.
 

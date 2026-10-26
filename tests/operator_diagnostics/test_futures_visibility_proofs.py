@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -27,6 +28,9 @@ from thytrader.risk.futures_live import FuturesVenueEvidence
 from thytrader.trading.futures_book import BoundFuturesContract, FuturesBookState
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import DeploymentMode, DeploymentSnapshot, RuntimePhase
+
+if TYPE_CHECKING:
+    from thytrader.risk.models import RiskPolicyDefinition
 
 
 @pytest.mark.anyio
@@ -115,6 +119,55 @@ def test_complete_flat_comparison_and_unknown_coverage() -> None:
 )
 def test_visibility_probe_runs_real_live_gate(change: dict[str, object], code: str) -> None:
     """The same minimum-contract gate used by fleet and book reports names venue denials."""
+    book, policy, venue = _probe_inputs()
+    # dataclasses.replace validates every supplied synthetic venue field.
+    venue = replace(venue, **change)
+    verdicts = live_probe_verdicts(
+        policy, book=book, probe=_probe(book, Decimal(100)), snapshots=(book,), venue=venue, now=_AT
+    )
+    assert {verdict.reason_code.value for verdict in verdicts} == {code}
+
+
+@pytest.mark.parametrize(
+    ("change", "codes"),
+    [
+        ({}, set()),
+        ({"buying_power_usd": Decimal(0)}, set()),
+        ({"killswitch_enabled": True}, {"FUTURES_VENUE_KILLSWITCH"}),
+        ({"external_order_products": None}, {"FUTURES_COLLATERAL_UNKNOWN"}),
+    ],
+)
+def test_a_flat_book_without_a_mark_runs_every_check_but_capacity(
+    change: dict[str, object], codes: set[str]
+) -> None:
+    """A flat book has no position mark: its probe is not a standing false block.
+
+    Every price-independent check still denies; margin capacity is left to the real entry,
+    which is sized at its own price.
+    """
+    book, policy, venue = _probe_inputs()
+    venue = replace(venue, **change)
+    verdicts = live_probe_verdicts(
+        policy, book=book, probe=_probe(book, None), snapshots=(book,), venue=venue, now=_AT
+    )
+    assert {verdict.reason_code.value for verdict in verdicts} == codes
+
+
+@pytest.mark.anyio
+async def test_a_held_position_without_a_mark_is_unknown_evidence() -> None:
+    """Only a flat book skips the price; a position whose mark is missing denies."""
+    _, policy, venue = _probe_inputs()
+    filled = await _filled_book(InMemoryExecutionStore())
+    held = replace(filled, deployment=replace(filled.deployment, mode=DeploymentMode.LIVE))
+    assert held.position is not None
+    verdicts = live_probe_verdicts(
+        policy, book=held, probe=_probe(held, None), snapshots=(held,), venue=venue, now=_AT
+    )
+    assert {verdict.reason_code.value for verdict in verdicts} == {"FUTURES_COLLATERAL_UNKNOWN"}
+
+
+def _probe_inputs() -> tuple[DeploymentSnapshot, RiskPolicyDefinition, FuturesVenueEvidence]:
+    """A flat live perp book, a live-enabled policy and admissible venue evidence."""
     book = DeploymentSnapshot(
         deployment=replace(
             _deployment(cash="0"), mode=DeploymentMode.LIVE, phase=RuntimePhase.FLAT
@@ -147,9 +200,12 @@ def test_visibility_probe_runs_real_live_gate(change: dict[str, object], code: s
         killswitch_enabled=False,
         maintenance={},
     )
-    # dataclasses.replace validates every supplied synthetic venue field.
-    venue = replace(venue, **change)
-    probe = LiveFuturesProbe(
+    return book, policy, venue
+
+
+def _probe(book: DeploymentSnapshot, price: Decimal | None) -> LiveFuturesProbe:
+    """A probe bound to the synthetic perpetual at ``price``."""
+    return LiveFuturesProbe(
         FuturesBookState(
             deployment_id=book.deployment.id,
             product_id=_PERP,
@@ -157,9 +213,5 @@ def test_visibility_probe_runs_real_live_gate(change: dict[str, object], code: s
             binding=BoundFuturesContract(book.deployment.id, _CONTRACT, Decimal("0.1"), _AT),
             margin=_MARGIN,
         ),
-        Decimal(100),
+        price,
     )
-    verdicts = live_probe_verdicts(
-        policy, book=book, probe=probe, snapshots=(book,), venue=venue, now=_AT
-    )
-    assert {verdict.reason_code.value for verdict in verdicts} == {code}
