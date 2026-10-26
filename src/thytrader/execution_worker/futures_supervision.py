@@ -51,7 +51,7 @@ async def supervise_futures(
     """
     if alert_service is None:
         return "disabled"
-    now = clock or utc_now
+    now = utc_now if clock is None else clock
     observed_at = now()
     try:
         audit = bound_execution_audit_store()

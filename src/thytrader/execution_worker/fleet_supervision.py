@@ -45,7 +45,7 @@ async def _supervise_fleet_entries(
     if alert_service is None:
         return
     try:
-        observed_at = (clock or utc_now)()
+        observed_at = (utc_now if clock is None else clock)()
         health = await load_fleet_entry_health(
             store,
             policy,
