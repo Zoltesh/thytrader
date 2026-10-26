@@ -226,6 +226,7 @@ async def futures_book_payload(
     mark = marks.get(snapshot.deployment.product_id)
     moment = now or datetime.now(UTC)
     priced = None if mark is None else (mark.price, mark.bar_closes_at)
+    venue_price = None
     if (
         snapshot.deployment.mode is DeploymentMode.LIVE
         and account is not None
@@ -254,7 +255,8 @@ async def futures_book_payload(
         books=books or (snapshot,),
         now=moment,
     )
-    price = None if priced is None else priced[0]
+    # Admission is priced at a fresh venue mark only, as in the fleet check; the journal close
+    # values the book for display but can be hours old.
     blocks = live_entry_blocks(
         snapshot,
         binding=binding,
@@ -262,7 +264,7 @@ async def futures_book_payload(
         account=account,
         policy=policy,
         books=books or (snapshot,),
-        price=price,
+        price=venue_price,
         now=moment,
     )
     return projected.model_copy(

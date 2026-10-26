@@ -61,7 +61,7 @@ if TYPE_CHECKING:
     from thytrader.risk.futures_policy import FuturesRiskPolicy
     from thytrader.risk.gate_common import ProposedEntry
     from thytrader.risk.models import RiskPolicyDefinition, RiskVerdict
-    from thytrader.trading.futures_book import FuturesBookState
+    from thytrader.trading.futures_book import BoundFuturesContract, FuturesBookState
     from thytrader.trading.futures_sizing import FuturesSide
     from thytrader.trading.models import Deployment, DeploymentSnapshot
 
@@ -220,7 +220,6 @@ def live_futures_entry_verdict(
             RiskReasonCode.FUTURES_CONTRACT_UNBOUND,
             "The live futures book's contract binding or margin terms are not loaded.",
         )
-    contract_size = Decimal(binding.contract.contract_size)
     side: FuturesSide = proposed.side or state.side
     if not proposed.notional.is_finite() or proposed.notional <= 0:
         return _deny(
@@ -238,7 +237,70 @@ def live_futures_entry_verdict(
             RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
             "Proposed initial margin cannot be represented as a finite positive USD amount.",
         )
-    checks: tuple[Callable[[], RiskVerdict | None], ...] = (
+    checks = (
+        *_standing_checks(
+            policy,
+            proposed=proposed,
+            book=book,
+            binding=binding,
+            snapshots=snapshots,
+            venue=venue,
+            as_of=as_of,
+        ),
+        lambda: _margin_capacity_verdict(policy, venue, initial),
+    )
+    return _first(checks)
+
+
+def live_futures_standing_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    proposed: ProposedEntry,
+    book: DeploymentSnapshot,
+    state: FuturesBookState,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    as_of: datetime | None,
+) -> RiskVerdict | None:
+    """Every live entry check, with I8 limited to its price-independent part (I2-I5, I8, I11).
+
+    For an advisory probe with no price to size against: ``proposed.notional`` is not read.
+    """
+    binding = state.binding
+    if binding is None or state.margin is None:
+        return _deny(
+            RiskReasonCode.FUTURES_CONTRACT_UNBOUND,
+            "The live futures book's contract binding or margin terms are not loaded.",
+        )
+    return _first(
+        (
+            *_standing_checks(
+                policy,
+                proposed=proposed,
+                book=book,
+                binding=binding,
+                snapshots=snapshots,
+                venue=venue,
+                as_of=as_of,
+            ),
+            lambda: _unpriced_capacity_verdict(policy, venue),
+        )
+    )
+
+
+def _standing_checks(
+    policy: RiskPolicyDefinition,
+    *,
+    proposed: ProposedEntry,
+    book: DeploymentSnapshot,
+    binding: BoundFuturesContract,
+    snapshots: Sequence[DeploymentSnapshot],
+    venue: FuturesVenueEvidence | None,
+    as_of: datetime | None,
+) -> tuple[Callable[[], RiskVerdict | None], ...]:
+    """The live entry checks that do not depend on the entry's price, in gate order."""
+    contract_size = Decimal(binding.contract.contract_size)
+    return (
         lambda: live_futures_opt_in_verdict(policy, proposed.product_id),
         lambda: _contract_kind_verdict(binding.contract),
         lambda: _binding_product_verdict(proposed.product_id, binding.contract),
@@ -252,9 +314,7 @@ def live_futures_entry_verdict(
         lambda: _external_entry_verdict(proposed.product_id, book, contract_size, venue),
         lambda: _contracts_verdict(policy, proposed, book, contract_size),
         lambda: _venue_state_verdict(proposed.product_id, venue, as_of),
-        lambda: _margin_capacity_verdict(policy, venue, initial),
     )
-    return _first(checks)
 
 
 def _first(checks: Sequence[Callable[[], RiskVerdict | None]]) -> RiskVerdict | None:
@@ -622,6 +682,69 @@ def _margin_capacity_verdict(
             f"Declared reserve {reserve} {policy.quote_currency} is below projected initial "
             f"margin ({current} + {initial}) USD x haircut {haircut} = {required} USD "
             "(threshold under a declared peg; the currencies are not added).",
+        )
+    return None
+
+
+def _unpriced_capacity_verdict(
+    policy: RiskPolicyDefinition, venue: FuturesVenueEvidence | None
+) -> RiskVerdict | None:
+    """The part of I8 that needs no entry price, in the priced order.
+
+    For an advisory probe of a flat book with no mark: known balances, the quote, a declared
+    reserve, and the reserve against the margin already held. Only the comparisons that need
+    the entry's own margin are left to the real entry.
+    """
+    if venue is None:
+        return None
+    buying_power = venue.buying_power_usd
+    current = venue.initial_margin_usd
+    if buying_power is None or current is None:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "CFM buying power or initial margin is unknown; entries are denied.",
+        )
+    if buying_power <= 0:
+        # Every admissible entry has a positive initial margin, so none fits.
+        return _deny(
+            RiskReasonCode.FUTURES_BUYING_POWER_SHORT,
+            f"Futures buying power {buying_power} USD covers no entry's initial margin.",
+        )
+    if policy.quote_currency not in {"USD", "USDC"}:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN,
+            "Live futures require a declared USD/USDC collateral reserve; "
+            "other policy quotes cannot cover CFM USD margin.",
+        )
+    futures = policy.futures
+    reserve = None if futures is None else futures.live_spot_collateral_reserve_quote
+    if futures is None or reserve is None:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            "Declare futures.live_spot_collateral_reserve_quote: live futures margin shares "
+            "the USDC pool, and the reserve must cover it.",
+        )
+    haircut = Decimal(futures.peg_haircut)
+    # Exact: a product needs at most the sum of its factors' digits.
+    digits = len(current.as_tuple().digits) + len(haircut.as_tuple().digits)
+    try:
+        with localcontext() as context:
+            context.prec = max(context.prec, digits)
+            context.traps[Inexact] = True
+            held = current * haircut
+    except DecimalException:
+        held = None
+    if held is None or not held.is_finite():
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            "The margin already held and the haircut cannot establish a finite reserve "
+            "requirement; collateral coverage is unproven.",
+        )
+    if Decimal(reserve) <= held:
+        return _deny(
+            RiskReasonCode.FUTURES_COLLATERAL_RESERVE_SHORT,
+            f"Declared reserve {reserve} {policy.quote_currency} does not exceed the margin "
+            f"already held ({current} USD x haircut {haircut}); no entry can be covered.",
         )
     return None
 
