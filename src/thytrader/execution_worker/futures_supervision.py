@@ -42,9 +42,11 @@ async def supervise_futures(
     Spot-only inventories perform no CFM read. A composed live source reuses the cycle's
     shared account read; without one, the existing durable mirror is used.
     No broker is constructed, no order is sent, and no book or policy is modified here.
-    Freshness is judged at a time taken after the account read: a book started mid-cycle
-    has no shared read yet, so this observer reads the venue itself, and a time taken
-    before that read would make the fresh receipt look future-dated.
+    Alerts are ordered by the pass's start (the ADR 0115 watermark), so a slow pass never
+    resolves a newer failure. Freshness is judged at a time taken after the account read:
+    a book started mid-cycle has no shared read yet, so this observer reads the venue
+    itself, and a time taken before that read would make the fresh receipt look
+    future-dated.
     """
     if alert_service is None:
         return "disabled"
@@ -68,9 +70,8 @@ async def supervise_futures(
         )
         books = tuple(book for book in snapshots if visibility_scope(book) is not False)
         account, failed = await _account(books, snapshots)
-        observed_at = clock()
         evidence = futures_safety_evidence(
-            snapshots, account=account, policy=policy, now=observed_at, observation_failed=failed
+            snapshots, account=account, policy=policy, now=clock(), observation_failed=failed
         )
         await alert_service.apply(
             evidence.findings,

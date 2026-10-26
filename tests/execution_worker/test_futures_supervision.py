@@ -236,3 +236,36 @@ async def test_stale_evidence_on_a_flat_book_still_pages_at_once() -> None:
     assert any(
         row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for row in await alerts.list_open_alerts()
     )
+
+
+async def test_a_slow_pass_never_resolves_a_newer_failure() -> None:
+    """Alerts keep the pass-start watermark even though freshness is judged after the read."""
+    store = await _flat_live_store(created_at=_AT - timedelta(days=1))
+    alerts = InMemoryAlertStore()
+    with risk_futures_account_scope(_Store(None, fail=True)):
+        await futures_supervision.supervise_futures(
+            alert_service=_service(alerts),
+            store=store,
+            policy=_policy(),
+            clock=lambda: _AT + timedelta(seconds=1),
+        )
+    venue = FakeVenue()
+    venue.now, venue.threshold = _AT + timedelta(seconds=1), Decimal(0)
+    ticks = iter((_AT, _AT + timedelta(seconds=3)))
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: next(ticks)
+        )
+    assert any(
+        row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for row in await alerts.list_open_alerts()
+    )
+    venue.now = _AT + timedelta(seconds=4)
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: venue.now
+        )
+    assert not [
+        row
+        for row in await alerts.list_open_alerts()
+        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
+    ]
