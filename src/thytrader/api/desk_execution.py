@@ -146,7 +146,9 @@ class ApiDeskExecution:
         intent = await self._store.get_intent_by_idempotency_key(idempotency_key)
         return None if intent is None else str(intent.deployment_id)
 
-    async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
+    async def stop_book(
+        self, deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
         """Stop one desk book (managed, or flattening)."""
         return await set_deployment_status(
             store=self._store,
@@ -154,6 +156,7 @@ class ApiDeskExecution:
             status=DeploymentStatus.STOPPED,
             publication_store=DisabledStrategySnapshotStore(),
             flatten=flatten,
+            expected_revision=expected_revision,
         )
 
     async def fee_rates(self) -> tuple[Decimal, Decimal] | None:

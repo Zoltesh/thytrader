@@ -101,8 +101,10 @@ checks the whole fleet ([ADR 0130](../decisions/0130-fleet-entry-health.md)):
   flags systemic ones.
 - `readiness` and `risk` carry the same evaluation as `fleet_entries`.
 - The execution worker evaluates it every cycle and raises one durable `FLEET_ENTRIES_BLOCKED`
-  alert per blocked scope (critical for a live scope blocked by missing evidence), delivered
-  like every other alert and resolved when the block clears. The fleet entry clustering cap is
+  alert per blocked scope (critical for a live scope blocked by missing evidence), resolved
+  when the block clears. It is delivered once the block (or a run of blocks that keep
+  returning) has lasted `alert_entry_block_grace_seconds` (default 300), so a one-poll blip
+  is not paged. The fleet entry clustering cap is
   reported but never alerted: it frees itself as its window slides.
 - `health` has a `fleet_entries` component that fails or degrades while such an alert is open.
 - Home shows a banner (below).

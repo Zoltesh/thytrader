@@ -49,8 +49,8 @@ class AlertThresholds:
             if value < 1:
                 message = f"{name} must be at least 1"
                 raise ValueError(message)
-        if self.entry_block_grace_seconds < 0:
-            message = "entry_block_grace_seconds must be at least 0"
+        if not 0 <= self.entry_block_grace_seconds <= 3600:
+            message = "entry_block_grace_seconds must be 0 to 3600"
             raise ValueError(message)
 
 

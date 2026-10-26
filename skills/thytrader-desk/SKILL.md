@@ -21,7 +21,7 @@ sleeves). Desks are paper by default; a live desk is described under "Live desks
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v108`, schema revision `0080`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v109`, schema revision `0081`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
 `create`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 
@@ -34,8 +34,28 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   can pay fees. When the book is flat and stopped, its final cash returns to the pool at the next
   briefing, wake or score (settlement).
   A closed book that still rests a stray exit order (for example a take-profit left after its
-  stop filled) is flattened by the desk itself: the order is cancelled, nothing is sold, the API
-  logs `desk_book_stranded_orders`, and the book settles at a later read.
+  stop filled) is flattened by the desk itself once its evidence is final (fills applied and
+  netting to zero, accounting complete, live cancels settled, every venue child imported): the
+  API logs `desk_book_stranded_orders`, the worker cancels the order on its next cycle, and the
+  book settles at a later read. If the stray order fills before the cancel, its cash is applied
+  but no position can be built on the closed book: the book keeps a fault and holds settlement
+  until an operator reconciles or repairs it (nothing exits it automatically). It stays stopped
+  if the desk had already flattened it; a book still running is paused instead, and resuming
+  it clears that fault while settlement stays held, so repair it before resuming. `desk_book_settlement_held` (info) means a flat
+  book's evidence is not final yet: a live cancel inside its settlement watermark, a venue child
+  not imported yet, fill economics not applied, inventory the position does not show, or fills
+  that do not net to zero. A resting order that could add inventory, or whose venue state is
+  pending or unknown, keeps the book open. A running or paused book settles through a stop bound
+  to the revision the desk checked; a stopped book without a fault settles with no write once a
+  re-read shows the same revision and the same final evidence; a stopped book with a fault and
+  nothing resting is stopped again to clear it, keeping a flatten command it carries (a book
+  still resting a stray exit waits for the worker to cancel it, since the desk cannot). `desk_book_stop_deferred`
+  means the book changed or the write lost a race, and the next read re-checks it. The desk acts on that evidence, not on fault text: a fault left
+  on a book whose evidence is final (for example an old read failure or data-gap pause) is
+  cleared by that stop, so it never locks pool cash; a failed venue read leaves the order unknown
+  and holds the book. `desk_book_read_deferred` means a book could not be read: its settlement
+  waits for the next read and its siblings still settle, but if it is still unreadable when the
+  desk state is built, that briefing, wake or score fails.
 - **Fees** are the account's Coinbase maker/taker rates, read from the account at each order (the
   same source as paper starts, ADR 0122). With no readable account the open is refused; nothing is
   assumed.

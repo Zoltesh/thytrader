@@ -54,6 +54,9 @@ operator_alerts = Table(
     Column("delivery_detail", String(500), nullable=False, server_default=""),
     Column("delivery_token", UUID(as_uuid=True), nullable=True),
     Column("delivery_expires_at", DateTime(timezone=True), nullable=True),
+    # Severity the notifier was actually sent (or a continuation skip relied on); never the
+    # observation's later, mutable severity.
+    Column("covered_severity", String(12), nullable=True),
     ForeignKeyConstraint(
         ["deployment_id"],
         ["deployments.id"],
@@ -82,6 +85,13 @@ Index(
 Index(
     "ix_operator_alerts_last_seen",
     operator_alerts.c.last_seen_at,
+)
+
+Index(
+    "ix_operator_alerts_history",
+    operator_alerts.c.code,
+    operator_alerts.c.subject,
+    operator_alerts.c.resolved_at,
 )
 
 __all__ = [

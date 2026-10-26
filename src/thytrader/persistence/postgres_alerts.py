@@ -125,6 +125,22 @@ class PostgresAlertStore:
         )
         return tuple(_parse(row) for row in await self._fetch_all(statement))
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        statement = (
+            select(operator_alerts)
+            .where(
+                operator_alerts.c.code == code,
+                operator_alerts.c.subject == subject,
+                operator_alerts.c.resolved_at.is_not(None),
+            )
+            .order_by(operator_alerts.c.resolved_at.desc(), operator_alerts.c.last_seen_at.desc())
+            .limit(limit)
+        )
+        return tuple(_parse(row) for row in await self._fetch_all(statement))
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -181,7 +197,13 @@ class PostgresAlertStore:
         return DeliveryClaim(_parse(row), token) if row is not None else None
 
     async def skip_delivery(
-        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+        self,
+        alert_id: UUID,
+        *,
+        provider: str,
+        now: datetime,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
         """Record a deliberate skip on an open, unclaimed row without spending an attempt.
 
@@ -202,6 +224,7 @@ class PostgresAlertStore:
                 delivery_detail=clip_alert_text(detail),
                 delivery_token=None,
                 delivery_expires_at=None,
+                **_coverage(covered_severity),
             )
         )
         try:
@@ -211,14 +234,19 @@ class PostgresAlertStore:
             raise AlertStoreError("Alert delivery skip is unavailable.") from error
 
     async def finish_delivery(
-        self, alert_id: UUID, token: UUID, *, status: str, detail: str
+        self,
+        alert_id: UUID,
+        token: UUID,
+        *,
+        status: str,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
-        """Only a current open claim can acknowledge, never a delayed stale callback."""
+        """Only the current claim can acknowledge, even after its alert resolved."""
         statement = (
             update(operator_alerts)
             .where(
                 operator_alerts.c.id == alert_id,
-                operator_alerts.c.resolved_at.is_(None),
                 operator_alerts.c.delivery_token == token,
             )
             .values(
@@ -226,6 +254,7 @@ class PostgresAlertStore:
                 delivery_detail=clip_alert_text(detail),
                 delivery_token=None,
                 delivery_expires_at=None,
+                **_coverage(covered_severity),
             )
         )
         try:
@@ -316,7 +345,15 @@ def _row_values(alert: OperatorAlert) -> dict[str, object]:
         "delivery_status": alert.delivery_status,
         "delivery_attempts": alert.delivery_attempts,
         "delivery_detail": alert.delivery_detail,
+        "covered_severity": None
+        if alert.covered_severity is None
+        else alert.covered_severity.value,
     }
+
+
+def _coverage(severity: AlertSeverity | None) -> dict[str, str]:
+    """Set the covered severity only when one is given; otherwise keep the stored one."""
+    return {} if severity is None else {"covered_severity": severity.value}
 
 
 def _parse(row: RowMapping) -> OperatorAlert:
@@ -341,4 +378,7 @@ def _parse(row: RowMapping) -> OperatorAlert:
         delivery_detail=row["delivery_detail"],
         delivery_token=row["delivery_token"],
         delivery_expires_at=row["delivery_expires_at"],
+        covered_severity=(
+            None if row["covered_severity"] is None else AlertSeverity(row["covered_severity"])
+        ),
     )

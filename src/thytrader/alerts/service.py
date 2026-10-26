@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -31,7 +32,12 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
 
-    from thytrader.alerts.models import AlertCheck, OperatorAlert, SupervisionFinding
+    from thytrader.alerts.models import (
+        AlertCheck,
+        AlertSeverity,
+        OperatorAlert,
+        SupervisionFinding,
+    )
     from thytrader.alerts.store import AlertApplication, AlertStore
     from thytrader.alerts.supervision_inputs import AlertThresholds
 
@@ -45,6 +51,11 @@ _SEVERITY_TO_NOTIFY: dict[str, NotifySeverity] = {
 _RECOVERY_DETAIL = "condition cleared; next observation confirmed recovery"
 _SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
 _TITLE_BOUND = 200
+_SENT = frozenset({"logged", "delivered"})
+# Resolved rows of one block read to join a return to its episode; the walk stops at the
+# newest covering row, so only returns never seen by the delivery task count toward it.
+_EPISODE_HISTORY = 500
+_EPISODE_SKIP = "continues an entry-block episode already sent"
 _BODY_BOUND = 4000
 
 
@@ -155,7 +166,12 @@ class AlertService:
                         alert.id, provider=provider.value, now=now, detail=detail
                     )
                 return
-            if _within_entry_block_grace(alert, now=now, thresholds=self._thresholds):
+            if (
+                provider is not NotifyProvider.NONE
+                and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
+                and alert.delivery_status in {"pending", "skipped"}
+                and not await self._entry_block_due(alert, provider=provider, now=now)
+            ):
                 return
             claim = await self._store.claim_delivery(
                 alert.id,
@@ -185,18 +201,101 @@ class AlertService:
                     if status is DeliveryStatus.SKIPPED
                     else f"notification outcome: {status.value}"
                 ),
+                covered_severity=claim.alert.severity if status.value in _SENT else None,
             )
         except Exception:  # noqa: BLE001 - storage/provider callbacks cannot fail supervision.
             _logger.warning("alert_delivery_unavailable code=%s", alert.code.value)
 
+    async def _entry_block_due(
+        self, alert: OperatorAlert, *, provider: NotifyProvider, now: datetime
+    ) -> bool:
+        """An entry block is sent once its episode outlasts the grace; a return is not resent."""
+        grace = timedelta(seconds=self._thresholds.entry_block_grace_seconds)
+        if grace <= timedelta(0):
+            return True
+        # One row past the window shows whether the episode reaches beyond it.
+        history = await self._store.list_resolved(
+            alert.code.value, alert.subject, limit=_EPISODE_HISTORY + 1
+        )
+        episode = _entry_block_episode(alert, history, grace=grace, now=now)
+        if episode.sending:
+            return False
+        if episode.sent is not None:
+            if alert.delivery_status == "skipped":
+                return False
+            await self._store.skip_delivery(
+                alert.id,
+                provider=provider.value,
+                now=now,
+                detail=f"{_EPISODE_SKIP} (see alert {episode.sent.id})",
+                covered_severity=_covered(episode.sent),
+            )
+            return False
+        return now - episode.started >= grace
 
-def _within_entry_block_grace(
-    alert: OperatorAlert, *, now: datetime, thresholds: AlertThresholds
-) -> bool:
-    """A fleet entry block younger than the grace stays pending (it often heals in a poll)."""
-    if alert.code is not AlertCode.FLEET_ENTRIES_BLOCKED:
-        return False
-    return now - alert.first_seen_at < timedelta(seconds=thresholds.entry_block_grace_seconds)
+
+@dataclass(frozen=True, slots=True)
+class _Episode:
+    """When an entry-block episode began, its covering sent row, and any send in flight."""
+
+    started: datetime
+    sent: OperatorAlert | None = None
+    sending: bool = False
+
+
+def _entry_block_episode(
+    alert: OperatorAlert, history: Sequence[OperatorAlert], *, grace: timedelta, now: datetime
+) -> _Episode:
+    """Walk this block's resolved rows back to the first gap longer than the grace.
+
+    A block that clears and returns within the grace continues the same episode, so a
+    flapping block accumulates time toward a page and is paged once, not once per return.
+    A row whose page covered this severity or higher (sent, or skipped as a continuation of
+    such a page) covers the return; a lower-severity page does not, so an escalation is paged.
+    Coverage is the severity actually sent, never the row's later observed severity. A send
+    still in flight on an earlier row holds the return until it is acknowledged or its claim
+    expires. Only ``_EPISODE_HISTORY`` rows are walked: when the walk found no gap or covering
+    row and the next older row still joins the episode, its start is older than the window, so
+    it is due at once rather than letting the start slide forward (an early or duplicate page,
+    never a missed one).
+    """
+    started = alert.first_seen_at
+    rank = _rank(alert.severity)
+    for row in history[:_EPISODE_HISTORY]:
+        if row.id == alert.id or row.resolved_at is None or row.resolved_at > started:
+            continue
+        if started - row.resolved_at > grace:
+            break
+        started = min(started, row.first_seen_at)
+        if row.delivery_expires_at is not None and row.delivery_expires_at > now:
+            return _Episode(started, sending=True)
+        covered = _covered(row)
+        if covered is not None and _rank(covered) >= rank:
+            return _Episode(started, sent=row)
+    else:
+        beyond = history[_EPISODE_HISTORY:]
+        if beyond and _continues(beyond[0], started, grace=grace):
+            return _Episode(started - grace)
+    return _Episode(started)
+
+
+def _continues(row: OperatorAlert, started: datetime, *, grace: timedelta) -> bool:
+    """Whether an older resolved row joins an episode that began at ``started``."""
+    return row.resolved_at is not None and started - row.resolved_at <= grace
+
+
+def _covered(row: OperatorAlert) -> AlertSeverity | None:
+    """The severity this row's page covered; a row sent before 0081 covers nothing.
+
+    Never the row's observed severity, which supervision rewrites after a page: an unknown
+    coverage can only cause a duplicate page, never a missed one.
+    """
+    return row.covered_severity
+
+
+def _rank(severity: AlertSeverity) -> int:
+    """Order info < warning < critical."""
+    return _SEVERITY_RANK[severity.value]
 
 
 def _notification_record(

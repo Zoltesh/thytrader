@@ -38,19 +38,23 @@ from thytrader.agent_desk.models import (
 from thytrader.agent_desk.ports import DeskError, DeskExecution, save_desk
 from thytrader.agent_desk.score import DeskScore, score_desk
 from thytrader.agent_desk.valuation import book_value, net_quantity
+from thytrader.execution.attached import child_order_for
 from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
 from thytrader.ids import uuid7
 from thytrader.market_data.models import EXECUTION_TIMEFRAMES
 from thytrader.market_data.products import is_spot_product_id
 from thytrader.trading.fill_ledger import unprojected_inventory_products, unsettled_fill_evidence
 from thytrader.trading.models import (
+    INVENTORY_OPENING_PURPOSES,
     DeploymentMode,
     DeploymentStatus,
     ExecutionConflictError,
+    ExecutionStoreError,
     IntentOrigin,
     IntentPurpose,
     LifecycleCommand,
     OrderKind,
+    OrderSide,
     OrderStatus,
     PositionSide,
     RuntimePhase,
@@ -60,7 +64,7 @@ from thytrader.trading.models import (
 if TYPE_CHECKING:
     from thytrader.agent_desk.store import DeskStore
     from thytrader.market_data.service import MarketDataService
-    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot, Order
 
 _logger = logging.getLogger(__name__)
 _ACTIVE_ORDERS = {OrderStatus.OPEN, OrderStatus.PENDING, OrderStatus.UNKNOWN}
@@ -349,25 +353,9 @@ async def _settle(desk: Desk, *, store: DeskStore, execution: DeskExecution) -> 
     for book in await store.list_books(desk.desk_id):
         if book.settled_at is not None:
             continue
-        snapshot = await execution.snapshot(book.deployment_id)
-        if (
-            _stranded(snapshot)
-            and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
-        ):
-            # A closed book still resting a stray exit order: cancel it (nothing is sold, the
-            # book holds nothing). The worker carries this out; a later read settles the book.
-            _logger.warning(
-                "desk_book_stranded_orders desk_id=%s deployment_id=%s",
-                desk.desk_id,
-                book.deployment_id,
-            )
-            snapshot = await execution.stop_book(book.deployment_id, flatten=True)
-        if not _flat(snapshot) or not _evidence_final(snapshot):
+        snapshot = await _closed_book(desk, book, execution=execution)
+        if snapshot is None:
             continue
-        if snapshot.deployment.status is not DeploymentStatus.STOPPED:
-            snapshot = await execution.stop_book(book.deployment_id, flatten=False)
-            if not _flat(snapshot) or snapshot.deployment.status is not DeploymentStatus.STOPPED:
-                continue
         value = book_value(book, snapshot, None)
         if value is None:
             continue
@@ -604,6 +592,87 @@ def _position_view(
     )
 
 
+async def _closed_book(
+    desk: Desk, book: DeskBook, *, execution: DeskExecution
+) -> DeploymentSnapshot | None:
+    """The book stopped and flat with final evidence, ready to settle, or None for now.
+
+    The desk acts on evidence, not on fault text: an order whose venue state is pending or
+    unknown, a venue child not yet imported, or fills and cancels not yet final hold the book
+    whatever its fault says. A running or paused book is settled through a stop bound to the
+    revision checked here, so a fault or fill written after it refuses the stop. A book already
+    stopped is settled without a write when it carries no fault (a re-read confirms the revision
+    and the evidence, so the worker's own fenced writes never conflict with the desk); a stopped
+    book whose fault remains is stopped again to clear it, keeping a flatten command it carries.
+    """
+    try:
+        snapshot = await execution.snapshot(book.deployment_id)
+    except ExecutionStoreError as error:
+        _logger.warning(
+            "desk_book_read_deferred deployment_id=%s type=%s",
+            book.deployment_id,
+            type(error).__name__,
+        )
+        return None
+    if (
+        _stranded(book, snapshot)
+        and snapshot.deployment.lifecycle_command is not LifecycleCommand.FLATTEN
+    ):
+        # A closed book still resting a stray exit order. The worker's flatten cancels it on
+        # its next cycle; a later read settles the book. If the stray order fills first, the
+        # fill cannot be projected onto the closed book, so it holds settlement for repair.
+        _logger.warning(
+            "desk_book_stranded_orders desk_id=%s deployment_id=%s",
+            desk.desk_id,
+            book.deployment_id,
+        )
+        snapshot = await _stop(execution, book, snapshot, flatten=True)
+        if snapshot is None:
+            return None
+    if not _flat(snapshot):
+        return None
+    if not _evidence_final(snapshot):
+        _logger.info("desk_book_settlement_held deployment_id=%s", book.deployment_id)
+        return None
+    deployment = snapshot.deployment
+    if deployment.status is DeploymentStatus.STOPPED and deployment.mismatch_detail is None:
+        return await _unchanged(execution, book, snapshot)
+    flattening = deployment.lifecycle_command is LifecycleCommand.FLATTEN
+    snapshot = await _stop(execution, book, snapshot, flatten=flattening)
+    if (
+        snapshot is None
+        or not _flat(snapshot)
+        or not _evidence_final(snapshot)
+        or snapshot.deployment.status is not DeploymentStatus.STOPPED
+    ):
+        return None
+    return snapshot
+
+
+async def _unchanged(
+    execution: DeskExecution, book: DeskBook, checked: DeploymentSnapshot
+) -> DeploymentSnapshot | None:
+    """Re-read a stopped book: settle only if it is unchanged and still closed and clean.
+
+    Order rows can change without a revision bump, so the evidence is checked again too.
+    """
+    try:
+        current = await execution.snapshot(book.deployment_id)
+    except ExecutionStoreError:
+        return None
+    deployment = current.deployment
+    if (
+        deployment.revision != checked.deployment.revision
+        or deployment.status is not DeploymentStatus.STOPPED
+        or deployment.mismatch_detail is not None
+        or not _flat(current)
+        or not _evidence_final(current)
+    ):
+        _logger.warning("desk_book_stop_deferred deployment_id=%s", book.deployment_id)
+        return None
+    return current
+
+
 def _flat(snapshot: DeploymentSnapshot) -> bool:
     """No position, no working order, and a flat phase."""
     return (
@@ -614,30 +683,77 @@ def _flat(snapshot: DeploymentSnapshot) -> bool:
     )
 
 
-def _stranded(snapshot: DeploymentSnapshot) -> bool:
-    """A closed book (complete fills net to zero, flat, no position) resting only exit orders."""
-    if snapshot.position is not None or snapshot.positions or not snapshot.fills:
+async def _stop(
+    execution: DeskExecution, book: DeskBook, checked: DeploymentSnapshot, *, flatten: bool
+) -> DeploymentSnapshot | None:
+    """Stop the revision just checked, or None when it changed; the next read re-checks it."""
+    try:
+        return await execution.stop_book(
+            book.deployment_id, flatten=flatten, expected_revision=checked.deployment.revision
+        )
+    except (ExecutionConflictError, ExecutionStoreError) as error:
+        _logger.warning(
+            "desk_book_stop_deferred deployment_id=%s flatten=%s type=%s",
+            book.deployment_id,
+            flatten,
+            type(error).__name__,
+        )
+        return None
+
+
+def _stranded(book: DeskBook, snapshot: DeploymentSnapshot) -> bool:
+    """A closed book (final evidence, complete accounting, net zero, flat) resting stray exits.
+
+    Every resting order must be confirmed open, reduce the book's side and be an exit: an
+    exit intent, or a venue-attached child of the entry. Anything that could add inventory, or
+    an order whose venue state is pending or unknown (as after a failed venue read), keeps the
+    book open.
+    """
+    if snapshot.position is not None or snapshot.positions:
         return False
-    if snapshot.deployment.phase is not RuntimePhase.FLAT or net_quantity(snapshot) != 0:
+    if snapshot.deployment.phase is not RuntimePhase.FLAT:
         return False
-    if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
-        return False  # recorded fills may not tell the whole story yet: never flatten blind
-    entries = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
+    if not _evidence_final(snapshot):
+        return False  # recorded fills or cancels may not tell the whole story yet
+    purposes = {intent.id: intent.purpose for intent in snapshot.intents}
+    reducing = OrderSide.SELL if book.side == "long" else OrderSide.BUY
     resting = [order for order in snapshot.orders if order.status in _ACTIVE_ORDERS]
-    # A venue-attached exit shares its entry's intent but is protection, not a working entry.
     return bool(resting) and all(
-        order.intent_id not in entries or is_venue_protection(order.kind) for order in resting
+        order.status is OrderStatus.OPEN
+        and order.side is reducing
+        and _exit_order(order, purposes.get(order.intent_id))
+        for order in resting
     )
 
 
-def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
-    """Every execution is applied and, live, every cancel is past its settlement watermark.
+def _exit_order(order: Order, purpose: IntentPurpose | None) -> bool:
+    """An exit intent's order, or venue protection attached under the entry's intent."""
+    if purpose is None or purpose in INVENTORY_OPENING_PURPOSES:
+        return (
+            purpose is IntentPurpose.ENTRY
+            and is_venue_protection(order.kind)
+            and order.parent_order_id is not None
+        )
+    return True
 
-    A FILLED order whose fills are not all recorded and applied, or applied inventory the
-    position does not show, would settle cash the book still spends. A live cancel can still be
-    followed by a fill until reconciliation settles it (ADR 0141); paper cancels are final.
+
+def _evidence_final(snapshot: DeploymentSnapshot) -> bool:
+    """The book's records are complete and final enough to settle or flatten on.
+
+    Accounting must be complete and the fills must net to zero. A FILLED order whose fills are
+    not all recorded and applied, or applied inventory the position does not show, would settle
+    cash the book still spends. A venue child the parent names but that is not imported yet
+    may still rest at the venue. A live cancel can still be followed by a fill until
+    reconciliation settles it (ADR 0141); paper cancels are final.
     """
+    if not snapshot.accounting_complete or net_quantity(snapshot) != 0:
+        return False
     if unsettled_fill_evidence(snapshot) or unprojected_inventory_products(snapshot):
+        return False
+    if any(
+        order.attached_child_venue_order_id and child_order_for(snapshot, order) is None
+        for order in snapshot.orders
+    ):
         return False
     if snapshot.deployment.mode is not DeploymentMode.LIVE:
         return True

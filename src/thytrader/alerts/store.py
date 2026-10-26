@@ -6,7 +6,13 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import uuid4
 
-from thytrader.alerts.models import AlertCheck, OperatorAlert, clip_alert_text, new_alert
+from thytrader.alerts.models import (
+    AlertCheck,
+    AlertSeverity,
+    OperatorAlert,
+    clip_alert_text,
+    new_alert,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -78,6 +84,12 @@ class AlertStore(Protocol):
         """Return a bounded operator feed, open first then recent resolutions."""
         ...
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        ...
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -91,19 +103,37 @@ class AlertStore(Protocol):
         ...
 
     async def finish_delivery(
-        self, alert_id: UUID, token: UUID, *, status: str, detail: str
+        self,
+        alert_id: UUID,
+        token: UUID,
+        *,
+        status: str,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
-        """Acknowledge only the currently owned claim, without changing evidence age."""
+        """Acknowledge only the currently owned claim, without changing evidence age.
+
+        A send that completes after its alert resolved is still acknowledged: the recipient
+        got it, and a returning entry block must see that its episode was paged. A successful
+        send records the severity it carried as ``covered_severity``.
+        """
         ...
 
     async def skip_delivery(
-        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+        self,
+        alert_id: UUID,
+        *,
+        provider: str,
+        now: datetime,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
         """Record a deliberate skip without spending a retry slot (ADR 0139).
 
         Only an open ``pending`` or ``skipped`` row with no active claim changes; ``failed``
         evidence is preserved. A later change of configuration can still deliver a skipped row
-        with its full attempt budget.
+        with its full attempt budget. A continuation skip passes the severity its episode's
+        page covered.
         """
         ...
 
@@ -194,6 +224,13 @@ class InMemoryAlertStore:
         rows = [row for rows in self.history.values() for row in rows]
         return _ordered_for_report(rows)[:limit]
 
+    async def list_resolved(
+        self, code: str, subject: str, *, limit: int
+    ) -> tuple[OperatorAlert, ...]:
+        """Return one identity's resolved rows, most recently resolved first."""
+        rows = [row for row in self.history.get((code, subject), ()) if not row.is_open]
+        return _ordered_for_report(rows)[:limit]
+
     async def claim_delivery(
         self,
         alert_id: UUID,
@@ -240,7 +277,13 @@ class InMemoryAlertStore:
         return None
 
     async def skip_delivery(
-        self, alert_id: UUID, *, provider: str, now: datetime, detail: str
+        self,
+        alert_id: UUID,
+        *,
+        provider: str,
+        now: datetime,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
         """Mark an open, unclaimed, undelivered row skipped without spending an attempt.
 
@@ -262,23 +305,32 @@ class InMemoryAlertStore:
                 delivery_detail=clip_alert_text(detail),
                 delivery_token=None,
                 delivery_expires_at=None,
+                covered_severity=covered_severity or row.covered_severity,
             )
             return
 
     async def finish_delivery(
-        self, alert_id: UUID, token: UUID, *, status: str, detail: str
+        self,
+        alert_id: UUID,
+        token: UUID,
+        *,
+        status: str,
+        detail: str,
+        covered_severity: AlertSeverity | None = None,
     ) -> None:
-        """Ignore delayed callbacks that lost their claim or whose alert resolved."""
+        """Ignore delayed callbacks that lost their claim; a resolved row still records one."""
         for rows in self.history.values():
-            row = rows[-1]
-            if row.id == alert_id and row.is_open and row.delivery_token == token:
-                rows[-1] = replace(
-                    row,
-                    delivery_status=status,
-                    delivery_detail=clip_alert_text(detail),
-                    delivery_token=None,
-                    delivery_expires_at=None,
-                )
+            for index, row in enumerate(rows):
+                if row.id == alert_id and row.delivery_token == token:
+                    rows[index] = replace(
+                        row,
+                        delivery_status=status,
+                        delivery_detail=clip_alert_text(detail),
+                        delivery_token=None,
+                        delivery_expires_at=None,
+                        covered_severity=covered_severity or row.covered_severity,
+                    )
+                    return
 
 
 def _ordered_for_report(rows: Sequence[OperatorAlert]) -> tuple[OperatorAlert, ...]:

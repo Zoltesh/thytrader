@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
 
+from thytrader.alerts import service as alert_service_module
 from thytrader.alerts.models import (
     AlertCheck,
     AlertCode,
@@ -402,3 +404,244 @@ async def test_a_lasting_entry_block_is_sent_by_dispatch_alone_after_the_grace()
     assert [record.title for record in sender.delivered] == [
         "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
     ]
+
+
+async def test_a_flapping_entry_block_is_paged_once_for_its_episode() -> None:
+    """Blocked 3 of every 4 minutes for an hour: one page, not none and not one per return."""
+    await assert_flapping_block_pages_once(InMemoryAlertStore())
+
+
+@pytest.mark.parametrize(("crowd", "minutes"), [(250, 60), (0, 900)])
+async def test_a_flapping_entry_block_is_paged_once_however_crowded_or_long(
+    crowd: int, minutes: int
+) -> None:
+    """Other open alerts, or a flap lasting many hours, never lose or repeat the episode page."""
+    await assert_flapping_block_pages_once(InMemoryAlertStore(), crowd=crowd, minutes=minutes)
+
+
+async def assert_flapping_block_pages_once(
+    store: AlertStore, *, crowd: int = 0, minutes: int = 60
+) -> None:
+    """A block that keeps returning within the grace is one episode, paged once."""
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(), min_severity=lambda: "critical"
+    )
+    others = tuple(
+        replace(_finding(), subject=f"crowd-{index}", severity=AlertSeverity.WARNING)
+        for index in range(crowd)
+    )
+    await service.apply(others, now=_NOW - timedelta(minutes=1))
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for minute in range(minutes):
+        now = _NOW + timedelta(minutes=minute)
+        if minute % 4 == 3:
+            await service.apply((), now=now, evaluated=(check,))
+        else:
+            await service.apply((block,), now=now)
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
+    rows = await store.list_resolved(block.code.value, block.subject, limit=minutes)
+    assert len(rows) == minutes // 4
+    assert {row.delivery_status for row in rows} == {"delivered", "skipped", "pending"}
+
+
+async def test_an_entry_block_escalated_past_its_page_is_paged_again() -> None:
+    """A warning page does not cover the same block returning as critical."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    warning = replace(_entry_block(), severity=AlertSeverity.WARNING)
+    check = AlertCheck(warning.code, warning.subject)
+    for minute in range(7):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    await service.apply((), now=_NOW + timedelta(minutes=7), evaluated=(check,))
+    await service.apply((_entry_block(),), now=_NOW + timedelta(minutes=8))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
+    ]
+
+
+async def test_a_flap_that_fills_the_history_window_still_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A walk that uses up the window cannot let the episode start slide forward forever."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 20)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for step in range(200):
+        start = _NOW + timedelta(seconds=6 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.dispatch_pending(now=start + timedelta(seconds=2))
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
+
+
+async def test_a_window_that_is_exactly_full_does_not_page_early(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only a row beyond the window makes the episode's start unknown."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 20)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    for step in range(20):
+        start = _NOW + timedelta(seconds=6 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=120))
+    assert sender.delivered == []
+    await service.apply((), now=_NOW + timedelta(seconds=125), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=126))
+    assert len(sender.delivered) == 1
+
+
+async def test_a_row_past_the_window_after_a_gap_does_not_page_early(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The extra row counts only if it still joins the episode, not if a gap separates it."""
+    monkeypatch.setattr(alert_service_module, "_EPISODE_HISTORY", 3)
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(
+        store, sender, thresholds=AlertThresholds(entry_block_grace_seconds=3600)
+    )
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    earlier = _NOW - timedelta(hours=5)
+    await service.apply((block,), now=earlier, dispatch=False)
+    await service.apply((), now=earlier + timedelta(seconds=5), evaluated=(check,))
+    for step in range(3):
+        start = _NOW + timedelta(seconds=15 * step)
+        await service.apply((block,), now=start, dispatch=False)
+        await service.apply((), now=start + timedelta(seconds=5), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=45))
+    assert sender.delivered == []
+
+
+async def test_an_in_place_severity_change_pages_by_what_was_sent() -> None:
+    """Coverage is the severity sent: an escalation pages on return, a downgrade never does."""
+    await assert_severity_changes_page_by_coverage(InMemoryAlertStore())
+
+
+async def assert_severity_changes_page_by_coverage(store: AlertStore) -> None:
+    """A warning page escalated in place, then a critical page downgraded in place."""
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    critical = _entry_block()
+    warning = replace(critical, severity=AlertSeverity.WARNING)
+    check = AlertCheck(critical.code, critical.subject)
+    for minute in range(7):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=7))
+    await service.apply((), now=_NOW + timedelta(minutes=8), evaluated=(check,))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=9))
+    await service.apply((warning,), now=_NOW + timedelta(minutes=10))
+    await service.apply((), now=_NOW + timedelta(minutes=11), evaluated=(check,))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=12))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
+    ]
+    downgraded = (await store.list_resolved(critical.code.value, critical.subject, limit=1))[0]
+    assert downgraded.severity is AlertSeverity.WARNING
+    assert downgraded.covered_severity is AlertSeverity.CRITICAL
+    returned = (await store.list_open_alerts())[0]
+    assert returned.delivery_status == "skipped"
+    assert returned.covered_severity is AlertSeverity.CRITICAL
+
+
+async def test_a_row_sent_before_coverage_was_recorded_covers_nothing() -> None:
+    """Unknown coverage never trusts the observed severity: a duplicate page, never a miss."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    await service.apply((block,), now=_NOW, dispatch=False)
+    identity = (block.code.value, block.subject)
+    store.history[identity][-1] = replace(store.history[identity][-1], delivery_status="delivered")
+    await service.apply((), now=_NOW + timedelta(minutes=6), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(minutes=7))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED"
+    ]
+
+
+async def test_a_continuation_that_escalates_before_delivery_still_pages() -> None:
+    """A return skipped under a warning page that turns critical is paged, not covered."""
+    store = InMemoryAlertStore()
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = AlertService(store, sender, thresholds=AlertThresholds())
+    critical = _entry_block()
+    warning = replace(critical, severity=AlertSeverity.WARNING)
+    check = AlertCheck(critical.code, critical.subject)
+    for minute in range(6):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    await service.apply((), now=_NOW + timedelta(minutes=6), evaluated=(check,))
+    await service.apply((warning,), now=_NOW + timedelta(minutes=7))
+    await service.apply((critical,), now=_NOW + timedelta(minutes=8), dispatch=False)
+    await service.apply((), now=_NOW + timedelta(minutes=9), evaluated=(check,), dispatch=False)
+    await service.apply((critical,), now=_NOW + timedelta(minutes=10))
+    assert [record.title for record in sender.delivered] == [
+        "[thytrader] WARNING: FLEET_ENTRIES_BLOCKED",
+        "[thytrader] CRITICAL: FLEET_ENTRIES_BLOCKED",
+    ]
+
+
+async def test_a_send_acknowledged_after_recovery_still_covers_its_episode() -> None:
+    """A return waits for an in-flight page; once acknowledged, that page covers it."""
+    store = InMemoryAlertStore()
+    sender = _BlockingSender()
+    service = _service(store, sender)
+    block = _entry_block()
+    check = AlertCheck(block.code, block.subject)
+    await service.apply((block,), now=_NOW, dispatch=False)
+    sending = asyncio.create_task(service.dispatch_pending(now=_NOW + timedelta(seconds=300)))
+    await sender.started.wait()
+    await service.apply((), now=_NOW + timedelta(seconds=301), evaluated=(check,))
+    await service.apply((block,), now=_NOW + timedelta(seconds=302))
+    assert len(sender.delivered) == 1
+    sender.release.set()
+    await sending
+    await service.dispatch_pending(now=_NOW + timedelta(seconds=303))
+    assert len(sender.delivered) == 1
+    paged = (await store.list_resolved(block.code.value, block.subject, limit=1))[0]
+    assert paged.delivery_status == "logged"
+    returned = (await store.list_open_alerts())[0]
+    assert returned.delivery_status == "skipped"
+    assert returned.delivery_detail.startswith("continues an entry-block episode")
+    assert returned.covered_severity is AlertSeverity.CRITICAL
+
+
+async def test_an_entry_block_with_delivery_off_records_skipped_at_once() -> None:
+    """With no notifier the grace has nothing to hold: the row says delivery is disabled."""
+    store = InMemoryAlertStore()
+    service = AlertService(
+        store,
+        DisabledNotificationSender(),
+        thresholds=AlertThresholds(),
+        min_severity=lambda: "critical",
+    )
+    block = _entry_block()
+    await service.apply((block,), now=_NOW)
+    await service.apply(
+        (), now=_NOW + timedelta(seconds=90), evaluated=(AlertCheck(block.code, block.subject),)
+    )
+    row = (await store.list_alerts(limit=1))[0]
+    assert row.delivery_status == "skipped"
+    assert row.delivery_detail == DELIVERY_DISABLED_DETAIL

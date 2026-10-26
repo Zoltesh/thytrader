@@ -126,6 +126,8 @@ class OperatorAlert:
     delivery_detail: str = ""
     delivery_token: UUID | None = None
     delivery_expires_at: datetime | None = None
+    # Severity a successful page (or the page a continuation skip relies on) actually covered.
+    covered_severity: AlertSeverity | None = None
 
     @property
     def is_open(self) -> bool:

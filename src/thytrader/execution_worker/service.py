@@ -377,7 +377,6 @@ async def _run_cycle(
                 store=store,
                 market_data=market_data,
                 policy=policy,
-                observed_at=cycle_started_at,
             )
     return _cycle_report(
         timer, deployments, book_failures=len(cycle_failures), shared_reads=reads.hits

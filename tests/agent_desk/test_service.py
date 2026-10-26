@@ -33,6 +33,7 @@ from thytrader.agent_desk.service import (
 )
 from thytrader.agent_desk.store import DeskStoreUnavailableError, InMemoryDeskStore
 from thytrader.execution.discretionary import place_discretionary_order
+from thytrader.execution.exit_guards import CANCEL_BEFORE_EXIT_DETAIL, FLAT_AFTER_FAULT_DETAIL
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.service import set_deployment_status
 from thytrader.market_data.demo import DemoMarketData
@@ -49,6 +50,7 @@ from thytrader.trading.models import (
     IntentOrigin,
     IntentPurpose,
     LifecycleCommand,
+    Order,
     OrderSide,
     OrderStatus,
     RuntimePhase,
@@ -114,7 +116,9 @@ class _Execution:
         intent = await self.store.get_intent_by_idempotency_key(idempotency_key)
         return None if intent is None else str(intent.deployment_id)
 
-    async def stop_book(self, deployment_id: str, *, flatten: bool) -> DeploymentSnapshot:
+    async def stop_book(
+        self, deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
         """Stop one book."""
         return await set_deployment_status(
             store=self.store,
@@ -122,6 +126,7 @@ class _Execution:
             status=DeploymentStatus.STOPPED,
             publication_store=DisabledStrategySnapshotStore(),
             flatten=flatten,
+            expected_revision=expected_revision,
         )
 
     async def fee_rates(self) -> tuple[Decimal, Decimal] | None:
@@ -694,9 +699,10 @@ def test_the_newer_close_wins_between_the_hourly_row_and_the_book_clock() -> Non
     assert newest_marks(rows, fast) == {"BTC-USD": Decimal(95)}
 
 
-async def test_a_closed_book_resting_a_stray_exit_is_flattened_then_settled() -> None:
-    """A stopped-out book whose take-profit still rests is cleaned up by the desk itself."""
-    store, execution, desk_id = await _desk()
+async def _stopped_out_book(
+    store: InMemoryDeskStore, execution: _Execution, desk_id: str
+) -> tuple[DeploymentSnapshot, Order]:
+    """A book whose stop exit filled while its take-profit still rests: the stray order."""
     wake = await _wake(store, execution, desk_id, _open(fraction="0.1"))
     book = await execution.snapshot(wake.deployment_id or "")
     entry_fill = book.fills[0]
@@ -713,10 +719,26 @@ async def test_a_closed_book_resting_a_stray_exit_is_flattened_then_settled() ->
     await execution.store.save_deployment(
         with_runtime(book.deployment, updated_at=datetime.now(UTC), phase=RuntimePhase.FLAT)
     )
+    return await execution.snapshot(wake.deployment_id or ""), stray
+
+
+async def _flattened(
+    store: InMemoryDeskStore, execution: _Execution, desk_id: str, book: DeploymentSnapshot
+) -> bool:
+    """Read the desk once and say whether it asked the worker to flatten ``book``."""
+    await briefing(desk_id, store=store, execution=execution, market_data=execution.market_data)
+    after = await execution.snapshot(str(book.deployment.id))
+    return after.deployment.lifecycle_command is LifecycleCommand.FLATTEN
+
+
+async def test_a_closed_book_resting_a_stray_exit_is_flattened_then_settled() -> None:
+    """A stopped-out book whose take-profit still rests is cleaned up by the desk itself."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
     first = await briefing(
         desk_id, store=store, execution=execution, market_data=execution.market_data
     )
-    flattening = await execution.snapshot(wake.deployment_id or "")
+    flattening = await execution.snapshot(str(book.deployment.id))
     assert flattening.deployment.lifecycle_command is LifecycleCommand.FLATTEN
     assert first.desk.cash == Decimal(9000)
     # The worker carries out the flatten: the stray order is cancelled, nothing is sold.
@@ -726,7 +748,243 @@ async def test_a_closed_book_resting_a_stray_exit_is_flattened_then_settled() ->
     )
     assert second.desk.open_positions == 0
     # Exited at the entry price: the round trip cost exactly the two fees.
-    assert second.desk.cash == Decimal(10000) - 2 * entry_fill.fee
+    assert second.desk.cash == Decimal(10000) - 2 * book.fills[0].fee
+
+
+async def test_a_resting_order_that_could_add_inventory_is_never_flattened() -> None:
+    """A resting buy on a long book, or an entry-purpose order, is not a stray exit."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, side=OrderSide.BUY))
+    assert not await _flattened(store, execution, desk_id, book)
+    entry_intent = next(i for i in book.intents if i.purpose is IntentPurpose.ENTRY)
+    await execution.store.save_order(replace(stray, intent_id=entry_intent.id))
+    assert not await _flattened(store, execution, desk_id, book)
+
+
+_RETAINED_FAULTS = [
+    CANCEL_BEFORE_EXIT_DETAIL,
+    FLAT_AFTER_FAULT_DETAIL,
+    "Market-data window is gapped or missing the latest closed bar.",
+    "Order reconciliation is unconfirmed: order read failed.",
+]
+
+
+@pytest.mark.parametrize("fault", _RETAINED_FAULTS)
+async def test_a_retained_fault_never_strands_a_closed_book(fault: str) -> None:
+    """A closed book with final evidence is flattened whatever fault the worker left on it."""
+    store, execution, desk_id = await _desk()
+    book, _ = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_deployment(replace(book.deployment, mismatch_detail=fault))
+    assert await _flattened(store, execution, desk_id, book)
+
+
+@pytest.mark.parametrize("status", [DeploymentStatus.RUNNING, DeploymentStatus.STOPPED])
+@pytest.mark.parametrize("fault", _RETAINED_FAULTS)
+async def test_a_flat_book_with_a_retained_fault_still_settles(
+    fault: str, status: DeploymentStatus
+) -> None:
+    """With every order terminal and evidence final, a leftover fault never locks pool cash.
+
+    The settlement's stop clears it, even on a book that was already stopped.
+    """
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    faulted = await execution.snapshot(str(book.deployment.id))
+    await execution.store.save_deployment(
+        replace(faulted.deployment, status=status, mismatch_detail=fault)
+    )
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 0
+    assert shown.desk.cash == Decimal(10000) - 2 * book.fills[0].fee
+    settled = await execution.snapshot(str(book.deployment.id))
+    assert settled.deployment.status is DeploymentStatus.STOPPED
+    assert settled.deployment.mismatch_detail is None
+
+
+async def _stopped_clean_book(
+    store: InMemoryDeskStore, execution: _Execution, desk_id: str, **runtime: object
+) -> DeploymentSnapshot:
+    """A stopped-out book whose stray exit is cancelled, stopped with ``runtime`` fields."""
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    current = await execution.snapshot(str(book.deployment.id))
+    await execution.store.save_deployment(
+        replace(current.deployment, status=DeploymentStatus.STOPPED, **runtime)
+    )
+    return await execution.snapshot(str(book.deployment.id))
+
+
+async def test_a_stopped_book_without_a_fault_settles_without_a_write() -> None:
+    """No write races the worker's fenced writes on a book that needs nothing changed."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(store, execution, desk_id)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 0
+    after = await execution.snapshot(str(stopped.deployment.id))
+    assert after.deployment.revision == stopped.deployment.revision
+
+
+async def test_a_flattening_book_with_a_fault_settles_and_keeps_its_flatten() -> None:
+    """The desk clears the fault itself and keeps the flatten command, never waiting on a worker."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(
+        store,
+        execution,
+        desk_id,
+        lifecycle_command=LifecycleCommand.FLATTEN,
+        mismatch_detail="Live broker is unavailable.",
+    )
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 0
+    after = await execution.snapshot(str(stopped.deployment.id))
+    assert after.deployment.lifecycle_command is LifecycleCommand.FLATTEN
+    assert after.deployment.mismatch_detail is None
+
+
+async def test_an_order_turning_unknown_between_reads_defers_a_stopped_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Order rows change without a revision bump, so the re-read checks the evidence again."""
+    store, execution, desk_id = await _desk()
+    stopped = await _stopped_clean_book(store, execution, desk_id)
+    read = execution.snapshot
+    reads = 0
+
+    async def read_fails_between(deployment_id: str) -> DeploymentSnapshot:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            order = next(o for o in stopped.orders if o.status is OrderStatus.CANCELED)
+            await execution.store.save_order(replace(order, status=OrderStatus.UNKNOWN))
+        return await read(deployment_id)
+
+    monkeypatch.setattr(execution, "snapshot", read_fails_between)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 1
+
+
+async def test_a_write_after_the_check_defers_a_stopped_settlement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The re-read fences the settlement: a worker write in between defers it to a later read."""
+    store, execution, desk_id = await _desk()
+    await _stopped_clean_book(store, execution, desk_id)
+    read = execution.snapshot
+    reads = 0
+
+    async def worker_writes_between(deployment_id: str) -> DeploymentSnapshot:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            current = await read(deployment_id)
+            await execution.store.save_deployment(current.deployment)
+        return await read(deployment_id)
+
+    monkeypatch.setattr(execution, "snapshot", worker_writes_between)
+    shown = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert shown.desk.open_positions == 1
+
+
+async def test_a_venue_child_not_yet_imported_holds_settlement() -> None:
+    """A parent naming a venue child with no local row may still rest an order at the venue."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=OrderStatus.CANCELED))
+    exit_order = next(order for order in book.orders if order.client_order_id == "stop")
+    await execution.store.save_order(
+        replace(exit_order, attached_child_venue_order_id="venue-child-not-imported")
+    )
+    held = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert held.desk.open_positions == 1
+    child = replace(
+        stray,
+        id=uuid4(),
+        client_order_id="imported-child",
+        venue_order_id="venue-child-not-imported",
+        parent_order_id=exit_order.id,
+        status=OrderStatus.CANCELED,
+    )
+    await execution.store.save_order(child)
+    settled = await briefing(
+        desk_id, store=store, execution=execution, market_data=execution.market_data
+    )
+    assert settled.desk.open_positions == 0
+
+
+@pytest.mark.parametrize("status", [OrderStatus.PENDING, OrderStatus.UNKNOWN])
+async def test_a_stray_order_of_unknown_venue_state_holds_the_flatten(
+    status: OrderStatus,
+) -> None:
+    """Only an exit the venue confirmed open is cancelled; an unconfirmed one may have filled."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_order(replace(stray, status=status))
+    assert not await _flattened(store, execution, desk_id, book)
+
+
+async def test_the_flatten_is_bound_to_the_revision_the_desk_checked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fault the worker writes after the desk's read refuses the stop instead of clearing."""
+    store, execution, desk_id = await _desk()
+    book, _ = await _stopped_out_book(store, execution, desk_id)
+    stop_book = execution.stop_book
+
+    async def worker_wins(
+        deployment_id: str, *, flatten: bool, expected_revision: int | None = None
+    ) -> DeploymentSnapshot:
+        current = await execution.snapshot(deployment_id)
+        await execution.store.save_deployment(
+            replace(current.deployment, mismatch_detail="Venue order read failed.")
+        )
+        return await stop_book(deployment_id, flatten=flatten, expected_revision=expected_revision)
+
+    monkeypatch.setattr(execution, "stop_book", worker_wins)
+    assert not await _flattened(store, execution, desk_id, book)
+    kept = await execution.snapshot(str(book.deployment.id))
+    assert kept.deployment.mismatch_detail == "Venue order read failed."
+
+
+async def test_a_live_cancel_before_its_watermark_holds_the_flatten() -> None:
+    """A live cancel can still reveal a fill: keep the exit resting until it settles."""
+    store, execution, desk_id = await _desk()
+    book, stray = await _stopped_out_book(store, execution, desk_id)
+    await execution.store.save_deployment(replace(book.deployment, mode=DeploymentMode.LIVE))
+    remainder = replace(stray, id=uuid4(), client_order_id="rest", status=OrderStatus.CANCELED)
+    await execution.store.save_order(remainder)
+    assert not await _flattened(store, execution, desk_id, book)
+    await execution.store.save_order(replace(remainder, settled_at=datetime.now(UTC)))
+    assert await _flattened(store, execution, desk_id, book)
+
+
+async def test_a_lost_stop_race_never_fails_a_read_or_a_wake(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the worker wins the write, the desk skips the book and retries on its next read."""
+    store, execution, desk_id = await _desk()
+    book, _ = await _stopped_out_book(store, execution, desk_id)
+
+    async def racing(*_: object, **__: object) -> DeploymentSnapshot:
+        raise ExecutionConflictError("Deployment revision conflict.")
+
+    monkeypatch.setattr(execution, "stop_book", racing)
+    assert not await _flattened(store, execution, desk_id, book)
+    wake = await _wake(store, execution, desk_id, {"action": "no_trade", "thesis": "wait"})
+    assert wake.outcome is WakeOutcome.APPLIED, wake.detail
 
 
 async def test_a_book_with_unapplied_fills_is_never_flattened_as_stranded() -> None:

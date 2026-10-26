@@ -360,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v108`, schema revision `0080`) and exits on any
+   this checkout's (`thytrader-ops-contract-v109`, schema revision `0081`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -600,7 +600,17 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   `alert_entry_block_grace_seconds` (env `THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS` in `.env`,
   passed to the Compose services; default 300; 0 sends at once; recreate the stack to apply).
   A one-poll venue read blip that clears inside the grace is never
-  paged. Exits continue during any entry block; other alerts are never delayed.
+  paged. A block that clears and returns within the grace continues the same episode: the
+  episode is paged once when it has lasted the grace, and its later returns are not paged
+  again; one still open when the delivery task runs is recorded `skipped` ("continues an
+  entry-block episode already sent (see alert ...)"). A return at a higher severity than the
+  page (warning, then critical) is paged. An open row that escalates in place after its page
+  is not re-sent until it clears and returns, so read `alerts` for the current severity.
+  Rare exceptions page an episode early or a second time, never miss it: an episode with more
+  than 500 returns, or one spanning the Alembic `0081` upgrade (ADR 0115).
+  While waiting
+  out the grace the row shows `delivery.status` `pending`. With notifications off it is
+  `skipped` at once. Exits continue during any entry block; other alerts are never delayed.
 
 The same `entries` object is `fleet_entries` in `readiness` and `risk`. Report the blocking
 record to the user. This lane never repairs records or resets breakers: a repair is a person's
