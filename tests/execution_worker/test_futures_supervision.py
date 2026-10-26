@@ -361,3 +361,26 @@ async def test_cycle_clock_reaches_the_observer_of_a_book_started_mid_cycle(
         for row in await alerts.list_open_alerts()
         if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
     ]
+
+
+async def test_a_book_listed_after_the_pass_start_is_not_future_dated() -> None:
+    """Without any receipt, a book created after the pass start but listed by it gets the grace."""
+    store = await _flat_live_store(created_at=_AT + timedelta(seconds=1))
+    alerts = InMemoryAlertStore()
+    calls: list[datetime] = []
+
+    def clock() -> datetime:
+        """The pass starts before the book exists; the evidence is judged after listing it."""
+        calls.append(_AT if not calls else _AT + timedelta(seconds=2))
+        return calls[-1]
+
+    with risk_futures_account_scope(_Store(None)):
+        result = await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=clock
+        )
+    assert result == "observed"
+    assert not [
+        row
+        for row in await alerts.list_open_alerts()
+        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
+    ]
