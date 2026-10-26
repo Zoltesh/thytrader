@@ -24,6 +24,7 @@ from tests.fleet_incident_support import (
     repair_legacy_order,
     seeded_store,
 )
+from tests.worker_patching import patch_worker_global
 from thytrader.alerts.models import AlertCode, AlertScope, AlertSeverity
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
@@ -153,6 +154,23 @@ async def test_incident_raises_one_critical_alert_and_resolves_after_repair() ->
     assert await feed.list_open_alerts() == ()
     (resolved,) = feed.history[(AlertCode.FLEET_ENTRIES_BLOCKED.value, "fleet:live:USDC")]
     assert resolved.resolved_at == INCIDENT_AT + timedelta(seconds=60)
+
+
+async def test_fleet_pass_reads_the_patched_worker_clock_without_a_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without ``clock`` the pass reads the worker's ``utc_now`` at call time, not import time."""
+    patch_worker_global(monkeypatch, "utc_now", lambda: INCIDENT_AT)
+    store = await seeded_store()
+    feed, alerts = _alerts()
+    await _supervise_fleet_entries(
+        alert_service=alerts,
+        store=store,
+        market_data=MarketDataService(DemoMarketData()),
+        policy=incident_policy(),
+    )
+    (alert,) = await feed.list_open_alerts()
+    assert alert.first_seen_at == INCIDENT_AT
 
 
 async def test_incident_fails_health_and_shows_in_every_report() -> None:

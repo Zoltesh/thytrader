@@ -20,6 +20,7 @@ from thytrader.audit_events import (
     AuditEventOutcome,
     InMemoryAuditEventStore,
 )
+from thytrader.execution import fleet_entry_evidence
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.futures_live import (
     FuturesLiveAccount,
@@ -254,11 +255,19 @@ async def test_a_slow_pass_never_resolves_a_newer_failure() -> None:
         )
     venue = FakeVenue()
     venue.now, venue.threshold = _AT + timedelta(seconds=1), Decimal(0)
-    ticks = iter((_AT, _AT + timedelta(seconds=3)))
+    calls: list[datetime] = []
+
+    def slow_clock() -> datetime:
+        """The pass starts at _AT; every later reading is after the slow read returned."""
+        calls.append(_AT if not calls else _AT + timedelta(seconds=3))
+        return calls[-1]
+
     with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
-        await futures_supervision.supervise_futures(
-            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: next(ticks)
+        result = await futures_supervision.supervise_futures(
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=slow_clock
         )
+    assert result == "observed"
+    assert len(calls) == 2
     assert any(
         row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for row in await alerts.list_open_alerts()
     )
@@ -290,25 +299,27 @@ async def test_a_receipt_later_than_the_judged_time_still_pages() -> None:
 
 
 async def test_observer_reuses_the_book_loop_read_and_judges_it_after_the_pass() -> None:
-    """The cycle's shared receipt is reused, not re-read, and is fresh at the later time."""
+    """The cycle's shared receipt is reused, not re-read, and aged at the post-read time.
+
+    The receipt is 179 s old when the pass starts and 181 s old once the read returns, so
+    only judging at the post-read time pages it.
+    """
     store = await _flat_live_store(created_at=_AT - timedelta(days=1))
     (deployment,) = await store.list_deployments()
     alerts = InMemoryAlertStore()
     venue = FakeVenue()
-    venue.now, venue.threshold = _AT - timedelta(seconds=20), Decimal(0)
+    venue.now, venue.threshold = _AT - timedelta(seconds=179), Decimal(0)
+    ticks = iter((_AT, _AT + timedelta(seconds=2)))
     with live_futures_runtime_scope(FuturesLiveRuntime(venue)), cycle_reads_scope(CycleReads()):
         book = await store.get_accounting_snapshot(deployment.id)
         await prepare_live_futures_book(book, portfolio=(book,))
-        venue.now = _AT
         await futures_supervision.supervise_futures(
-            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: venue.now
+            alert_service=_service(alerts), store=store, policy=_policy(), clock=lambda: next(ticks)
         )
     assert venue.account_reads == 1
-    assert not [
-        row
-        for row in await alerts.list_open_alerts()
-        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
-    ]
+    assert any(
+        row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN for row in await alerts.list_open_alerts()
+    )
 
 
 async def test_cycle_clock_reaches_the_observer_of_a_book_started_mid_cycle(
@@ -325,6 +336,7 @@ async def test_cycle_clock_reaches_the_observer_of_a_book_started_mid_cycle(
     venue = _SlowVenue()
     venue.now, venue.threshold = _AT, Decimal(0)
     patch_worker_global(monkeypatch, "utc_now", lambda: venue.now)
+    monkeypatch.setattr(fleet_entry_evidence, "utc_now", lambda: venue.now)
     alerts = InMemoryAlertStore()
     with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
         await service._run_cycle(
@@ -338,8 +350,8 @@ async def test_cycle_clock_reaches_the_observer_of_a_book_started_mid_cycle(
             alert_service=_service(alerts),
         )
     assert venue.account_reads >= 1
-    assert not [
-        row
-        for row in await alerts.list_open_alerts()
-        if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN
-    ]
+    rows = await alerts.list_open_alerts()
+    assert not [row for row in rows if row.code is AlertCode.FUTURES_ACCOUNT_UNKNOWN]
+    # The fixture policy keeps live futures off, so the fleet block stays; it must not be
+    # an unknown-collateral block from judging the observer's receipt as future-dated.
+    assert not [row for row in rows if "FUTURES_COLLATERAL_UNKNOWN" in row.detail]
