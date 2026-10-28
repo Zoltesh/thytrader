@@ -66,12 +66,13 @@ Alert codes:
   `BOOK_PAUSED_MISMATCH` alert open. A stopped book's decision cursor often never advances (a
   flat or discretionary book, or a multi-instrument one, whose instrument cursors are not the
   parent's), so a stopped book also recovers when stopped supervision reports that it carried
-  out every product's maintenance (no missing broker or price context, no deferred flatten, no
+  out every product's maintenance (no missing broker or price context, no strategy book kept on
+  protection alone by a preview-only close or warming signal windows, no deferred flatten, no
   unsettled execution evidence), the pass was not lease-skipped, futures-deferred or warming the
   window cache, and the book, stopped before and after it, has no fail-closed mismatch, settled
 economics (complete accounting, no unsettled fills, no inventory missing from its position
-projection, no in-market phase without a position), no working entry left by a cancel that
-failed, a loaded strategy when it is a strategy book holding inventory, and no futures de-risk
+projection, no product whose runtime is open or exiting without a position), no working entry
+left by a cancel that failed, a loaded strategy when it is a strategy book holding inventory, and no futures de-risk
 or flat-confirmation duty outstanding. That
   resolves the alert with its own note ("recovered: a later worker cycle carried out this
   stopped book's maintenance ...") (2026-10-28); when the decision rule resolves it in the same
@@ -95,7 +96,7 @@ processing. Each attempt is claimed durably before sending (60s expiry; 15s send
 consuming one slot under `alert_delivery_max_attempts` (default 5). Concurrent dispatchers
 cannot send the same active claim, and stale acknowledgements cannot overwrite newer
 claims. Disabling persists `skipped` without consuming attempts; enabling can deliver an
-existing skipped alert. Provider callbacks/result details cannot leak destinations or secrets.
+existing skipped alert. Disabling never rewrites a `failed` or `exhausted` row: its failure evidence stays (2026-10-28). Provider callbacks/result details cannot leak destinations or secrets.
 
 An ambiguous send/ack crash can cause duplicate webhook delivery. Bounded retry can
 also exhaust without delivery, so neither exactly-once nor eventual external receipt is

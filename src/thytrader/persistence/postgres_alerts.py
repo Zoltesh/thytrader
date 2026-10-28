@@ -165,7 +165,8 @@ class PostgresAlertStore:
                 .where(
                     alerts.id == alert_id,
                     alerts.resolved_at.is_(None),
-                    alerts.delivery_status.in_(_UNSENT),
+                    # Like ``skip_delivery``: failed or exhausted evidence is never erased.
+                    alerts.delivery_status.in_(("pending", "skipped")),
                     unclaimed,
                 )
                 .values(

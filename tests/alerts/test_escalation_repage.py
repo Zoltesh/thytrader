@@ -263,17 +263,18 @@ def test_an_unsent_row_from_before_per_severity_budgets_gets_one_fresh_budget() 
     assert page_attempts(row) == 0
 
 
-async def test_an_exhausted_row_is_handled_the_same_by_both_stores_with_delivery_off() -> None:
-    """``exhausted`` is an unsent status: delivery off records it skipped, as PostgreSQL does."""
+@pytest.mark.parametrize("status", ["failed", "exhausted"])
+async def test_delivery_off_never_erases_failure_evidence(status: str) -> None:
+    """Like ``skip_delivery``, delivery off leaves a failed or exhausted row as it is."""
     store = InMemoryAlertStore()
     finding = _uncovered()
     await _service(store, RecordingNotificationSender()).apply((finding,), now=_NOW, dispatch=False)
     row = await _row(store, finding.subject)
-    store.history[(row.code.value, row.subject)][-1] = replace(row, delivery_status="exhausted")
+    store.history[(row.code.value, row.subject)][-1] = replace(row, delivery_status=status)
     await store.claim_delivery(
         row.id, provider="none", now=_NOW, max_attempts=5, ttl=timedelta(seconds=60)
     )
-    assert (await _row(store, finding.subject)).delivery_status == "skipped"
+    assert (await _row(store, finding.subject)).delivery_status == status
 
 
 async def test_a_row_sent_before_coverage_was_recorded_is_not_re_paged() -> None:

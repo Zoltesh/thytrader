@@ -575,3 +575,38 @@ async def test_a_working_entry_left_by_a_failed_cancel_is_not_maintained_without
         purpose=IntentPurpose.ENTRY,
     )
     assert not maintained_without_fault(await store.get_deployment(book.id), maintained=True)
+
+
+def test_a_cancelled_pending_entry_does_not_block_recovery() -> None:
+    """A pending-entry phase with its entry cancelled holds nothing: only open or exiting do."""
+    book = DeploymentSnapshot(
+        deployment=replace(_book(), phase=RuntimePhase.PENDING_ENTRY),
+        orders=(),
+        fills=(),
+        position=None,
+    )
+    assert maintained_without_fault(book, maintained=True)
+
+
+async def test_a_strategy_book_on_a_preview_only_close_is_not_fully_maintained() -> None:
+    """Protection on a preview close skips strategy exits, trailing and time exits."""
+    store = InMemoryExecutionStore()
+    deployment = await lifecycle._deployment(
+        store,
+        mode=DeploymentMode.PAPER,
+        kind=DeploymentKind.STRATEGY,
+        command=LifecycleCommand.MANAGED_SHUTDOWN,
+    )
+    await lifecycle._position(store, deployment.id, "BTC-USD")
+    carried = await supervise_stopped_deployment(
+        await store.get_deployment(deployment.id),
+        strategy=lifecycle._strategy(),
+        store=store,
+        market_data=lifecycle._as_market_data(
+            lifecycle._PricedPreview(lifecycle._candle(close="103"))
+        ),
+        paper_broker=lifecycle._RecordingPaper(),
+        live_broker=None,
+        load_closed_window=_no_window,
+    )
+    assert carried is False

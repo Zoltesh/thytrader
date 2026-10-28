@@ -292,7 +292,8 @@ class InMemoryAlertStore:
                 # A disabled observer cannot revoke another dispatcher's active send.
                 return None
             if provider == "none":
-                if row.delivery_status not in _UNSENT_STATUSES:
+                # Like ``skip_delivery``: failed or exhausted evidence is never erased.
+                if row.delivery_status not in {"pending", "skipped"}:
                     return None
                 rows[-1] = replace(
                     row,

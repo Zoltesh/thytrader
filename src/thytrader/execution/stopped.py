@@ -39,6 +39,7 @@ from thytrader.trading.models import (
     with_runtime,
 )
 from thytrader.trading.overlay import InstrumentScopedStore
+from thytrader.trading.protection import missing_occupied_inventory_products
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -172,15 +173,11 @@ def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) 
     ``maintained`` is ``supervise_stopped_deployment``'s outcome. The book, read after the
     pass, must still be stopped with no fail-closed mismatch (a failed reconciliation read
     records one even though the pass returned), fully accounted with settled economics (no
-    unsettled fills, no inventory missing from its position projection, no in-market phase
-    without a position), with no working entry left after a cancel that failed, and owe no
-    futures de-risk or flat-confirmation duty (ADR 0115).
+    unsettled fills, no inventory missing from its position projection, no product whose
+    runtime is open or exiting without a position), with no working entry left after a cancel
+    that failed, and owe no futures de-risk or flat-confirmation duty (ADR 0115).
     """
     deployment = snapshot.deployment
-    holds = snapshot.position is not None or bool(snapshot.positions)
-    in_market = deployment.phase is not RuntimePhase.FLAT or any(
-        runtime.phase is not RuntimePhase.FLAT for runtime in snapshot.instrument_runtimes
-    )
     return (
         maintained
         and deployment.status is DeploymentStatus.STOPPED
@@ -188,7 +185,7 @@ def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) 
         and snapshot.accounting_complete
         and not unsettled_fill_evidence(snapshot)
         and not unprojected_inventory_products(snapshot)
-        and (holds or not in_market)
+        and not missing_occupied_inventory_products(snapshot)
         and not risk_increasing_orders(snapshot)
         and not deployment.futures_derisk_pending
         and deployment.futures_flat_confirmation_after is None
@@ -438,8 +435,10 @@ async def _maintain_one_product(
             store=scoped,
             strategy=strategy,
         )
-        return True
-    await _maintain_strategy_book(
+        # A strategy book on a preview-only close kept its protection but not its strategy
+        # exits, trailing and time exits: that is not its full maintenance.
+        return strategy is None
+    return await _maintain_strategy_book(
         focused,
         strategy=strategy,
         context=context,
@@ -449,7 +448,6 @@ async def _maintain_one_product(
         journal_strategy_bar=journal_strategy_bar,
         deploy_anchor=snapshot.deployment.created_at,
     )
-    return True
 
 
 async def _maintain_strategy_book(
@@ -462,8 +460,11 @@ async def _maintain_strategy_book(
     load_signal_windows: SignalWindowLoader | None,
     journal_strategy_bar: StrategyBarJournal | None,
     deploy_anchor: datetime,
-) -> None:
-    """Continue stops, targets, and signal exits for one stopped strategy book."""
+) -> bool:
+    """Continue stops, targets, and signal exits for one stopped strategy book.
+
+    Returns false when warming signal windows left it on protection alone.
+    """
     htf: tuple[Candle, ...] = ()
     extra: Mapping[str, Sequence[Candle]] = {}
     references: Mapping[str, Sequence[Candle]] = {}
@@ -481,7 +482,7 @@ async def _maintain_strategy_book(
                 store=store,
                 strategy=strategy,
             )
-            return
+            return False
 
     async def _advance() -> DeploymentSnapshot:
         """Maintain protection and risk-reducing exits for this stopped book."""
@@ -499,7 +500,7 @@ async def _maintain_strategy_book(
 
     if journal_strategy_bar is None:
         await _advance()
-        return
+        return True
     await journal_strategy_bar(
         snapshot,
         strategy=strategy,
@@ -511,6 +512,7 @@ async def _maintain_strategy_book(
         indicator_timeframe_candles=extra,
         reference_candles=references,
     )
+    return True
 
 
 async def _context_for(
