@@ -156,6 +156,22 @@ async def supervise_stopped_deployment(
     )
 
 
+def maintained_quietly(snapshot: DeploymentSnapshot) -> bool:
+    """Whether a stopped book, read after its maintenance pass, needed nothing more from it.
+
+    Positive evidence only: still stopped, no fail-closed mismatch (a failed read, a missing
+    broker or a deferred flatten all leave one), flat and idle, and fully accounted. A stopped
+    book still holding inventory proves its work by advancing its decision cursor instead.
+    """
+    return (
+        snapshot.deployment.status is DeploymentStatus.STOPPED
+        and not snapshot.deployment.mismatch_detail
+        and flat_and_idle(snapshot)
+        and not unsettled_fill_evidence(snapshot)
+        and not unprojected_inventory_products(snapshot)
+    )
+
+
 def stopped_product_ids(
     snapshot: DeploymentSnapshot, strategy: StrategyDefinition | None
 ) -> tuple[str, ...]:

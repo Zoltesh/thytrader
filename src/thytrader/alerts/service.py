@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -170,18 +170,6 @@ class AlertService:
                         alert.id, provider=provider.value, now=now, detail=detail
                     )
                 return
-            covered = alert.covered_severity
-            if provider is not NotifyProvider.NONE and covered is not None and _escalated(alert):
-                rearmed = await self._store.reopen_delivery(
-                    alert.id,
-                    severity=alert.severity,
-                    covered_severity=covered,
-                    now=now,
-                    detail=_escalation_detail(alert),
-                )
-                if not rearmed:
-                    return
-                alert = replace(alert, delivery_status="pending", delivery_attempts=0)
             if (
                 provider is not NotifyProvider.NONE
                 and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
@@ -314,37 +302,13 @@ def _rank(severity: AlertSeverity) -> int:
     return _SEVERITY_RANK[severity.value]
 
 
-def _escalated(alert: OperatorAlert) -> bool:
-    """An open row already paged at a known lower severity than it is observed at now.
-
-    A row sent before Alembic ``0081`` has no known coverage and is not re-paged in place.
-    """
-    covered = alert.covered_severity
-    return (
-        alert.is_open
-        and alert.delivery_status in _SENT
-        and covered is not None
-        and _rank(covered) < _rank(alert.severity)
-    )
-
-
-def _escalation_detail(alert: OperatorAlert) -> str:
-    """Delivery note for a row re-armed by an in-place escalation."""
-    covered = "unknown" if alert.covered_severity is None else alert.covered_severity.value
-    return f"severity rose to {alert.severity.value} after a {covered} page; re-paging"
-
-
 def page_id(alert: OperatorAlert) -> UUID:
-    """The notification id of the page this row is about to send.
+    """The notification id of the page this row is about to send: one per alert and severity.
 
-    A row's first page uses the alert id. A row already paged carries the severity that page
-    covered; its re-page (an escalation in place, or a return of a higher severity than a page
-    it continues) is a different page, so it gets an id derived from the alert id and its new
-    severity. Receivers that dedupe on the id then keep the escalation, and every retry of one
-    page keeps that page's id.
+    Every retry of one page keeps its id, and a page at another severity (an escalation, even
+    after an ambiguous or exhausted lower page) never shares it, so receivers that dedupe on the
+    id keep the escalation. The alert id itself travels in the page body.
     """
-    if alert.covered_severity is None:
-        return alert.id
     return uuid5(alert.id, f"severity:{alert.severity.value}")
 
 
@@ -361,8 +325,8 @@ def _notification_record(
     )
     body = (
         f"{alert.detail}\nsubject={alert.subject} "
-        f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences}"
-        f"{escalation}"
+        f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences} "
+        f"alert={alert.id}{escalation}"
     )[:_BODY_BOUND]
     return NotificationRecord(
         id=page_id(alert),

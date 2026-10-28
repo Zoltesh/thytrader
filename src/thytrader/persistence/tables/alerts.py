@@ -57,6 +57,8 @@ operator_alerts = Table(
     # Severity the notifier was actually sent (or a continuation skip relied on); never the
     # observation's later, mutable severity.
     Column("covered_severity", String(12), nullable=True),
+    # Highest severity a delivery attempt was claimed for; a higher one is a new page.
+    Column("attempted_severity", String(12), nullable=True),
     ForeignKeyConstraint(
         ["deployment_id"],
         ["deployments.id"],

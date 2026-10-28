@@ -6,6 +6,7 @@ alone left such a failure open forever.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -17,9 +18,13 @@ from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision_inputs import AlertThresholds
-from thytrader.alerts.supervision_rows import STOPPED_MAINTENANCE_RECOVERY
+from thytrader.alerts.supervision_rows import (
+    STOPPED_MAINTENANCE_RECOVERY,
+    worker_book_failure_finding,
+)
 from thytrader.execution.leases import acquire_worker_lease
 from thytrader.execution.paper import PaperBroker
+from thytrader.execution.stopped import STOPPED_BROKER_UNAVAILABLE, maintained_quietly
 from thytrader.execution_worker import service as worker_service
 from thytrader.execution_worker.cycle_timing import BookProbe, CycleTimer
 from thytrader.execution_worker.service import _process_one, _run_cycle
@@ -28,11 +33,13 @@ from thytrader.market_data.service import MarketDataService
 from thytrader.memory.notify import DisabledNotificationSender
 from thytrader.risk.store import load_effective_policy
 from thytrader.strategies.memory_store import InMemoryStrategyStore
+from thytrader.trading.ids import utc_now
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
     Deployment,
     DeploymentKind,
     DeploymentMode,
+    DeploymentSnapshot,
     DeploymentStatus,
     RuntimePhase,
 )
@@ -41,6 +48,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from thytrader.alerts.models import OperatorAlert
+    from thytrader.alerts.store import AlertStore
+    from thytrader.trading.store import ExecutionStore
 
 pytestmark = pytest.mark.anyio
 _NOW = datetime(2026, 3, 2, 12, 0, tzinfo=UTC)
@@ -48,15 +57,18 @@ _PAUSE = "WORKER_CONSECUTIVE_FAILURES: entries paused after 3 failed supervision
 
 
 def _book(
-    *, status: DeploymentStatus = DeploymentStatus.STOPPED, mismatch: str | None = None
+    *,
+    status: DeploymentStatus = DeploymentStatus.STOPPED,
+    mismatch: str | None = None,
+    mode: DeploymentMode = DeploymentMode.PAPER,
 ) -> Deployment:
-    """One flat discretionary paper book in ``status``."""
+    """One flat discretionary book in ``status`` (paper unless ``mode`` says otherwise)."""
     return Deployment(
         id=uuid4(),
         strategy_fingerprint=None,
         strategy_id=None,
         product_id="BTC-USD",
-        mode=DeploymentMode.PAPER,
+        mode=mode,
         status=status,
         cash=Decimal("1000"),
         phase=RuntimePhase.FLAT,
@@ -65,6 +77,9 @@ def _book(
         kind=DeploymentKind.DISCRETIONARY,
         timeframe="1h",
         mismatch_detail=mismatch,
+        paper_starting_cash=Decimal("1000") if mode is DeploymentMode.PAPER else None,
+        paper_maker_fee_rate=Decimal("0.001") if mode is DeploymentMode.PAPER else None,
+        paper_taker_fee_rate=Decimal("0.002") if mode is DeploymentMode.PAPER else None,
     )
 
 
@@ -145,6 +160,8 @@ async def test_a_completed_maintenance_pass_resolves_a_stopped_books_failure(
         (DeploymentStatus.PAUSED, None),
         # A persisted supervision pause keeps its evidence until manual clearing.
         (DeploymentStatus.STOPPED, _PAUSE),
+        # Any fail-closed fault on the stopped book means its maintenance is not proven.
+        (DeploymentStatus.STOPPED, "Order reconciliation is unconfirmed: order read failed."),
     ],
 )
 async def test_other_passes_leave_the_failure_open(
@@ -249,3 +266,124 @@ async def test_a_lease_skipped_stopped_book_is_not_reported_maintained() -> None
     leased = await acquire_worker_lease(execution, book.id, holder="another-worker")
     assert leased is not None
     assert await _process(execution, book) is False
+
+
+async def _seeded(
+    book: Deployment,
+) -> tuple[InMemoryExecutionStore, InMemoryAlertStore, AlertService]:
+    """A store holding ``book`` and an open worker failure on it from an earlier cycle."""
+    execution = InMemoryExecutionStore()
+    await execution.create_deployment(book)
+    feed, alerts = _alerts()
+    await feed.record(
+        worker_book_failure_finding(book, error_type="ExecutionConflictError"),
+        now=utc_now() - timedelta(minutes=5),
+    )
+    return execution, feed, alerts
+
+
+async def test_a_real_quiet_stopped_paper_pass_resolves_the_failure() -> None:
+    """Through the real worker step: a flat, fault-free stopped book proves its recovery."""
+    book = _book()
+    execution, feed, alerts = await _seeded(book)
+    await _cycle(execution, alerts)
+    (row,) = await _failure_rows(feed, book)
+    assert not row.is_open
+    assert row.resolution_detail == STOPPED_MAINTENANCE_RECOVERY
+
+
+async def test_a_stopped_live_book_without_a_broker_keeps_its_failure_open() -> None:
+    """No live broker means no reconciliation: the pass returns but proves nothing."""
+    book = _book(mode=DeploymentMode.LIVE)
+    execution, feed, alerts = await _seeded(book)
+    await _cycle(execution, alerts)
+    await _cycle(execution, alerts)
+    (row,) = await _failure_rows(feed, book)
+    assert row.is_open
+    noted = (await execution.get_deployment(book.id)).deployment
+    assert noted.mismatch_detail == STOPPED_BROKER_UNAVAILABLE
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"mismatch_detail": "Flatten is pending: no verified closed price is available."},
+        {"status": DeploymentStatus.PAUSED},
+        {"phase": RuntimePhase.OPEN},
+    ],
+)
+def test_only_a_flat_idle_fault_free_stopped_book_counts_as_maintained(
+    change: dict[str, object],
+) -> None:
+    """A deferred flatten, another status or an in-market phase is not a quiet stopped book."""
+    quiet = DeploymentSnapshot(deployment=_book(), orders=(), fills=(), position=None)
+    assert maintained_quietly(quiet)
+    loud = replace(quiet, deployment=replace(quiet.deployment, **change))
+    assert not maintained_quietly(loud)
+
+
+async def assert_stopped_maintenance_resolves_with_its_note(
+    alerts_store: AlertStore, execution: ExecutionStore | None = None
+) -> None:
+    """The second apply at the cycle watermark resolves a maintained stopped book's failure."""
+    book = _book()
+    execution = execution or InMemoryExecutionStore()
+    await execution.create_deployment(book)
+    await alerts_store.record(
+        worker_book_failure_finding(book, error_type="ExecutionConflictError"),
+        now=_NOW - timedelta(minutes=5),
+    )
+    await worker_service._supervise_safety(
+        alert_service=_service(alerts_store),
+        store=execution,
+        market_data=MarketDataService(DemoMarketData()),
+        deployments=(book,),
+        cycle_failures=[],
+        worker_interval_seconds=30,
+        observed_at=_NOW,
+        stopped_maintained=frozenset({book.id}),
+    )
+    (row,) = await alerts_store.list_resolved(
+        AlertCode.WORKER_BOOK_FAILURES.value, str(book.id), limit=5
+    )
+    assert row.resolution_detail == STOPPED_MAINTENANCE_RECOVERY
+
+
+async def assert_a_same_cycle_failure_wins_the_maintenance_tie(
+    alerts_store: AlertStore, execution: ExecutionStore | None = None
+) -> None:
+    """A failure recorded at the same watermark keeps the row open, whatever the store."""
+    book = _book()
+    execution = execution or InMemoryExecutionStore()
+    await execution.create_deployment(book)
+    failure = worker_book_failure_finding(book, error_type="ReadTimeout")
+    await worker_service._supervise_safety(
+        alert_service=_service(alerts_store),
+        store=execution,
+        market_data=MarketDataService(DemoMarketData()),
+        deployments=(book,),
+        cycle_failures=[failure],
+        worker_interval_seconds=30,
+        observed_at=_NOW,
+        stopped_maintained=frozenset({book.id}),
+    )
+    rows = [row for row in await alerts_store.list_open_alerts() if row.subject == str(book.id)]
+    assert len(rows) == 1
+
+
+def _service(store: AlertStore) -> AlertService:
+    return AlertService(
+        store,
+        DisabledNotificationSender(),
+        thresholds=AlertThresholds(consecutive_failure_cycles=3, delivery_max_attempts=2),
+    )
+
+
+async def test_stopped_maintenance_resolves_with_its_note() -> None:
+    """In memory; ``test_postgres_alerts`` runs the same scenario against PostgreSQL."""
+    await assert_stopped_maintenance_resolves_with_its_note(InMemoryAlertStore())
+
+
+async def test_a_same_cycle_failure_wins_the_maintenance_tie() -> None:
+    """In memory; ``test_postgres_alerts`` runs the same scenario against PostgreSQL."""
+    await assert_a_same_cycle_failure_wins_the_maintenance_tie(InMemoryAlertStore())

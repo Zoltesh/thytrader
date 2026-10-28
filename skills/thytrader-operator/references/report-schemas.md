@@ -729,11 +729,10 @@ restart; observing a held supervision pause does not fabricate additional errors
 exception type (`last error: <Type>`), never its message.
 
 Delivery timestamps never refresh safety evidence. Notification attempts use durable claims
-and a stable ID per page (the alert id for a row's first page; for an escalation page of an
-already paged row, an id derived from the alert id and its new severity); recipients must dedupe
-those IDs to prevent duplicate handling across ambiguous send/ack crashes. An escalation re-armed
-for paging shows `delivery.status` `pending` with zero attempts and the note "severity rose to
-... after a ... page; re-paging". Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
+and a stable ID per page, one per alert and severity (`uuid5(alert id, "severity:<severity>")`;
+the body names the alert as `alert=<id>`); recipients must dedupe those IDs to prevent duplicate
+handling across ambiguous send/ack crashes. A page at a higher severity than every earlier
+attempt starts its own attempt budget, so `delivery.attempts` counts the current page's attempts. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
 while the durable alert stays locally readable.
 
 `components[]` holds `alerts` and `alert_delivery`; operator `health` carries the same

@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from tests.alerts.test_alert_service import (
@@ -25,9 +25,19 @@ from tests.alerts.test_alert_service import (
     assert_flapping_block_pages_once,
     assert_severity_changes_page_by_coverage,
 )
-from tests.alerts.test_escalation_repage import assert_escalation_in_place_is_paged_once
+from tests.alerts.test_escalation_repage import (
+    assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade,
+    assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged,
+    assert_an_ambiguous_lower_page_never_swallows_the_escalation,
+    assert_an_exhausted_lower_page_does_not_block_the_escalation,
+    assert_escalation_in_place_is_paged_once,
+)
 from tests.alerts.test_supervision import _no_candles
 from tests.execution_worker.test_safety_supervision import _deployment
+from tests.execution_worker.test_stopped_failure_recovery import (
+    assert_a_same_cycle_failure_wins_the_maintenance_tie,
+    assert_stopped_maintenance_resolves_with_its_note,
+)
 from tests.persistence.test_migration_0048_strategy_root import _alembic, scratch_database
 from thytrader.alerts.models import (
     AlertCheck,
@@ -47,14 +57,15 @@ from thytrader.persistence import postgres_alerts as module
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
-from thytrader.persistence.schema import deployments
+from thytrader.persistence.schema import deployments, operator_alerts
 from thytrader.trading.models import DeploymentStatus, LifecycleCommand
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Awaitable, Callable
 
     from sqlalchemy.ext.asyncio import AsyncConnection
 
+    from thytrader.alerts.models import OperatorAlert
     from thytrader.alerts.store import AlertChange
 
 __all__ = ["scratch_database"]
@@ -433,47 +444,33 @@ async def test_an_escalation_in_place_is_paged_once_in_postgres(store: PostgresA
     await assert_escalation_in_place_is_paged_once(store)
 
 
-async def test_postgres_reopen_requires_the_exact_sent_state(store: PostgresAlertStore) -> None:
-    """Re-arming changes only an open, sent, unclaimed row at the expected severities."""
-    finding = SupervisionFinding(
-        code=AlertCode.STOP_COVERAGE_UNKNOWN,
-        scope=AlertScope.DEPLOYMENT,
-        subject=str(uuid4()),
-        severity=AlertSeverity.CRITICAL,
-        detail="protective cover could not be verified",
-    )
-    change = await store.record(finding, now=_NOW)
-    alert_id = change.alert.id
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade,
+        assert_an_ambiguous_lower_page_never_swallows_the_escalation,
+        assert_an_exhausted_lower_page_does_not_block_the_escalation,
+    ],
+)
+async def test_page_fencing_and_budgets_hold_in_postgres(
+    store: PostgresAlertStore, scenario: Callable[[PostgresAlertStore], Awaitable[None]]
+) -> None:
+    """The claim statement enforces the same coverage fence and per-page budgets."""
+    await scenario(store)
 
-    async def reopen(severity: AlertSeverity = AlertSeverity.CRITICAL) -> bool:
-        return await store.reopen_delivery(
-            alert_id,
-            severity=severity,
-            covered_severity=AlertSeverity.WARNING,
-            now=_NOW,
-            detail="re-arm",
-        )
 
-    assert not await reopen()
-    claim = await store.claim_delivery(
-        alert_id, provider="webhook", now=_NOW, max_attempts=5, ttl=timedelta(seconds=60)
-    )
-    assert claim is not None
-    assert not await reopen()
-    await store.finish_delivery(
-        alert_id,
-        claim.token,
-        status="delivered",
-        detail="sent",
-        covered_severity=AlertSeverity.WARNING,
-    )
-    assert not await reopen(AlertSeverity.WARNING)
-    assert await reopen()
-    assert not await reopen()
-    (row,) = [row for row in await store.list_open_alerts() if row.id == alert_id]
-    assert row.delivery_status == "pending"
-    assert row.delivery_attempts == 0
-    assert row.covered_severity is AlertSeverity.WARNING
+async def test_a_pre_0081_sent_row_is_not_re_paged_in_postgres(store: PostgresAlertStore) -> None:
+    """A delivered row without recorded coverage is left alone by the claim statement."""
+
+    async def mark_sent(row: OperatorAlert) -> None:
+        async with store._engine.begin() as connection:
+            await connection.execute(
+                update(operator_alerts)
+                .where(operator_alerts.c.id == row.id)
+                .values(delivery_status="delivered")
+            )
+
+    await assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged(store, mark_sent)
 
 
 async def test_reserved_migration_0066_roundtrip_on_private_database(
@@ -495,3 +492,18 @@ async def test_reserved_migration_0066_roundtrip_on_private_database(
         )
         is None
     )
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [
+        assert_stopped_maintenance_resolves_with_its_note,
+        assert_a_same_cycle_failure_wins_the_maintenance_tie,
+    ],
+)
+async def test_stopped_maintenance_watermark_holds_in_postgres(
+    store: PostgresAlertStore,
+    scenario: Callable[[PostgresAlertStore, PostgresExecutionStore], Awaitable[None]],
+) -> None:
+    """The separate maintenance resolve and the failure-wins tie hold in PostgreSQL."""
+    await scenario(store, PostgresExecutionStore(store._engine))

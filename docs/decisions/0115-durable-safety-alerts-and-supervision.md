@@ -33,8 +33,11 @@ judges after its own account read; the safety supervisor judges after the cycle'
 before its own closed-candle reads, which carry no receipt freshness; the live CFM fleet pass
 judges its minimum-contract probes and their verdicts after each scope's account, binding and
 instrument reads, on the worker clock, while its alert watermark and `evaluated_at` stay at the
-pass start (2026-10-28). Its collateral state keeps the pass start: that classification only
-ages a snapshot, so the pass start is at most seconds lenient and never future-dates a receipt.
+pass start (2026-10-28). The CFM account source judges its mirror killswitch row after reading
+it too, so a mirror refresh landing between the balance read and the mirror read is kept. The
+pass's collateral state, futures legs and β keep the pass start: they only age evidence that
+predates the pass, so the pass start is at most the pass's duration lenient (a funding hour that
+falls due during the pass is required next pass), and none of them future-dates a receipt.
 
 Alert codes:
 
@@ -58,12 +61,17 @@ Alert codes:
   not verified freshness. Clock skew stays in the detail.
 - `WORKER_BOOK_FAILURES` counts observed raised cycles since the last verified successful
   decision. Unknown/no-decision/warming/lease-skipped cycles do not fabricate recovery or
-  reset persisted counters. A stopped book makes no decisions, so its cursor never advances:
-  its verified work is a maintenance pass (exits, protection, reconciliation) that ran to
-  completion, not lease-skipped, deferred or warming the window cache, with the book stopped
-  before and after it. That pass resolves the alert with its own note ("recovered: a later
-  worker cycle completed this stopped book's maintenance ...") (2026-10-28). Before, a failure on
-  a stopped book stayed open forever. At the configured threshold (default 3), new entries pause
+  reset persisted counters. A stopped book still holding inventory proves its work by advancing
+  its decision cursor like any book. A flat stopped book makes no decisions, so its cursor never
+  advances; its verified work is a maintenance pass that ran to completion (not lease-skipped,
+  futures-deferred or warming the window cache) and, read after it, left the book stopped, flat,
+  idle, fully accounted and free of any fail-closed mismatch (a failed read, a missing broker or
+  a deferred flatten all leave one), with the book stopped before the pass too. That resolves the
+  alert with its own note ("recovered: a later worker cycle completed this stopped book's
+  maintenance without failure and found it flat, idle, fully accounted and fault-free")
+  (2026-10-28); when the cursor rule resolves the same alert in the same cycle, its generic
+  note wins the equal watermark. Before, a failure on a flat stopped book stayed open forever.
+  At the configured threshold (default 3), new entries pause
   with reason `WORKER_CONSECUTIVE_FAILURES` and command `STOP_NEW_ENTRIES`. The pause
   acquires the worker lease, re-reads eligibility/revision/strategy, and writes through
   `RevisionFencedStore`; any conflicting stop/pause/delete/revision loses the write safely.
@@ -85,9 +93,10 @@ existing skipped alert. Provider callbacks/result details cannot leak destinatio
 
 An ambiguous send/ack crash can cause duplicate webhook delivery. Bounded retry can
 also exhaust without delivery, so neither exactly-once nor eventual external receipt is
-guaranteed. `NotificationRecord.id` is the stable id of one page on every retry: the alert id
-for a row's first page, and `uuid5(alert id, "severity:<severity>")` for a later page of a row
-that already carries `covered_severity` (an escalation). Receivers must idempotently dedupe it. Successful acknowledgements are not redelivered. Delivery
+guaranteed. `NotificationRecord.id` is the stable id of one page on every retry: one page per
+alert and severity, `uuid5(alert id, "severity:<severity>")` (2026-10-28; before, the alert id),
+so a page at another severity never shares an id even after an ambiguous lower send. The alert
+id travels in the body (`alert=<id>`). Receivers must idempotently dedupe the page id. Successful acknowledgements are not redelivered. Delivery
 bookkeeping never changes safety observation timestamps.
 
 Thresholds are optional settings with explicit defaults:
@@ -114,14 +123,22 @@ never saw while it was down), or one spanning the `0081` upgrade, may be paged e
 second time: a duplicate, never a missed page.
 
 An open row that escalates in place after its page (any code) is paged again at once
-(2026-10-28). Dispatch re-arms it with a compare-and-set that matches only an open, sent
-(`logged`/`delivered`), unclaimed row still at the observed severity whose `covered_severity` is
-the lower one read: it becomes `pending` with a fresh attempt budget, so concurrent dispatchers
-re-page it once, and the ordinary claim and the entry-block episode rules then apply. The page
-carries its own id (above) and says it escalated. A send in flight when the row escalates
-acknowledges the lower coverage, so the next dispatch re-pages. A downgrade is never paged, a
-failed escalation page keeps one bounded budget (re-arming starts only from a sent row), and a
-row sent before `0081` has no known coverage and is not re-paged in place.
+(2026-10-28). The delivery claim itself enforces two rules in one compare-and-set:
+
+- Coverage fence: a page never repeats what a sent page covers. An unsent row (`pending`,
+  `skipped`, `failed`) is claimable unless its `covered_severity` reaches its severity; a sent
+  (`logged`/`delivered`) row only when it escalated above a known `covered_severity`. So a
+  downgrade is never paged, including after a failed escalation attempt, and a row sent before
+  `0081` (no known coverage) is not re-paged in place.
+- Per-page budget: `attempted_severity` (Alembic `0082`) records the highest severity an attempt
+  was claimed for. A claim above it (or, for a row from before `0082`, above its covered
+  severity) starts a new page with its own `alert_delivery_max_attempts` budget, so a lower page
+  that exhausted its attempts or was acknowledged ambiguously never blocks the escalation. Other
+  claims spend the row's budget, so a flapping severity keeps at most one budget per level.
+
+A send in flight when the row escalates acknowledges the lower coverage, so the next dispatch
+pages the escalation; concurrent dispatchers send it once. The page carries its own id (above)
+and says it escalated. The entry-block grace and episode rules still apply to unsent rows.
 
 All four thresholds are environment-only (`THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES`,
 `THYTRADER_ALERT_DECISION_MISSED_BARS`, `THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS`,

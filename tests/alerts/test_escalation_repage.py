@@ -1,4 +1,7 @@
-"""An open alert that escalates in place after its page is paged again, once (ADR 0115)."""
+"""A page per alert and severity: escalations page once, downgrades never (ADR 0115).
+
+The shared ``assert_*`` scenarios run against both stores (see ``test_postgres_alerts``).
+"""
 
 from __future__ import annotations
 
@@ -22,23 +25,28 @@ from thytrader.alerts.service import AlertService, page_id
 from thytrader.alerts.store import InMemoryAlertStore
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.config import NotifyProvider
-from thytrader.memory.notify import RecordingNotificationSender
+from thytrader.memory.models import DeliveryStatus
+from thytrader.memory.notify import DeliveryResult, RecordingNotificationSender
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from thytrader.alerts.models import OperatorAlert
     from thytrader.alerts.service import AlertDeliverySender
     from thytrader.alerts.store import AlertStore
+    from thytrader.memory.models import NotificationRecord
 
 _NOW = datetime(2026, 3, 2, 12, tzinfo=UTC)
+_WARNING, _CRITICAL = AlertSeverity.WARNING, AlertSeverity.CRITICAL
 pytestmark = pytest.mark.anyio
 
 
-def _uncovered(severity: AlertSeverity = AlertSeverity.WARNING) -> SupervisionFinding:
+def _uncovered(severity: AlertSeverity = _WARNING) -> SupervisionFinding:
     """One book-scoped identity that can change severity while it stays open."""
     return SupervisionFinding(
         code=AlertCode.STOP_COVERAGE_UNKNOWN,
         scope=AlertScope.DEPLOYMENT,
-        subject="00000000-0000-7000-8000-000000000001",
+        subject=str(uuid4()),
         severity=severity,
         detail="protective cover could not be verified",
     )
@@ -55,34 +63,126 @@ def _service(
     )
 
 
-async def _open(store: AlertStore) -> OperatorAlert:
-    (row,) = await store.list_open_alerts()
+async def _row(store: AlertStore, subject: str) -> OperatorAlert:
+    (row,) = [row for row in await store.list_open_alerts() if row.subject == subject]
     return row
 
 
+class _Switch(RecordingNotificationSender):
+    """A webhook that fails while ``failing`` is set and records every attempt."""
+
+    def __init__(self) -> None:
+        super().__init__(provider=NotifyProvider.WEBHOOK)
+        self.failing = False
+        self.attempts: list[NotificationRecord] = []
+
+    async def deliver(self, record: NotificationRecord) -> DeliveryResult:
+        self.attempts.append(record)
+        if self.failing:
+            return DeliveryResult(status=DeliveryStatus.FAILED)
+        return await super().deliver(record)
+
+
 async def assert_escalation_in_place_is_paged_once(store: AlertStore) -> None:
-    """A warning page, then critical in place: one more page with its own stable id."""
+    """A warning page, then critical in place: one more page, each with its own id."""
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = _service(store, sender)
-    await service.apply((_uncovered(),), now=_NOW)
-    first = await _open(store)
-    assert first.covered_severity is AlertSeverity.WARNING
-    await service.apply((_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(minutes=1))
-    for minute in range(2, 6):
+    finding = _uncovered()
+    await service.apply((finding,), now=_NOW)
+    first = await _row(store, finding.subject)
+    assert first.covered_severity is _WARNING
+    for minute in range(1, 6):
         await service.apply(
-            (_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(minutes=minute)
+            (replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(minutes=minute)
         )
     assert [record.title for record in sender.delivered] == [
         "[thytrader] WARNING: STOP_COVERAGE_UNKNOWN",
         "[thytrader] CRITICAL: STOP_COVERAGE_UNKNOWN",
     ]
-    assert sender.delivered[0].id == first.id
-    assert sender.delivered[1].id == uuid5(first.id, "severity:critical")
+    assert [record.id for record in sender.delivered] == [
+        uuid5(first.id, "severity:warning"),
+        uuid5(first.id, "severity:critical"),
+    ]
+    assert f"alert={first.id}" in sender.delivered[1].body
     assert "escalated from warning" in sender.delivered[1].body
-    row = await _open(store)
-    assert row.id == first.id
-    assert row.covered_severity is AlertSeverity.CRITICAL
+    row = await _row(store, finding.subject)
+    assert row.covered_severity is _CRITICAL
     assert row.delivery_status == "delivered"
+
+
+async def assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade(
+    store: AlertStore,
+) -> None:
+    """Warning sent, critical fails, back to warning: no second warning; critical keeps its id.
+
+    The escalation's attempt budget also survives the flap instead of resetting each return.
+    """
+    sender = _Switch()
+    service = _service(store, sender, attempts=2)
+    finding = _uncovered()
+    critical = replace(finding, severity=_CRITICAL)
+    await service.apply((finding,), now=_NOW)
+    sender.failing = True
+    for step in range(1, 12):
+        await service.apply((critical,), now=_NOW + timedelta(seconds=61 * step))
+        await service.apply((finding,), now=_NOW + timedelta(seconds=61 * step + 30))
+    row = await _row(store, finding.subject)
+    assert [record.title.split(":")[0] for record in sender.attempts] == [
+        "[thytrader] WARNING",
+        "[thytrader] CRITICAL",
+        "[thytrader] CRITICAL",
+    ]
+    assert {record.id for record in sender.attempts[1:]} == {uuid5(row.id, "severity:critical")}
+    assert row.delivery_attempts == 2
+    assert row.covered_severity is _WARNING
+
+
+async def assert_an_ambiguous_lower_page_never_swallows_the_escalation(store: AlertStore) -> None:
+    """A warning send whose acknowledgement was lost; the critical page is a different page."""
+    sender = _BlockingSender()
+    finding = _uncovered()
+    task = asyncio.create_task(_service(store, sender).apply((finding,), now=_NOW))
+    await sender.started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    retry = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    await _service(store, retry).apply(
+        (replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(seconds=61)
+    )
+    row = await _row(store, finding.subject)
+    assert sender.delivered[0].id == uuid5(row.id, "severity:warning")
+    assert [record.id for record in retry.delivered] == [uuid5(row.id, "severity:critical")]
+    assert row.delivery_attempts == 1
+
+
+async def assert_an_exhausted_lower_page_does_not_block_the_escalation(store: AlertStore) -> None:
+    """Warning attempts spent against a dead webhook; the critical page gets its own budget."""
+    sender = _Switch()
+    sender.failing = True
+    service = _service(store, sender, attempts=2)
+    finding = _uncovered()
+    for step in range(4):
+        await service.apply((finding,), now=_NOW + timedelta(seconds=61 * step))
+    assert len(sender.attempts) == 2
+    sender.failing = False
+    await service.apply((replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(minutes=10))
+    row = await _row(store, finding.subject)
+    assert [record.severity.value for record in sender.delivered] == ["error"]
+    assert row.covered_severity is _CRITICAL
+
+
+async def assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged(
+    store: AlertStore, mark_sent: Callable[[OperatorAlert], Awaitable[None]]
+) -> None:
+    """Without known coverage there is nothing to compare: an upgrade pages no old row."""
+    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
+    service = _service(store, sender)
+    finding = _uncovered()
+    await service.apply((finding,), now=_NOW, dispatch=False)
+    await mark_sent(await _row(store, finding.subject))
+    await service.apply((replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(minutes=1))
+    assert sender.delivered == []
 
 
 async def test_an_escalation_in_place_is_paged_once_with_its_own_id() -> None:
@@ -90,66 +190,83 @@ async def test_an_escalation_in_place_is_paged_once_with_its_own_id() -> None:
     await assert_escalation_in_place_is_paged_once(InMemoryAlertStore())
 
 
+async def test_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade() -> None:
+    """The coverage fence and the per-page budget hold across a flap."""
+    await assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade(InMemoryAlertStore())
+
+
+async def test_an_ambiguous_lower_page_never_swallows_the_escalation() -> None:
+    """A lost acknowledgement cannot make the critical page look like a duplicate."""
+    await assert_an_ambiguous_lower_page_never_swallows_the_escalation(InMemoryAlertStore())
+
+
+async def test_an_exhausted_lower_page_does_not_block_the_escalation() -> None:
+    """A higher severity is a new page with its own attempt budget."""
+    await assert_an_exhausted_lower_page_does_not_block_the_escalation(InMemoryAlertStore())
+
+
+async def test_a_row_sent_before_coverage_was_recorded_is_not_re_paged() -> None:
+    """A delivered row with no ``covered_severity`` (before Alembic 0081) is left alone."""
+    store = InMemoryAlertStore()
+
+    async def mark_sent(row: OperatorAlert) -> None:
+        store.history[(row.code.value, row.subject)][-1] = replace(row, delivery_status="delivered")
+
+    await assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged(store, mark_sent)
+
+
 async def test_a_downgrade_in_place_is_never_paged() -> None:
-    """A critical page covers the same row when it falls back to warning and rises again."""
+    """A critical page covers the row when it falls back to warning and rises again."""
     store = InMemoryAlertStore()
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = _service(store, sender)
-    await service.apply((_uncovered(AlertSeverity.CRITICAL),), now=_NOW)
-    await service.apply((_uncovered(),), now=_NOW + timedelta(minutes=1))
-    await service.apply((_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(minutes=2))
+    finding = _uncovered(_CRITICAL)
+    await service.apply((finding,), now=_NOW)
+    await service.apply((replace(finding, severity=_WARNING),), now=_NOW + timedelta(minutes=1))
+    await service.apply((finding,), now=_NOW + timedelta(minutes=2))
     assert len(sender.delivered) == 1
 
 
-async def test_a_warning_kept_local_by_the_minimum_pages_once_at_its_first_id() -> None:
-    """A row never sent is a first page when it turns critical, not an escalation page."""
+async def test_a_warning_kept_local_by_the_minimum_pages_once_when_critical() -> None:
+    """A row never sent is paged once at critical, without an escalation note."""
     store = InMemoryAlertStore()
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = _service(store, sender, minimum="critical")
-    await service.apply((_uncovered(),), now=_NOW)
+    finding = _uncovered()
+    await service.apply((finding,), now=_NOW)
     assert sender.delivered == []
-    await service.apply((_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(minutes=1))
-    row = await _open(store)
-    assert [record.id for record in sender.delivered] == [row.id]
+    await service.apply((replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(minutes=1))
+    row = await _row(store, finding.subject)
+    assert [record.id for record in sender.delivered] == [uuid5(row.id, "severity:critical")]
     assert "escalated" not in sender.delivered[0].body
 
 
-async def test_a_row_sent_before_coverage_was_recorded_is_not_re_paged_in_place() -> None:
-    """Without known coverage there is nothing to compare: an upgrade pages no old row."""
-    store = InMemoryAlertStore()
-    sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
-    service = _service(store, sender)
-    await service.apply((_uncovered(),), now=_NOW, dispatch=False)
-    identity = (AlertCode.STOP_COVERAGE_UNKNOWN.value, _uncovered().subject)
-    store.history[identity][-1] = replace(store.history[identity][-1], delivery_status="delivered")
-    await service.apply((_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(minutes=1))
-    assert sender.delivered == []
-
-
 async def test_an_escalation_observed_while_the_first_page_is_in_flight_still_pages() -> None:
-    """The in-flight warning send acknowledges warning coverage; the next dispatch re-pages."""
+    """The in-flight warning send acknowledges warning coverage; the next dispatch pages."""
     store = InMemoryAlertStore()
     sender = _BlockingSender()
     service = _service(store, sender)
-    first = asyncio.create_task(service.apply((_uncovered(),), now=_NOW))
+    finding = _uncovered()
+    first = asyncio.create_task(service.apply((finding,), now=_NOW))
     await sender.started.wait()
     await service.apply(
-        (_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(seconds=1), dispatch=False
+        (replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(seconds=1), dispatch=False
     )
     sender.release.set()
     await first
-    assert (await _open(store)).covered_severity is AlertSeverity.WARNING
+    assert (await _row(store, finding.subject)).covered_severity is _WARNING
     await service.dispatch_pending(now=_NOW + timedelta(seconds=2))
     assert [record.severity.value for record in sender.delivered] == ["warning", "error"]
 
 
-async def test_concurrent_dispatchers_re_page_an_escalation_once() -> None:
-    """The compare-and-set re-arm and the delivery claim admit one escalation send."""
+async def test_concurrent_dispatchers_page_an_escalation_once() -> None:
+    """The claim compare-and-set admits one escalation send."""
     store = InMemoryAlertStore()
     recorder = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
-    await _service(store, recorder).apply((_uncovered(),), now=_NOW)
+    finding = _uncovered()
+    await _service(store, recorder).apply((finding,), now=_NOW)
     await _service(store, recorder).apply(
-        (_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(seconds=1), dispatch=False
+        (replace(finding, severity=_CRITICAL),), now=_NOW + timedelta(seconds=1), dispatch=False
     )
     sender = _BlockingSender()
     one = asyncio.create_task(
@@ -163,31 +280,27 @@ async def test_concurrent_dispatchers_re_page_an_escalation_once() -> None:
     assert len(sender.delivered) == 1
 
 
-async def test_a_failing_escalation_page_keeps_one_bounded_budget() -> None:
-    """Re-arming happens only from a sent row, so failed escalation sends never loop."""
+async def test_flapping_severity_keeps_at_most_one_budget_per_level() -> None:
+    """Severities rise three levels at most, so a failing webhook sees bounded attempts."""
     store = InMemoryAlertStore()
-    await _service(store, RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)).apply(
-        (_uncovered(),), now=_NOW
-    )
     failing = _FailureSender()
     service = _service(store, failing, attempts=2)
-    for second in range(1, 12):
+    finding = _uncovered()
+    for step in range(30):
+        severity = (AlertSeverity.INFO, _WARNING, _CRITICAL)[step % 3]
         await service.apply(
-            (_uncovered(AlertSeverity.CRITICAL),), now=_NOW + timedelta(seconds=second * 61)
+            (replace(finding, severity=severity),), now=_NOW + timedelta(seconds=61 * step)
         )
-    assert failing.calls == 2
-    row = await _open(store)
-    assert row.delivery_status == "failed"
-    assert row.covered_severity is AlertSeverity.WARNING
+    assert failing.calls <= 6
 
 
 async def test_an_entry_block_escalated_in_place_after_its_page_is_paged_at_once() -> None:
-    """It no longer waits to clear and return: the open row is re-paged at critical."""
+    """It no longer waits to clear and return: the open row is paged at critical."""
     store = InMemoryAlertStore()
     sender = RecordingNotificationSender(provider=NotifyProvider.WEBHOOK)
     service = _service(store, sender)
     critical = _entry_block()
-    warning = replace(critical, severity=AlertSeverity.WARNING)
+    warning = replace(critical, severity=_WARNING)
     for minute in range(7):
         await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
     assert len(sender.delivered) == 1
@@ -198,11 +311,11 @@ async def test_an_entry_block_escalated_in_place_after_its_page_is_paged_at_once
     ]
 
 
-def test_a_first_page_uses_the_alert_id_and_a_re_page_a_derived_one() -> None:
+def test_page_ids_are_one_per_alert_and_severity() -> None:
     """Every retry of one page keeps its id; pages at different severities never share one."""
     alert_id = uuid4()
-    row = replace(new_alert(_uncovered(AlertSeverity.CRITICAL), now=_NOW), id=alert_id)
-    assert page_id(row) == alert_id
-    covered = replace(row, covered_severity=AlertSeverity.WARNING)
-    assert page_id(covered) == uuid5(alert_id, "severity:critical")
-    assert page_id(replace(covered, severity=AlertSeverity.WARNING)) != page_id(covered)
+    row = replace(new_alert(_uncovered(_CRITICAL), now=_NOW), id=alert_id)
+    assert page_id(row) == uuid5(alert_id, "severity:critical")
+    assert page_id(replace(row, covered_severity=_WARNING)) == page_id(row)
+    assert page_id(replace(row, severity=_WARNING)) != page_id(row)
+    assert page_id(replace(row, id=uuid4())) != page_id(row)

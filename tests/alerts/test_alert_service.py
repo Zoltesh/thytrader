@@ -18,7 +18,7 @@ from thytrader.alerts.models import (
     AlertSeverity,
     SupervisionFinding,
 )
-from thytrader.alerts.service import AlertService
+from thytrader.alerts.service import AlertService, page_id
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL, InMemoryAlertStore
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.config import NotifyProvider
@@ -156,7 +156,7 @@ async def test_disabled_provider_is_durable_and_enabling_delivers_once() -> None
     await _service(store, sender).apply((), now=_NOW + timedelta(seconds=1))
     await _service(store, sender).apply((), now=_NOW + timedelta(seconds=2))
     assert len(sender.delivered) == 1
-    assert sender.delivered[0].id == row.id
+    assert sender.delivered[0].id == page_id(row)
 
 
 class _FailureSender:
@@ -309,7 +309,7 @@ async def test_min_severity_is_read_live_and_skips_spend_no_attempts() -> None:
     assert warning.delivery_attempts == 0
     minimum[0] = "info"
     await service.dispatch_pending(now=_NOW + timedelta(seconds=20))
-    assert [record.id for record in sender.delivered] == [warning.id]
+    assert [record.id for record in sender.delivered] == [page_id(warning)]
 
 
 async def test_raising_the_minimum_never_erases_failed_delivery_evidence() -> None:

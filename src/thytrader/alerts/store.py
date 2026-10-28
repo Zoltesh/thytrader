@@ -99,7 +99,12 @@ class AlertStore(Protocol):
         max_attempts: int,
         ttl: timedelta,
     ) -> DeliveryClaim | None:
-        """Claim a bounded attempt before sending, or persist explicit disablement."""
+        """Claim a bounded attempt before sending, or persist explicit disablement.
+
+        Only a ``page_claimable`` row is claimed, so a page never repeats what a sent page
+        covers. A claim that starts a ``new_page`` (above every attempted severity) gets its own
+        attempt budget; otherwise ``max_attempts`` bounds the row's attempts.
+        """
         ...
 
     async def finish_delivery(
@@ -137,23 +142,43 @@ class AlertStore(Protocol):
         """
         ...
 
-    async def reopen_delivery(
-        self,
-        alert_id: UUID,
-        *,
-        severity: AlertSeverity,
-        covered_severity: AlertSeverity,
-        now: datetime,
-        detail: str,
-    ) -> bool:
-        """Re-arm delivery of an open row whose severity rose above the page it got.
 
-        Only an open, sent (``logged`` or ``delivered``), unclaimed row still observed at
-        ``severity`` whose page covered exactly ``covered_severity`` changes: it becomes
-        ``pending`` with a fresh attempt budget, keeping ``covered_severity``. Returns whether
-        this call re-armed it, so concurrent dispatchers re-page it once.
-        """
-        ...
+#: Severity order for page coverage and budgets; an unknown severity ranks below all.
+SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
+_SENT_STATUSES = frozenset({"logged", "delivered"})
+_UNSENT_STATUSES = frozenset({"pending", "skipped", "failed"})
+
+
+def _rank(severity: AlertSeverity | None) -> int:
+    """Rank one severity; ``None`` ranks below every severity."""
+    return -1 if severity is None else SEVERITY_RANK[severity.value]
+
+
+def page_claimable(row: OperatorAlert) -> bool:
+    """Whether a page at the row's current severity may be claimed (ADR 0115).
+
+    A page never repeats what a sent page already covers: an unsent row (``pending``,
+    ``skipped`` or ``failed``) is claimable unless its coverage reaches its severity, and a
+    sent row only when it escalated above a known covered severity. A row sent before
+    Alembic ``0081`` has no known coverage and is not re-paged.
+    """
+    covered = row.covered_severity
+    above = covered is None or _rank(row.severity) > _rank(covered)
+    if row.delivery_status in _UNSENT_STATUSES:
+        return above
+    return row.delivery_status in _SENT_STATUSES and covered is not None and above
+
+
+def new_page(row: OperatorAlert) -> bool:
+    """Whether a claim at the row's severity starts a new page with its own attempt budget.
+
+    True when the severity is above every severity an attempt was claimed for (or, for a row
+    from before Alembic ``0082``, above its covered severity), so a lower page that exhausted
+    or was acknowledged ambiguously never blocks the escalation. Severities only rise three
+    levels, so a row has at most three budgets.
+    """
+    base = row.attempted_severity or row.covered_severity
+    return base is not None and _rank(row.severity) > _rank(base)
 
 
 def observation_keys(
@@ -263,12 +288,12 @@ class InMemoryAlertStore:
             row = rows[-1]
             if row.id != alert_id or not row.is_open:
                 continue
-            if row.delivery_status in {"logged", "delivered"}:
-                return None
             if row.delivery_expires_at is not None and row.delivery_expires_at > now:
                 # A disabled observer cannot revoke another dispatcher's active send.
                 return None
             if provider == "none":
+                if row.delivery_status in _SENT_STATUSES:
+                    return None
                 rows[-1] = replace(
                     row,
                     delivery_provider=provider,
@@ -278,7 +303,10 @@ class InMemoryAlertStore:
                     delivery_expires_at=None,
                 )
                 return None
-            if row.delivery_attempts >= max_attempts:
+            if not page_claimable(row):
+                return None
+            fresh = new_page(row)
+            if not fresh and row.delivery_attempts >= max_attempts:
                 return None
             token = uuid4()
             claimed = replace(
@@ -286,9 +314,14 @@ class InMemoryAlertStore:
                 delivery_provider=provider,
                 delivery_status="failed",
                 delivery_detail="delivery attempt awaiting acknowledgement",
-                delivery_attempts=row.delivery_attempts + 1,
+                delivery_attempts=1 if fresh else row.delivery_attempts + 1,
                 delivery_token=token,
                 delivery_expires_at=now + ttl,
+                attempted_severity=(
+                    row.severity
+                    if fresh or row.attempted_severity is None
+                    else row.attempted_severity
+                ),
             )
             rows[-1] = claimed
             return DeliveryClaim(claimed, token)
@@ -349,38 +382,6 @@ class InMemoryAlertStore:
                         covered_severity=covered_severity or row.covered_severity,
                     )
                     return
-
-    async def reopen_delivery(
-        self,
-        alert_id: UUID,
-        *,
-        severity: AlertSeverity,
-        covered_severity: AlertSeverity,
-        now: datetime,
-        detail: str,
-    ) -> bool:
-        """Compare-and-set the open sent row back to ``pending`` for an escalation page."""
-        for rows in self.history.values():
-            row = rows[-1]
-            if row.id != alert_id or not row.is_open:
-                continue
-            if (
-                row.delivery_status not in {"logged", "delivered"}
-                or row.severity is not severity
-                or row.covered_severity is not covered_severity
-                or (row.delivery_expires_at is not None and row.delivery_expires_at > now)
-            ):
-                return False
-            rows[-1] = replace(
-                row,
-                delivery_status="pending",
-                delivery_detail=clip_alert_text(detail),
-                delivery_attempts=0,
-                delivery_token=None,
-                delivery_expires_at=None,
-            )
-            return True
-        return False
 
 
 def _ordered_for_report(rows: Sequence[OperatorAlert]) -> tuple[OperatorAlert, ...]:

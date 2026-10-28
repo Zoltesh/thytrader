@@ -360,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v109`, schema revision `0081`) and exits on any
+   this checkout's (`thytrader-ops-contract-v110`, schema revision `0082`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -607,8 +607,8 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   again; one still open when the delivery task runs is recorded `skipped` ("continues an
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
   page (warning, then critical) is paged. An open row that escalates in place after its page
-  (any alert code) is paged again at once, as a new page id that says it escalated; a
-  downgrade is not paged.
+  (any alert code) is paged again at once, with its own attempt budget and a page id that says
+  it escalated; a downgrade is never paged, not even after a failed escalation attempt.
   Rare exceptions page an episode early or a second time, never miss it: an episode with more
   than 500 returns, or one spanning the Alembic `0081` upgrade (ADR 0115).
   While waiting
@@ -744,11 +744,13 @@ cache warming, a failed inventory read, or a subset inventory never proves an al
 recovered. Verified checks recover independently; a triggered-unfilled stop stays unsafe
 until durable order/fill/removal evidence clears it, not merely a price rebound.
 Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
-reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds; on
-a stopped book, which makes no decisions, when a later cycle completes its maintenance (exits,
-protection, reconciliation) without failure (resolution note "recovered: a later worker cycle
-completed this stopped book's maintenance ..."). A held `WORKER_CONSECUTIVE_FAILURES` pause
-keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
+reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds
+(stopped books still holding inventory included). A flat stopped book makes no decisions: its
+alert resolves when a later cycle completes its maintenance without failure and leaves it flat,
+idle, fully accounted and with no fail-closed mismatch (resolution note "recovered: a later
+worker cycle completed this stopped book's maintenance ..."). A missing live broker, a failed
+read or a deferred flatten leaves a mismatch, so the alert stays open. A held
+`WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
 not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown
 age/possible clock skew, not verified freshness. Counts and health use all open alerts,
@@ -756,9 +758,9 @@ even when the displayed feed is bounded; consult partial-result warnings for tru
 
 Notification dispatch is separate from safety cycles. `notify_provider=none` leaves the
 durable local feed and explicit warning intact. Attempts are durably claimed, bounded,
-and retried with a stable ID per page (the alert id for its first page, a derived id for an
-escalation page); a webhook receiver must dedupe that ID to prevent duplicate processing after
-an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
+and retried with a stable ID per page: one per alert and severity (`uuid5(alert id,
+"severity:<severity>")`; the alert id is in the body as `alert=<id>`). A webhook receiver must
+dedupe that ID to prevent duplicate processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
 external delivery is not guaranteed. Delivery errors never reveal the configured destination.
 
 ### Alert delivery (ADR 0138)

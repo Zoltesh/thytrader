@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -24,7 +25,9 @@ from thytrader.exchanges.coinbase_cfm import (
     POSITIONS_PATH,
     CoinbaseCfmAccount,
 )
+from thytrader.exchanges.futures_models import FuturesMarginWindow
 from thytrader.exchanges.models import ExchangeOpenOrder
+from thytrader.execution import futures_sources
 from thytrader.execution.futures_paper import (
     FuturesRuntime,
     futures_runtime_scope,
@@ -41,8 +44,7 @@ from thytrader.trading.futures_book import InMemoryFuturesContractStore
 from thytrader.trading.memory import InMemoryExecutionStore
 
 if TYPE_CHECKING:
-    from datetime import datetime
-
+    from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
     from thytrader.market_data.futures_observations import FuturesInstrumentObservation
 
 
@@ -164,3 +166,42 @@ async def test_missing_position_list_is_unknown_never_flat() -> None:
     )
     account = await source.read_account(frozenset(), frozenset({_PERP}))
     assert account.venue.positions is None
+
+
+@pytest.mark.anyio
+async def test_a_mirror_row_refreshed_after_the_balance_read_keeps_its_killswitch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The killswitch row is judged after its own read, never against the balance receipt.
+
+    A mirror refresh that lands between the balance read and the mirror read used to look
+    future-dated and erase a fresh, disabled killswitch, so the fleet pass blocked live entries.
+    """
+    balance_at = datetime(2026, 10, 28, 12, tzinfo=UTC)
+    clock = iter((balance_at, balance_at + timedelta(seconds=3)))
+    monkeypatch.setattr(futures_sources, "utc_now", lambda: next(clock))
+
+    @dataclass(frozen=True)
+    class _Row:
+        observed_at: datetime
+        margin_window: FuturesMarginWindow
+
+    class _Mirror:
+        async def latest(self) -> _Row:
+            return _Row(
+                balance_at + timedelta(seconds=2),
+                FuturesMarginWindow("MARGIN_WINDOW_TYPE_UNSPECIFIED", None, False, False),
+            )
+
+    transport = _transport(positions=lambda: {"positions": []})
+    source = RecordedFuturesSource(
+        CoinbaseCfmAccount(transport),
+        NoExternalOrders(),
+        _Observations(()),
+        mirror=cast("FuturesAccountSnapshotStore", _Mirror()),
+    )
+    with cycle_reads_scope(CycleReads()):
+        account = await source.read_account(frozenset(), frozenset({_PERP}))
+    assert account.venue.observed_at == balance_at
+    assert account.venue.killswitch_enabled is False
+    assert account.venue.killswitch_observed_at == balance_at + timedelta(seconds=2)

@@ -117,7 +117,7 @@ class RecordedFuturesSource:
         signed, marks = _positions(positions)
         products = product_ids | frozenset(() if signed is None else signed)
         sizes, maintenance = await self._catalog(products)
-        killswitch, killswitch_at = await self._killswitch(observed_at)
+        killswitch, killswitch_at = await self._killswitch()
         venue = FuturesVenueEvidence(
             observed_at=observed_at,
             buying_power_usd=_nonnegative(
@@ -152,11 +152,13 @@ class RecordedFuturesSource:
                 products.add(order.product_id)
         return frozenset(products)
 
-    async def _killswitch(self, now: datetime) -> tuple[bool | None, datetime | None]:
+    async def _killswitch(self) -> tuple[bool | None, datetime | None]:
         """The mirror's killswitch facts and when they were observed; unknown is (None, None).
 
         An absent/stale/failed mirror window does not prove a disabled venue killswitch. The
-        observation time travels with the evidence so admission re-checks its age.
+        observation time travels with the evidence so admission re-checks its age. The row is
+        judged at a time taken after it was read (ADR 0115), so a mirror refresh that lands
+        between the balance read and this read is not discarded as future-dated.
         """
         if self.mirror is None:
             return None, None
@@ -164,6 +166,7 @@ class RecordedFuturesSource:
             row = await self.mirror.latest()
         except RuntimeError, ValueError, TypeError, OSError:
             return None, None
+        now = utc_now()
         if (
             row is None
             or row.observed_at > now

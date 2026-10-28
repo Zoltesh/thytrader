@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, literal, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -20,6 +20,7 @@ from thytrader.alerts.models import (
 )
 from thytrader.alerts.store import (
     DELIVERY_DISABLED_DETAIL,
+    SEVERITY_RANK,
     AlertApplication,
     AlertChange,
     AlertStoreError,
@@ -35,7 +36,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import RowMapping
     from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
-    from sqlalchemy.sql import Executable
+    from sqlalchemy.sql import ColumnElement, Executable
 
     from thytrader.alerts.models import SupervisionFinding
 
@@ -150,19 +151,24 @@ class PostgresAlertStore:
         max_attempts: int,
         ttl: timedelta,
     ) -> DeliveryClaim | None:
-        """CAS-claim before send; crash consumes a retry slot and lease eventually expires."""
-        conditions = (
-            operator_alerts.c.id == alert_id,
-            operator_alerts.c.resolved_at.is_(None),
-            operator_alerts.c.delivery_status.in_(("pending", "skipped", "failed")),
-            operator_alerts.c.delivery_expires_at.is_(None)
-            | (operator_alerts.c.delivery_expires_at <= now),
-        )
+        """CAS-claim before send; crash consumes a retry slot and lease eventually expires.
+
+        The same rules as ``page_claimable`` and ``new_page`` (ADR 0115), in one statement: a
+        page never repeats what a sent page covers, and a page above every attempted severity
+        starts its own attempt budget.
+        """
+        alerts = operator_alerts.c
+        unclaimed = alerts.delivery_expires_at.is_(None) | (alerts.delivery_expires_at <= now)
         token = uuid4()
         if provider == "none":
             statement = (
                 update(operator_alerts)
-                .where(*conditions)
+                .where(
+                    alerts.id == alert_id,
+                    alerts.resolved_at.is_(None),
+                    alerts.delivery_status.in_(("pending", "skipped", "failed")),
+                    unclaimed,
+                )
                 .values(
                     delivery_provider=provider,
                     delivery_status="skipped",
@@ -172,17 +178,31 @@ class PostgresAlertStore:
                 )
             )
         else:
+            covered = alerts.covered_severity
+            base = func.coalesce(alerts.attempted_severity, covered)
+            above = covered.is_(None) | (_rank(alerts.severity) > _rank(covered))
+            claimable = (alerts.delivery_status.in_(("pending", "skipped", "failed")) & above) | (
+                alerts.delivery_status.in_(("logged", "delivered")) & covered.is_not(None) & above
+            )
+            fresh = base.is_not(None) & (_rank(alerts.severity) > _rank(base))
             statement = (
                 update(operator_alerts)
                 .where(
-                    *conditions,
-                    operator_alerts.c.delivery_attempts < max_attempts,
+                    alerts.id == alert_id,
+                    alerts.resolved_at.is_(None),
+                    unclaimed,
+                    claimable,
+                    fresh | (alerts.delivery_attempts < max_attempts),
                 )
                 .values(
                     delivery_provider=provider,
                     delivery_status="failed",
                     delivery_detail="delivery attempt awaiting acknowledgement",
-                    delivery_attempts=operator_alerts.c.delivery_attempts + 1,
+                    delivery_attempts=case((fresh, literal(1)), else_=alerts.delivery_attempts + 1),
+                    attempted_severity=case(
+                        (fresh | alerts.attempted_severity.is_(None), alerts.severity),
+                        else_=alerts.attempted_severity,
+                    ),
                     delivery_token=token,
                     delivery_expires_at=now + ttl,
                 )
@@ -262,43 +282,6 @@ class PostgresAlertStore:
                 await connection.execute(statement)
         except SQLAlchemyError as error:
             raise AlertStoreError("Alert delivery acknowledgement is unavailable.") from error
-
-    async def reopen_delivery(
-        self,
-        alert_id: UUID,
-        *,
-        severity: AlertSeverity,
-        covered_severity: AlertSeverity,
-        now: datetime,
-        detail: str,
-    ) -> bool:
-        """Compare-and-set an open sent row back to ``pending`` for one escalation page."""
-        statement = (
-            update(operator_alerts)
-            .where(
-                operator_alerts.c.id == alert_id,
-                operator_alerts.c.resolved_at.is_(None),
-                operator_alerts.c.delivery_status.in_(("logged", "delivered")),
-                operator_alerts.c.severity == severity.value,
-                operator_alerts.c.covered_severity == covered_severity.value,
-                operator_alerts.c.delivery_expires_at.is_(None)
-                | (operator_alerts.c.delivery_expires_at <= now),
-            )
-            .values(
-                delivery_status="pending",
-                delivery_detail=clip_alert_text(detail),
-                delivery_attempts=0,
-                delivery_token=None,
-                delivery_expires_at=None,
-            )
-            .returning(operator_alerts.c.id)
-        )
-        try:
-            async with self._engine.begin() as connection:
-                result = await connection.execute(statement)
-                return result.first() is not None
-        except SQLAlchemyError as error:
-            raise AlertStoreError("Alert delivery reopen is unavailable.") from error
 
     async def _fetch_all(self, statement: Executable) -> tuple[RowMapping, ...]:
         """Read mappings or raise a redacted storage failure (never an empty success)."""
@@ -385,7 +368,18 @@ def _row_values(alert: OperatorAlert) -> dict[str, object]:
         "covered_severity": None
         if alert.covered_severity is None
         else alert.covered_severity.value,
+        "attempted_severity": None
+        if alert.attempted_severity is None
+        else alert.attempted_severity.value,
     }
+
+
+def _rank(column: ColumnElement[str]) -> ColumnElement[int]:
+    """Severity order in SQL, matching ``SEVERITY_RANK``; a null ranks below all."""
+    return case(
+        *((column == name, literal(rank)) for name, rank in SEVERITY_RANK.items()),
+        else_=literal(-1),
+    )
 
 
 def _coverage(severity: AlertSeverity | None) -> dict[str, str]:
@@ -417,5 +411,8 @@ def _parse(row: RowMapping) -> OperatorAlert:
         delivery_expires_at=row["delivery_expires_at"],
         covered_severity=(
             None if row["covered_severity"] is None else AlertSeverity(row["covered_severity"])
+        ),
+        attempted_severity=(
+            None if row["attempted_severity"] is None else AlertSeverity(row["attempted_severity"])
         ),
     )
