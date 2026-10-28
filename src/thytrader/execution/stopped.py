@@ -126,15 +126,22 @@ async def supervise_stopped_deployment(
     load_closed_window: ClosedWindowLoader,
     load_signal_windows: SignalWindowLoader | None = None,
     journal_strategy_bar: StrategyBarJournal | None = None,
-) -> None:
-    """Reconcile, then flatten or maintain every book on a stopped deployment."""
+) -> bool:
+    """Reconcile, then flatten or maintain every book on a stopped deployment.
+
+    Returns whether every product's maintenance was carried out: false when no broker could
+    reconcile, a product's exit or protection lacked its verified price context, a flatten was
+    deferred, or unsettled execution evidence kept a product from being proven flat. A fault
+    recorded by reconciliation is read from the book afterwards (ADR 0115).
+    """
     broker = _stopped_broker(snapshot, paper_broker=paper_broker, live_broker=live_broker)
     if broker is None:
         await _note_broker_unavailable(snapshot, store=store)
-        return
+        return False
+    snapshot = await _clear_broker_unavailable(snapshot, store=store)
     snapshot = await _reconcile_stopped(snapshot, broker=broker, store=store)
     if snapshot.deployment.lifecycle_command is LifecycleCommand.FLATTEN:
-        await _flatten_stopped_books(
+        return await _flatten_stopped_books(
             snapshot,
             strategy=strategy,
             store=store,
@@ -143,8 +150,7 @@ async def supervise_stopped_deployment(
             load_closed_window=load_closed_window,
             journal_strategy_bar=journal_strategy_bar,
         )
-        return
-    await _maintain_managed_shutdown(
+    return await _maintain_managed_shutdown(
         snapshot,
         strategy=strategy,
         store=store,
@@ -156,19 +162,17 @@ async def supervise_stopped_deployment(
     )
 
 
-def maintained_quietly(snapshot: DeploymentSnapshot) -> bool:
-    """Whether a stopped book, read after its maintenance pass, needed nothing more from it.
+def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) -> bool:
+    """Whether a stopped book's pass is verified work: maintained, and fault-free after it.
 
-    Positive evidence only: still stopped, no fail-closed mismatch (a failed read, a missing
-    broker or a deferred flatten all leave one), flat and idle, and fully accounted. A stopped
-    book still holding inventory proves its work by advancing its decision cursor instead.
+    ``maintained`` is ``supervise_stopped_deployment``'s outcome. The book, read after the
+    pass, must still be stopped with no fail-closed mismatch: a failed reconciliation read
+    records one even though the pass returned (ADR 0115).
     """
     return (
-        snapshot.deployment.status is DeploymentStatus.STOPPED
+        maintained
+        and snapshot.deployment.status is DeploymentStatus.STOPPED
         and not snapshot.deployment.mismatch_detail
-        and flat_and_idle(snapshot)
-        and not unsettled_fill_evidence(snapshot)
-        and not unprojected_inventory_products(snapshot)
     )
 
 
@@ -222,10 +226,14 @@ async def _flatten_stopped_books(
     broker: Broker,
     load_closed_window: ClosedWindowLoader,
     journal_strategy_bar: StrategyBarJournal | None,
-) -> None:
-    """Flatten every supervised product, then settle only when the deployment is flat."""
+) -> bool:
+    """Flatten every supervised product, then settle only when the deployment is flat.
+
+    Returns whether every product's flatten step was carried out.
+    """
+    carried = True
     for product_id in stopped_product_ids(snapshot, strategy):
-        await _flatten_one_product(
+        carried &= await _flatten_one_product(
             snapshot,
             product_id=product_id,
             strategy=strategy,
@@ -240,6 +248,7 @@ async def _flatten_stopped_books(
     )
     if flat_and_idle(latest):
         await settle_stopped_book(latest, store=store)
+    return carried
 
 
 async def _flatten_one_product(
@@ -252,14 +261,18 @@ async def _flatten_one_product(
     broker: Broker,
     load_closed_window: ClosedWindowLoader,
     journal_strategy_bar: StrategyBarJournal | None,
-) -> None:
-    """Flatten one product book, or keep its protection when no price is verified."""
+) -> bool:
+    """Flatten one product book, or keep its protection when no price is verified.
+
+    Returns false when the flatten could not be carried out: unsettled execution evidence
+    or a position without verified price context.
+    """
     scoped = InstrumentScopedStore(store, product_id)
     focused = await scoped.get_deployment(snapshot.deployment.id)
     if unprojected_inventory_products(focused) or unsettled_fill_evidence(focused):
         # Durable execution evidence, not a display fault, decides whether flat is known.
         await cancel_risk_increasing_orders(focused, broker=broker, store=scoped)
-        return
+        return False
     if focused.position is None and not active_orders(focused):
         if focused.deployment.phase is not RuntimePhase.FLAT:
             await scoped.save_deployment(
@@ -270,7 +283,7 @@ async def _flatten_one_product(
                     pending_entry_bars=0,
                 )
             )
-        return
+        return True
     context = await _context_for(
         snapshot,
         strategy=strategy,
@@ -280,10 +293,10 @@ async def _flatten_one_product(
     )
     if focused.position is not None and context is None:
         await defer_flatten_without_executable_context(focused, broker=broker, store=scoped)
-        return
+        return False
     if context is None:
         await cancel_resting_orders(focused, broker=broker, store=scoped)
-        return
+        return True
     await _exit_with_context(
         focused,
         context=context,
@@ -292,6 +305,7 @@ async def _flatten_one_product(
         store=scoped,
         journal_strategy_bar=journal_strategy_bar,
     )
+    return True
 
 
 async def _exit_with_context(
@@ -341,14 +355,18 @@ async def _maintain_managed_shutdown(
     load_closed_window: ClosedWindowLoader,
     load_signal_windows: SignalWindowLoader | None,
     journal_strategy_bar: StrategyBarJournal | None,
-) -> None:
-    """Cancel entries, keep protection, and continue risk-reducing exits per book."""
+) -> bool:
+    """Cancel entries, keep protection, and continue risk-reducing exits per book.
+
+    Returns whether every open product book was maintained.
+    """
     await cancel_risk_increasing_orders(snapshot, broker=broker, store=store)
     current = await _reconcile_stopped(
         await store.get_deployment(snapshot.deployment.id), broker=broker, store=store
     )
+    carried = True
     for product_id in stopped_product_ids(current, strategy):
-        await _maintain_one_product(
+        carried &= await _maintain_one_product(
             current,
             product_id=product_id,
             strategy=strategy,
@@ -359,6 +377,7 @@ async def _maintain_managed_shutdown(
             load_signal_windows=load_signal_windows,
             journal_strategy_bar=journal_strategy_bar,
         )
+    return carried
 
 
 async def _maintain_one_product(
@@ -372,12 +391,16 @@ async def _maintain_one_product(
     load_closed_window: ClosedWindowLoader,
     load_signal_windows: SignalWindowLoader | None,
     journal_strategy_bar: StrategyBarJournal | None,
-) -> None:
-    """Maintain one open book, doing nothing when its price context is missing."""
+) -> bool:
+    """Maintain one open book, doing nothing when its price context is missing.
+
+    Returns false only when the book holds a position whose price context is missing, so its
+    exits and protection could not be maintained.
+    """
     scoped = InstrumentScopedStore(store, product_id)
     focused = await scoped.get_deployment(snapshot.deployment.id)
     if focused.position is None:
-        return
+        return True
     context = await _context_for(
         snapshot,
         strategy=strategy,
@@ -386,7 +409,7 @@ async def _maintain_one_product(
         load_closed_window=load_closed_window,
     )
     if context is None:
-        return
+        return False
     if strategy is None or not context.full_window:
         await maintain_discretionary_protection(
             focused,
@@ -396,7 +419,7 @@ async def _maintain_one_product(
             store=scoped,
             strategy=strategy,
         )
-        return
+        return True
     await _maintain_strategy_book(
         focused,
         strategy=strategy,
@@ -407,6 +430,7 @@ async def _maintain_one_product(
         journal_strategy_bar=journal_strategy_bar,
         deploy_anchor=snapshot.deployment.created_at,
     )
+    return True
 
 
 async def _maintain_strategy_book(
@@ -599,6 +623,21 @@ async def _note_broker_unavailable(snapshot: DeploymentSnapshot, *, store: Execu
         mismatch_detail=STOPPED_BROKER_UNAVAILABLE,
     )
     await store.save_deployment(noted)
+
+
+async def _clear_broker_unavailable(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Drop the broker-unavailable note once a broker is back; reconciliation then re-judges.
+
+    The note says only that no broker could reconcile. Left in place it would outlive the
+    outage forever on a stopped book, since nothing else clears a stopped book's mismatch.
+    """
+    deployment = snapshot.deployment
+    if deployment.mismatch_detail != STOPPED_BROKER_UNAVAILABLE:
+        return snapshot
+    await store.save_deployment(with_runtime(deployment, updated_at=utc_now(), clear_mismatch=True))
+    return await store.get_deployment(deployment.id)
 
 
 def _stopped_broker(

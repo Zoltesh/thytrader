@@ -146,8 +146,9 @@ Alembic ``0080``; ADR 0147), or live agent desks (``agent_desk_modes`` ``live``,
 ``mode`` / ``i_understand_live`` with HTTP 428, risk-policy ``desk_allocations`` and
 ``set-risk-policy --desk-allocation``; ADR 0148), or alert page coverage (the
 ``covered_severity`` column and history index of Alembic ``0081``; ADR 0115), or alert page
-budgets (the ``attempted_severity`` column of Alembic ``0082``: an escalation is a new page with
-its own id and attempt budget; ADR 0115) change.
+budgets (the per-severity ``info_attempts`` / ``warning_attempts`` / ``critical_attempts``
+columns of Alembic ``0082``: each severity is its own page with its own id and budget; ADR 0115)
+change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """

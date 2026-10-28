@@ -607,8 +607,9 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   again; one still open when the delivery task runs is recorded `skipped` ("continues an
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
   page (warning, then critical) is paged. An open row that escalates in place after its page
-  (any alert code) is paged again at once, with its own attempt budget and a page id that says
-  it escalated; a downgrade is never paged, not even after a failed escalation attempt.
+  (any alert code) is paged again at once, with its own attempt budget (each severity has one)
+  and a page id that says it escalated; a downgrade is never paged, not even after a failed
+  escalation attempt.
   Rare exceptions page an episode early or a second time, never miss it: an episode with more
   than 500 returns, or one spanning the Alembic `0081` upgrade (ADR 0115).
   While waiting
@@ -744,12 +745,12 @@ cache warming, a failed inventory read, or a subset inventory never proves an al
 recovered. Verified checks recover independently; a triggered-unfilled stop stays unsafe
 until durable order/fill/removal evidence clears it, not merely a price rebound.
 Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
-reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds
-(stopped books still holding inventory included). A flat stopped book makes no decisions: its
-alert resolves when a later cycle completes its maintenance without failure and leaves it flat,
-idle, fully accounted and with no fail-closed mismatch (resolution note "recovered: a later
-worker cycle completed this stopped book's maintenance ..."). A missing live broker, a failed
-read or a deferred flatten leaves a mismatch, so the alert stays open. A held
+reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds; a
+fault the pass caught (a failed order read) stays visible as `BOOK_PAUSED_MISMATCH`. A stopped
+book also resolves when a later cycle carried out every product's maintenance with no missing
+broker or price context, no deferred flatten and no fail-closed mismatch afterwards (resolution
+note "recovered: a later worker cycle carried out this stopped book's maintenance ..."). A
+returning broker clears the stopped book's "Live broker is unavailable" note. A held
 `WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
 not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown

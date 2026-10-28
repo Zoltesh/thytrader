@@ -731,8 +731,8 @@ exception type (`last error: <Type>`), never its message.
 Delivery timestamps never refresh safety evidence. Notification attempts use durable claims
 and a stable ID per page, one per alert and severity (`uuid5(alert id, "severity:<severity>")`;
 the body names the alert as `alert=<id>`); recipients must dedupe those IDs to prevent duplicate
-handling across ambiguous send/ack crashes. A page at a higher severity than every earlier
-attempt starts its own attempt budget, so `delivery.attempts` counts the current page's attempts. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
+handling across ambiguous send/ack crashes. Each severity's page has its own attempt budget;
+`delivery.attempts` is the row's total across severities. Bounded retries can exhaust without external delivery. `notify_provider=none` records `skipped` with zero attempts spent,
 while the durable alert stays locally readable.
 
 `components[]` holds `alerts` and `alert_delivery`; operator `health` carries the same

@@ -17,7 +17,7 @@ from uuid import uuid4
 
 from pydantic import SecretStr
 import pytest
-from sqlalchemy import delete, update
+from sqlalchemy import delete, text, update
 from sqlalchemy.exc import SQLAlchemyError
 
 from tests.alerts.test_alert_service import (
@@ -26,6 +26,7 @@ from tests.alerts.test_alert_service import (
     assert_severity_changes_page_by_coverage,
 )
 from tests.alerts.test_escalation_repage import (
+    assert_a_downgrade_flap_never_starves_the_escalation,
     assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade,
     assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged,
     assert_an_ambiguous_lower_page_never_swallows_the_escalation,
@@ -450,6 +451,7 @@ async def test_an_escalation_in_place_is_paged_once_in_postgres(store: PostgresA
         assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade,
         assert_an_ambiguous_lower_page_never_swallows_the_escalation,
         assert_an_exhausted_lower_page_does_not_block_the_escalation,
+        assert_a_downgrade_flap_never_starves_the_escalation,
     ],
 )
 async def test_page_fencing_and_budgets_hold_in_postgres(
@@ -507,3 +509,40 @@ async def test_stopped_maintenance_watermark_holds_in_postgres(
 ) -> None:
     """The separate maintenance resolve and the failure-wins tie hold in PostgreSQL."""
     await scenario(store, PostgresExecutionStore(store._engine))
+
+
+async def test_migration_0082_charges_sent_attempts_to_their_coverage(
+    store: PostgresAlertStore, scratch_database: str
+) -> None:
+    """A sent row's attempts move to its covered severity; an unsent row starts at zero."""
+    downgraded = await asyncio.to_thread(_alembic, scratch_database, "0081", operation="downgrade")
+    assert downgraded.returncode == 0, downgraded.stderr
+    sent, unsent = uuid4(), uuid4()
+    async with store._engine.begin() as connection:
+        for alert_id, covered in ((sent, "warning"), (unsent, None)):
+            await connection.execute(
+                text(
+                    "INSERT INTO operator_alerts (id, code, scope, subject, severity, detail, "
+                    "first_seen_at, last_seen_at, occurrences, delivery_status, delivery_attempts, "
+                    "covered_severity) VALUES (:id, 'STOP_COVERAGE_UNKNOWN', 'deployment', "
+                    ":subject, 'critical', 'cover unknown', :now, :now, 1, :status, 5, :covered)"
+                ),
+                {
+                    "id": alert_id,
+                    "subject": str(alert_id),
+                    "now": _NOW,
+                    "status": "failed" if covered is None else "delivered",
+                    "covered": covered,
+                },
+            )
+    upgraded = await asyncio.to_thread(_alembic, scratch_database, "head")
+    assert upgraded.returncode == 0, upgraded.stderr
+    rows = {row.id: row for row in await store.list_open_alerts()}
+    assert (rows[sent].warning_attempts, rows[sent].critical_attempts) == (5, 0)
+    assert (rows[unsent].warning_attempts, rows[unsent].critical_attempts) == (0, 0)
+    for alert_id in (sent, unsent):
+        claim = await store.claim_delivery(
+            alert_id, provider="webhook", now=_NOW, max_attempts=5, ttl=timedelta(seconds=60)
+        )
+        assert claim is not None
+        assert claim.alert.critical_attempts == 1

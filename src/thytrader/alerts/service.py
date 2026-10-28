@@ -173,7 +173,8 @@ class AlertService:
             if (
                 provider is not NotifyProvider.NONE
                 and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
-                and alert.delivery_status in {"pending", "skipped"}
+                # A failed retry is checked too: an episode page covering it must not repeat.
+                and alert.delivery_status in {"pending", "skipped", "failed"}
                 and not await self._entry_block_due(alert, provider=provider, now=now)
             ):
                 return

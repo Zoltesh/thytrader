@@ -14,6 +14,7 @@ from uuid import uuid4
 
 import pytest
 
+from tests.execution import test_adr_0110_stopped_lifecycle as lifecycle
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
@@ -24,7 +25,11 @@ from thytrader.alerts.supervision_rows import (
 )
 from thytrader.execution.leases import acquire_worker_lease
 from thytrader.execution.paper import PaperBroker
-from thytrader.execution.stopped import STOPPED_BROKER_UNAVAILABLE, maintained_quietly
+from thytrader.execution.stopped import (
+    STOPPED_BROKER_UNAVAILABLE,
+    maintained_without_fault,
+    supervise_stopped_deployment,
+)
 from thytrader.execution_worker import service as worker_service
 from thytrader.execution_worker.cycle_timing import BookProbe, CycleTimer
 from thytrader.execution_worker.service import _process_one, _run_cycle
@@ -41,6 +46,7 @@ from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    LifecycleCommand,
     RuntimePhase,
 )
 
@@ -49,6 +55,7 @@ if TYPE_CHECKING:
 
     from thytrader.alerts.models import OperatorAlert
     from thytrader.alerts.store import AlertStore
+    from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.trading.store import ExecutionStore
 
 pytestmark = pytest.mark.anyio
@@ -305,21 +312,125 @@ async def test_a_stopped_live_book_without_a_broker_keeps_its_failure_open() -> 
 
 
 @pytest.mark.parametrize(
-    "change",
+    ("maintained", "change", "expected"),
     [
-        {"mismatch_detail": "Flatten is pending: no verified closed price is available."},
-        {"status": DeploymentStatus.PAUSED},
-        {"phase": RuntimePhase.OPEN},
+        (True, {}, True),
+        (False, {}, False),
+        (
+            True,
+            {"mismatch_detail": "Order reconciliation is unconfirmed: order read failed."},
+            False,
+        ),
+        (True, {"status": DeploymentStatus.PAUSED}, False),
     ],
 )
-def test_only_a_flat_idle_fault_free_stopped_book_counts_as_maintained(
-    change: dict[str, object],
+def test_maintained_without_fault_needs_the_outcome_and_a_clean_stopped_book(
+    maintained: bool, change: dict[str, object], expected: bool
 ) -> None:
-    """A deferred flatten, another status or an in-market phase is not a quiet stopped book."""
-    quiet = DeploymentSnapshot(deployment=_book(), orders=(), fills=(), position=None)
-    assert maintained_quietly(quiet)
-    loud = replace(quiet, deployment=replace(quiet.deployment, **change))
-    assert not maintained_quietly(loud)
+    """The pass's outcome alone is not enough: the book must be stopped and fault-free after it."""
+    book = DeploymentSnapshot(deployment=_book(), orders=(), fills=(), position=None)
+    book = replace(book, deployment=replace(book.deployment, **change))
+    assert maintained_without_fault(book, maintained=maintained) is expected
+
+
+async def _stopped_outcome(
+    *, command: LifecycleCommand, candles: bool, position: bool = True
+) -> bool:
+    """Run real stopped supervision on a paper discretionary book and return its outcome."""
+    store = InMemoryExecutionStore()
+    deployment = await lifecycle._deployment(
+        store, mode=DeploymentMode.PAPER, kind=DeploymentKind.DISCRETIONARY, command=command
+    )
+    if position:
+        await lifecycle._position(store, deployment.id, "BTC-USD")
+    priced = {"BTC-USD": (lifecycle._candle(),)} if candles else {}
+
+    async def window(
+        market_data: object,
+        *,
+        product_id: str,
+        timeframe: str,
+        warmup_bars: int,
+        deploy_anchor: datetime,
+    ) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
+        return await lifecycle._windows(
+            market_data,
+            product_id=product_id,
+            timeframe=timeframe,
+            warmup_bars=warmup_bars,
+            deploy_anchor=deploy_anchor,
+            candles_by_product=priced,
+        )
+
+    return await supervise_stopped_deployment(
+        await store.get_deployment(deployment.id),
+        strategy=None,
+        store=store,
+        market_data=lifecycle._as_market_data(lifecycle._EmptyPreview()),
+        paper_broker=lifecycle._RecordingPaper(),
+        live_broker=None,
+        load_closed_window=window,
+    )
+
+
+@pytest.mark.parametrize(
+    ("command", "candles", "position", "expected"),
+    [
+        # Protection maintained at a verified close: verified work, inventory or not.
+        (LifecycleCommand.MANAGED_SHUTDOWN, True, True, True),
+        # A held position without its price context: nothing could be maintained.
+        (LifecycleCommand.MANAGED_SHUTDOWN, False, True, False),
+        # A deferred flatten keeps protection but did not do the flatten.
+        (LifecycleCommand.FLATTEN, False, True, False),
+        (LifecycleCommand.FLATTEN, True, True, True),
+        # Nothing held: nothing to maintain.
+        (LifecycleCommand.MANAGED_SHUTDOWN, False, False, True),
+    ],
+)
+async def test_stopped_supervision_reports_whether_it_carried_out_the_maintenance(
+    command: LifecycleCommand, candles: bool, position: bool, expected: bool
+) -> None:
+    """The outcome is positive evidence from the real maintenance paths."""
+    assert await _stopped_outcome(command=command, candles=candles, position=position) is expected
+
+
+async def _no_window(
+    market_data: object,
+    *,
+    product_id: str,
+    timeframe: str,
+    warmup_bars: int,
+    deploy_anchor: datetime,
+) -> tuple[MarketProduct, tuple[Candle, ...], datetime]:
+    """No verified candles for any product."""
+    return await lifecycle._windows(
+        market_data,
+        product_id=product_id,
+        timeframe=timeframe,
+        warmup_bars=warmup_bars,
+        deploy_anchor=deploy_anchor,
+        candles_by_product={},
+    )
+
+
+async def test_a_returning_broker_clears_the_broker_unavailable_note() -> None:
+    """The note outlived the outage forever; a broker that reconciles cleanly clears it."""
+    store = InMemoryExecutionStore()
+    book = _book(mode=DeploymentMode.LIVE, mismatch=STOPPED_BROKER_UNAVAILABLE)
+    await store.create_deployment(book)
+    carried = await supervise_stopped_deployment(
+        await store.get_deployment(book.id),
+        strategy=None,
+        store=store,
+        market_data=MarketDataService(DemoMarketData()),
+        paper_broker=PaperBroker(),
+        live_broker=PaperBroker(),
+        load_closed_window=_no_window,
+    )
+    after = (await store.get_deployment(book.id)).deployment
+    assert carried
+    assert after.mismatch_detail is None
+    assert after.status is DeploymentStatus.STOPPED
 
 
 async def assert_stopped_maintenance_resolves_with_its_note(

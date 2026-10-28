@@ -102,8 +102,7 @@ class AlertStore(Protocol):
         """Claim a bounded attempt before sending, or persist explicit disablement.
 
         Only a ``page_claimable`` row is claimed, so a page never repeats what a sent page
-        covers. A claim that starts a ``new_page`` (above every attempted severity) gets its own
-        attempt budget; otherwise ``max_attempts`` bounds the row's attempts.
+        covers, and ``max_attempts`` bounds each severity's page separately (``page_attempts``).
         """
         ...
 
@@ -169,16 +168,17 @@ def page_claimable(row: OperatorAlert) -> bool:
     return row.delivery_status in _SENT_STATUSES and covered is not None and above
 
 
-def new_page(row: OperatorAlert) -> bool:
-    """Whether a claim at the row's severity starts a new page with its own attempt budget.
+def page_attempts(row: OperatorAlert) -> int:
+    """Attempts already claimed for the page at the row's current severity (Alembic 0082).
 
-    True when the severity is above every severity an attempt was claimed for (or, for a row
-    from before Alembic ``0082``, above its covered severity), so a lower page that exhausted
-    or was acknowledged ambiguously never blocks the escalation. Severities only rise three
-    levels, so a row has at most three budgets.
+    Each severity is its own page with its own budget, so a downgrade flap or an exhausted
+    lower page never spends an escalation's attempts; a row has at most three budgets.
     """
-    base = row.attempted_severity or row.covered_severity
-    return base is not None and _rank(row.severity) > _rank(base)
+    return {
+        "info": row.info_attempts,
+        "warning": row.warning_attempts,
+        "critical": row.critical_attempts,
+    }[row.severity.value]
 
 
 def observation_keys(
@@ -303,10 +303,7 @@ class InMemoryAlertStore:
                     delivery_expires_at=None,
                 )
                 return None
-            if not page_claimable(row):
-                return None
-            fresh = new_page(row)
-            if not fresh and row.delivery_attempts >= max_attempts:
+            if not page_claimable(row) or page_attempts(row) >= max_attempts:
                 return None
             token = uuid4()
             claimed = replace(
@@ -314,14 +311,10 @@ class InMemoryAlertStore:
                 delivery_provider=provider,
                 delivery_status="failed",
                 delivery_detail="delivery attempt awaiting acknowledgement",
-                delivery_attempts=1 if fresh else row.delivery_attempts + 1,
+                delivery_attempts=row.delivery_attempts + 1,
                 delivery_token=token,
                 delivery_expires_at=now + ttl,
-                attempted_severity=(
-                    row.severity
-                    if fresh or row.attempted_severity is None
-                    else row.attempted_severity
-                ),
+                **{f"{row.severity.value}_attempts": page_attempts(row) + 1},
             )
             rows[-1] = claimed
             return DeliveryClaim(claimed, token)

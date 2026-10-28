@@ -128,9 +128,11 @@ class OperatorAlert:
     delivery_expires_at: datetime | None = None
     # Severity a successful page (or the page a continuation skip relies on) actually covered.
     covered_severity: AlertSeverity | None = None
-    # Highest severity a delivery attempt was claimed for (Alembic 0082). A page at a higher
-    # severity is a new page with its own attempt budget.
-    attempted_severity: AlertSeverity | None = None
+    # Delivery attempts claimed per severity (Alembic 0082): each severity is its own page with
+    # its own budget; ``delivery_attempts`` stays the row's total.
+    info_attempts: int = 0
+    warning_attempts: int = 0
+    critical_attempts: int = 0
 
     @property
     def is_open(self) -> bool:

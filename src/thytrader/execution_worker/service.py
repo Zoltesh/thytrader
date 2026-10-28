@@ -18,7 +18,7 @@ from thytrader.execution.decision_journal import (
 from thytrader.execution.futures_live import futures_decisions_deferred, live_futures_runtime_scope
 from thytrader.execution.futures_paper import prepare_futures_book
 from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
-from thytrader.execution.stopped import maintained_quietly
+from thytrader.execution.stopped import maintained_without_fault
 from thytrader.execution_worker.bar_journal import _journaled_bar
 from thytrader.execution_worker.cycle_timing import (
     CycleTimer,
@@ -416,12 +416,11 @@ async def _process_one(
 ) -> bool:
     """Load evidence and advance one deployment through newly closed bars.
 
-    Returns true only when a stopped book's maintenance pass ran to completion and the book,
-    read after it, needed nothing more (``maintained_quietly``: flat, idle, fully accounted, no
-    fail-closed mismatch). Such a book makes no decisions, so that is the only verified work
-    that can prove a worker failure on it recovered (ADR 0115). Lease skips, deferred futures
-    books, stopped books still holding inventory or a fault, and running or paused books
-    return false.
+    Returns true only when a stopped book's maintenance was carried out for every product
+    (no missing broker, price context or unsettled evidence; no deferred flatten) and the book,
+    read after it, is still stopped with no fail-closed mismatch (``maintained_without_fault``).
+    That is verified work even for a stopped book whose decision cursor never advances (ADR
+    0115). Lease skips, deferred futures books, and running or paused books return false.
     """
     leased = await acquire_worker_lease(store, deployment_id)
     if leased is None:
@@ -454,7 +453,7 @@ async def _process_one(
             if futures_decisions_deferred(snapshot):
                 return False
             with futures_book_scope(futures_book):
-                await _process_stopped(
+                maintained = await _process_stopped(
                     snapshot,
                     strategy=strategy,
                     store=store,
@@ -462,7 +461,9 @@ async def _process_one(
                     paper_broker=paper_broker,
                     live_broker=live_broker,
                 )
-        return maintained_quietly(await store.get_deployment(deployment_id))
+        return maintained_without_fault(
+            await store.get_deployment(deployment_id), maintained=maintained
+        )
     if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
         strategy = await _strategy_definition(
             snapshot, store=store, publication_store=publication_store

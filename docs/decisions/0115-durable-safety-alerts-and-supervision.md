@@ -61,16 +61,18 @@ Alert codes:
   not verified freshness. Clock skew stays in the detail.
 - `WORKER_BOOK_FAILURES` counts observed raised cycles since the last verified successful
   decision. Unknown/no-decision/warming/lease-skipped cycles do not fabricate recovery or
-  reset persisted counters. A stopped book still holding inventory proves its work by advancing
-  its decision cursor like any book. A flat stopped book makes no decisions, so its cursor never
-  advances; its verified work is a maintenance pass that ran to completion (not lease-skipped,
-  futures-deferred or warming the window cache) and, read after it, left the book stopped, flat,
-  idle, fully accounted and free of any fail-closed mismatch (a failed read, a missing broker or
-  a deferred flatten all leave one), with the book stopped before the pass too. That resolves the
-  alert with its own note ("recovered: a later worker cycle completed this stopped book's
-  maintenance without failure and found it flat, idle, fully accounted and fault-free")
-  (2026-10-28); when the cursor rule resolves the same alert in the same cycle, its generic
-  note wins the equal watermark. Before, a failure on a flat stopped book stayed open forever.
+  reset persisted counters. The decision rule certifies that the book's cycle stopped raising; a
+  fail-closed fault the pass caught (for example a failed order read) keeps its own
+  `BOOK_PAUSED_MISMATCH` alert open. A stopped book's decision cursor often never advances (a
+  flat or discretionary book, or a multi-instrument one, whose instrument cursors are not the
+  parent's), so a stopped book also recovers when stopped supervision reports that it carried
+  out every product's maintenance (no missing broker or price context, no deferred flatten, no
+  unsettled execution evidence), the pass was not lease-skipped, futures-deferred or warming the
+  window cache, and the book, stopped before and after it, has no fail-closed mismatch. That
+  resolves the alert with its own note ("recovered: a later worker cycle carried out this
+  stopped book's maintenance ...") (2026-10-28); when the decision rule resolves it in the same
+  cycle, its generic note wins the equal watermark. A broker that returns clears the stopped
+  book's broker-unavailable note before reconciling, so the outage note no longer outlives it.
   At the configured threshold (default 3), new entries pause
   with reason `WORKER_CONSECUTIVE_FAILURES` and command `STOP_NEW_ENTRIES`. The pause
   acquires the worker lease, re-reads eligibility/revision/strategy, and writes through
@@ -114,8 +116,8 @@ page covers returns of the same or lower severity, so an escalation to critical 
 return waits while an earlier send is in flight, and a send acknowledged after its row resolved
 still counts. Coverage is the severity actually sent (`covered_severity`, Alembic `0081`; a
 continuation skip inherits its page's), never the row's later observed severity, so a block
-that escalated in place after a warning page is paged when it returns, and one downgraded after
-a critical page is not. A row sent before `0081` covers nothing. A walk of 500 rows that finds
+whose warning page did not cover its critical return is paged (an escalation in place is paged at
+once, below), and one downgraded after a critical page is not. A row sent before `0081` covers nothing. A walk of 500 rows that finds
 no gap or covering page while the next older row still joins the episode is due at once,
 since the episode's start lies beyond the window.
 An episode with more than 500 returns (for example a fast flap, or returns the delivery task
@@ -130,15 +132,19 @@ An open row that escalates in place after its page (any code) is paged again at 
   (`logged`/`delivered`) row only when it escalated above a known `covered_severity`. So a
   downgrade is never paged, including after a failed escalation attempt, and a row sent before
   `0081` (no known coverage) is not re-paged in place.
-- Per-page budget: `attempted_severity` (Alembic `0082`) records the highest severity an attempt
-  was claimed for. A claim above it (or, for a row from before `0082`, above its covered
-  severity) starts a new page with its own `alert_delivery_max_attempts` budget, so a lower page
-  that exhausted its attempts or was acknowledged ambiguously never blocks the escalation. Other
-  claims spend the row's budget, so a flapping severity keeps at most one budget per level.
+- Per-page budget: `info_attempts`, `warning_attempts` and `critical_attempts` (Alembic `0082`)
+  count attempts per severity, and each severity's page has its own `alert_delivery_max_attempts`
+  budget (`delivery_attempts` stays the row's total). A lower page that exhausted its attempts or
+  was acknowledged ambiguously, or a downgrade flap, never spends an escalation's budget; a row
+  has at most three budgets. Upgrading to `0082` charges a sent row's attempts to its covered
+  severity; a row never sent starts at zero, so an open unsent row gets one fresh budget after
+  the upgrade (a possible duplicate, never a missed page). Page ids also changed at this upgrade:
+  a send left in flight across it retries under the new id, so a receiver may see it twice.
 
 A send in flight when the row escalates acknowledges the lower coverage, so the next dispatch
 pages the escalation; concurrent dispatchers send it once. The page carries its own id (above)
-and says it escalated. The entry-block grace and episode rules still apply to unsent rows.
+and says it escalated. The entry-block grace and episode rules still apply to unsent rows,
+including a failed retry: an episode page that covers it keeps it from paging again.
 
 All four thresholds are environment-only (`THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES`,
 `THYTRADER_ALERT_DECISION_MISSED_BARS`, `THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS`,

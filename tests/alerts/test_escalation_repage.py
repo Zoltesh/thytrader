@@ -15,6 +15,7 @@ import pytest
 
 from tests.alerts.test_alert_service import _BlockingSender, _entry_block, _FailureSender
 from thytrader.alerts.models import (
+    AlertCheck,
     AlertCode,
     AlertScope,
     AlertSeverity,
@@ -22,7 +23,7 @@ from thytrader.alerts.models import (
     new_alert,
 )
 from thytrader.alerts.service import AlertService, page_id
-from thytrader.alerts.store import InMemoryAlertStore
+from thytrader.alerts.store import InMemoryAlertStore, page_attempts, page_claimable
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.config import NotifyProvider
 from thytrader.memory.models import DeliveryStatus
@@ -133,7 +134,7 @@ async def assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade(
         "[thytrader] CRITICAL",
     ]
     assert {record.id for record in sender.attempts[1:]} == {uuid5(row.id, "severity:critical")}
-    assert row.delivery_attempts == 2
+    assert (row.warning_attempts, row.critical_attempts, row.delivery_attempts) == (1, 2, 3)
     assert row.covered_severity is _WARNING
 
 
@@ -153,7 +154,7 @@ async def assert_an_ambiguous_lower_page_never_swallows_the_escalation(store: Al
     row = await _row(store, finding.subject)
     assert sender.delivered[0].id == uuid5(row.id, "severity:warning")
     assert [record.id for record in retry.delivered] == [uuid5(row.id, "severity:critical")]
-    assert row.delivery_attempts == 1
+    assert (row.warning_attempts, row.critical_attempts) == (1, 1)
 
 
 async def assert_an_exhausted_lower_page_does_not_block_the_escalation(store: AlertStore) -> None:
@@ -170,6 +171,27 @@ async def assert_an_exhausted_lower_page_does_not_block_the_escalation(store: Al
     row = await _row(store, finding.subject)
     assert [record.severity.value for record in sender.delivered] == ["error"]
     assert row.covered_severity is _CRITICAL
+
+
+async def assert_a_downgrade_flap_never_starves_the_escalation(store: AlertStore) -> None:
+    """Warning attempts during a flap spend only the warning page's budget.
+
+    With the webhook down the row goes warning, critical, then warning until warning is
+    exhausted; once the webhook recovers and the row is critical again, its page still goes out.
+    """
+    sender = _Switch()
+    sender.failing = True
+    service = _service(store, sender, attempts=2)
+    finding = _uncovered()
+    critical = replace(finding, severity=_CRITICAL)
+    observations = (finding, critical, finding, finding, finding)
+    for step, observed in enumerate(observations):
+        await service.apply((observed,), now=_NOW + timedelta(seconds=61 * step))
+    sender.failing = False
+    await service.apply((critical,), now=_NOW + timedelta(minutes=10))
+    row = await _row(store, finding.subject)
+    assert [record.severity.value for record in sender.delivered] == ["error"]
+    assert (row.warning_attempts, row.critical_attempts) == (2, 2)
 
 
 async def assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged(
@@ -203,6 +225,41 @@ async def test_an_ambiguous_lower_page_never_swallows_the_escalation() -> None:
 async def test_an_exhausted_lower_page_does_not_block_the_escalation() -> None:
     """A higher severity is a new page with its own attempt budget."""
     await assert_an_exhausted_lower_page_does_not_block_the_escalation(InMemoryAlertStore())
+
+
+async def test_a_downgrade_flap_never_starves_the_escalation() -> None:
+    """Each severity spends its own budget."""
+    await assert_a_downgrade_flap_never_starves_the_escalation(InMemoryAlertStore())
+
+
+async def test_a_failed_return_covered_by_its_episode_page_is_not_paged_again() -> None:
+    """Row A pages warning; return B fails at critical, then falls to warning: no warning twice."""
+    store = InMemoryAlertStore()
+    sender = _Switch()
+    service = _service(store, sender)
+    critical = _entry_block()
+    warning = replace(critical, severity=_WARNING)
+    check = AlertCheck(critical.code, critical.subject)
+    for minute in range(7):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    await service.apply((), now=_NOW + timedelta(minutes=7), evaluated=(check,))
+    sender.failing = True
+    await service.apply((critical,), now=_NOW + timedelta(minutes=8))
+    sender.failing = False
+    for minute in range(9, 14):
+        await service.apply((warning,), now=_NOW + timedelta(minutes=minute))
+    assert [record.severity.value for record in sender.attempts] == ["warning", "error"]
+    await service.apply((critical,), now=_NOW + timedelta(minutes=15))
+    assert [record.severity.value for record in sender.delivered] == ["warning", "error"]
+
+
+def test_an_unsent_row_from_before_per_severity_budgets_gets_one_fresh_budget() -> None:
+    """Alembic 0082 leaves an unsent row's counters at zero: one retry budget, never a miss."""
+    row = replace(
+        new_alert(_uncovered(_CRITICAL), now=_NOW), delivery_status="failed", delivery_attempts=5
+    )
+    assert page_claimable(row)
+    assert page_attempts(row) == 0
 
 
 async def test_a_row_sent_before_coverage_was_recorded_is_not_re_paged() -> None:

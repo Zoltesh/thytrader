@@ -51,8 +51,8 @@ def verified_worker_recovery(previous: Deployment, current: Deployment) -> bool:
 
 #: Resolution note for a worker failure on a stopped book proven by its maintenance pass.
 STOPPED_MAINTENANCE_RECOVERY = (
-    "recovered: a later worker cycle completed this stopped book's maintenance without failure "
-    "and found it flat, idle, fully accounted and fault-free"
+    "recovered: a later worker cycle carried out this stopped book's maintenance (reconciliation, "
+    "protection, exits) without failure and left it fault-free"
 )
 
 
@@ -61,10 +61,11 @@ def verified_stopped_maintenance(
 ) -> bool:
     """A completed maintenance pass proves a worker error on a stopped book recovered.
 
-    A flat stopped book makes no decisions, so its cursor never advances and the decision rule
-    could never clear it. ``maintained`` is the caller's positive evidence: the pass ran to
-    completion (not lease-skipped, deferred or warming) and left the book flat, idle, fully
-    accounted and fault-free. The book must be stopped before and after the pass, and any
+    A stopped book's decision cursor often never advances (a flat or discretionary book, or a
+    multi-instrument one, whose instrument cursors are not the parent's), so the decision rule
+    alone could leave it open forever. ``maintained`` is the caller's positive evidence: the
+    pass was not lease-skipped, deferred or warming, carried out every product's maintenance
+    and left the book fault-free. The book must be stopped before and after the pass, and any
     fail-closed mismatch (a supervision pause, a failed read, a missing broker) keeps it open.
     """
     return (
