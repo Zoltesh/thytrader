@@ -98,9 +98,8 @@ def wake(
             raise DeskRunError("DESK_BRIEFING_INVALID: the briefing has no prompt.")
         # Answer as the briefing's own configuration says (a PATCH may have landed meanwhile),
         # and re-check a live desk's rules against it: the harness may have become built in.
-        refused = refused or _live_refusal(
-            brief, harness=harness, model=model, command=command, live=live
-        )
+        # The answered briefing decides; the desk read only held back the skip request.
+        refused = _live_refusal(brief, harness=harness, model=model, command=command, live=live)
         selection = _select(brief, harness=harness, model=model, command=command, live=live)
         if refused is not None:
             # Journaled as a failed wake, so DESK_WAKES_FAILING names the refusal.

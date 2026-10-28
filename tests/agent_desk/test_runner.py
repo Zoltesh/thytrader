@@ -646,3 +646,35 @@ def test_schedule_refuses_a_command_for_a_live_built_in_desk(
     )
     with pytest.raises(SystemExit, match="DESK_LIVE_OVERRIDE_REFUSED"):
         main(["schedule", "desk-1", "--command", "wrapper run"])
+
+
+def test_a_live_desk_switched_to_a_custom_harness_mid_wake_runs_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Desk read says built-in claude, the briefing (after an update) says custom: it runs."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "claude", "model": "a"}},
+    )
+    custom = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "config_fingerprint": "sha256:" + "8" * 64,
+        "harness": "opencode",
+        "model": "a",
+        "prompt": "decide",
+    }
+    monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: custom)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert "harness_error" not in answer
+    assert answer["raw_response"] == "DECIDE\n"
+    assert answer["harness"] == "opencode"

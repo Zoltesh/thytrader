@@ -197,7 +197,16 @@ def test_one_unjudgeable_desk_never_stops_the_others() -> None:
         now=_NOW,
     )
     assert [finding.subject for finding in evidence.findings] == ["desk:desk-1"]
-    assert all(check.subject != "desk:broken" for check in evidence.evaluated)
+    assert AlertCheck(AlertCode.DESK_WAKES_STALLED, "desk:broken") not in evidence.evaluated
+
+
+def test_an_unjudgeable_stall_check_keeps_the_failing_finding() -> None:
+    """Failing wakes still page when the stall check cannot be judged for the same desk."""
+    failing = [_wake(WakeOutcome.ERROR, index) for index in range(FAILED_WAKES)]
+    failing[0] = failing[0].model_copy(update={"finished_at": _NOW.replace(tzinfo=None)})
+    evidence = desk_wake_evidence([_desk()], {"desk-1": failing}, now=_NOW)
+    assert [finding.code for finding in evidence.findings] == [AlertCode.DESK_WAKES_FAILING]
+    assert all(check.code is not AlertCode.DESK_WAKES_STALLED for check in evidence.evaluated)
 
 
 def test_only_known_failure_codes_reach_the_alert() -> None:

@@ -101,14 +101,13 @@ def desk_wake_evidence(
         recent = wakes.get(desk.desk_id)
         if recent is None:
             continue
-        try:
-            judged = (
-                (AlertCode.DESK_WAKES_FAILING, _failing(desk, recent)),
-                (AlertCode.DESK_WAKES_STALLED, _stalled(desk, recent, now=now)),
-            )
-        except TypeError, ValueError:
-            # One unreadable desk proves nothing and never stops the others being judged.
-            continue
+        judged: list[tuple[AlertCode, SupervisionFinding | None]] = []
+        for code in _CODES:
+            try:
+                judged.append((code, _judge(code, desk, recent, now=now)))
+            except TypeError, ValueError:
+                # A check that cannot be judged proves nothing; the other one still stands.
+                continue
         for code, finding in judged:
             if finding is None:
                 evaluated.append(AlertCheck(code, subject))
@@ -120,6 +119,15 @@ def desk_wake_evidence(
         if row.code in _CODES and row.is_open and row.subject not in listed
     )
     return SafetyEvidence(tuple(findings), tuple(evaluated))
+
+
+def _judge(
+    code: AlertCode, desk: Desk, recent: Sequence[DeskWake], *, now: datetime
+) -> SupervisionFinding | None:
+    """One desk check."""
+    if code is AlertCode.DESK_WAKES_FAILING:
+        return _failing(desk, recent)
+    return _stalled(desk, recent, now=now)
 
 
 def _failing(desk: Desk, recent: Sequence[DeskWake]) -> SupervisionFinding | None:
