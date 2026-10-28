@@ -2,26 +2,33 @@
 
 ``GET .../briefing`` is what a harness reads each wake; ``POST .../wakes`` hands ThyTrader the
 model's raw answer, which is parsed, checked against the desk caps, applied to paper books and
-journaled. A live desk (ADR 0148) is created only with the live acknowledgement.
+journaled. ``POST .../wakes/skip`` journals a ``skipped`` wake instead when nothing the model can
+act on changed since the newest wake. ``PATCH`` changes the harness, model, cadence, mandate, caps
+or name. A live desk (ADR 0148) is created, and has its harness, model, mandate or caps changed,
+only with the live acknowledgement.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+import logging
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool
 
+from thytrader.agent_desk.answers import AnswerFingerprints
 from thytrader.agent_desk.briefing import DeskBriefing
 from thytrader.agent_desk.models import (
+    MAX_CHANGES,
     MAX_MANDATE_CHARS,
     MAX_PRODUCTS,
     MAX_RESPONSE_CHARS,
     Desk,
     DeskBook,
     DeskCaps,
+    DeskChange,
     DeskStatus,
     DeskWake,
 )
@@ -36,7 +43,9 @@ from thytrader.agent_desk.service import (
     save_desk as save_desk_revision,
     score,
 )
+from thytrader.agent_desk.skips import Runner, SkipVerdict, skip_unchanged
 from thytrader.agent_desk.store import DeskConflictError, DeskStore, DeskStoreUnavailableError
+from thytrader.agent_desk.update import DeskChanges, update_desk
 from thytrader.api.dependencies import (
     get_audit_event_store,
     get_desk_store,
@@ -53,7 +62,13 @@ from thytrader.api.dependencies import (
 from thytrader.api.desk_execution import ApiDeskExecution
 from thytrader.api.live_ack import require_live_acknowledgement
 from thytrader.api.paper_fees import get_paper_fee_source
-from thytrader.audit_events import AuditEventStore  # noqa: TC001
+from thytrader.audit_events import (
+    AuditEvent,
+    AuditEventCategory,
+    AuditEventOutcome,
+    AuditEventStore,
+    AuditEventUnavailableError,
+)
 from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore  # noqa: TC001
 from thytrader.exchanges.protocols import ExchangeAccount  # noqa: TC001
 from thytrader.execution.broker import Broker  # noqa: TC001
@@ -66,6 +81,8 @@ from thytrader.trading.models import DeploymentMode
 from thytrader.trading.store import ExecutionStore  # noqa: TC001
 
 router = APIRouter(prefix="/api/v1/desks", tags=["agent desks"])
+_DIGEST = r"^sha256:[0-9a-f]{64}$"
+_logger = logging.getLogger(__name__)
 
 
 class CreateDeskBody(BaseModel):
@@ -102,8 +119,51 @@ class WakeBody(BaseModel):
     harness: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
     model: str | None = Field(default=None, max_length=80)
     briefing_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    started_at: datetime | None = None
+    started_at: AwareDatetime | None = None
     harness_error: str | None = Field(default=None, max_length=2000)
+    material_fingerprint: str | None = Field(default=None, pattern=_DIGEST)
+    config_fingerprint: str = Field(
+        pattern=_DIGEST,
+        description=(
+            "The answered briefing's config_fingerprint. If the desk's harness, model, mandate "
+            "or caps changed since, the answer is refused DESK_CONFIG_CHANGED (a close still "
+            "applies)."
+        ),
+    )
+    runner_fingerprint: str | None = Field(default=None, pattern=_DIGEST)
+
+
+class SkipBody(BaseModel):
+    """Who would answer this wake; ThyTrader decides whether it may be skipped."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    harness: str = Field(pattern=r"^[a-z][a-z0-9_-]{1,31}$")
+    model: str | None = Field(default=None, max_length=80)
+    runner_fingerprint: str | None = Field(default=None, pattern=_DIGEST)
+    started_at: AwareDatetime | None = None
+
+
+class UpdateDeskBody(BaseModel):
+    """Changes to a desk; omitted fields stay as they are."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    harness: str | None = Field(default=None, pattern=r"^[a-z][a-z0-9_-]{1,31}$")
+    model: str | None = Field(default=None, min_length=1, max_length=80)
+    clear_model: StrictBool = False
+    cadence_minutes: int | None = Field(default=None, ge=5, le=1440)
+    mandate: str | None = Field(default=None, max_length=MAX_MANDATE_CHARS)
+    caps: dict[str, Decimal] | None = None
+    expected_revision: int | None = Field(default=None, ge=1)
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true to change a live desk's harness, model, mandate or caps (HTTP 428 "
+            "live_acknowledgement_required otherwise; ADR 0148)."
+        ),
+    )
 
 
 class StatusBody(BaseModel):
@@ -230,13 +290,85 @@ async def post_wake(
             harness=body.harness,
             model=body.model,
             briefing_fingerprint=body.briefing_fingerprint,
-            started_at=body.started_at or datetime.now(UTC),
+            started_at=_started(body.started_at),
             harness_error=body.harness_error,
+            fingerprints=AnswerFingerprints(
+                material=body.material_fingerprint,
+                config=body.config_fingerprint,
+                runner=body.runner_fingerprint,
+            ),
         )
     except DeskError as error:
         raise _desk_http(error) from None
     except DeskStoreUnavailableError as error:
         raise _unavailable(error) from None
+
+
+@router.post("/{desk_id}/wakes/skip", response_model=SkipVerdict)
+async def post_skip(
+    desk_id: str,
+    body: SkipBody,
+    desks: Annotated[DeskStore, Depends(get_desk_store)],
+    execution: Annotated[ApiDeskExecution, Depends(_execution)],
+    market_data: Annotated[MarketDataService, Depends(get_market_data_service)],
+) -> SkipVerdict:
+    """Journal a skipped wake when nothing changed since the newest one, else say why not."""
+    try:
+        return await skip_unchanged(
+            desk_id,
+            store=desks,
+            execution=execution,
+            market_data=market_data,
+            runner=Runner(
+                harness=body.harness, model=body.model, fingerprint=body.runner_fingerprint
+            ),
+            started_at=_started(body.started_at),
+        )
+    except DeskError as error:
+        raise _desk_http(error) from None
+    except DeskStoreUnavailableError as error:
+        raise _unavailable(error) from None
+
+
+@router.patch("/{desk_id}", response_model=Desk)
+async def patch_desk(
+    desk_id: str,
+    body: UpdateDeskBody,
+    desks: Annotated[DeskStore, Depends(get_desk_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
+) -> Desk:
+    """Change the harness, model, cadence, mandate, caps or name; the change is audited."""
+    changes = DeskChanges(
+        name=body.name,
+        harness=body.harness,
+        model=body.model,
+        clear_model=body.clear_model,
+        cadence_minutes=body.cadence_minutes,
+        mandate=body.mandate,
+        caps=None if body.caps is None else dict(body.caps),
+    )
+    try:
+        update = await update_desk(
+            desks,
+            desk_id,
+            changes,
+            live_acknowledged=body.i_understand_live,
+            expected_revision=body.expected_revision,
+        )
+    except DeskError as error:
+        if str(error).startswith("DESK_LIVE_ACK_REQUIRED"):
+            require_live_acknowledgement(DeploymentMode.LIVE, acknowledged=False)
+        raise _desk_http(error) from None
+    except (DeskStoreUnavailableError, DeskConflictError) as error:
+        raise _unavailable(error) from None
+    detail = "; ".join(f"{name}: {old} -> {new}" for name, (old, new) in update.changed.items())
+    await _audit(
+        audit,
+        "desk_updated",
+        f"desk_id={desk_id} mode={update.desk.mode} revision={update.desk.revision} "
+        f"live_acknowledged={body.i_understand_live} {detail}",
+    )
+    return update.desk
 
 
 @router.get("/{desk_id}/wakes", response_model=tuple[DeskWake, ...])
@@ -270,7 +402,10 @@ async def get_score(
 
 @router.post("/{desk_id}/status", response_model=Desk)
 async def post_status(
-    desk_id: str, body: StatusBody, desks: Annotated[DeskStore, Depends(get_desk_store)]
+    desk_id: str,
+    body: StatusBody,
+    desks: Annotated[DeskStore, Depends(get_desk_store)],
+    audit: Annotated[AuditEventStore, Depends(get_audit_event_store)],
 ) -> Desk:
     """Pause, resume or retire a desk; its open books keep their stops and targets."""
     try:
@@ -278,13 +413,57 @@ async def post_status(
             desk = await desks.get_desk(desk_id)
             if desk is None:
                 raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
-            return await save_desk_revision(
-                desk.model_copy(update={"status": body.status}), store=desks, previous=desk
+            if desk.status is body.status:
+                return desk
+            now = datetime.now(UTC)
+            record = DeskChange(
+                at=now,
+                revision=desk.revision + 1,
+                changed={"status": (desk.status.value, body.status.value)},
+            )
+            changes: dict[str, object] = {
+                "status": body.status,
+                "changes": (*desk.changes, record)[-MAX_CHANGES:],
+            }
+            if body.status is DeskStatus.ACTIVE and desk.status is not DeskStatus.ACTIVE:
+                # A resumed desk is due to wake from now (DESK_WAKES_STALLED counts from here).
+                changes["due_since"] = now
+            saved = await save_desk_revision(
+                desk.model_copy(update=changes), store=desks, previous=desk
             )
     except DeskError as error:
         raise _desk_http(error) from None
     except (DeskStoreUnavailableError, DeskConflictError) as error:
         raise _unavailable(error) from None
+    await _audit(
+        audit,
+        "desk_status_changed",
+        f"desk_id={desk_id} mode={saved.mode} revision={saved.revision} "
+        f"status: {desk.status.value} -> {saved.status.value}",
+    )
+    return saved
+
+
+async def _audit(audit: AuditEventStore, action: str, detail: str) -> None:
+    """Append one desk audit event; a lost row is logged (the desk row records the change)."""
+    try:
+        await audit.append(
+            AuditEvent(
+                occurred_at=datetime.now(UTC),
+                category=AuditEventCategory.RUNTIME,
+                action=action,
+                outcome=AuditEventOutcome.SUCCESS,
+                detail=detail[:2048],
+            )
+        )
+    except AuditEventUnavailableError:
+        _logger.warning("desk_audit_unavailable action=%s", action)
+
+
+def _started(started_at: datetime | None) -> datetime:
+    """A caller's wake start, never later than now (journal order and recency are the server's)."""
+    now = datetime.now(UTC)
+    return now if started_at is None else min(started_at, now)
 
 
 def _desk_http(error: DeskError) -> HTTPException:

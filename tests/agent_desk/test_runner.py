@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from thytrader.agent_desk import runner
+from thytrader.agent_desk import cli, runner
 from thytrader.agent_desk.cli import main
 from thytrader.agent_desk.harness import (
     BUILTIN_HARNESSES,
@@ -17,6 +17,7 @@ from thytrader.agent_desk.harness import (
     harness_argv,
     run_harness,
 )
+from thytrader.agent_http import AgentHttpError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -71,15 +72,29 @@ def test_harness_failures_carry_a_code(command: str, code: str) -> None:
         run_harness(custom_template(command), prompt="x", model=None, timeout_seconds=1)
 
 
-def _fake_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[dict[str, object]]:
-    """Stand in for the briefing and wake routes; return the posted wakes."""
+def _fake_api(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, *, skip: bool = False
+) -> list[dict[str, object]]:
+    """Stand in for the briefing, skip and wake routes; return the posted wakes and skips."""
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     posted: list[dict[str, object]] = []
     brief = {
         "fingerprint": "sha256:" + "a" * 64,
+        "material_fingerprint": "sha256:" + "b" * 64,
+        "config_fingerprint": "sha256:" + "f" * 64,
+        "harness": "claude",
+        "model": "configured-model",
         "prompt": "decide",
         "desk": {"equity_quote": "10000"},
     }
+
+    def skip_wake(_base: str, _desk: str, payload: dict[str, object]) -> dict[str, object]:
+        posted.append({"skip_request": True, **payload})
+        if skip:
+            return {"skipped": True, "wake": {"outcome": "skipped", **payload}}
+        return {"skipped": False, "reason": "DESK_WAKE_CHANGED: new bar."}
+
+    monkeypatch.setattr(runner, "skip_wake", skip_wake)
     monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: brief)
     monkeypatch.setattr(
         runner,
@@ -93,6 +108,11 @@ def _fake_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[dict[str,
 
     monkeypatch.setattr(runner, "record_wake", record)
     return posted
+
+
+def _answers(posted: list[dict[str, object]]) -> list[dict[str, object]]:
+    """The posted answers, without the skip requests before them."""
+    return [payload for payload in posted if "skip_request" not in payload]
 
 
 def test_a_wake_posts_the_answer_against_the_briefing_fingerprint(
@@ -109,9 +129,11 @@ def test_a_wake_posts_the_answer_against_the_briefing_fingerprint(
         timeout_seconds=30,
     )
     assert result["outcome"] == "applied"
-    assert posted[0]["raw_response"] == "DECIDE\n"
-    assert posted[0]["briefing_fingerprint"] == "sha256:" + "a" * 64
-    assert posted[0]["harness"] == "custom"
+    answers = _answers(posted)
+    assert answers[0]["raw_response"] == "DECIDE\n"
+    assert answers[0]["briefing_fingerprint"] == "sha256:" + "a" * 64
+    assert answers[0]["material_fingerprint"] == "sha256:" + "b" * 64
+    assert answers[0]["harness"] == "custom"
 
 
 def test_a_failed_harness_is_still_journaled(
@@ -127,8 +149,9 @@ def test_a_failed_harness_is_still_journaled(
         command="definitely-not-a-harness-binary",
         timeout_seconds=30,
     )
-    assert posted[0]["raw_response"] == ""
-    assert str(posted[0]["harness_error"]).startswith("DESK_HARNESS_NOT_FOUND")
+    answers = _answers(posted)
+    assert answers[0]["raw_response"] == ""
+    assert str(answers[0]["harness_error"]).startswith("DESK_HARNESS_NOT_FOUND")
 
 
 def test_an_overlapping_wake_is_skipped(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -172,7 +195,51 @@ def test_a_plain_wake_runs_the_desks_own_harness_and_model(
         timeout_seconds=30,
     )
     assert seen == [("claude", "configured-model")]
+    answer = _answers(posted)[0]
+    assert (answer["harness"], answer["model"]) == ("claude", "configured-model")
     assert (posted[0]["harness"], posted[0]["model"]) == ("claude", "configured-model")
+
+
+def test_an_unchanged_wake_is_skipped_without_running_the_harness(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """When ThyTrader journals a skip, no harness runs and no briefing or answer is posted."""
+    posted = _fake_api(monkeypatch, tmp_path, skip=True)
+    ran: list[str] = []
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: ran.append("ran") or "")
+    monkeypatch.setattr(
+        runner, "desk_briefing", lambda *_a: pytest.fail("a skipped wake reads no briefing")
+    )
+    result = runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    assert result["outcome"] == "skipped"
+    assert ran == []
+    assert _answers(posted) == []
+
+
+def test_always_runs_the_harness_without_asking_to_skip(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`wake --always` never asks for a skip, so the model is asked every time."""
+    posted = _fake_api(monkeypatch, tmp_path, skip=True)
+    result = runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+        always=True,
+    )
+    assert result["outcome"] == "applied"
+    assert [payload for payload in posted if "skip_request" in payload] == []
+    assert _answers(posted)[0]["raw_response"] == "DECIDE\n"
 
 
 def test_an_unknown_harness_is_refused_before_anything_runs() -> None:
@@ -210,10 +277,404 @@ def test_schedules_wake_the_desk_on_its_cadence() -> None:
 
 
 def test_mutations_need_confirm(capsys: pytest.CaptureFixture[str]) -> None:
-    """Create, wake, record and status refuse without --confirm before any HTTP call."""
+    """Create, update, wake, record and status refuse without --confirm before any HTTP call."""
     with pytest.raises(SystemExit, match="--confirm"):
         main(["wake", "desk-1"])
     with pytest.raises(SystemExit, match="--confirm"):
         main(["status", "desk-1", "paused"])
+    with pytest.raises(SystemExit, match="--confirm"):
+        main(["update", "desk-1", "--model", "m"])
     main(["harnesses"])
     assert "claude" in json.loads(capsys.readouterr().out)
+
+
+def test_an_unknown_desk_harness_is_journaled_as_a_failed_wake(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A harness the runner cannot resolve posts an error wake, so the failure alert sees it."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner, "show_desk", lambda _base, _desk: {"desk": {"harness": "gpt", "model": "m"}}
+    )
+    monkeypatch.setattr(
+        runner,
+        "desk_briefing",
+        lambda _base, _desk: {
+            "fingerprint": "sha256:" + "a" * 64,
+            "config_fingerprint": "sha256:" + "f" * 64,
+            "harness": "gpt",
+            "model": "m",
+            "prompt": "decide",
+        },
+    )
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: pytest.fail("no harness runs"))
+    result = runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    assert result["outcome"] == "applied"
+    assert [payload for payload in posted if "skip_request" in payload] == []
+    answer = _answers(posted)[0]
+    assert str(answer["harness_error"]).startswith("DESK_HARNESS_UNKNOWN")
+    assert answer["runner_fingerprint"] is None
+
+
+def test_the_runner_identity_covers_the_command_template_and_model() -> None:
+    """Two custom commands or two models are two runners; the same one is stable."""
+    one = runner.runner_fingerprint(custom_template("tool-a run"), "m")
+    assert one == runner.runner_fingerprint(custom_template("tool-a run"), "m")
+    assert one != runner.runner_fingerprint(custom_template("tool-b run"), "m")
+    assert one != runner.runner_fingerprint(custom_template("tool-a run"), "n")
+    assert runner.runner_fingerprint(None, "m") is None
+
+
+def test_a_wake_posts_the_briefings_configuration_and_its_runner(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The answer carries the configuration fingerprint it was produced under."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    brief = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "material_fingerprint": "sha256:" + "b" * 64,
+        "config_fingerprint": "sha256:" + "e" * 64,
+        "harness": "claude",
+        "model": "configured-model",
+        "prompt": "decide",
+    }
+    monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: brief)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    skip = posted[0]
+    assert answer["config_fingerprint"] == "sha256:" + "e" * 64
+    assert answer["runner_fingerprint"] == skip["runner_fingerprint"]
+    assert str(answer["runner_fingerprint"]).startswith("sha256:")
+
+
+def _no_real_harness(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str | None]]:
+    """Record which harness and model would run, without running anything."""
+    seen: list[tuple[str, str | None]] = []
+
+    def fake_run(
+        template: object, *, prompt: str, model: str | None, timeout_seconds: float
+    ) -> str:
+        del prompt, timeout_seconds
+        seen.append((getattr(template, "name", ""), model))
+        return '{"action": "no_trade", "thesis": "x"}'
+
+    monkeypatch.setattr(runner, "run_harness", fake_run)
+    return seen
+
+
+def test_a_model_switched_before_the_briefing_runs_the_briefings_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The desk read says model A, the briefing (after a PATCH) says B: B answers."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    seen = _no_real_harness(monkeypatch)
+    switched = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "config_fingerprint": "sha256:" + "9" * 64,
+        "harness": "pi",
+        "model": "new-model",
+        "prompt": "decide",
+    }
+    monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: switched)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert seen == [("pi", "new-model")]
+    assert (answer["harness"], answer["model"]) == ("pi", "new-model")
+    assert answer["config_fingerprint"] == "sha256:" + "9" * 64
+
+
+def test_a_live_desk_takes_no_harness_or_model_override(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Overriding who trades real money needs `update --i-understand-live`, not a wake flag."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "claude", "model": "a"}},
+    )
+    overrides: list[tuple[str | None, str | None]] = [
+        (None, "b"),
+        ("pi", None),
+        (None, "a"),
+        ("claude", None),
+    ]
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: pytest.fail("no harness runs"))
+    for harness, model in overrides:
+        runner.wake(
+            "http://127.0.0.1:8000",
+            "desk-1",
+            harness=harness,
+            model=model,
+            command=None,
+            timeout_seconds=30,
+        )
+    answers = _answers(posted)
+    assert len(answers) == len(overrides)
+    assert all(str(a["harness_error"]).startswith("DESK_LIVE_OVERRIDE_REFUSED") for a in answers)
+    assert [payload for payload in posted if "skip_request" in payload] == []
+
+
+def test_a_live_built_in_harness_takes_no_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A live desk configured for a built-in harness really runs that harness."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "claude", "model": "a"}},
+    )
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: pytest.fail("no harness runs"))
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert str(answer["harness_error"]).startswith("DESK_LIVE_OVERRIDE_REFUSED")
+
+
+def test_a_live_custom_command_answers_under_the_desks_own_harness_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """--command is how a custom harness runs; a live answer carries the desk's identity."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "opencode", "model": "a"}},
+    )
+    custom = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "config_fingerprint": "sha256:" + "f" * 64,
+        "harness": "opencode",
+        "model": "a",
+        "prompt": "decide",
+    }
+    monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: custom)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert (answer["harness"], answer["model"]) == ("opencode", "a")
+
+
+@pytest.mark.parametrize(
+    ("command", "code"),
+    [
+        ("   ", "DESK_HARNESS_INVALID"),
+        ('tool "unbalanced', "DESK_HARNESS_FAILED: ValueError"),
+    ],
+)
+def test_a_command_that_cannot_be_set_up_is_journaled_as_a_failed_wake(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, command: str, code: str
+) -> None:
+    """A blank or misquoted --command posts an error wake; nothing runs."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: pytest.fail("no harness runs"))
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=command,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert str(answer["harness_error"]).startswith(code)
+
+
+def test_a_harness_that_cannot_start_is_journaled_as_a_failed_wake(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An OS-level failure (for example a binary without execute permission) posts an error."""
+    posted = _fake_api(monkeypatch, tmp_path)
+
+    def denied(*_args: object, **_kwargs: object) -> str:
+        raise PermissionError("not executable")
+
+    monkeypatch.setattr(runner, "run_harness", denied)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert str(answer["harness_error"]).startswith("DESK_HARNESS_FAILED: PermissionError")
+
+
+def test_the_runner_answers_the_briefing_the_skip_check_built(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A declined skip hands back its locked briefing; the runner answers it, not a re-read."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    seen = _no_real_harness(monkeypatch)
+    locked = {
+        "fingerprint": "sha256:" + "1" * 64,
+        "material_fingerprint": "sha256:" + "2" * 64,
+        "config_fingerprint": "sha256:" + "3" * 64,
+        "harness": "pi",
+        "model": "locked-model",
+        "prompt": "decide",
+    }
+
+    def skip_wake(_base: str, _desk: str, payload: dict[str, object]) -> dict[str, object]:
+        posted.append({"skip_request": True, **payload})
+        return {"skipped": False, "reason": "DESK_WAKE_CHANGED: x", "briefing": locked}
+
+    monkeypatch.setattr(runner, "skip_wake", skip_wake)
+    monkeypatch.setattr(
+        runner, "desk_briefing", lambda *_a: pytest.fail("the locked briefing is answered")
+    )
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=None,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert seen == [("pi", "locked-model")]
+    assert answer["briefing_fingerprint"] == "sha256:" + "1" * 64
+    assert answer["config_fingerprint"] == "sha256:" + "3" * 64
+    assert (answer["harness"], answer["model"]) == ("pi", "locked-model")
+
+
+def test_an_unanswered_skip_request_still_asks_the_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Skipping only saves a call: a failing skip endpoint never loses the wake."""
+    posted = _fake_api(monkeypatch, tmp_path)
+
+    def broken(_base: str, _desk: str, _payload: dict[str, object]) -> dict[str, object]:
+        raise AgentHttpError("HTTP 503: desk store unavailable", status=503)
+
+    monkeypatch.setattr(runner, "skip_wake", broken)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    assert _answers(posted)[0]["raw_response"] == "DECIDE\n"
+
+
+def test_a_live_desk_switched_to_a_built_in_harness_mid_wake_refuses_the_old_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Desk read says custom opencode; the briefing (after an update) says built-in claude."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "opencode", "model": "a"}},
+    )
+    switched = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "config_fingerprint": "sha256:" + "9" * 64,
+        "harness": "claude",
+        "model": "new-model",
+        "prompt": "decide",
+    }
+
+    def skip_wake(_base: str, _desk: str, payload: dict[str, object]) -> dict[str, object]:
+        posted.append({"skip_request": True, **payload})
+        return {"skipped": False, "reason": "DESK_WAKE_CHANGED: x", "briefing": switched}
+
+    monkeypatch.setattr(runner, "skip_wake", skip_wake)
+    monkeypatch.setattr(runner, "run_harness", lambda *_a, **_k: pytest.fail("no harness runs"))
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert str(answer["harness_error"]).startswith("DESK_LIVE_OVERRIDE_REFUSED")
+    assert answer["harness"] == "claude"
+
+
+def test_schedule_refuses_a_command_for_a_live_built_in_desk(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CLI never prints a timer the runner would refuse."""
+    monkeypatch.setattr(cli, "require_matching_ops_contract", lambda _base: None)
+    monkeypatch.setattr(
+        cli,
+        "show_desk",
+        lambda _base, _desk: {
+            "desk": {"mode": "live", "harness": "claude", "cadence_minutes": 240}
+        },
+    )
+    with pytest.raises(SystemExit, match="DESK_LIVE_OVERRIDE_REFUSED"):
+        main(["schedule", "desk-1", "--command", "wrapper run"])
+
+
+def test_a_live_desk_switched_to_a_custom_harness_mid_wake_runs_the_command(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Desk read says built-in claude, the briefing (after an update) says custom: it runs."""
+    posted = _fake_api(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        runner,
+        "show_desk",
+        lambda _base, _desk: {"desk": {"mode": "live", "harness": "claude", "model": "a"}},
+    )
+    custom = {
+        "fingerprint": "sha256:" + "a" * 64,
+        "config_fingerprint": "sha256:" + "8" * 64,
+        "harness": "opencode",
+        "model": "a",
+        "prompt": "decide",
+    }
+    monkeypatch.setattr(runner, "desk_briefing", lambda _base, _desk: custom)
+    runner.wake(
+        "http://127.0.0.1:8000",
+        "desk-1",
+        harness=None,
+        model=None,
+        command=_ECHO,
+        timeout_seconds=30,
+    )
+    answer = _answers(posted)[0]
+    assert "harness_error" not in answer
+    assert answer["raw_response"] == "DECIDE\n"
+    assert answer["harness"] == "opencode"

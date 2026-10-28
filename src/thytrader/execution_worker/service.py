@@ -27,6 +27,7 @@ from thytrader.execution_worker.cycle_timing import (
     record_cycle_start,
     window_cache_of,
 )
+from thytrader.execution_worker.desk_supervision import supervise_desks
 from thytrader.execution_worker.discretionary_step import _process_discretionary
 from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
 from thytrader.execution_worker.futures_step import supervised_live_futures
@@ -72,6 +73,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
     from uuid import UUID
 
+    from thytrader.agent_desk.store import DeskStore
     from thytrader.alerts.models import SupervisionFinding
     from thytrader.alerts.service import AlertService
     from thytrader.audit_events import AuditEventStore
@@ -146,6 +148,7 @@ async def run_execution_worker(
     portfolio_store: PortfolioRuntimeStore | None = None,
     alert_service: AlertService | None = None,
     cycle_store: ExecutionCycleStore | None = None,
+    desk_store: DeskStore | None = None,
 ) -> None:
     """Poll running deployments until shutdown.
 
@@ -161,7 +164,8 @@ async def run_execution_worker(
     ``cycle_store`` records each cycle's start and its timing report (ADR 0131); the
     heartbeat is also refreshed between books (at most every 10 seconds), so a slow cycle
     that is still making progress is reported as ``CYCLE_SLOW``, not as a dead worker.
-    Cycle-telemetry failures never stop or alter a cycle.
+    Cycle-telemetry failures never stop or alter a cycle. ``desk_store`` lets each cycle
+    raise or resolve the agent desk wake alerts (ADR 0147).
     """
     if on_readiness_changed is not None:
         on_readiness_changed(True)
@@ -222,6 +226,7 @@ async def run_execution_worker(
                     worker_interval_seconds=wait_seconds,
                     timer=timer,
                     on_book_done=progress_heartbeat(heartbeat_store),
+                    desk_store=desk_store,
                 )
                 await record_cycle_report(cycle_store, report)
                 next_prune_at = await _prune_decisions_when_due(decision_store, next_prune_at)
@@ -285,6 +290,7 @@ async def _run_cycle(
     worker_interval_seconds: int = 30,
     timer: CycleTimer | None = None,
     on_book_done: Callable[[], Awaitable[None]] | None = None,
+    desk_store: DeskStore | None = None,
 ) -> ExecutionCycleReport | None:
     """Process occupied deployments once, refreshing occupancy after each for the entry gate.
 
@@ -294,7 +300,8 @@ async def _run_cycle(
     successful signal evaluation: cycle failures feed the durable alert feed, and
     a book that fails too many consecutive cycles has its entries paused while
     exits and reconciliation keep running. Fleet entry readiness (ADR 0130) then raises or
-    resolves the fleet entry block alerts.
+    resolves the fleet entry block alerts, and the agent desk wake alerts (ADR 0147) are judged
+    in the same timed phase, bounded so a slow desk store cannot hold the cycle.
 
     ``timer`` measures each phase and book and the venue calls they make (ADR 0131); the
     returned report is ``None`` only when the timing evidence could not be assembled.
@@ -382,6 +389,7 @@ async def _run_cycle(
                 market_data=market_data,
                 policy=policy,
             )
+            await supervise_desks(alert_service=alert_service, desks=desk_store)
     return _cycle_report(
         timer, deployments, book_failures=len(cycle_failures), shared_reads=reads.hits
     )

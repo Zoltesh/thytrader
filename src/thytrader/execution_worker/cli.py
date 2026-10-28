@@ -25,6 +25,7 @@ from thytrader.persistence.database import create_engine, dispose, ping
 from thytrader.persistence.postgres_alerts import PostgresAlertStore
 from thytrader.persistence.postgres_audit_events import PostgresAuditEventStore
 from thytrader.persistence.postgres_decisions import PostgresDecisionJournalStore
+from thytrader.persistence.postgres_desks import PostgresDeskStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
 from thytrader.persistence.postgres_execution_cycles import PostgresExecutionCycleStore
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
@@ -145,6 +146,7 @@ async def run() -> None:
                     portfolio_store=portfolio_store,
                     alert_service=alert_service,
                     cycle_store=PostgresExecutionCycleStore(engine),
+                    desk_store=PostgresDeskStore(engine),
                 ),
                 run_venue_user_order_feed(
                     stop_requested,

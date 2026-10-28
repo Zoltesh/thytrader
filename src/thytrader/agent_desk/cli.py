@@ -17,6 +17,7 @@ from thytrader.agent_desk.client import (
     record_wake,
     set_desk_status,
     show_desk,
+    update_desk,
 )
 from thytrader.agent_desk.harness import BUILTIN_HARNESSES, harness_argv
 from thytrader.agent_desk.runner import (
@@ -43,9 +44,11 @@ from thytrader.operator.redaction import configured_secrets, dumps_redacted
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_MUTATIONS = frozenset({"create", "wake", "record", "status"})
-_CONFIRM_HELP = "Required for create, wake, record and status. YOLO never covers this lane."
-_CONFIRM_MESSAGE = "Pass --confirm to create a desk, run or record a wake, or change its status."
+_MUTATIONS = frozenset({"create", "wake", "record", "status", "update"})
+_CONFIRM_HELP = "Required for create, update, wake, record and status. YOLO never covers this lane."
+_CONFIRM_MESSAGE = (
+    "Pass --confirm to create or update a desk, run or record a wake, or change its status."
+)
 
 
 class DeskControlError(RuntimeError):
@@ -140,7 +143,17 @@ def _parser() -> argparse.ArgumentParser:
         help="Any harness command line; prompt on stdin, or as {prompt}; {model} substituted.",
     )
     run.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT_SECONDS)
+    run.add_argument(
+        "--always",
+        action="store_true",
+        help=(
+            "Run the harness even when nothing changed since the newest wake. Without it, an "
+            "unchanged picture (same closed bars, flat desk, same harness and model) journals "
+            "a skipped wake with no model call."
+        ),
+    )
     run.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
+    _update_parser(commands, trailing)
     record = commands.add_parser(
         "record",
         parents=[trailing],
@@ -148,6 +161,24 @@ def _parser() -> argparse.ArgumentParser:
     )
     record.add_argument("desk_id")
     record.add_argument("--fingerprint", required=True, help="The briefing's fingerprint.")
+    record.add_argument(
+        "--runner-fingerprint",
+        default=None,
+        help="Who answered (sha256 digest); later wakes skip only for the same runner.",
+    )
+    record.add_argument(
+        "--material-fingerprint",
+        default=None,
+        help="The briefing's material_fingerprint, so a later unchanged wake can be skipped.",
+    )
+    record.add_argument(
+        "--config-fingerprint",
+        required=True,
+        help=(
+            "The briefing's config_fingerprint; an open is refused DESK_CONFIG_CHANGED if the "
+            "desk's harness, model, mandate or caps changed since."
+        ),
+    )
     record.add_argument("--response-file", required=True, help="Answer text file, or - for stdin.")
     record.add_argument("--harness", required=True, help="Who answered, e.g. claude.")
     record.add_argument("--model", default=None)
@@ -169,6 +200,44 @@ def _parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("harnesses", parents=[trailing], help="Built-in harness command lines.")
     return parser
+
+
+def _update_parser(
+    commands: argparse._SubParsersAction[argparse.ArgumentParser],
+    trailing: argparse.ArgumentParser,
+) -> None:
+    """``update``: change a desk's harness, model, cadence, mandate, caps or name."""
+    update = commands.add_parser(
+        "update",
+        parents=[trailing],
+        help=(
+            "Change a desk's harness, model, cadence, mandate, caps or name (mode, pool, "
+            "universe and timeframe are fixed). A live desk's harness, model, mandate or caps "
+            "also need --i-understand-live. A new cadence needs a new `schedule` timer."
+        ),
+    )
+    update.add_argument("desk_id")
+    update.add_argument("--name", default=None)
+    update.add_argument(
+        "--harness", default=None, help=f"Built in: {', '.join(BUILTIN_HARNESSES)}."
+    )
+    update.add_argument("--model", default=None)
+    update.add_argument("--clear-model", action="store_true", help="Unset the model.")
+    update.add_argument("--cadence-minutes", type=int, default=None)
+    update.add_argument("--mandate", default=None)
+    update.add_argument("--max-open-positions", type=int, default=None)
+    update.add_argument("--max-position-fraction", default=None)
+    update.add_argument("--max-entries-per-day", type=int, default=None)
+    update.add_argument("--daily-loss-fraction", default=None)
+    update.add_argument(
+        "--expected-revision", type=int, default=None, help="Refuse if the desk moved on."
+    )
+    update.add_argument(
+        "--i-understand-live",
+        action="store_true",
+        help="Acknowledge changing how a live desk trades real money. YOLO never covers it.",
+    )
+    update.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
 
 
 def _run(arguments: argparse.Namespace) -> str:
@@ -197,6 +266,11 @@ def _run(arguments: argparse.Namespace) -> str:
             raise DeskControlError("DESK_NOT_FOUND: the desk has no cadence.")
         if arguments.harness_command is None:
             resolve_template(str(desk.get("harness") or ""), None)
+        elif desk.get("mode") == "live" and desk.get("harness") in BUILTIN_HARNESSES:
+            raise DeskControlError(
+                "DESK_LIVE_OVERRIDE_REFUSED: a live desk with a built-in harness runs it as built "
+                "in; schedule it without --command."
+            )
         return schedule_text(
             arguments.desk_id,
             cadence_minutes=cadence,
@@ -226,6 +300,8 @@ def _dispatch(command: str, arguments: argparse.Namespace, base_url: str) -> obj
         return create_desk(base_url, _create_payload(arguments))
     if command == "status":
         return set_desk_status(base_url, arguments.desk_id, arguments.status)
+    if command == "update":
+        return update_desk(base_url, arguments.desk_id, _update_payload(arguments))
     if command == "record":
         return record_wake(
             base_url,
@@ -235,6 +311,9 @@ def _dispatch(command: str, arguments: argparse.Namespace, base_url: str) -> obj
                 "harness": arguments.harness,
                 "model": arguments.model,
                 "briefing_fingerprint": arguments.fingerprint,
+                "material_fingerprint": arguments.material_fingerprint,
+                "config_fingerprint": arguments.config_fingerprint,
+                "runner_fingerprint": arguments.runner_fingerprint,
             },
         )
     return wake(
@@ -244,12 +323,13 @@ def _dispatch(command: str, arguments: argparse.Namespace, base_url: str) -> obj
         model=arguments.model,
         command=arguments.harness_command,
         timeout_seconds=arguments.timeout,
+        always=arguments.always,
     )
 
 
-def _create_payload(arguments: argparse.Namespace) -> dict[str, object]:
-    """The create body; unset caps keep the API defaults."""
-    caps = {
+def _caps(arguments: argparse.Namespace) -> dict[str, object]:
+    """The caps given on the command line; unset ones are left out."""
+    return {
         key: value
         for key, value in {
             "max_open_positions": arguments.max_open_positions,
@@ -259,6 +339,35 @@ def _create_payload(arguments: argparse.Namespace) -> dict[str, object]:
         }.items()
         if value is not None
     }
+
+
+def _update_payload(arguments: argparse.Namespace) -> dict[str, object]:
+    """The update body: only the fields given."""
+    payload: dict[str, object] = {
+        key: value
+        for key, value in {
+            "name": arguments.name,
+            "harness": arguments.harness,
+            "model": arguments.model,
+            "cadence_minutes": arguments.cadence_minutes,
+            "mandate": arguments.mandate,
+            "expected_revision": arguments.expected_revision,
+        }.items()
+        if value is not None
+    }
+    caps = _caps(arguments)
+    if caps:
+        payload["caps"] = caps
+    if arguments.clear_model:
+        payload["clear_model"] = True
+    if arguments.i_understand_live:
+        payload["i_understand_live"] = True
+    return payload
+
+
+def _create_payload(arguments: argparse.Namespace) -> dict[str, object]:
+    """The create body; unset caps keep the API defaults."""
+    caps = _caps(arguments)
     payload: dict[str, object] = {
         "name": arguments.name,
         "quote_currency": arguments.quote_currency,

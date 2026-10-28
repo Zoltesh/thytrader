@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
+from uuid import UUID
 
 from thytrader.agent_desk.store import DeskConflictError
+from thytrader.ids import uuid7
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -70,3 +72,34 @@ async def save_desk(
         )
     except DeskConflictError as error:
         raise DeskError(f"DESK_CONFLICT: {error}") from error
+
+
+def conflict_code(message: str) -> str:
+    """A leading CODE: of an execution refusal, else a generic desk code."""
+    head = message.split(":", 1)[0].strip()
+    if head.isupper() and "_" in head and " " not in head:
+        return head
+    if "occupied discretionary book" in message:
+        return "DESK_PRODUCT_OCCUPIED"
+    if "risk-policy allocations are in force" in message:
+        return "DISCRETIONARY_NOT_ALLOCATED"
+    if message.startswith("Desk allocation") or "allocation exceeded" in message.lower():
+        return "ALLOCATION_EXCEEDED"
+    return "DESK_ORDER_REFUSED"
+
+
+_LAST_WAKE_ID: list[int] = [0]
+
+
+def journal_id(moment: datetime) -> str:
+    """A wake id that sorts after every wake id this process minted before (journal order).
+
+    UUIDv7 carries only milliseconds and random low bits, so two wakes journaled in the same
+    millisecond (or across a clock step back) could sort backwards. The desk API is one process
+    and journals wakes under the desk's lock, so bumping past the last id keeps journal order.
+    """
+    candidate = uuid7(moment).int
+    if candidate <= _LAST_WAKE_ID[0]:
+        candidate = _LAST_WAKE_ID[0] + 1
+    _LAST_WAKE_ID[0] = candidate
+    return str(UUID(int=candidate))

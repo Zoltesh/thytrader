@@ -8,6 +8,8 @@ import json
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
+import pytest
+
 from tests.api.test_discretionary_orders import _client, _UsdReader
 from tests.execution.test_discretionary import _LiveFillBroker
 from thytrader.agent_desk.store import InMemoryDeskStore
@@ -83,6 +85,7 @@ def _wake(client: TestClient, desk_id: str, answer: dict[str, str]) -> dict:
             "raw_response": json.dumps(answer),
             "harness": "claude",
             "briefing_fingerprint": brief["fingerprint"],
+            "config_fingerprint": brief["config_fingerprint"],
         },
     )
     assert posted.status_code == 201, posted.text
@@ -150,3 +153,59 @@ def test_the_reservation_must_hold_the_whole_allocation_not_just_the_notional() 
         refused = _wake(client, desk_id, order)
     # 25% of 150 is a 37.50 allocation: its 36.75 notional fits 37, the allocation does not.
     assert refused["outcome_code"] == "ALLOCATION_EXCEEDED", refused
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"model": "other"},
+        {"harness": "codex"},
+        {"mandate": "trade more"},
+        {"caps": {"max_position_fraction": "0.5"}},
+    ],
+)
+def test_changing_how_a_live_desk_trades_needs_the_live_acknowledgement(
+    change: dict[str, object],
+) -> None:
+    """Harness, model, mandate or caps change only with i_understand_live (428 otherwise)."""
+    risk = InMemoryRiskPolicyStore()
+    with _live_client(risk, _LiveFillBroker()) as client:
+        desk_id = client.post("/api/v1/desks", json={**_DESK, "i_understand_live": True}).json()[
+            "desk_id"
+        ]
+        refused = client.patch(f"/api/v1/desks/{desk_id}", json=change)
+        renamed = client.patch(f"/api/v1/desks/{desk_id}", json={"name": "renamed"})
+        changed = client.patch(
+            f"/api/v1/desks/{desk_id}", json={**change, "i_understand_live": True}
+        )
+    assert refused.status_code == 428
+    assert renamed.status_code == 200, renamed.text
+    assert changed.status_code == 200, changed.text
+    assert [entry["revision"] for entry in changed.json()["changes"]] == [2, 3]
+
+
+def test_a_live_desk_refuses_a_no_trade_or_open_from_another_model_over_http() -> None:
+    """The API, not only the runner, binds a live desk's answers to its configured identity."""
+    risk = InMemoryRiskPolicyStore()
+    with _live_client(risk, _LiveFillBroker()) as client:
+        desk_id = client.post("/api/v1/desks", json={**_DESK, "i_understand_live": True}).json()[
+            "desk_id"
+        ]
+        brief = client.get(f"/api/v1/desks/{desk_id}/briefing").json()
+        outcomes = []
+        for answer in ({"action": "no_trade", "thesis": "x"}, _OPEN):
+            posted = client.post(
+                f"/api/v1/desks/{desk_id}/wakes",
+                json={
+                    "raw_response": json.dumps(answer),
+                    "harness": "codex",
+                    "model": "unapproved",
+                    "briefing_fingerprint": brief["fingerprint"],
+                    "config_fingerprint": brief["config_fingerprint"],
+                },
+            )
+            outcomes.append((posted.json()["outcome"], posted.json()["outcome_code"]))
+    assert outcomes == [
+        ("refused", "DESK_LIVE_IDENTITY_MISMATCH"),
+        ("refused", "DESK_LIVE_IDENTITY_MISMATCH"),
+    ]

@@ -12,13 +12,14 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 DESK_CONTRACT = "thytrader-agent-desk-v1"
 MAX_THESIS_CHARS = 4000
 MAX_RESPONSE_CHARS = 20_000
 MAX_MANDATE_CHARS = 4000
 MAX_PRODUCTS = 20
+MAX_CHANGES = 20
 
 
 class _Frozen(BaseModel):
@@ -40,15 +41,21 @@ class DeskAction(StrEnum):
     OPEN = "open"
     CLOSE = "close"
     INVALID = "invalid"
+    SKIPPED = "skipped"
 
 
 class WakeOutcome(StrEnum):
-    """What ThyTrader did with the decision."""
+    """What ThyTrader did with the decision.
+
+    ``skipped`` journals a wake that ran no harness because nothing the model could act on
+    changed since the desk's last answered wake (same market bars, same flat desk state).
+    """
 
     APPLIED = "applied"
     REFUSED = "refused"
     INVALID = "invalid"
     ERROR = "error"
+    SKIPPED = "skipped"
 
 
 class DeskCaps(_Frozen):
@@ -81,8 +88,24 @@ class PendingOpen(_Frozen):
     thesis: str = Field(default="", max_length=MAX_THESIS_CHARS)
 
 
+class DeskChange(_Frozen):
+    """One configuration change, kept on the desk row in the same write as the change.
+
+    Values are JSON; a mandate is recorded by its digest and length, not its text.
+    """
+
+    at: datetime
+    revision: int = Field(ge=1)
+    changed: dict[str, tuple[JsonValue, JsonValue]]
+
+
 class Desk(_Frozen):
-    """One desk: its pool, universe, cadence, harness and caps."""
+    """One desk: its pool, universe, cadence, harness and caps.
+
+    ``due_since`` is when the desk last became due to wake (created, resumed, or given a new
+    cadence); wake supervision counts a stall from it, never from bookkeeping writes.
+    ``changes`` keeps the newest :data:`MAX_CHANGES` configuration changes.
+    """
 
     desk_id: str
     name: str = Field(min_length=1, max_length=120)
@@ -102,6 +125,8 @@ class Desk(_Frozen):
     day_open_equity: Decimal | None = None
     day_open_at: datetime | None = None
     pending_open: PendingOpen | None = None
+    due_since: datetime | None = None
+    changes: tuple[DeskChange, ...] = Field(default=(), max_length=MAX_CHANGES)
     revision: int = Field(default=1, ge=1)
     created_at: datetime
     updated_at: datetime
@@ -184,3 +209,7 @@ class DeskWake(_Frozen):
     decision: dict[str, object] | None = None
     equity_quote: Decimal | None = None
     deployment_id: str | None = None
+    # What the model could act on (briefing.material_fingerprint); None on older wakes.
+    material_fingerprint: str | None = None
+    # Which runner answered (harness name, command template and model); None on older wakes.
+    runner_fingerprint: str | None = None

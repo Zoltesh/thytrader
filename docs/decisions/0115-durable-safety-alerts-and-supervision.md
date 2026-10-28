@@ -159,6 +159,10 @@ All four thresholds are environment-only (`THYTRADER_ALERT_CONSECUTIVE_FAILURE_C
 `THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS`) and Compose passes each to the services with the
 same default (2026-10-28).
 
+Agent desks (ADR 0147, 2026-10-28) add scope `desk` (subject `desk:<desk_id>`) with
+`DESK_WAKES_FAILING` and `DESK_WAKES_STALLED`, raised and resolved by a worker pass stamped at
+its start, like the fleet pass; a desk whose wakes could not be read proves nothing.
+
 Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
 `operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is
 not present. Expected schema revision is `0066` (at the time of this slice; later migrations

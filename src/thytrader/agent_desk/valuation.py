@@ -11,6 +11,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+from thytrader.agent_desk.briefing import PositionView
 from thytrader.trading.models import OrderSide
 
 if TYPE_CHECKING:
@@ -54,3 +55,31 @@ def book_value(
     if mark is None:
         return None
     return value + quantity * mark
+
+
+def position_view(
+    book: DeskBook, snapshot: DeploymentSnapshot, mark: Decimal | None
+) -> PositionView:
+    """One open book, marked when a close is known."""
+    deployment = snapshot.deployment
+    position = snapshot.position
+    equity = book_value(book, snapshot, mark)
+    return PositionView(
+        deployment_id=book.deployment_id,
+        product_id=book.product_id,
+        side=book.side,
+        phase=deployment.phase.value,
+        allocated_quote=book.allocated_quote,
+        quantity=None if position is None else position.quantity,
+        entry_price=None if position is None else position.entry_price,
+        stop_price=position.stop_price if position else deployment.pending_stop_price,
+        take_profit_price=position.target_price if position else deployment.pending_target_price,
+        mark_price=mark,
+        equity_quote=equity,
+        unrealized_return=(
+            None
+            if equity is None
+            else (equity / book.allocated_quote - 1).quantize(Decimal("0.0001"))
+        ),
+        opened_at=book.opened_at,
+    )

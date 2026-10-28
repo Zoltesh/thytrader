@@ -22,15 +22,16 @@ class AlertSeverity(StrEnum):
 
 
 class AlertScope(StrEnum):
-    """What one alert subject names: a single book, the worker, or a fleet entry scope.
+    """What one alert subject names: a single book, the worker, a fleet entry scope or a desk.
 
     A ``fleet`` subject is ``fleet:<mode>:<scope>``, for example ``fleet:live:USDC``
-    (ADR 0130).
+    (ADR 0130). A ``desk`` subject is ``desk:<desk_id>`` (ADR 0147).
     """
 
     DEPLOYMENT = "deployment"
     WORKER = "worker"
     FLEET = "fleet"
+    DESK = "desk"
 
 
 class AlertCode(StrEnum):
@@ -44,6 +45,12 @@ class AlertCode(StrEnum):
     ``FLEET_ENTRIES_BLOCKED`` (ADR 0130) is one mode and quote scope in which the entry
     gate denies every new entry for a reason that does not clear by itself. It resolves on
     the first complete evaluation that finds the scope admissible again.
+
+    ``DESK_WAKES_FAILING`` is an active agent desk whose newest wakes all failed (harness
+    error or unparseable answer); ``DESK_WAKES_STALLED`` is an active desk that has not woken
+    for several cadences (its timer stopped). Both are critical for a live desk and a warning
+    for a paper one, and resolve on the first complete read that finds the desk answering
+    (or no longer active) again (ADR 0147).
     """
 
     BOOK_PAUSED_MISMATCH = "BOOK_PAUSED_MISMATCH"
@@ -62,6 +69,8 @@ class AlertCode(StrEnum):
     FUTURES_FUNDING_DRIFT = "FUTURES_FUNDING_DRIFT"
     FUTURES_EXTERNAL_ON_MANAGED_PRODUCT = "FUTURES_EXTERNAL_ON_MANAGED_PRODUCT"
     FUTURES_ORPHAN_ORDER = "FUTURES_ORPHAN_ORDER"
+    DESK_WAKES_FAILING = "DESK_WAKES_FAILING"
+    DESK_WAKES_STALLED = "DESK_WAKES_STALLED"
 
 
 #: Delivery outcome values persisted on alert rows. ``skipped`` means the
