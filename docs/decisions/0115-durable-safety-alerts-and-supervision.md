@@ -63,19 +63,21 @@ Alert codes:
   decision. Unknown/no-decision/warming/lease-skipped cycles do not fabricate recovery or
   reset persisted counters. The decision rule certifies that the book's cycle stopped raising; a
   fail-closed fault the pass caught (for example a failed order read) keeps its own
-  `BOOK_PAUSED_MISMATCH` alert open. A stopped book's decision cursor often never advances (a
-  flat or discretionary book, or a multi-instrument one, whose instrument cursors are not the
-  parent's), so a stopped book also recovers when stopped supervision reports that it carried
-  out every product's maintenance (no missing broker or price context, no strategy book kept on
-  protection alone by a preview-only close or warming signal windows, no deferred flatten, no
-  unsettled execution evidence), the pass was not lease-skipped, futures-deferred or warming the
-  window cache, and the book, stopped before and after it, has no fail-closed mismatch, settled
-economics (complete accounting, no unsettled fills, no inventory missing from its position
-projection, no product whose runtime is open or exiting without a position), no working entry
-left by a cancel that failed, a loaded strategy when it is a strategy book holding inventory, and no futures de-risk
-or flat-confirmation duty outstanding. That
-  resolves the alert with its own note ("recovered: a later worker cycle carried out this
-  stopped book's maintenance ...") (2026-10-28); when the decision rule resolves it in the same
+  `BOOK_PAUSED_MISMATCH` alert open. A flat stopped book makes no decisions, so its cursor never
+  advances; it also recovers when stopped supervision reports that it carried out every product's
+  maintenance (no missing broker or price context, no deferred flatten, no unsettled execution
+  evidence, and not the pass that itself normalized an occupied runtime to flat), the pass was
+  not lease-skipped, futures-deferred or warming the window cache, and the book, stopped before
+  and after it, holds no position, has no fail-closed mismatch, settled economics (complete
+  accounting, no unsettled fills, no inventory missing from its position projection, no product
+  whose runtime is open or exiting without a position), no working entry left by a cancel that
+  failed, and no futures de-risk or flat-confirmation duty outstanding. A stopped book still
+  holding inventory is not proven by a maintenance pass, since its exit upkeep depends on
+  decision windows (signal-exit, reference, preview-only closes) the pass cannot all verify: it
+  recovers by advancing its decision cursor or once it is flat, so its alert may stay open
+  longer, never close falsely. That resolves the alert with its own note ("recovered: a later
+  worker cycle carried out this stopped book's maintenance ...") (2026-10-28); when the decision
+  rule resolves it in the same
   cycle, its generic note wins the equal watermark. A broker that returns clears the stopped
   book's broker-unavailable note before reconciling, so the outage note no longer outlives it.
   At the configured threshold (default 3), new entries pause
@@ -146,7 +148,7 @@ An open row that escalates in place after its page (any code) is paged again at 
   the upgrade (a possible duplicate, never a missed page). Page ids also changed at this upgrade:
   a send left in flight across it retries under the new id, so a receiver may see it twice.
 
-A send in flight when the row escalates acknowledges the lower coverage, so the next dispatch
+The claim is also fenced on the severity the dispatcher checked, so a row that falls back between the episode check and the claim is not sent at the new severity. A send in flight when the row escalates acknowledges the lower coverage, so the next dispatch
 pages the escalation; concurrent dispatchers send it once. The page carries its own id (above)
 and says it escalated. The entry-block grace and episode rules still apply to unsent rows,
 including a failed retry: an episode page that covers it keeps it from paging again.

@@ -26,6 +26,7 @@ from tests.alerts.test_alert_service import (
     assert_severity_changes_page_by_coverage,
 )
 from tests.alerts.test_escalation_repage import (
+    assert_a_claim_is_fenced_on_the_checked_severity,
     assert_a_downgrade_flap_never_starves_the_escalation,
     assert_a_failed_escalation_is_not_followed_by_a_duplicate_downgrade,
     assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged,
@@ -452,6 +453,7 @@ async def test_an_escalation_in_place_is_paged_once_in_postgres(store: PostgresA
         assert_an_ambiguous_lower_page_never_swallows_the_escalation,
         assert_an_exhausted_lower_page_does_not_block_the_escalation,
         assert_a_downgrade_flap_never_starves_the_escalation,
+        assert_a_claim_is_fenced_on_the_checked_severity,
     ],
 )
 async def test_page_fencing_and_budgets_hold_in_postgres(

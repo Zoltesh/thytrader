@@ -401,6 +401,8 @@ async def _stopped_outcome(
         (LifecycleCommand.FLATTEN, True, True, True),
         # Nothing held: nothing to maintain.
         (LifecycleCommand.MANAGED_SHUTDOWN, False, False, True),
+        # Flatten rewrote a positionless open runtime to flat: that pass proves nothing.
+        (LifecycleCommand.FLATTEN, False, False, False),
     ],
 )
 async def test_stopped_supervision_reports_whether_it_carried_out_the_maintenance(
@@ -610,3 +612,14 @@ async def test_a_strategy_book_on_a_preview_only_close_is_not_fully_maintained()
         load_closed_window=_no_window,
     )
     assert carried is False
+
+
+async def test_a_stopped_book_still_holding_inventory_is_not_proven_by_maintenance() -> None:
+    """Exit upkeep on held inventory is not fully verifiable: only a flat book is proven."""
+    store = InMemoryExecutionStore()
+    book = _book()
+    await store.create_deployment(book)
+    await lifecycle._position(store, book.id, "BTC-USD")
+    held = await store.get_deployment(book.id)
+    held = replace(held, deployment=replace(held.deployment, phase=RuntimePhase.OPEN))
+    assert not maintained_without_fault(held, maintained=True)

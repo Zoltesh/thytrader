@@ -195,6 +195,34 @@ async def assert_a_downgrade_flap_never_starves_the_escalation(store: AlertStore
     assert (row.warning_attempts, row.critical_attempts) == (2, 2)
 
 
+async def assert_a_claim_is_fenced_on_the_checked_severity(store: AlertStore) -> None:
+    """A page checked at critical is never claimed after the row fell back to warning."""
+    finding = _uncovered(_CRITICAL)
+    await _service(store, RecordingNotificationSender()).apply((finding,), now=_NOW, dispatch=False)
+    await _service(store, RecordingNotificationSender()).apply(
+        (replace(finding, severity=_WARNING),), now=_NOW + timedelta(seconds=1), dispatch=False
+    )
+    row = await _row(store, finding.subject)
+    claim = await store.claim_delivery(
+        row.id,
+        provider="webhook",
+        now=_NOW + timedelta(seconds=2),
+        max_attempts=5,
+        ttl=timedelta(seconds=60),
+        severity=_CRITICAL,
+    )
+    assert claim is None
+    claim = await store.claim_delivery(
+        row.id,
+        provider="webhook",
+        now=_NOW + timedelta(seconds=2),
+        max_attempts=5,
+        ttl=timedelta(seconds=60),
+        severity=_WARNING,
+    )
+    assert claim is not None
+
+
 async def assert_a_row_sent_before_coverage_was_recorded_is_not_re_paged(
     store: AlertStore, mark_sent: Callable[[OperatorAlert], Awaitable[None]]
 ) -> None:
@@ -226,6 +254,11 @@ async def test_an_ambiguous_lower_page_never_swallows_the_escalation() -> None:
 async def test_an_exhausted_lower_page_does_not_block_the_escalation() -> None:
     """A higher severity is a new page with its own attempt budget."""
     await assert_an_exhausted_lower_page_does_not_block_the_escalation(InMemoryAlertStore())
+
+
+async def test_a_claim_is_fenced_on_the_checked_severity() -> None:
+    """In memory; ``test_postgres_alerts`` runs the same scenario against PostgreSQL."""
+    await assert_a_claim_is_fenced_on_the_checked_severity(InMemoryAlertStore())
 
 
 async def test_a_downgrade_flap_never_starves_the_escalation() -> None:

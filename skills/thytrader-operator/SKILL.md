@@ -746,13 +746,13 @@ recovered. Verified checks recover independently; a triggered-unfilled stop stay
 until durable order/fill/removal evidence clears it, not merely a price rebound.
 Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
 reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds; a
-fault the pass caught (a failed order read) stays visible as `BOOK_PAUSED_MISMATCH`. A stopped
-book also resolves when a later cycle carried out every product's maintenance with no missing
-broker or price context, no strategy book left on protection alone (a preview-only close or
-warming signal windows), no deferred flatten, and afterwards no fail-closed mismatch, settled
-economics, no working entry left by a failed cancel, a loaded strategy for a strategy book still
-holding inventory, and no futures de-risk or flat-confirmation duty (resolution
-note "recovered: a later worker cycle carried out this stopped book's maintenance ..."). A
+fault the pass caught (a failed order read) stays visible as `BOOK_PAUSED_MISMATCH`. A flat
+stopped book also resolves when a later cycle carried out every product's maintenance (no
+missing broker or price context, no deferred flatten) and afterwards it holds no position, has
+no fail-closed mismatch, settled economics, no working entry left by a failed cancel and no
+futures de-risk or flat-confirmation duty (resolution note "recovered: a later worker cycle
+carried out this stopped book's maintenance ..."). A stopped book still holding inventory
+resolves only by its decision cursor or once flat, so its alert can stay open longer. A
 returning broker clears the stopped book's "Live broker is unavailable" note. A held
 `WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,

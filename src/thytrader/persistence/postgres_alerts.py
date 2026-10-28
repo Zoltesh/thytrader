@@ -150,6 +150,7 @@ class PostgresAlertStore:
         now: datetime,
         max_attempts: int,
         ttl: timedelta,
+        severity: AlertSeverity | None = None,
     ) -> DeliveryClaim | None:
         """CAS-claim before send; crash consumes a retry slot and lease eventually expires.
 
@@ -158,6 +159,9 @@ class PostgresAlertStore:
         """
         alerts = operator_alerts.c
         unclaimed = alerts.delivery_expires_at.is_(None) | (alerts.delivery_expires_at <= now)
+        if severity is not None:
+            # The page was checked at this severity; never send it at another.
+            unclaimed = unclaimed & (alerts.severity == severity.value)
         token = uuid4()
         if provider == "none":
             statement = (

@@ -181,6 +181,11 @@ def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) 
     return (
         maintained
         and deployment.status is DeploymentStatus.STOPPED
+        # Only a book with nothing left to maintain is proven: exit upkeep on held inventory
+        # depends on decision windows this pass cannot all verify. A held book recovers by
+        # advancing its decision cursor, or once it is flat.
+        and snapshot.position is None
+        and not snapshot.positions
         and not deployment.mismatch_detail
         and snapshot.accounting_complete
         and not unsettled_fill_evidence(snapshot)
@@ -299,6 +304,8 @@ async def _flatten_one_product(
                     pending_entry_bars=0,
                 )
             )
+            # This pass rewrote the runtime it would be judged on; it proves nothing itself.
+            return False
         return True
     context = await _context_for(
         snapshot,
@@ -410,8 +417,8 @@ async def _maintain_one_product(
 ) -> bool:
     """Maintain one open book, doing nothing when its price context is missing.
 
-    Returns false only when the book holds a position whose price context is missing, so its
-    exits and protection could not be maintained.
+    Returns false when the book holds a position whose price context is missing, or a strategy
+    book was kept on protection alone (a preview-only close or warming signal windows).
     """
     scoped = InstrumentScopedStore(store, product_id)
     focused = await scoped.get_deployment(snapshot.deployment.id)

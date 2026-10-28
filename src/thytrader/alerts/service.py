@@ -184,6 +184,7 @@ class AlertService:
                 now=now,
                 max_attempts=self._thresholds.delivery_max_attempts,
                 ttl=timedelta(seconds=60),
+                severity=alert.severity,
             )
             if claim is None:
                 return

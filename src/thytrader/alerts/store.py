@@ -98,8 +98,12 @@ class AlertStore(Protocol):
         now: datetime,
         max_attempts: int,
         ttl: timedelta,
+        severity: AlertSeverity | None = None,
     ) -> DeliveryClaim | None:
         """Claim a bounded attempt before sending, or persist explicit disablement.
+
+        With ``severity``, the claim succeeds only while the row is still at that severity, so
+        a page checked at one severity is never sent at another.
 
         Only a ``page_claimable`` row is claimed, so a page never repeats what a sent page
         covers, and ``max_attempts`` bounds each severity's page separately (``page_attempts``).
@@ -282,6 +286,7 @@ class InMemoryAlertStore:
         now: datetime,
         max_attempts: int,
         ttl: timedelta,
+        severity: AlertSeverity | None = None,
     ) -> DeliveryClaim | None:
         """Consume a retry slot atomically before the sender can make a side effect."""
         for rows in self.history.values():
@@ -290,6 +295,8 @@ class InMemoryAlertStore:
                 continue
             if row.delivery_expires_at is not None and row.delivery_expires_at > now:
                 # A disabled observer cannot revoke another dispatcher's active send.
+                return None
+            if severity is not None and row.severity is not severity:
                 return None
             if provider == "none":
                 # Like ``skip_delivery``: failed or exhausted evidence is never erased.
