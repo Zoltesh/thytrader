@@ -145,7 +145,10 @@ and spot allocations no longer gating futures books; ADR 0134 P2-7), or agent de
 Alembic ``0080``; ADR 0147), or live agent desks (``agent_desk_modes`` ``live``, desk create
 ``mode`` / ``i_understand_live`` with HTTP 428, risk-policy ``desk_allocations`` and
 ``set-risk-policy --desk-allocation``; ADR 0148), or alert page coverage (the
-``covered_severity`` column and history index of Alembic ``0081``; ADR 0115) change.
+``covered_severity`` column and history index of Alembic ``0081``; ADR 0115), or alert page
+budgets (the per-severity ``info_attempts`` / ``warning_attempts`` / ``critical_attempts``
+columns of Alembic ``0082``: each severity is its own page with its own id and budget; ADR 0115)
+change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -175,10 +178,10 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v109"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v110"
 # Agent desk modes (ADR 0147, 0148): live needs the acknowledgement and a desk_allocations entry.
 AGENT_DESK_MODES: tuple[str, ...] = ("paper", "live")
-EXPECTED_SCHEMA_REVISION = "0081"
+EXPECTED_SCHEMA_REVISION = "0082"
 STRATEGY_MODEL: tuple[str, ...] = ("mutable_root", "auto_snapshot", "hard_delete")
 PORTFOLIO_MODEL: tuple[str, ...] = (
     "sleeves",

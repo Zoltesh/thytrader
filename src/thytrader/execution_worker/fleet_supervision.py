@@ -39,18 +39,23 @@ async def _supervise_fleet_entries(
 
     The observation is stamped as the fleet read begins (ADR 0115: a timestamp marks the start
     of its evidence pass), not at cycle start, so the per-book work before it never backdates a
-    new entry block past its notification grace. Without ``clock`` the module's ``utc_now`` is
-    read at call time, so a patched worker clock reaches this pass.
+    new entry block past its notification grace. That stamp is the alert watermark and the
+    evaluation time; live CFM freshness is judged on the same clock after each scope's reads.
+    Without ``clock`` the module's ``utc_now`` is read at call time, so a patched worker clock
+    reaches this pass.
     """
     if alert_service is None:
         return
     try:
-        observed_at = (utc_now if clock is None else clock)()
+        read_clock = utc_now if clock is None else clock
+        observed_at = read_clock()
         health = await load_fleet_entry_health(
             store,
             policy,
             market_data=market_data,
             futures_account=bound_futures_account_store(),
+            now=observed_at,
+            clock=read_clock,
         )
         previous = await alert_service.open_alerts()
         evidence = fleet_entry_evidence(health, prior_alerts=previous)

@@ -135,7 +135,9 @@ class FleetScopeEvidence:
     ``collateral_loaded`` is false when the futures account could not be classified.
     ``probe_product`` names the contract a futures scope probes with (any of its books).
     ``entries_inhibited`` is the durable fleet disarm latch of the mode; ``None`` means it
-    could not be read, which the gate treats as disarmed.
+    could not be read, which the gate treats as disarmed. ``live_futures_judged_at`` is when
+    the live CFM probes were judged, after their reads; their verdicts use it too (``None``:
+    the observation's ``as_of``).
     """
 
     mode: DeploymentMode
@@ -149,6 +151,7 @@ class FleetScopeEvidence:
     futures_legs: FuturesLegs | None = None
     live_futures_venue: FuturesVenueEvidence | None = None
     live_futures_probes: Mapping[UUID, LiveFuturesProbe] = field(default_factory=dict)
+    live_futures_judged_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)

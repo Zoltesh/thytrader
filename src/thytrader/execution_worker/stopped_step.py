@@ -41,8 +41,11 @@ async def _process_stopped(
     market_data: MarketDataService,
     paper_broker: Broker,
     live_broker: Broker | None,
-) -> None:
-    """Apply flatten or managed-shutdown to every stopped book without dropping risk."""
+) -> bool:
+    """Apply flatten or managed-shutdown to every stopped book without dropping risk.
+
+    Returns whether every product's maintenance was carried out (``supervise_stopped_deployment``).
+    """
 
     async def _signal_windows(
         strategy: StrategyDefinition, *, product_id: str, deploy_anchor: datetime
@@ -58,7 +61,7 @@ async def _process_stopped(
         )
         return htf, extra, references
 
-    await supervise_stopped_deployment(
+    return await supervise_stopped_deployment(
         snapshot,
         strategy=strategy,
         store=store,

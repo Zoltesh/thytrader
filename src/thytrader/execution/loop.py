@@ -67,6 +67,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.models import Candle, MarketProduct
     from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.strategies.models import StrategyDefinition
+    from thytrader.trading.models import Order
     from thytrader.trading.store import ExecutionStore
 
 __all__ = [
@@ -128,32 +129,36 @@ async def maintain_open_inventory(
     )
 
 
+def risk_increasing_orders(snapshot: DeploymentSnapshot) -> tuple[Order, ...]:
+    """Working orders that could add risk: entries, never protective brackets or stop-limits.
+
+    An order whose intent is known and is not an ENTRY never counts, even on a book with no
+    ENTRY intent at all (an adopted book, ADR 0124): a working marketable exit is
+    risk-reducing. Only when no ENTRY intent is known does an order with an unknown intent
+    still count as a possible entry.
+    """
+    purposes = {intent.id: intent.purpose for intent in snapshot.intents}
+    entry_ids = {
+        intent_id for intent_id, purpose in purposes.items() if purpose is IntentPurpose.ENTRY
+    }
+    return tuple(
+        order
+        for order in snapshot.orders
+        if order.status in _ACTIVE
+        and not is_venue_protection(order.kind)
+        and purposes.get(order.intent_id, IntentPurpose.ENTRY) is IntentPurpose.ENTRY
+        and (not entry_ids or order.intent_id in entry_ids)
+    )
+
+
 async def cancel_risk_increasing_orders(
     snapshot: DeploymentSnapshot,
     *,
     broker: Broker,
     store: ExecutionStore,
 ) -> DeploymentSnapshot:
-    """Cancel working entries while leaving protective brackets and stop-limits in place.
-
-    An order whose intent is known and is not an ENTRY is never cancelled here, even on
-    a book with no ENTRY intent at all (an adopted book, ADR 0124): a working marketable
-    exit is risk-reducing. Only when no ENTRY intent is known does an order with an
-    unknown intent still count as a possible entry.
-    """
-    purposes = {intent.id: intent.purpose for intent in snapshot.intents}
-    entry_ids = {
-        intent_id for intent_id, purpose in purposes.items() if purpose is IntentPurpose.ENTRY
-    }
-    for order in tuple(snapshot.orders):
-        if order.status not in _ACTIVE:
-            continue
-        if is_venue_protection(order.kind):
-            continue
-        if purposes.get(order.intent_id, IntentPurpose.ENTRY) is not IntentPurpose.ENTRY:
-            continue
-        if entry_ids and order.intent_id not in entry_ids:
-            continue
+    """Cancel working entries (``risk_increasing_orders``), leaving protection in place."""
+    for order in risk_increasing_orders(snapshot):
         snapshot = await _cancel_one_order(order, broker=broker, store=store)
     return await store.get_deployment(snapshot.deployment.id)
 

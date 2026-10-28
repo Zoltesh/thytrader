@@ -57,6 +57,10 @@ operator_alerts = Table(
     # Severity the notifier was actually sent (or a continuation skip relied on); never the
     # observation's later, mutable severity.
     Column("covered_severity", String(12), nullable=True),
+    # Attempts claimed per severity; each severity is its own page with its own budget.
+    Column("info_attempts", Integer(), nullable=False, server_default="0"),
+    Column("warning_attempts", Integer(), nullable=False, server_default="0"),
+    Column("critical_attempts", Integer(), nullable=False, server_default="0"),
     ForeignKeyConstraint(
         ["deployment_id"],
         ["deployments.id"],

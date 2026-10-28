@@ -360,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v109`, schema revision `0081`) and exits on any
+   this checkout's (`thytrader-ops-contract-v110`, schema revision `0082`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -599,13 +599,17 @@ entry, per mode and quote scope, whether or not a bot currently has a signal.
   and `fleet-health` immediately) but sent to the notifier only after it has stayed open for
   `alert_entry_block_grace_seconds` (env `THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS` in `.env`,
   passed to the Compose services; default 300; 0 sends at once; recreate the stack to apply).
+  The other thresholds are wired the same way: `THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES`
+  (3), `THYTRADER_ALERT_DECISION_MISSED_BARS` (2), `THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS` (5).
   A one-poll venue read blip that clears inside the grace is never
   paged. A block that clears and returns within the grace continues the same episode: the
   episode is paged once when it has lasted the grace, and its later returns are not paged
   again; one still open when the delivery task runs is recorded `skipped` ("continues an
   entry-block episode already sent (see alert ...)"). A return at a higher severity than the
   page (warning, then critical) is paged. An open row that escalates in place after its page
-  is not re-sent until it clears and returns, so read `alerts` for the current severity.
+  (any alert code) is paged again at once, with its own attempt budget (each severity has one)
+  and a page id that says it escalated; a downgrade is never paged, not even after a failed
+  escalation attempt.
   Rare exceptions page an episode early or a second time, never miss it: an episode with more
   than 500 returns, or one spanning the Alembic `0081` upgrade (ADR 0115).
   While waiting
@@ -725,7 +729,10 @@ Margin severity compares exact products; the four-place ratio is display-only an
 unrepresentable ratio remains unknown (`FUTURES_MARGIN_UNKNOWN` for missing safety evidence).
 `readiness` names managed live books, durable de-risk/flat-confirmation duties, margin warnings
 and `collateral_group` headroom. `fleet-health` runs P2-3 probes in `live:CFM-USD`; fleet-wide
-failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged.
+failures use existing `FLEET_ENTRIES_BLOCKED` delivery. Spot scopes are unchanged. The probes
+are judged after the pass's own account, binding and instrument reads, so a receipt the pass read
+itself (no shared cycle receipt, e.g. a book started mid-cycle) is not blocked as future-dated;
+`evaluated_at` and the alert stamp stay at the pass start.
 The worker reads CFM directly only while a live futures book exists (P2-7 wiring); otherwise
 the mirror. A failed observer records unknown, not all-clear. `futures_order_paths` lists only
 `live_futures_start` (runtime lane), and visibility never grants lifecycle, order,
@@ -738,7 +745,17 @@ cache warming, a failed inventory read, or a subset inventory never proves an al
 recovered. Verified checks recover independently; a triggered-unfilled stop stays unsafe
 until durable order/fill/removal evidence clears it, not merely a price rebound.
 Consecutive worker errors persist across restart; unknown/lease-skipped cycles do not
-reset them. A supervision entry pause is lease/revision fenced and never auto-resumed;
+reset them. A `WORKER_BOOK_FAILURES` alert resolves when the book's next decision succeeds; a
+fault the pass caught (a failed order read) stays visible as `BOOK_PAUSED_MISMATCH`. A flat
+stopped book also resolves when a later cycle carried out every product's maintenance (no
+missing broker or price context, no deferred flatten) and afterwards it holds no position, has
+no fail-closed mismatch, settled economics, no working entry left by a failed cancel and no
+futures de-risk or flat-confirmation duty (resolution note "recovered: a later worker cycle
+carried out this stopped book's maintenance ..."). A stopped book still holding inventory
+resolves only by its decision cursor or once flat; a held discretionary or multi-instrument
+stopped book has no cursor path, so its alert stays open until it is flat. A
+returning broker clears the stopped book's "Live broker is unavailable" note. A held
+`WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
 not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown
 age/possible clock skew, not verified freshness. Counts and health use all open alerts,
@@ -746,8 +763,9 @@ even when the displayed feed is bounded; consult partial-result warnings for tru
 
 Notification dispatch is separate from safety cycles. `notify_provider=none` leaves the
 durable local feed and explicit warning intact. Attempts are durably claimed, bounded,
-and retried with stable alert IDs; a webhook receiver must dedupe that ID to prevent duplicate
-processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
+and retried with a stable ID per page: one per alert and severity (`uuid5(alert id,
+"severity:<severity>")`; the alert id is in the body as `alert=<id>`). A webhook receiver must
+dedupe that ID to prevent duplicate processing after an ambiguous send/ack crash. Bounded retries can exhaust without receipt;
 external delivery is not guaranteed. Delivery errors never reveal the configured destination.
 
 ### Alert delivery (ADR 0138)

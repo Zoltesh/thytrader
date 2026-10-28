@@ -9,7 +9,7 @@ from uuid import UUID
 from pydantic import Field
 
 from thytrader import __version__
-from thytrader.alerts.store import ALERT_REPORT_ROW_LIMIT, DisabledAlertStore
+from thytrader.alerts.store import ALERT_REPORT_ROW_LIMIT, DisabledAlertStore, page_attempts
 from thytrader.config import NotifyProvider
 from thytrader.operator.alert_delivery_health import alert_delivery_component
 from thytrader.operator.models import (
@@ -190,7 +190,8 @@ def _feed_component(*, storage: str, open_critical: int, open_warning: int) -> C
 def _item(alert: OperatorAlert, *, max_attempts: int) -> AlertItem:
     """Project one stored row onto the strict report item."""
     status = alert.delivery_status or "pending"
-    if status == "failed" and alert.delivery_attempts >= max_attempts:
+    # Each severity's page has its own budget (ADR 0115); ``attempts`` stays the row's total.
+    if status == "failed" and page_attempts(alert) >= max_attempts:
         status = "exhausted"
     return AlertItem(
         id=alert.id,

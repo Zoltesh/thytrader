@@ -98,8 +98,16 @@ class AlertStore(Protocol):
         now: datetime,
         max_attempts: int,
         ttl: timedelta,
+        severity: AlertSeverity | None = None,
     ) -> DeliveryClaim | None:
-        """Claim a bounded attempt before sending, or persist explicit disablement."""
+        """Claim a bounded attempt before sending, or persist explicit disablement.
+
+        With ``severity``, the claim succeeds only while the row is still at that severity, so
+        a page checked at one severity is never sent at another.
+
+        Only a ``page_claimable`` row is claimed, so a page never repeats what a sent page
+        covers, and ``max_attempts`` bounds each severity's page separately (``page_attempts``).
+        """
         ...
 
     async def finish_delivery(
@@ -136,6 +144,45 @@ class AlertStore(Protocol):
         page covered.
         """
         ...
+
+
+#: Severity order for page coverage and budgets; an unknown severity ranks below all.
+SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
+_SENT_STATUSES = frozenset({"logged", "delivered"})
+_UNSENT_STATUSES = frozenset({"pending", "skipped", "failed", "exhausted"})
+
+
+def _rank(severity: AlertSeverity | None) -> int:
+    """Rank one severity; ``None`` ranks below every severity."""
+    return -1 if severity is None else SEVERITY_RANK[severity.value]
+
+
+def page_claimable(row: OperatorAlert) -> bool:
+    """Whether a page at the row's current severity may be claimed (ADR 0115).
+
+    A page never repeats what a sent page already covers: an unsent row (``pending``,
+    ``skipped`` or ``failed``) is claimable unless its coverage reaches its severity, and a
+    sent row only when it escalated above a known covered severity. A row sent before
+    Alembic ``0081`` has no known coverage and is not re-paged.
+    """
+    covered = row.covered_severity
+    above = covered is None or _rank(row.severity) > _rank(covered)
+    if row.delivery_status in _UNSENT_STATUSES:
+        return above
+    return row.delivery_status in _SENT_STATUSES and covered is not None and above
+
+
+def page_attempts(row: OperatorAlert) -> int:
+    """Attempts already claimed for the page at the row's current severity (Alembic 0082).
+
+    Each severity is its own page with its own budget, so a downgrade flap or an exhausted
+    lower page never spends an escalation's attempts; a row has at most three budgets.
+    """
+    return {
+        "info": row.info_attempts,
+        "warning": row.warning_attempts,
+        "critical": row.critical_attempts,
+    }[row.severity.value]
 
 
 def observation_keys(
@@ -239,18 +286,22 @@ class InMemoryAlertStore:
         now: datetime,
         max_attempts: int,
         ttl: timedelta,
+        severity: AlertSeverity | None = None,
     ) -> DeliveryClaim | None:
         """Consume a retry slot atomically before the sender can make a side effect."""
         for rows in self.history.values():
             row = rows[-1]
             if row.id != alert_id or not row.is_open:
                 continue
-            if row.delivery_status in {"logged", "delivered"}:
-                return None
             if row.delivery_expires_at is not None and row.delivery_expires_at > now:
                 # A disabled observer cannot revoke another dispatcher's active send.
                 return None
+            if severity is not None and row.severity is not severity:
+                return None
             if provider == "none":
+                # Like ``skip_delivery``: failed or exhausted evidence is never erased.
+                if row.delivery_status not in {"pending", "skipped"}:
+                    return None
                 rows[-1] = replace(
                     row,
                     delivery_provider=provider,
@@ -260,7 +311,7 @@ class InMemoryAlertStore:
                     delivery_expires_at=None,
                 )
                 return None
-            if row.delivery_attempts >= max_attempts:
+            if not page_claimable(row) or page_attempts(row) >= max_attempts:
                 return None
             token = uuid4()
             claimed = replace(
@@ -271,6 +322,7 @@ class InMemoryAlertStore:
                 delivery_attempts=row.delivery_attempts + 1,
                 delivery_token=token,
                 delivery_expires_at=now + ttl,
+                **{f"{row.severity.value}_attempts": page_attempts(row) + 1},
             )
             rows[-1] = claimed
             return DeliveryClaim(claimed, token)

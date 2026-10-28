@@ -1,8 +1,8 @@
 """Supervision findings computable from the deployment row alone, and worker book failures.
 
 Covers latched loss and drawdown breakers, portfolio breaker and pause mismatches, the
-per-book finding recorded when one worker cycle raised, and the cursor-advance rule that
-proves a worker error recovered.
+per-book finding recorded when one worker cycle raised, and the rules that prove a worker
+error recovered: an advanced decision cursor, or a stopped book's completed maintenance pass.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from thytrader.alerts.models import (
     AlertSeverity,
     SupervisionFinding,
 )
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
     from thytrader.trading.models import (
@@ -45,6 +46,33 @@ def verified_worker_recovery(previous: Deployment, current: Deployment) -> bool:
         and current.strategy_fingerprint == previous.strategy_fingerprint
         and current.strategy_id == previous.strategy_id
         and not (current.mismatch_detail or "").startswith(_SUPERVISION_PAUSE_PREFIX)
+    )
+
+
+#: Resolution note for a worker failure on a stopped book proven by its maintenance pass.
+STOPPED_MAINTENANCE_RECOVERY = (
+    "recovered: a later worker cycle carried out this stopped book's maintenance (reconciliation, "
+    "protection, exits) without failure and left it fault-free"
+)
+
+
+def verified_stopped_maintenance(
+    previous: Deployment, current: Deployment, *, maintained: bool
+) -> bool:
+    """A completed maintenance pass proves a worker error on a stopped book recovered.
+
+    A flat stopped book makes no decisions, so its cursor never advances and the decision rule
+    alone could leave it open forever. ``maintained`` is the caller's positive evidence: the
+    pass was not lease-skipped, deferred or warming, carried out every product's maintenance
+    and left the book flat and fault-free. A stopped book still holding inventory is not proven
+    this way (ADR 0115). The book must be stopped before and after the pass, and any
+    fail-closed mismatch (a supervision pause, a failed read, a missing broker) keeps it open.
+    """
+    return (
+        maintained
+        and previous.status is DeploymentStatus.STOPPED
+        and current.status is DeploymentStatus.STOPPED
+        and not current.mismatch_detail
     )
 
 

@@ -13,7 +13,12 @@ from uuid import UUID
 from thytrader.alerts.models import AlertCheck, AlertCode, SupervisionFinding
 from thytrader.alerts.store import AlertStoreError
 from thytrader.alerts.supervision import gather_safety_findings
-from thytrader.alerts.supervision_rows import failure_error_type, verified_worker_recovery
+from thytrader.alerts.supervision_rows import (
+    STOPPED_MAINTENANCE_RECOVERY,
+    failure_error_type,
+    verified_stopped_maintenance,
+    verified_worker_recovery,
+)
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.exchanges.ws.market_feed import DEFAULT_HEARTBEAT_TIMEOUT_SECONDS
 from thytrader.execution.audit_scope import record_execution_audit
@@ -60,8 +65,13 @@ async def _supervise_safety(
     cycle_failures: list[SupervisionFinding],
     worker_interval_seconds: int,
     observed_at: datetime,
+    stopped_maintained: frozenset[UUID] = frozenset(),
 ) -> None:
     """Record durable safety alerts and pause repeatedly failing books (ADR 0115).
+
+    ``stopped_maintained`` names the stopped books whose maintenance pass this cycle ran to
+    completion; their worker failures resolve with their own note, since a stopped book's
+    decision cursor never advances.
 
     Supervision failures never fail the worker cycle: an unavailable alert store
     is logged and skipped, and the pause path only touches RUNNING books whose
@@ -105,6 +115,24 @@ async def _supervise_safety(
             evaluated=(*evidence.evaluated, *verified_success),
             dispatch=False,
         )
+        maintained = tuple(
+            AlertCheck(AlertCode.WORKER_BOOK_FAILURES, str(item.id))
+            for item in current
+            if str(item.id) not in failed
+            and item.id in before
+            and verified_stopped_maintenance(
+                before[item.id], item, maintained=item.id in stopped_maintained
+            )
+        )
+        if maintained:
+            # Same watermark: a failure recorded above wins the tie, never this clear.
+            await alert_service.apply(
+                (),
+                now=observed_at,
+                evaluated=maintained,
+                dispatch=False,
+                detail=STOPPED_MAINTENANCE_RECOVERY,
+            )
         outstanding = await alert_service.open_alerts()
     except AlertStoreError, RuntimeError, ValueError, OSError:
         _logger.warning("safety_supervision_evidence_unavailable")

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from uuid import uuid5
 
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL
@@ -31,6 +32,7 @@ from thytrader.trading.ids import utc_now
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
+    from uuid import UUID
 
     from thytrader.alerts.models import (
         AlertCheck,
@@ -109,17 +111,19 @@ class AlertService:
         now: datetime,
         evaluated: Sequence[AlertCheck] = (),
         dispatch: bool = True,
+        detail: str = _RECOVERY_DETAIL,
     ) -> AlertApplication:
         """Atomically accept findings and resolve only proven re-evaluated checks.
 
         An empty/partial pass means unknown by default. Strictly newer durable
-        check watermarks reject stale/replayed passes across service restarts.
+        check watermarks reject stale/replayed passes across service restarts. ``detail`` is
+        the resolution note written on every row this pass resolves.
         """
         ordered: dict[tuple[str, str], SupervisionFinding] = {}
         for finding in findings:
             ordered.setdefault((finding.code.value, finding.subject), finding)
         application = await self._store.apply_observations(
-            tuple(ordered.values()), evaluated, now=now, detail=_RECOVERY_DETAIL
+            tuple(ordered.values()), evaluated, now=now, detail=detail
         )
         # The execution safety loop uses dispatch=False; a separate task handles I/O.
         if dispatch:
@@ -169,7 +173,8 @@ class AlertService:
             if (
                 provider is not NotifyProvider.NONE
                 and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
-                and alert.delivery_status in {"pending", "skipped"}
+                # A failed retry is checked too: an episode page covering it must not repeat.
+                and alert.delivery_status in {"pending", "skipped", "failed", "exhausted"}
                 and not await self._entry_block_due(alert, provider=provider, now=now)
             ):
                 return
@@ -179,6 +184,7 @@ class AlertService:
                 now=now,
                 max_attempts=self._thresholds.delivery_max_attempts,
                 ttl=timedelta(seconds=60),
+                severity=alert.severity,
             )
             if claim is None:
                 return
@@ -298,17 +304,34 @@ def _rank(severity: AlertSeverity) -> int:
     return _SEVERITY_RANK[severity.value]
 
 
+def page_id(alert: OperatorAlert) -> UUID:
+    """The notification id of the page this row is about to send: one per alert and severity.
+
+    Every retry of one page keeps its id, and a page at another severity (an escalation, even
+    after an ambiguous or exhausted lower page) never shares it, so receivers that dedupe on the
+    id keep the escalation. The alert id itself travels in the page body.
+    """
+    return uuid5(alert.id, f"severity:{alert.severity.value}")
+
+
 def _notification_record(
     alert: OperatorAlert, *, now: datetime, provider: NotifyProvider
 ) -> NotificationRecord:
     """Build the provider payload without secrets, balances, or webhook URLs."""
     title = f"[thytrader] {alert.severity.value.upper()}: {alert.code.value}"[:_TITLE_BOUND]
+    covered = alert.covered_severity
+    escalation = (
+        f"\nescalated from {covered.value} since the last page"
+        if covered is not None and _rank(covered) < _rank(alert.severity)
+        else ""
+    )
     body = (
         f"{alert.detail}\nsubject={alert.subject} "
-        f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences}"
+        f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences} "
+        f"alert={alert.id}{escalation}"
     )[:_BODY_BOUND]
     return NotificationRecord(
-        id=alert.id,
+        id=page_id(alert),
         occurred_at=now,
         origin=ActorOrigin.SYSTEM,
         title=title,
