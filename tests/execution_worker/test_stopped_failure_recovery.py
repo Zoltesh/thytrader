@@ -322,6 +322,8 @@ async def test_a_stopped_live_book_without_a_broker_keeps_its_failure_open() -> 
             False,
         ),
         (True, {"status": DeploymentStatus.PAUSED}, False),
+        (True, {"futures_derisk_pending": True}, False),
+        (True, {"futures_flat_confirmation_after": _NOW}, False),
     ],
 )
 def test_maintained_without_fault_needs_the_outcome_and_a_clean_stopped_book(
@@ -331,6 +333,14 @@ def test_maintained_without_fault_needs_the_outcome_and_a_clean_stopped_book(
     book = DeploymentSnapshot(deployment=_book(), orders=(), fills=(), position=None)
     book = replace(book, deployment=replace(book.deployment, **change))
     assert maintained_without_fault(book, maintained=maintained) is expected
+
+
+def test_an_incompletely_accounted_book_is_not_maintained_without_fault() -> None:
+    """Unknown accounting is not a clean stopped book."""
+    book = DeploymentSnapshot(
+        deployment=_book(), orders=(), fills=(), position=None, accounting_complete=False
+    )
+    assert not maintained_without_fault(book, maintained=True)
 
 
 async def _stopped_outcome(

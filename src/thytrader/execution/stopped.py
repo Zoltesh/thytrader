@@ -166,13 +166,18 @@ def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) 
     """Whether a stopped book's pass is verified work: maintained, and fault-free after it.
 
     ``maintained`` is ``supervise_stopped_deployment``'s outcome. The book, read after the
-    pass, must still be stopped with no fail-closed mismatch: a failed reconciliation read
-    records one even though the pass returned (ADR 0115).
+    pass, must still be stopped with no fail-closed mismatch (a failed reconciliation read
+    records one even though the pass returned), fully accounted, and owe no futures de-risk or
+    flat-confirmation duty (ADR 0115).
     """
+    deployment = snapshot.deployment
     return (
         maintained
-        and snapshot.deployment.status is DeploymentStatus.STOPPED
-        and not snapshot.deployment.mismatch_detail
+        and deployment.status is DeploymentStatus.STOPPED
+        and not deployment.mismatch_detail
+        and snapshot.accounting_complete
+        and not deployment.futures_derisk_pending
+        and deployment.futures_flat_confirmation_after is None
     )
 
 

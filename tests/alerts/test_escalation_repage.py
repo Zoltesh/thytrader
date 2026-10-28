@@ -262,6 +262,19 @@ def test_an_unsent_row_from_before_per_severity_budgets_gets_one_fresh_budget() 
     assert page_attempts(row) == 0
 
 
+async def test_an_exhausted_row_is_handled_the_same_by_both_stores_with_delivery_off() -> None:
+    """``exhausted`` is an unsent status: delivery off records it skipped, as PostgreSQL does."""
+    store = InMemoryAlertStore()
+    finding = _uncovered()
+    await _service(store, RecordingNotificationSender()).apply((finding,), now=_NOW, dispatch=False)
+    row = await _row(store, finding.subject)
+    store.history[(row.code.value, row.subject)][-1] = replace(row, delivery_status="exhausted")
+    await store.claim_delivery(
+        row.id, provider="none", now=_NOW, max_attempts=5, ttl=timedelta(seconds=60)
+    )
+    assert (await _row(store, finding.subject)).delivery_status == "skipped"
+
+
 async def test_a_row_sent_before_coverage_was_recorded_is_not_re_paged() -> None:
     """A delivered row with no ``covered_severity`` (before Alembic 0081) is left alone."""
     store = InMemoryAlertStore()

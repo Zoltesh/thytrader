@@ -165,7 +165,7 @@ class PostgresAlertStore:
                 .where(
                     alerts.id == alert_id,
                     alerts.resolved_at.is_(None),
-                    alerts.delivery_status.in_(("pending", "skipped", "failed")),
+                    alerts.delivery_status.in_(_UNSENT),
                     unclaimed,
                 )
                 .values(
@@ -184,7 +184,7 @@ class PostgresAlertStore:
                 else_=alerts.info_attempts,
             )
             above = covered.is_(None) | (_rank(alerts.severity) > _rank(covered))
-            claimable = (alerts.delivery_status.in_(("pending", "skipped", "failed")) & above) | (
+            claimable = (alerts.delivery_status.in_(_UNSENT) & above) | (
                 alerts.delivery_status.in_(("logged", "delivered")) & covered.is_not(None) & above
             )
             statement = (
@@ -382,6 +382,10 @@ def _rank(column: ColumnElement[str]) -> ColumnElement[int]:
         *((column == name, literal(rank)) for name, rank in SEVERITY_RANK.items()),
         else_=literal(-1),
     )
+
+
+#: Delivery statuses of a row never sent, matching ``alerts.store`` (``exhausted`` included).
+_UNSENT = ("pending", "skipped", "failed", "exhausted")
 
 
 def _charged(column: ColumnElement[str], level: str) -> ColumnElement[int]:

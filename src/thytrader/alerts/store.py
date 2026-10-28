@@ -145,7 +145,7 @@ class AlertStore(Protocol):
 #: Severity order for page coverage and budgets; an unknown severity ranks below all.
 SEVERITY_RANK: dict[str, int] = {"info": 0, "warning": 1, "critical": 2}
 _SENT_STATUSES = frozenset({"logged", "delivered"})
-_UNSENT_STATUSES = frozenset({"pending", "skipped", "failed"})
+_UNSENT_STATUSES = frozenset({"pending", "skipped", "failed", "exhausted"})
 
 
 def _rank(severity: AlertSeverity | None) -> int:
@@ -292,7 +292,7 @@ class InMemoryAlertStore:
                 # A disabled observer cannot revoke another dispatcher's active send.
                 return None
             if provider == "none":
-                if row.delivery_status in _SENT_STATUSES:
+                if row.delivery_status not in _UNSENT_STATUSES:
                     return None
                 rows[-1] = replace(
                     row,
