@@ -38,17 +38,22 @@ a gap never resumed.
   stopped. Audit `reconcile_read_fault_cleared` records the old detail. Every other detail
   (filled order without REST fills, unconfirmed submit, adoption evidence, ledger faults) is
   untouched.
-- **Paper orders are local.** Reconciliation never reads a paper order that has a venue id; the
-  store is its only source of truth. Paper canceled orders therefore stay unsettled in the ADR
-  0141 sense, which no paper consumer reads. A paper order without a venue id (an interrupted
-  submit) is still looked up as before and pauses fail-closed. Replay capture records only live
-  books, so no recorded tape holds a paper read; a hand-made paper tape with one would no longer
-  be fully consumed.
+- **Paper orders are local.** Reconciliation never asks the paper broker about an order that
+  has a venue id; the store is its only source of truth. It only checks that the order's
+  applied fills cover the quantity it recorded as executed (a paper fill is written after its
+  order, so an interrupted submit can leave a filled order without its fill), and faults
+  `Filled order has no REST fills.` otherwise, as a venue read would. The rule keys on the paper
+  broker, not on the book's mode, so a replayed tape or a test venue still reads a paper-mode
+  book. Paper canceled orders stay unsettled in the ADR 0141 sense, which no paper consumer
+  reads. A paper order without a venue id (an interrupted submit) is still looked up as before
+  and pauses fail-closed.
 - **Desk books clear data-gap pauses.** A discretionary book applies the ADR 0146 clear after its
   due bars ran on a whole window (paper books evaluate them while paused; a paused live book is
   reconciled and kept protected first). The ADR 0146 rules are unchanged: only the exact
   decision-window detail, no lifecycle command, no breaker latch, and the evaluation must have
-  reached the newest due bar.
+  reached the newest due bar. A gapped window now pauses only a running discretionary book, as
+  on the strategy path: before, it overwrote any pause reason (a reconcile fault, say) with the
+  data-gap detail, which the clear would then have resumed.
 
 ## Consequences
 

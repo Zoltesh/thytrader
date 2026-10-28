@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, ClientOrderLookup
+from thytrader.execution.paper import PaperBroker
 from thytrader.trading.adoption import ADOPTION_EVIDENCE_INCOMPLETE, adoption_evidence_complete
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
@@ -286,16 +287,17 @@ async def _reconcile_one_order(
     """Refresh one watched order from REST JSON and apply unseen fills.
 
     An adoption order never went to the venue (ADR 0124), so it is never looked up
-    there. Its evidence is only checked locally, and incomplete evidence is a fault. A paper
-    order with a venue id is not read either: the store is its only source of truth.
+    there. Its evidence is only checked locally, and incomplete evidence is a fault. An order
+    with a venue id held by the paper broker is not read either: the store is its only source
+    of truth, so only its local fill coverage is checked.
     """
     if order.kind is OrderKind.ADOPTION:
         return await _check_adoption_evidence(snapshot, order=order, store=store)
-    if snapshot.deployment.mode is DeploymentMode.PAPER and order.venue_order_id:
+    if isinstance(broker, PaperBroker) and order.venue_order_id:
         # A paper order's state lives only in the store; the paper broker answers every
         # lookup with OPEN, so a read would revive a canceled paper exit (a take-profit
         # cancelled by its stop's marketable exit would rest again).
-        return snapshot
+        return await _check_local_fill_coverage(snapshot, order=order, store=store)
     return await _reconcile_venue_order(
         snapshot,
         order=order,
@@ -305,6 +307,22 @@ async def _reconcile_one_order(
         known=known,
         cooldown_bars=cooldown_bars,
     )
+
+
+async def _check_local_fill_coverage(
+    snapshot: DeploymentSnapshot, *, order: Order, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Fault a paper order whose recorded execution has no applied fill to back it.
+
+    A paper fill is saved after its order in a separate write, so an interrupted submit can
+    leave a filled order without its fill. The paper broker cannot be asked, so the local
+    ledger is checked instead, as a venue read's coverage check would.
+    """
+    if applied_fill_quantity(snapshot, order.id) < order.filled_quantity:
+        return await _record_reconcile_fault(
+            snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL
+        )
+    return snapshot
 
 
 async def _check_adoption_evidence(

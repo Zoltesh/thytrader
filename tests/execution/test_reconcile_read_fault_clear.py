@@ -13,6 +13,7 @@ from tests.execution.test_reconcile import _FillsBroker, _LookupBroker
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import BrokerError, SubmitResult
+from thytrader.execution.paper import PaperBroker
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.trading.ids import uuid7
 from thytrader.trading.memory import InMemoryExecutionStore
@@ -119,7 +120,7 @@ async def _book(
 
 
 async def _reconcile(
-    store: InMemoryExecutionStore, deployment_id: UUID, broker: _LookupBroker
+    store: InMemoryExecutionStore, deployment_id: UUID, broker: _LookupBroker | PaperBroker
 ) -> tuple[Deployment, tuple[Order, ...], list[str]]:
     """One reconcile walk under a captured audit trail."""
     audit = InMemoryAuditEventStore()
@@ -260,13 +261,44 @@ async def test_other_details_are_never_cleared(detail: str | None) -> None:
 
 @pytest.mark.anyio
 async def test_a_canceled_paper_exit_is_not_revived_by_reconcile() -> None:
-    """The paper broker answers every lookup OPEN; a canceled paper order is never read."""
+    """The paper broker answers every lookup OPEN; an order it holds is never read back."""
     store, deployment_id = await _book(
         mode=DeploymentMode.PAPER,
         status=DeploymentStatus.RUNNING,
         detail=None,
         canceled_at=_WHEN - timedelta(hours=1),
     )
-    deployment, orders, _actions = await _reconcile(store, deployment_id, _NoReadBroker())
+    deployment, orders, _actions = await _reconcile(store, deployment_id, PaperBroker())
     assert orders[0].status is OrderStatus.CANCELED
     assert deployment.status is DeploymentStatus.RUNNING
+    assert deployment.mismatch_detail is None
+
+
+@pytest.mark.anyio
+async def test_a_paper_book_on_a_venue_broker_is_still_read() -> None:
+    """The skip keys on the paper broker, not the book's mode: a replayed or fake venue reads."""
+    store, deployment_id = await _book(
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        detail=None,
+        order_status=OrderStatus.UNKNOWN,
+    )
+    broker = _LookupBroker(SubmitResult(status=OrderStatus.CANCELED, venue_order_id="venue-exit-1"))
+    _deployment, orders, _actions = await _reconcile(store, deployment_id, broker)
+    assert orders[0].status is OrderStatus.CANCELED
+
+
+@pytest.mark.anyio
+async def test_a_filled_paper_order_without_its_fill_still_faults() -> None:
+    """An interrupted paper submit (order saved filled, fill never written) pauses fail-closed."""
+    store, deployment_id = await _book(
+        mode=DeploymentMode.PAPER,
+        status=DeploymentStatus.RUNNING,
+        detail=None,
+        order_status=OrderStatus.FILLED,
+    )
+    order = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(order, filled_quantity=order.quantity))
+    deployment, _orders, _actions = await _reconcile(store, deployment_id, PaperBroker())
+    assert deployment.mismatch_detail == "Filled order has no REST fills."
+    assert deployment.status is DeploymentStatus.PAUSED

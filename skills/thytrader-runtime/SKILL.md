@@ -1040,7 +1040,7 @@ The worker never re-submits an order automatically
   without a mismatch) until you resume it, and a stopped book stays stopped. A detail that
   persists means an order still cannot be read; `…: venue status is unknown.` never clears
   itself. A paper order that has a venue id is never read back from the paper broker; its state
-  is local.
+  is local, and only its applied fills are checked against the quantity it executed.
 - **Operator recovery for a not-found unconfirmed order.** Do not retry the order. Ask the user to
   check Coinbase Advanced Trade orders (the product, around the submit time) for that
   `client_order_id` and for any matching fill. If Coinbase shows the order, wait: the worker

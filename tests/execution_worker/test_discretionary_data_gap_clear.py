@@ -143,3 +143,14 @@ async def test_a_still_gapped_window_keeps_the_desk_pause(
     assert current.status is DeploymentStatus.PAUSED
     assert current.mismatch_detail == _GAP
     assert "data_gap_pause_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_gap_never_replaces_another_desk_pause_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A book paused for another fault keeps that reason through a gap, so it never resumes."""
+    other = "Entry order is unconfirmed; reconcile before retrying."
+    gapped, _ = await _run(monkeypatch, detail=other, expected_last=_bars(5)[-1].starts_at)
+    assert gapped.status is DeploymentStatus.PAUSED
+    assert gapped.mismatch_detail == other
