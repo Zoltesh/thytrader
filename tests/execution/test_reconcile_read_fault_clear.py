@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
 import pytest
 
-from tests.execution.test_reconcile import _LookupBroker
+from tests.execution.test_reconcile import _FillsBroker, _LookupBroker
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
 from thytrader.execution.broker import BrokerError, SubmitResult
@@ -19,12 +20,14 @@ from thytrader.trading.models import (
     Deployment,
     DeploymentMode,
     DeploymentStatus,
+    Fill,
     Order,
     OrderKind,
     OrderSide,
     OrderStatus,
     RuntimePhase,
 )
+from thytrader.trading.overlay import InstrumentScopedStore
 
 _READ_FAILED = "Order reconciliation is unconfirmed: order read failed."
 _FILL_READ_FAILED = "Order reconciliation is unconfirmed: fill read failed."
@@ -177,6 +180,69 @@ async def test_a_venue_unknown_answer_keeps_the_fault() -> None:
     broker = _LookupBroker(SubmitResult(status=OrderStatus.UNKNOWN, venue_order_id="venue-exit-1"))
     deployment, _orders, actions = await _reconcile(store, deployment_id, broker)
     assert deployment.mismatch_detail is not None
+    assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_repeated_venue_unknown_fault_is_never_cleared_by_its_fills() -> None:
+    """Fills can mark the order filled while the venue still answers UNKNOWN; keep the fault."""
+    unknown = "Order reconciliation is unconfirmed: venue status is unknown."
+    store, deployment_id = await _book(
+        detail=unknown, order_status=OrderStatus.UNKNOWN, mode=DeploymentMode.LIVE
+    )
+    order = (await store.get_deployment(deployment_id)).orders[0]
+    fill = Fill(
+        id=uuid7(_WHEN),
+        deployment_id=deployment_id,
+        order_id=order.id,
+        venue_fill_id="vf-1",
+        price=Decimal("90"),
+        quantity=Decimal("1"),
+        fee=Decimal("0.1"),
+        filled_at=_WHEN,
+        venue_order_id="venue-exit-1",
+    )
+    broker = _FillsBroker(
+        SubmitResult(status=OrderStatus.UNKNOWN, venue_order_id="venue-exit-1"), (fill,)
+    )
+    deployment, _orders, actions = await _reconcile(store, deployment_id, broker)
+    assert deployment.mismatch_detail == unknown
+    assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_one_product_walk_never_clears_a_fault_another_product_still_holds() -> None:
+    """A multi-instrument walk through one product's view checks every product's orders."""
+    store, deployment_id = await _book(order_status=OrderStatus.UNKNOWN)
+    eth_order = _order(deployment_id, OrderStatus.UNKNOWN, canceled_at=None, settled_at=None)
+    await store.save_order(
+        replace(
+            eth_order,
+            id=uuid7(_WHEN + timedelta(seconds=1)),
+            client_order_id="exit-eth",
+            venue_order_id="venue-exit-eth",
+            product_id="ETH-USD",
+        )
+    )
+    broker = _LookupBroker(
+        SubmitResult(status=OrderStatus.CANCELED, venue_order_id="venue-exit-eth")
+    )
+    audit = InMemoryAuditEventStore()
+    with execution_audit_scope(audit):
+        scoped = InstrumentScopedStore(store, "ETH-USD")
+        await reconcile_open_orders(
+            await scoped.get_deployment(deployment_id),
+            broker=broker,
+            store=scoped,
+            product_id="ETH-USD",
+        )
+    full = await store.get_deployment(deployment_id)
+    assert {order.product_id: order.status for order in full.orders} == {
+        "BTC-USD": OrderStatus.UNKNOWN,
+        "ETH-USD": OrderStatus.CANCELED,
+    }
+    assert full.deployment.mismatch_detail == _READ_FAILED
+    actions = [event.action for event in await audit.list_recent(limit=50)]
     assert "reconcile_read_fault_cleared" not in actions
 
 

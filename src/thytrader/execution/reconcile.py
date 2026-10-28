@@ -126,7 +126,9 @@ async def reconcile_open_orders(
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
-    if first_fault is None and _read_fault_confirmed(snapshot):
+    if first_fault is None and _read_fault_confirmed(
+        await store.get_accounting_snapshot(snapshot.deployment.id)
+    ):
         return await _clear_confirmed_read_fault(snapshot, store=store)
     return snapshot
 
@@ -135,20 +137,24 @@ READ_FAULT_DETAILS = frozenset(
     {
         f"{RECONCILE_UNCONFIRMED_PREFIX}: order read failed.",
         f"{RECONCILE_UNCONFIRMED_PREFIX}: fill read failed.",
-        f"{RECONCILE_UNCONFIRMED_PREFIX}: venue status is unknown.",
     }
 )
-"""Faults that only say a venue read did not answer; a later complete walk can disprove them."""
+"""Faults that only say a venue read did not answer; a later complete walk can disprove them.
+
+"Venue status is unknown" is not one: the venue did answer, and fill ingestion can still mark
+that order filled, so a repeat of that fault would not leave the order ``UNKNOWN``.
+"""
 
 
 def _read_fault_confirmed(snapshot: DeploymentSnapshot) -> bool:
-    """Whether a latched read fault is now contradicted by this walk's evidence.
+    """Whether a latched read fault is contradicted by the whole book's evidence.
 
-    A failed order or fill read marks its order ``UNKNOWN`` and a repeat of the same failure
-    leaves the detail unchanged, so ``first_fault`` alone cannot prove the walk succeeded.
-    Every order must therefore be out of ``UNKNOWN``: either read successfully this walk or
-    already terminal and accounted for. Fill economics and inventory projection must also be
-    complete, so clearing the detail never hides a separate ledger fault.
+    ``snapshot`` is the accounting snapshot of every product, since the detail is shared and a
+    multi-instrument walk may run through one product's view. A failed order or fill read
+    marks its order ``UNKNOWN``, and a repeat of the same failure leaves the detail unchanged,
+    so ``first_fault`` alone cannot prove the walk succeeded. Every order must therefore be out
+    of ``UNKNOWN``: read back, or already terminal and accounted for. Fill economics and
+    inventory projection must also be complete, so clearing never hides a ledger fault.
     """
     if snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
         return False

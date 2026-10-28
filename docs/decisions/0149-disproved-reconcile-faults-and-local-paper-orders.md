@@ -27,17 +27,23 @@ a gap never resumed.
 ## Decision
 
 - **Disproved read faults clear, without resuming.** At the end of a reconcile walk that recorded
-  no new fault, a book whose detail is one of the three read-failure details has it cleared when
-  every order is out of `UNKNOWN` (read back this walk, or already terminal and accounted for),
-  every stored fill's economics is applied and no applied inventory is unprojected. A repeated
-  identical failure leaves the order `UNKNOWN`, so it never counts as success. The status is
+  no new fault, a book whose detail is `…: order read failed.` or `…: fill read failed.` has it
+  cleared when, across the whole book (every product's orders, read from the accounting snapshot
+  because a multi-instrument walk may run through one product's view), no order is `UNKNOWN` (each
+  read back this walk, or already terminal and accounted for), every stored fill's economics is
+  applied and no applied inventory is unprojected. Both failures mark their order `UNKNOWN`, so a
+  repeat never counts as success. `…: venue status is unknown.` is not cleared: the venue answered,
+  and fill ingestion can still mark that order filled while its status stays unknown. The status is
   unchanged: a paused book stays paused until the operator resumes it, a stopped book stays
   stopped. Audit `reconcile_read_fault_cleared` records the old detail. Every other detail
   (filled order without REST fills, unconfirmed submit, adoption evidence, ledger faults) is
   untouched.
 - **Paper orders are local.** Reconciliation never reads a paper order that has a venue id; the
   store is its only source of truth. Paper canceled orders therefore stay unsettled in the ADR
-  0141 sense, which no paper consumer reads.
+  0141 sense, which no paper consumer reads. A paper order without a venue id (an interrupted
+  submit) is still looked up as before and pauses fail-closed. Replay capture records only live
+  books, so no recorded tape holds a paper read; a hand-made paper tape with one would no longer
+  be fully consumed.
 - **Desk books clear data-gap pauses.** A discretionary book applies the ADR 0146 clear after its
   due bars ran on a whole window (paper books evaluate them while paused; a paused live book is
   reconciled and kept protected first). The ADR 0146 rules are unchanged: only the exact
@@ -48,7 +54,10 @@ a gap never resumed.
 
 - A transient venue outage no longer leaves a permanent "unconfirmed" detail or alert; real
   unknowns (an order still unreadable or still `UNKNOWN`) stay fail-closed.
-- Paused books do not restart trading on their own: clearing the detail is not a resume.
+- Paused books do not restart trading on their own: clearing the detail is not a resume. A
+  paused book whose read fault cleared shows as paused without a mismatch, like an operator
+  pause; if the read fault had replaced a data-gap or user-feed detail, that pause no longer
+  clears itself and the operator resumes it.
 - A paper stop exit's cancelled take-profit stays cancelled, so paper desk books settle at once.
 
 ## Alternatives considered

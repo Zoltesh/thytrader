@@ -1032,12 +1032,15 @@ The worker never re-submits an order automatically
   this can come from a recently canceled stop, or an old one that has not settled yet. When the venue had already reported the order canceled or fully filled,
   its `reject_reason` is `terminal_read_unconfirmed`: it cannot trigger, so supervision never
   reports it as a triggered-but-unfilled live stop. Resuming does not clear a retained fault;
-  report it with the order's status and reason. The detail clears itself (audit
-  `reconcile_read_fault_cleared`, ADR 0149) once a later walk finds no order `unknown` (each read
-  back, or already terminal and accounted for), every fill's economics applied and no unprojected
-  inventory. The status does not change: a paused book stays paused until you resume it, and a
-  stopped book stays stopped. A detail that persists means an order still cannot be read. Paper
-  orders are never read back from the paper broker; their state is local.
+  report it with the order's status and reason. The `order read failed` and `fill read failed`
+  details clear themselves (audit `reconcile_read_fault_cleared`, ADR 0149) once a later walk
+  records no new fault and finds no order `unknown` anywhere in the book (each read back, or
+  already terminal and accounted for), every fill's economics applied and no unprojected
+  inventory. The status does not change: a paused book stays paused (it then shows as paused
+  without a mismatch) until you resume it, and a stopped book stays stopped. A detail that
+  persists means an order still cannot be read; `…: venue status is unknown.` never clears
+  itself. A paper order that has a venue id is never read back from the paper broker; its state
+  is local.
 - **Operator recovery for a not-found unconfirmed order.** Do not retry the order. Ask the user to
   check Coinbase Advanced Trade orders (the product, around the submit time) for that
   `client_order_id` and for any matching fill. If Coinbase shows the order, wait: the worker
