@@ -17,6 +17,7 @@ from thytrader.trading.fill_ledger import (
     ingest_fill,
     replay_unapplied_fills,
     unprojected_inventory_products,
+    unsettled_fill_evidence,
 )
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
@@ -154,14 +155,16 @@ def _read_fault_confirmed(snapshot: DeploymentSnapshot) -> bool:
     multi-instrument walk may run through one product's view. A failed order or fill read
     marks its order ``UNKNOWN``, and a repeat of the same failure leaves the detail unchanged,
     so ``first_fault`` alone cannot prove the walk succeeded. Every order must therefore be out
-    of ``UNKNOWN``: read back, or already terminal and accounted for. Fill economics and
-    inventory projection must also be complete, so clearing never hides a ledger fault.
+    of ``UNKNOWN``: read back, or already terminal and accounted for. Every recorded execution
+    must be covered by applied fills (a cancelled order can report an executed quantity whose
+    fills were never read) and inventory must be projected, so clearing never hides a ledger
+    fault.
     """
     if snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
         return False
     if any(order.status is OrderStatus.UNKNOWN for order in snapshot.orders):
         return False
-    if any(fill.economics_applied_at is None for fill in snapshot.fills):
+    if unsettled_fill_evidence(snapshot):
         return False
     return not unprojected_inventory_products(snapshot)
 

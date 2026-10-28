@@ -30,8 +30,9 @@ a gap never resumed.
   no new fault, a book whose detail is `…: order read failed.` or `…: fill read failed.` has it
   cleared when, across the whole book (every product's orders, read from the accounting snapshot
   because a multi-instrument walk may run through one product's view), no order is `UNKNOWN` (each
-  read back this walk, or already terminal and accounted for), every stored fill's economics is
-  applied and no applied inventory is unprojected. Both failures mark their order `UNKNOWN`, so a
+  read back this walk, or already terminal and accounted for), every recorded execution is
+  covered by applied fills (a cancelled order can report an executed quantity whose fills were
+  never read) and no applied inventory is unprojected. Both failures mark their order `UNKNOWN`, so a
   repeat never counts as success. `…: venue status is unknown.` is not cleared: the venue answered,
   and fill ingestion can still mark that order filled while its status stays unknown. The status is
   unchanged: a paused book stays paused until the operator resumes it, a stopped book stays

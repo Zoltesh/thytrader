@@ -302,3 +302,37 @@ async def test_a_filled_paper_order_without_its_fill_still_faults() -> None:
     deployment, _orders, _actions = await _reconcile(store, deployment_id, PaperBroker())
     assert deployment.mismatch_detail == "Filled order has no REST fills."
     assert deployment.status is DeploymentStatus.PAUSED
+
+
+@pytest.mark.anyio
+async def test_a_sibling_execution_without_fills_keeps_the_fault() -> None:
+    """A cancelled sibling that reported an executed quantity but has no fills holds the fault."""
+    store, deployment_id = await _book(detail=_FILL_READ_FAILED)
+    btc = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(btc, filled_quantity=Decimal("0.5")))
+    eth = _order(deployment_id, OrderStatus.UNKNOWN, canceled_at=None, settled_at=None)
+    await store.save_order(
+        replace(
+            eth,
+            id=uuid7(_WHEN + timedelta(seconds=1)),
+            client_order_id="exit-eth",
+            venue_order_id="venue-exit-eth",
+            product_id="ETH-USD",
+        )
+    )
+    broker = _LookupBroker(
+        SubmitResult(status=OrderStatus.CANCELED, venue_order_id="venue-exit-eth")
+    )
+    audit = InMemoryAuditEventStore()
+    with execution_audit_scope(audit):
+        scoped = InstrumentScopedStore(store, "ETH-USD")
+        await reconcile_open_orders(
+            await scoped.get_deployment(deployment_id),
+            broker=broker,
+            store=scoped,
+            product_id="ETH-USD",
+        )
+    full = await store.get_deployment(deployment_id)
+    assert full.deployment.mismatch_detail == _FILL_READ_FAILED
+    actions = [event.action for event in await audit.list_recent(limit=50)]
+    assert "reconcile_read_fault_cleared" not in actions

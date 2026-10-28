@@ -1035,10 +1035,12 @@ The worker never re-submits an order automatically
   report it with the order's status and reason. The `order read failed` and `fill read failed`
   details clear themselves (audit `reconcile_read_fault_cleared`, ADR 0149) once a later walk
   records no new fault and finds no order `unknown` anywhere in the book (each read back, or
-  already terminal and accounted for), every fill's economics applied and no unprojected
-  inventory. The status does not change: a paused book stays paused (it then shows as paused
-  without a mismatch) until you resume it, and a stopped book stays stopped. A detail that
-  persists means an order still cannot be read; `…: venue status is unknown.` never clears
+  already terminal and accounted for), every recorded execution covered by applied fills and no
+  unprojected inventory. The status does not change: a paused book stays paused (it then shows
+  as paused without a mismatch) until you resume it, and a stopped book stays stopped. A detail
+  that persists means one of those conditions still fails: an order that cannot be read, an
+  execution whose fills are missing, or inventory the position does not show (check
+  `reconciliation` and the book's orders and fills). `…: venue status is unknown.` never clears
   itself. A paper order that has a venue id is never read back from the paper broker; its state
   is local, and only its applied fills are checked against the quantity it executed.
 - **Operator recovery for a not-found unconfirmed order.** Do not retry the order. Ask the user to
