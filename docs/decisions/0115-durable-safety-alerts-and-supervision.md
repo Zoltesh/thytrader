@@ -68,8 +68,11 @@ Alert codes:
   parent's), so a stopped book also recovers when stopped supervision reports that it carried
   out every product's maintenance (no missing broker or price context, no deferred flatten, no
   unsettled execution evidence), the pass was not lease-skipped, futures-deferred or warming the
-  window cache, and the book, stopped before and after it, has no fail-closed mismatch, complete
-accounting and no futures de-risk or flat-confirmation duty outstanding. That
+  window cache, and the book, stopped before and after it, has no fail-closed mismatch, settled
+economics (complete accounting, no unsettled fills, no inventory missing from its position
+projection, no in-market phase without a position), no working entry left by a cancel that
+failed, a loaded strategy when it is a strategy book holding inventory, and no futures de-risk
+or flat-confirmation duty outstanding. That
   resolves the alert with its own note ("recovered: a later worker cycle carried out this
   stopped book's maintenance ...") (2026-10-28); when the decision rule resolves it in the same
   cycle, its generic note wins the equal watermark. A broker that returns clears the stopped

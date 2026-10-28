@@ -461,9 +461,15 @@ async def _process_one(
                     paper_broker=paper_broker,
                     live_broker=live_broker,
                 )
-        return maintained_without_fault(
-            await store.get_deployment(deployment_id), maintained=maintained
+        after = await store.get_deployment(deployment_id)
+        # A strategy book still holding inventory needs its strategy for its exits; protection
+        # alone, when the strategy could not be loaded, is not its full maintenance.
+        unloaded = (
+            strategy is None
+            and after.deployment.kind is DeploymentKind.STRATEGY
+            and (after.position is not None or bool(after.positions))
         )
+        return maintained_without_fault(after, maintained=maintained and not unloaded)
     if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
         strategy = await _strategy_definition(
             snapshot, store=store, publication_store=publication_store

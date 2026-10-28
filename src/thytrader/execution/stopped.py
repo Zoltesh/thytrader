@@ -12,7 +12,11 @@ from typing import TYPE_CHECKING, Protocol
 
 from thytrader.execution.exit_guards import active_orders, flat_and_idle
 from thytrader.execution.live_protection import maintain_discretionary_protection
-from thytrader.execution.loop import cancel_risk_increasing_orders, maintain_open_inventory
+from thytrader.execution.loop import (
+    cancel_risk_increasing_orders,
+    maintain_open_inventory,
+    risk_increasing_orders,
+)
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution.residual import (
     defer_flatten_without_executable_context,
@@ -167,15 +171,25 @@ def maintained_without_fault(snapshot: DeploymentSnapshot, *, maintained: bool) 
 
     ``maintained`` is ``supervise_stopped_deployment``'s outcome. The book, read after the
     pass, must still be stopped with no fail-closed mismatch (a failed reconciliation read
-    records one even though the pass returned), fully accounted, and owe no futures de-risk or
-    flat-confirmation duty (ADR 0115).
+    records one even though the pass returned), fully accounted with settled economics (no
+    unsettled fills, no inventory missing from its position projection, no in-market phase
+    without a position), with no working entry left after a cancel that failed, and owe no
+    futures de-risk or flat-confirmation duty (ADR 0115).
     """
     deployment = snapshot.deployment
+    holds = snapshot.position is not None or bool(snapshot.positions)
+    in_market = deployment.phase is not RuntimePhase.FLAT or any(
+        runtime.phase is not RuntimePhase.FLAT for runtime in snapshot.instrument_runtimes
+    )
     return (
         maintained
         and deployment.status is DeploymentStatus.STOPPED
         and not deployment.mismatch_detail
         and snapshot.accounting_complete
+        and not unsettled_fill_evidence(snapshot)
+        and not unprojected_inventory_products(snapshot)
+        and (holds or not in_market)
+        and not risk_increasing_orders(snapshot)
         and not deployment.futures_derisk_pending
         and deployment.futures_flat_confirmation_after is None
     )

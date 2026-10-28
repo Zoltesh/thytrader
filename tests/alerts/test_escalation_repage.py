@@ -28,6 +28,7 @@ from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.config import NotifyProvider
 from thytrader.memory.models import DeliveryStatus
 from thytrader.memory.notify import DeliveryResult, RecordingNotificationSender
+from thytrader.operator.alerts_report import _item
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -389,3 +390,16 @@ def test_page_ids_are_one_per_alert_and_severity() -> None:
     assert page_id(replace(row, covered_severity=_WARNING)) == page_id(row)
     assert page_id(replace(row, severity=_WARNING)) != page_id(row)
     assert page_id(replace(row, id=uuid4())) != page_id(row)
+
+
+def test_the_report_judges_exhaustion_per_severity() -> None:
+    """Warning exhausted, critical not yet: the report must not call the escalation exhausted."""
+    row = replace(
+        new_alert(_uncovered(_CRITICAL), now=_NOW),
+        delivery_status="failed",
+        delivery_attempts=3,
+        warning_attempts=2,
+        critical_attempts=1,
+    )
+    assert _item(row, max_attempts=2).delivery.status == "failed"
+    assert _item(replace(row, critical_attempts=2), max_attempts=2).delivery.status == "exhausted"

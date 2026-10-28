@@ -23,7 +23,8 @@ from thytrader.alerts.supervision_rows import (
     STOPPED_MAINTENANCE_RECOVERY,
     worker_book_failure_finding,
 )
-from thytrader.execution.leases import acquire_worker_lease
+from thytrader.execution import stopped
+from thytrader.execution.leases import RevisionFencedStore, acquire_worker_lease
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.stopped import (
     STOPPED_BROKER_UNAVAILABLE,
@@ -46,8 +47,12 @@ from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    IntentPurpose,
     LifecycleCommand,
+    OrderKind,
+    OrderSide,
     RuntimePhase,
+    with_runtime,
 )
 
 if TYPE_CHECKING:
@@ -323,6 +328,7 @@ async def test_a_stopped_live_book_without_a_broker_keeps_its_failure_open() -> 
         ),
         (True, {"status": DeploymentStatus.PAUSED}, False),
         (True, {"futures_derisk_pending": True}, False),
+        (True, {"phase": RuntimePhase.OPEN}, False),
         (True, {"futures_flat_confirmation_after": _NOW}, False),
     ],
 )
@@ -508,3 +514,64 @@ async def test_stopped_maintenance_resolves_with_its_note() -> None:
 async def test_a_same_cycle_failure_wins_the_maintenance_tie() -> None:
     """In memory; ``test_postgres_alerts`` runs the same scenario against PostgreSQL."""
     await assert_a_same_cycle_failure_wins_the_maintenance_tie(InMemoryAlertStore())
+
+
+@pytest.mark.parametrize("gate", ["unsettled_fill_evidence", "unprojected_inventory_products"])
+def test_unsettled_or_unprojected_evidence_is_not_maintained_without_fault(
+    monkeypatch: pytest.MonkeyPatch, gate: str
+) -> None:
+    """Complete accounting rows are not settled economics: either gap keeps the book open."""
+    book = DeploymentSnapshot(deployment=_book(), orders=(), fills=(), position=None)
+    assert maintained_without_fault(book, maintained=True)
+    monkeypatch.setattr(stopped, gate, lambda _snapshot: ("BTC-USD",))
+    assert not maintained_without_fault(book, maintained=True)
+
+
+async def test_a_stopped_strategy_book_without_its_strategy_is_not_maintained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Protection alone, when the strategy could not be loaded, is not its full maintenance.
+
+    A broker-outage note masks the strategy-load diagnostic; the pass (here: reporting success)
+    then clears the note as a returning broker does, so only the strategy check can refuse it.
+    """
+
+    async def carried(snapshot: DeploymentSnapshot, *, store: object, **kwargs: object) -> bool:
+        del kwargs
+        assert isinstance(store, RevisionFencedStore)
+        await store.save_deployment(
+            with_runtime(snapshot.deployment, updated_at=utc_now(), clear_mismatch=True)
+        )
+        return True
+
+    monkeypatch.setattr(worker_service, "_process_stopped", carried)
+    store = InMemoryExecutionStore()
+    deployment = await lifecycle._deployment(
+        store,
+        mode=DeploymentMode.PAPER,
+        kind=DeploymentKind.STRATEGY,
+        command=LifecycleCommand.MANAGED_SHUTDOWN,
+        detail=STOPPED_BROKER_UNAVAILABLE,
+    )
+    await lifecycle._position(store, deployment.id, "BTC-USD")
+    book = (await store.get_deployment(deployment.id)).deployment
+    assert await _process(store, book) is False
+    assert (await store.get_deployment(book.id)).deployment.mismatch_detail is None
+
+
+async def test_a_working_entry_left_by_a_failed_cancel_is_not_maintained_without_fault() -> None:
+    """A swallowed cancel failure leaves an entry that could still fill: not fault-free."""
+    store = InMemoryExecutionStore()
+    book = _book()
+    await store.create_deployment(book)
+    assert maintained_without_fault(await store.get_deployment(book.id), maintained=True)
+    await lifecycle._order(
+        store,
+        book.id,
+        venue_order_id="entry",
+        product_id="BTC-USD",
+        kind=OrderKind.POST_ONLY_LIMIT,
+        side=OrderSide.BUY,
+        purpose=IntentPurpose.ENTRY,
+    )
+    assert not maintained_without_fault(await store.get_deployment(book.id), maintained=True)
