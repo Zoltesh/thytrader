@@ -32,7 +32,7 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from datetime import datetime
 
     from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
@@ -54,9 +54,18 @@ async def load_fleet_entry_health(
     futures_account: FuturesAccountSnapshotStore | None,
     now: datetime | None = None,
     futures_runtime: FuturesRuntime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> FleetEntryHealth:
-    """Evaluate every occupied scope; ``complete`` is false only when listing failed."""
-    as_of = utc_now() if now is None else now
+    """Evaluate every occupied scope; ``complete`` is false only when listing failed.
+
+    ``now`` (default: the clock as the pass begins) stamps the evaluation. Live CFM probe
+    freshness is judged after each scope's own reads (ADR 0115), at ``clock()``; with a fixed
+    ``now`` and no ``clock`` it is judged at ``now``. Without a clock the module's ``utc_now``
+    is read at call time, so a patched worker clock reaches this pass.
+    """
+    read_clock = utc_now if clock is None else clock
+    as_of = read_clock() if now is None else now
+    judge = read_clock if now is None or clock is not None else None
     try:
         deployments = await store.list_deployments()
     except _READ_ERRORS:
@@ -88,6 +97,7 @@ async def load_fleet_entry_health(
                 as_of=as_of,
                 inhibited=None if inhibition is None else inhibition.get(mode.value),
                 futures_runtime=futures_runtime,
+                clock=judge,
             )
             for mode, scope in fleet_entry_scopes(deployments)
         ]
@@ -137,8 +147,14 @@ async def _scope_evidence(
     as_of: datetime,
     inhibited: bool | None,
     futures_runtime: FuturesRuntime | None = None,
+    clock: Callable[[], datetime] | None = None,
 ) -> FleetScopeEvidence:
-    """β, futures legs and the collateral state, read as entry admission reads them."""
+    """β, futures legs and the collateral state, read as entry admission reads them.
+
+    Live CFM probes are judged at ``clock()`` after their reads (at ``as_of`` without a clock).
+    The collateral state keeps ``as_of``: its classification only ages a snapshot, so a pass
+    start is at most seconds lenient and never makes a receipt read during the pass future-dated.
+    """
     probe = _probe(scope, deployments, mode)
     try:
         legs = await load_futures_legs(policy, snapshots, mode=mode, now=as_of)
@@ -159,14 +175,15 @@ async def _scope_evidence(
         collateral = await load_futures_collateral(futures_account, mode=mode, as_of=as_of)
     except _EVIDENCE_ERRORS:
         collateral_loaded = False
-    venue, probes = (None, {})
+    venue, probes, judged = (None, {}, None)
     if mode is DeploymentMode.LIVE and scope == FUTURES_SCOPE:
-        venue, probes = await load_live_futures_probes(
-            snapshots, store=futures_account, runtime=futures_runtime, now=as_of
+        venue, probes, judged = await load_live_futures_probes(
+            snapshots, store=futures_account, runtime=futures_runtime, now=as_of, clock=clock
         )
     return FleetScopeEvidence(
         live_futures_venue=venue,
         live_futures_probes=probes,
+        live_futures_judged_at=judged,
         mode=mode,
         scope=scope,
         probe_product=probe,

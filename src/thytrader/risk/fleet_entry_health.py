@@ -216,7 +216,7 @@ def _live_futures_checks(scope: _Scope) -> tuple[FleetEntryCheck, ...]:
                 probe=scope.evidence.live_futures_probes.get(book.deployment.id),
                 snapshots=scope.snapshots,
                 venue=scope.evidence.live_futures_venue,
-                now=scope.observation.as_of,
+                now=scope.evidence.live_futures_judged_at or scope.observation.as_of,
             ),
         )
         for book in scope.occupied()

@@ -137,6 +137,24 @@ class AlertStore(Protocol):
         """
         ...
 
+    async def reopen_delivery(
+        self,
+        alert_id: UUID,
+        *,
+        severity: AlertSeverity,
+        covered_severity: AlertSeverity,
+        now: datetime,
+        detail: str,
+    ) -> bool:
+        """Re-arm delivery of an open row whose severity rose above the page it got.
+
+        Only an open, sent (``logged`` or ``delivered``), unclaimed row still observed at
+        ``severity`` whose page covered exactly ``covered_severity`` changes: it becomes
+        ``pending`` with a fresh attempt budget, keeping ``covered_severity``. Returns whether
+        this call re-armed it, so concurrent dispatchers re-page it once.
+        """
+        ...
+
 
 def observation_keys(
     findings: Sequence[SupervisionFinding], evaluated: Sequence[AlertCheck]
@@ -331,6 +349,38 @@ class InMemoryAlertStore:
                         covered_severity=covered_severity or row.covered_severity,
                     )
                     return
+
+    async def reopen_delivery(
+        self,
+        alert_id: UUID,
+        *,
+        severity: AlertSeverity,
+        covered_severity: AlertSeverity,
+        now: datetime,
+        detail: str,
+    ) -> bool:
+        """Compare-and-set the open sent row back to ``pending`` for an escalation page."""
+        for rows in self.history.values():
+            row = rows[-1]
+            if row.id != alert_id or not row.is_open:
+                continue
+            if (
+                row.delivery_status not in {"logged", "delivered"}
+                or row.severity is not severity
+                or row.covered_severity is not covered_severity
+                or (row.delivery_expires_at is not None and row.delivery_expires_at > now)
+            ):
+                return False
+            rows[-1] = replace(
+                row,
+                delivery_status="pending",
+                delivery_detail=clip_alert_text(detail),
+                delivery_attempts=0,
+                delivery_token=None,
+                delivery_expires_at=None,
+            )
+            return True
+        return False
 
 
 def _ordered_for_report(rows: Sequence[OperatorAlert]) -> tuple[OperatorAlert, ...]:

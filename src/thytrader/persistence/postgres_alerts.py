@@ -263,6 +263,43 @@ class PostgresAlertStore:
         except SQLAlchemyError as error:
             raise AlertStoreError("Alert delivery acknowledgement is unavailable.") from error
 
+    async def reopen_delivery(
+        self,
+        alert_id: UUID,
+        *,
+        severity: AlertSeverity,
+        covered_severity: AlertSeverity,
+        now: datetime,
+        detail: str,
+    ) -> bool:
+        """Compare-and-set an open sent row back to ``pending`` for one escalation page."""
+        statement = (
+            update(operator_alerts)
+            .where(
+                operator_alerts.c.id == alert_id,
+                operator_alerts.c.resolved_at.is_(None),
+                operator_alerts.c.delivery_status.in_(("logged", "delivered")),
+                operator_alerts.c.severity == severity.value,
+                operator_alerts.c.covered_severity == covered_severity.value,
+                operator_alerts.c.delivery_expires_at.is_(None)
+                | (operator_alerts.c.delivery_expires_at <= now),
+            )
+            .values(
+                delivery_status="pending",
+                delivery_detail=clip_alert_text(detail),
+                delivery_attempts=0,
+                delivery_token=None,
+                delivery_expires_at=None,
+            )
+            .returning(operator_alerts.c.id)
+        )
+        try:
+            async with self._engine.begin() as connection:
+                result = await connection.execute(statement)
+                return result.first() is not None
+        except SQLAlchemyError as error:
+            raise AlertStoreError("Alert delivery reopen is unavailable.") from error
+
     async def _fetch_all(self, statement: Executable) -> tuple[RowMapping, ...]:
         """Read mappings or raise a redacted storage failure (never an empty success)."""
         try:

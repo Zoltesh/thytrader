@@ -146,7 +146,7 @@ async def test_stopped_scope_observer_consumers_keep_unknown_inventory() -> None
         )
         assert section is not None and len(section.live_books) == 1
         assert any(f.reason_code == "POSITION_COMPARISON_UNPROVEN" for f in findings)
-        venue, probes = await load_live_futures_probes(
+        venue, probes, _judged = await load_live_futures_probes(
             (book,), store=_Store(receipt), runtime=None, now=now
         )
         assert venue is None and probes == {}

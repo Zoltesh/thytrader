@@ -319,6 +319,7 @@ async def _run_cycle(
         with timer.phase("risk_snapshots"):
             portfolio = await _risk_snapshots(store, deployments)
         cycle_failures: list[SupervisionFinding] = []
+        maintained: set[UUID] = set()
         for deployment in deployments:
             if deployment.status not in {
                 DeploymentStatus.RUNNING,
@@ -330,7 +331,7 @@ async def _run_cycle(
             with timer.book(deployment) as probe:
                 try:
                     with portfolio_risk_scope(book):
-                        await _process_one(
+                        completed = await _process_one(
                             deployment_id=deployment.id,
                             store=store,
                             publication_store=publication_store,
@@ -351,6 +352,12 @@ async def _run_cycle(
                     cycle_failures.append(
                         worker_book_failure_finding(deployment, error_type=type(error).__name__)
                     )
+                else:
+                    if completed:
+                        maintained.add(deployment.id)
+            # A pass that warmed the window cache did not prove the book's work (ADR 0115).
+            if probe.warming:
+                maintained.discard(deployment.id)
             with timer.phase("risk_snapshots"):
                 portfolio = await _risk_snapshots(store, deployments)
             if on_book_done is not None:
@@ -364,6 +371,7 @@ async def _run_cycle(
                 cycle_failures=cycle_failures,
                 worker_interval_seconds=worker_interval_seconds,
                 observed_at=cycle_started_at,
+                stopped_maintained=frozenset(maintained),
             )
             await supervise_futures(alert_service=alert_service, store=store, policy=policy)
         with timer.phase("fleet_supervision"):
@@ -404,11 +412,17 @@ async def _process_one(
     portfolio: tuple[DeploymentSnapshot, ...],
     user_feed_store: UserOrderFeedStateStore | None,
     memory_store: ExperientialMemoryStore | None,
-) -> None:
-    """Load evidence and advance one deployment through newly closed bars."""
+) -> bool:
+    """Load evidence and advance one deployment through newly closed bars.
+
+    Returns true only when a stopped book's maintenance pass (exits, protection and
+    reconciliation) ran to completion: a stopped book makes no decisions, so that pass is the
+    only verified work that can prove a worker failure on it recovered (ADR 0115). Lease skips,
+    deferred futures books and every running or paused book return false.
+    """
     leased = await acquire_worker_lease(store, deployment_id)
     if leased is None:
-        return
+        return False
     snapshot = await store.get_deployment(deployment_id)
     store = RevisionFencedStore(store, snapshot.deployment.id, snapshot.deployment.revision)
     strategy = None
@@ -435,7 +449,7 @@ async def _process_one(
             portfolio=portfolio,
         ) as snapshot:
             if futures_decisions_deferred(snapshot):
-                return
+                return False
             with futures_book_scope(futures_book):
                 await _process_stopped(
                     snapshot,
@@ -445,7 +459,7 @@ async def _process_one(
                     paper_broker=paper_broker,
                     live_broker=live_broker,
                 )
-        return
+        return True
     if snapshot.deployment.kind is not DeploymentKind.DISCRETIONARY:
         strategy = await _strategy_definition(
             snapshot, store=store, publication_store=publication_store
@@ -463,9 +477,9 @@ async def _process_one(
                 risk_policy=risk_policy,
                 memory_store=memory_store,
             )
-        return
+        return False
     if strategy is None:
-        return
+        return False
     futures_book, snapshot = await prepare_futures_book(
         snapshot, strategy=strategy, store=store, market_data=market_data, policy=risk_policy
     )
@@ -478,7 +492,7 @@ async def _process_one(
         portfolio=portfolio,
     ) as snapshot:
         if futures_decisions_deferred(snapshot):
-            return
+            return False
         with risk_market_data_scope(market_data), futures_book_scope(futures_book):
             await _advance_strategy(
                 snapshot,
@@ -493,6 +507,7 @@ async def _process_one(
                 user_feed_store=user_feed_store,
                 memory_store=memory_store,
             )
+    return False
 
 
 async def _risk_snapshots(

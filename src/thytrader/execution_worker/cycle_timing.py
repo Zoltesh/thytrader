@@ -84,9 +84,13 @@ class _PhaseTotals:
 
 @dataclass(slots=True)
 class BookProbe:
-    """Outcome flags a book's processing sets while it is being timed."""
+    """Outcome flags a book's processing sets while it is being timed.
+
+    ``warming`` is set when the timed block closes: the book's pass made the window cache warm.
+    """
 
     failed: bool = False
+    warming: bool = False
 
 
 class CycleTimer:
@@ -230,6 +234,7 @@ class CycleTimer:
         """Record one book's timing, retaining only the slowest few."""
         cache_after = self._cache_stats()
         warming = _cache_delta(cache_before, cache_after, _warming_events) > 0
+        probe.warming = warming
         if warming:
             self._warming_books += 1
         timing = CycleBookTiming(

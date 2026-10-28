@@ -10,7 +10,7 @@ show up in the worker's durable alert, the ``fleet-health`` report, the ``risk``
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -36,7 +36,7 @@ from thytrader.execution import fleet_entry_evidence
 from thytrader.execution.decision_store import InMemoryDecisionJournalStore
 from thytrader.execution.decisions import BarDecision, DecisionOutcome
 from thytrader.execution.paper import PaperBroker
-from thytrader.execution_worker import service as worker_service
+from thytrader.execution_worker import fleet_supervision, service as worker_service
 from thytrader.execution_worker.fleet_supervision import _supervise_fleet_entries
 from thytrader.market_data.demo import DemoMarketData
 from thytrader.market_data.service import MarketDataService
@@ -54,9 +54,13 @@ from thytrader.strategies.snapshots import DisabledStrategySnapshotStore
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from uuid import UUID
 
+    from thytrader.risk.fleet_entry_models import FleetEntryHealth
+    from thytrader.risk.models import RiskPolicyDefinition
     from thytrader.trading.memory import InMemoryExecutionStore
+    from thytrader.trading.store import ExecutionStore
 
 pytestmark = pytest.mark.anyio
 
@@ -169,6 +173,43 @@ async def test_fleet_pass_reads_the_patched_worker_clock_without_a_clock(
         market_data=MarketDataService(DemoMarketData()),
         policy=incident_policy(),
     )
+    (alert,) = await feed.list_open_alerts()
+    assert alert.first_seen_at == INCIDENT_AT
+
+
+async def test_fleet_pass_stamps_at_its_start_and_judges_on_the_same_clock(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The loader gets the pass-start stamp and the clock to judge live CFM probes after reads."""
+    seen: dict[str, object] = {}
+    real = fleet_supervision.load_fleet_entry_health
+
+    async def spy(
+        store: ExecutionStore,
+        policy: RiskPolicyDefinition,
+        *,
+        now: datetime,
+        clock: Callable[[], datetime],
+        **kwargs: Any,
+    ) -> FleetEntryHealth:
+        seen.update(now=now, clock=clock)
+        return await real(store, policy, now=now, clock=clock, **kwargs)
+
+    ticks = iter((INCIDENT_AT, INCIDENT_AT + timedelta(seconds=5)))
+
+    def clock() -> datetime:
+        return next(ticks, INCIDENT_AT + timedelta(seconds=9))
+
+    monkeypatch.setattr(fleet_supervision, "load_fleet_entry_health", spy)
+    feed, alerts = _alerts()
+    await _supervise_fleet_entries(
+        alert_service=alerts,
+        store=await seeded_store(),
+        market_data=MarketDataService(DemoMarketData()),
+        policy=incident_policy(),
+        clock=clock,
+    )
+    assert seen == {"now": INCIDENT_AT, "clock": clock}
     (alert,) = await feed.list_open_alerts()
     assert alert.first_seen_at == INCIDENT_AT
 

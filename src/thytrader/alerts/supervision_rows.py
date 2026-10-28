@@ -1,8 +1,8 @@
 """Supervision findings computable from the deployment row alone, and worker book failures.
 
 Covers latched loss and drawdown breakers, portfolio breaker and pause mismatches, the
-per-book finding recorded when one worker cycle raised, and the cursor-advance rule that
-proves a worker error recovered.
+per-book finding recorded when one worker cycle raised, and the rules that prove a worker
+error recovered: an advanced decision cursor, or a stopped book's completed maintenance pass.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from thytrader.alerts.models import (
     AlertSeverity,
     SupervisionFinding,
 )
+from thytrader.trading.models import DeploymentStatus
 
 if TYPE_CHECKING:
     from thytrader.trading.models import (
@@ -44,6 +45,32 @@ def verified_worker_recovery(previous: Deployment, current: Deployment) -> bool:
         and (old_cursor is None or cursor > old_cursor)
         and current.strategy_fingerprint == previous.strategy_fingerprint
         and current.strategy_id == previous.strategy_id
+        and not (current.mismatch_detail or "").startswith(_SUPERVISION_PAUSE_PREFIX)
+    )
+
+
+#: Resolution note for a worker failure on a stopped book proven by its maintenance pass.
+STOPPED_MAINTENANCE_RECOVERY = (
+    "recovered: a later worker cycle completed this stopped book's maintenance "
+    "(exits, protection, reconciliation) without failure"
+)
+
+
+def verified_stopped_maintenance(
+    previous: Deployment, current: Deployment, *, maintained: bool
+) -> bool:
+    """A completed maintenance pass proves a worker error on a stopped book recovered.
+
+    A stopped book makes no decisions, so its cursor never advances and the decision rule could
+    never clear it. Its maintenance pass is all the work the worker does for it: one that ran
+    to completion (not lease-skipped, deferred or warming; the caller decides) is that book's
+    verified successful work. The book must be stopped both before and after the pass, and a
+    persisted supervision pause keeps its evidence until manual clearing.
+    """
+    return (
+        maintained
+        and previous.status is DeploymentStatus.STOPPED
+        and current.status is DeploymentStatus.STOPPED
         and not (current.mismatch_detail or "").startswith(_SUPERVISION_PAUSE_PREFIX)
     )
 

@@ -25,6 +25,7 @@ from tests.alerts.test_alert_service import (
     assert_flapping_block_pages_once,
     assert_severity_changes_page_by_coverage,
 )
+from tests.alerts.test_escalation_repage import assert_escalation_in_place_is_paged_once
 from tests.alerts.test_supervision import _no_candles
 from tests.execution_worker.test_safety_supervision import _deployment
 from tests.persistence.test_migration_0048_strategy_root import _alembic, scratch_database
@@ -425,6 +426,54 @@ async def test_a_flapping_entry_block_is_paged_once_in_postgres(
 async def test_severity_coverage_is_what_was_sent_in_postgres(store: PostgresAlertStore) -> None:
     """Covered severity survives the PostgreSQL round trip and drives escalation paging."""
     await assert_severity_changes_page_by_coverage(store)
+
+
+async def test_an_escalation_in_place_is_paged_once_in_postgres(store: PostgresAlertStore) -> None:
+    """The compare-and-set re-arm and the derived page id hold in PostgreSQL."""
+    await assert_escalation_in_place_is_paged_once(store)
+
+
+async def test_postgres_reopen_requires_the_exact_sent_state(store: PostgresAlertStore) -> None:
+    """Re-arming changes only an open, sent, unclaimed row at the expected severities."""
+    finding = SupervisionFinding(
+        code=AlertCode.STOP_COVERAGE_UNKNOWN,
+        scope=AlertScope.DEPLOYMENT,
+        subject=str(uuid4()),
+        severity=AlertSeverity.CRITICAL,
+        detail="protective cover could not be verified",
+    )
+    change = await store.record(finding, now=_NOW)
+    alert_id = change.alert.id
+
+    async def reopen(severity: AlertSeverity = AlertSeverity.CRITICAL) -> bool:
+        return await store.reopen_delivery(
+            alert_id,
+            severity=severity,
+            covered_severity=AlertSeverity.WARNING,
+            now=_NOW,
+            detail="re-arm",
+        )
+
+    assert not await reopen()
+    claim = await store.claim_delivery(
+        alert_id, provider="webhook", now=_NOW, max_attempts=5, ttl=timedelta(seconds=60)
+    )
+    assert claim is not None
+    assert not await reopen()
+    await store.finish_delivery(
+        alert_id,
+        claim.token,
+        status="delivered",
+        detail="sent",
+        covered_severity=AlertSeverity.WARNING,
+    )
+    assert not await reopen(AlertSeverity.WARNING)
+    assert await reopen()
+    assert not await reopen()
+    (row,) = [row for row in await store.list_open_alerts() if row.id == alert_id]
+    assert row.delivery_status == "pending"
+    assert row.delivery_attempts == 0
+    assert row.covered_severity is AlertSeverity.WARNING
 
 
 async def test_reserved_migration_0066_roundtrip_on_private_database(

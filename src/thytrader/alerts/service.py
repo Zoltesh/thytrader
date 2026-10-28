@@ -16,10 +16,11 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 import logging
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from uuid import uuid5
 
 from thytrader.alerts.models import AlertCode
 from thytrader.alerts.store import DELIVERY_DISABLED_DETAIL
@@ -31,6 +32,7 @@ from thytrader.trading.ids import utc_now
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
+    from uuid import UUID
 
     from thytrader.alerts.models import (
         AlertCheck,
@@ -109,17 +111,19 @@ class AlertService:
         now: datetime,
         evaluated: Sequence[AlertCheck] = (),
         dispatch: bool = True,
+        detail: str = _RECOVERY_DETAIL,
     ) -> AlertApplication:
         """Atomically accept findings and resolve only proven re-evaluated checks.
 
         An empty/partial pass means unknown by default. Strictly newer durable
-        check watermarks reject stale/replayed passes across service restarts.
+        check watermarks reject stale/replayed passes across service restarts. ``detail`` is
+        the resolution note written on every row this pass resolves.
         """
         ordered: dict[tuple[str, str], SupervisionFinding] = {}
         for finding in findings:
             ordered.setdefault((finding.code.value, finding.subject), finding)
         application = await self._store.apply_observations(
-            tuple(ordered.values()), evaluated, now=now, detail=_RECOVERY_DETAIL
+            tuple(ordered.values()), evaluated, now=now, detail=detail
         )
         # The execution safety loop uses dispatch=False; a separate task handles I/O.
         if dispatch:
@@ -166,6 +170,18 @@ class AlertService:
                         alert.id, provider=provider.value, now=now, detail=detail
                     )
                 return
+            covered = alert.covered_severity
+            if provider is not NotifyProvider.NONE and covered is not None and _escalated(alert):
+                rearmed = await self._store.reopen_delivery(
+                    alert.id,
+                    severity=alert.severity,
+                    covered_severity=covered,
+                    now=now,
+                    detail=_escalation_detail(alert),
+                )
+                if not rearmed:
+                    return
+                alert = replace(alert, delivery_status="pending", delivery_attempts=0)
             if (
                 provider is not NotifyProvider.NONE
                 and alert.code is AlertCode.FLEET_ENTRIES_BLOCKED
@@ -298,17 +314,58 @@ def _rank(severity: AlertSeverity) -> int:
     return _SEVERITY_RANK[severity.value]
 
 
+def _escalated(alert: OperatorAlert) -> bool:
+    """An open row already paged at a known lower severity than it is observed at now.
+
+    A row sent before Alembic ``0081`` has no known coverage and is not re-paged in place.
+    """
+    covered = alert.covered_severity
+    return (
+        alert.is_open
+        and alert.delivery_status in _SENT
+        and covered is not None
+        and _rank(covered) < _rank(alert.severity)
+    )
+
+
+def _escalation_detail(alert: OperatorAlert) -> str:
+    """Delivery note for a row re-armed by an in-place escalation."""
+    covered = "unknown" if alert.covered_severity is None else alert.covered_severity.value
+    return f"severity rose to {alert.severity.value} after a {covered} page; re-paging"
+
+
+def page_id(alert: OperatorAlert) -> UUID:
+    """The notification id of the page this row is about to send.
+
+    A row's first page uses the alert id. A row already paged carries the severity that page
+    covered; its re-page (an escalation in place, or a return of a higher severity than a page
+    it continues) is a different page, so it gets an id derived from the alert id and its new
+    severity. Receivers that dedupe on the id then keep the escalation, and every retry of one
+    page keeps that page's id.
+    """
+    if alert.covered_severity is None:
+        return alert.id
+    return uuid5(alert.id, f"severity:{alert.severity.value}")
+
+
 def _notification_record(
     alert: OperatorAlert, *, now: datetime, provider: NotifyProvider
 ) -> NotificationRecord:
     """Build the provider payload without secrets, balances, or webhook URLs."""
     title = f"[thytrader] {alert.severity.value.upper()}: {alert.code.value}"[:_TITLE_BOUND]
+    covered = alert.covered_severity
+    escalation = (
+        f"\nescalated from {covered.value} since the last page"
+        if covered is not None and _rank(covered) < _rank(alert.severity)
+        else ""
+    )
     body = (
         f"{alert.detail}\nsubject={alert.subject} "
         f"first_seen={alert.first_seen_at.isoformat()} occurrences={alert.occurrences}"
+        f"{escalation}"
     )[:_BODY_BOUND]
     return NotificationRecord(
-        id=alert.id,
+        id=page_id(alert),
         occurred_at=now,
         origin=ActorOrigin.SYSTEM,
         title=title,

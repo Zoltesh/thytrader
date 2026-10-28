@@ -31,7 +31,10 @@ freshness is judged separately, at a time taken after the venue reads its eviden
 so a receipt read during the pass is never mistaken for future-dated. The futures observer
 judges after its own account read; the safety supervisor judges after the cycle's reads but
 before its own closed-candle reads, which carry no receipt freshness; the live CFM fleet pass
-still judges at its start, a known gap.
+judges its minimum-contract probes and their verdicts after each scope's account, binding and
+instrument reads, on the worker clock, while its alert watermark and `evaluated_at` stay at the
+pass start (2026-10-28). Its collateral state keeps the pass start: that classification only
+ages a snapshot, so the pass start is at most seconds lenient and never future-dates a receipt.
 
 Alert codes:
 
@@ -55,7 +58,12 @@ Alert codes:
   not verified freshness. Clock skew stays in the detail.
 - `WORKER_BOOK_FAILURES` counts observed raised cycles since the last verified successful
   decision. Unknown/no-decision/warming/lease-skipped cycles do not fabricate recovery or
-  reset persisted counters. At the configured threshold (default 3), new entries pause
+  reset persisted counters. A stopped book makes no decisions, so its cursor never advances:
+  its verified work is a maintenance pass (exits, protection, reconciliation) that ran to
+  completion, not lease-skipped, deferred or warming the window cache, with the book stopped
+  before and after it. That pass resolves the alert with its own note ("recovered: a later
+  worker cycle completed this stopped book's maintenance ...") (2026-10-28). Before, a failure on
+  a stopped book stayed open forever. At the configured threshold (default 3), new entries pause
   with reason `WORKER_CONSECUTIVE_FAILURES` and command `STOP_NEW_ENTRIES`. The pause
   acquires the worker lease, re-reads eligibility/revision/strategy, and writes through
   `RevisionFencedStore`; any conflicting stop/pause/delete/revision loses the write safely.
@@ -77,13 +85,14 @@ existing skipped alert. Provider callbacks/result details cannot leak destinatio
 
 An ambiguous send/ack crash can cause duplicate webhook delivery. Bounded retry can
 also exhaust without delivery, so neither exactly-once nor eventual external receipt is
-guaranteed. `NotificationRecord.id` is the stable alert id on every retry; receivers must
-idempotently dedupe it. Successful acknowledgements are not redelivered. Delivery
+guaranteed. `NotificationRecord.id` is the stable id of one page on every retry: the alert id
+for a row's first page, and `uuid5(alert id, "severity:<severity>")` for a later page of a row
+that already carries `covered_severity` (an escalation). Receivers must idempotently dedupe it. Successful acknowledgements are not redelivered. Delivery
 bookkeeping never changes safety observation timestamps.
 
 Thresholds are optional settings with explicit defaults:
 `alert_consecutive_failure_cycles` (3), `alert_decision_missed_bars` (2),
-`alert_delivery_max_attempts` (5), `alert_entry_block_grace_seconds` (300: a
+`alert_delivery_max_attempts` (5, per page), `alert_entry_block_grace_seconds` (300: a
 `FLEET_ENTRIES_BLOCKED` alert is recorded at once but delivered only after it has stayed open
 that long, so a self-healing one-poll venue blip is not paged; entry blocks never stop exits;
 added 2026-10-23). The grace counts from when the fleet read began (the start of its evidence pass), not from
@@ -102,10 +111,22 @@ no gap or covering page while the next older row still joins the episode is due 
 since the episode's start lies beyond the window.
 An episode with more than 500 returns (for example a fast flap, or returns the delivery task
 never saw while it was down), or one spanning the `0081` upgrade, may be paged early or a
-second time: a duplicate, never a missed page. Known gap (every
-alert code, unchanged): an open row that escalates in place after its page is not re-sent
-until it resolves and returns; re-sending it needs a per-page notification id, since receivers
-dedupe the alert id (2026-10-25).
+second time: a duplicate, never a missed page.
+
+An open row that escalates in place after its page (any code) is paged again at once
+(2026-10-28). Dispatch re-arms it with a compare-and-set that matches only an open, sent
+(`logged`/`delivered`), unclaimed row still at the observed severity whose `covered_severity` is
+the lower one read: it becomes `pending` with a fresh attempt budget, so concurrent dispatchers
+re-page it once, and the ordinary claim and the entry-block episode rules then apply. The page
+carries its own id (above) and says it escalated. A send in flight when the row escalates
+acknowledges the lower coverage, so the next dispatch re-pages. A downgrade is never paged, a
+failed escalation page keeps one bounded budget (re-arming starts only from a sent row), and a
+row sent before `0081` has no known coverage and is not re-paged in place.
+
+All four thresholds are environment-only (`THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES`,
+`THYTRADER_ALERT_DECISION_MISSED_BARS`, `THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS`,
+`THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS`) and Compose passes each to the services with the
+same default (2026-10-28).
 
 Alembic `0066` adds `operator_alerts` (including delivery claim token/expiry) and
 `operator_alert_checks` (monotone timestamps and failure-wins tie state). This checkout's parent is `0064` because `0065` is

@@ -12,8 +12,15 @@ x-backend-environment: &backend-environment
   # Alert webhook destination and optional HMAC key (ADR 0138). notify_provider stays YAML.
   THYTRADER_NOTIFY_WEBHOOK_URL: ${THYTRADER_NOTIFY_WEBHOOK_URL:-}
   THYTRADER_NOTIFY_WEBHOOK_SECRET: ${THYTRADER_NOTIFY_WEBHOOK_SECRET:-}
+  # Safety-alert thresholds (ADR 0115); env only, the defaults match the settings defaults.
   # Seconds a fleet entry block must stay open before it is sent (0 = at once).
   THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS: ${THYTRADER_ALERT_ENTRY_BLOCK_GRACE_SECONDS:-300}
+  # Consecutive failed cycles of one book that pause its entries.
+  THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES: ${THYTRADER_ALERT_CONSECUTIVE_FAILURE_CYCLES:-3}
+  # Missed bars before a running book's decision deadline alert.
+  THYTRADER_ALERT_DECISION_MISSED_BARS: ${THYTRADER_ALERT_DECISION_MISSED_BARS:-2}
+  # Send attempts per alert page before delivery is given up.
+  THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS: ${THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS:-5}
 
 services:
   postgres:
