@@ -119,13 +119,69 @@ async def reconcile_open_orders(
     )
     snapshot = await store.get_deployment(snapshot.deployment.id)
     first_fault = _first_new_fault(first_fault, before=before_children, after=snapshot.deployment)
-    return await _retain_reconcile_supervision(
+    snapshot = await _retain_reconcile_supervision(
         snapshot,
         store=store,
         started_status=started.status,
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
+    if first_fault is None and _read_fault_confirmed(snapshot):
+        return await _clear_confirmed_read_fault(snapshot, store=store)
+    return snapshot
+
+
+READ_FAULT_DETAILS = frozenset(
+    {
+        f"{RECONCILE_UNCONFIRMED_PREFIX}: order read failed.",
+        f"{RECONCILE_UNCONFIRMED_PREFIX}: fill read failed.",
+        f"{RECONCILE_UNCONFIRMED_PREFIX}: venue status is unknown.",
+    }
+)
+"""Faults that only say a venue read did not answer; a later complete walk can disprove them."""
+
+
+def _read_fault_confirmed(snapshot: DeploymentSnapshot) -> bool:
+    """Whether a latched read fault is now contradicted by this walk's evidence.
+
+    A failed order or fill read marks its order ``UNKNOWN`` and a repeat of the same failure
+    leaves the detail unchanged, so ``first_fault`` alone cannot prove the walk succeeded.
+    Every order must therefore be out of ``UNKNOWN``: either read successfully this walk or
+    already terminal and accounted for. Fill economics and inventory projection must also be
+    complete, so clearing the detail never hides a separate ledger fault.
+    """
+    if snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
+        return False
+    if any(order.status is OrderStatus.UNKNOWN for order in snapshot.orders):
+        return False
+    if any(fill.economics_applied_at is None for fill in snapshot.fills):
+        return False
+    return not unprojected_inventory_products(snapshot)
+
+
+async def _clear_confirmed_read_fault(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Drop a disproved read fault; never resume, unpause or unstop the book.
+
+    The book keeps its status: a paused book stays paused until an operator resumes it, so
+    a transient venue outage can no longer leave a permanent "unconfirmed" detail behind,
+    and it also cannot restart trading on its own.
+    """
+    deployment = snapshot.deployment
+    detail = deployment.mismatch_detail
+    await store.save_deployment(with_runtime(deployment, updated_at=utc_now(), clear_mismatch=True))
+    await record_execution_audit(
+        action="reconcile_read_fault_cleared",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id} status={deployment.status.value}: {detail!r} was "
+            "cleared because every order now reads back from the venue or is terminal and "
+            "accounted for. The status is unchanged; resuming stays manual."
+        ),
+        product_id=deployment.product_id,
+    )
+    return await store.get_deployment(deployment.id)
 
 
 def _fault_status(deployment: Deployment) -> DeploymentStatus:
@@ -224,10 +280,16 @@ async def _reconcile_one_order(
     """Refresh one watched order from REST JSON and apply unseen fills.
 
     An adoption order never went to the venue (ADR 0124), so it is never looked up
-    there. Its evidence is only checked locally, and incomplete evidence is a fault.
+    there. Its evidence is only checked locally, and incomplete evidence is a fault. A paper
+    order with a venue id is not read either: the store is its only source of truth.
     """
     if order.kind is OrderKind.ADOPTION:
         return await _check_adoption_evidence(snapshot, order=order, store=store)
+    if snapshot.deployment.mode is DeploymentMode.PAPER and order.venue_order_id:
+        # A paper order's state lives only in the store; the paper broker answers every
+        # lookup with OPEN, so a read would revive a canceled paper exit (a take-profit
+        # cancelled by its stop's marketable exit would rest again).
+        return snapshot
     return await _reconcile_venue_order(
         snapshot,
         order=order,

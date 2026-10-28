@@ -9,6 +9,7 @@ from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.live_sizing import _prepare_live
 from thytrader.execution_worker.supervision import (
+    _clear_data_gap_only_pause,
     _cycle_broker,
     _maintain_verified_books,
     _pause_five_minute_live_if_feed_down,
@@ -200,30 +201,34 @@ async def _process_discretionary(
         quote_reader=quote_reader,
         store=store,
     )
-    if bound is None:
-        return
-    snapshot, broker = bound
-    for candle in due:
-        current = await store.get_deployment(deployment.id)
-        if current.deployment.status is DeploymentStatus.STOPPED:
-            return
-        window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
-        with trade_reason_scope(
-            discretionary_trade_reason_scope(
-                memory_store,
-                policy=risk_policy,
-                timeframe=timeframe,
-                note=None,
-                note_origin=None,
-            )
-        ):
-            await process_discretionary_bar(
-                current,
-                product=product,
-                candles=window,
-                broker=broker,
-                store=store,
-            )
+    if bound is not None:
+        snapshot, broker = bound
+        for candle in due:
+            current = await store.get_deployment(deployment.id)
+            if current.deployment.status is DeploymentStatus.STOPPED:
+                return
+            window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
+            with trade_reason_scope(
+                discretionary_trade_reason_scope(
+                    memory_store,
+                    policy=risk_policy,
+                    timeframe=timeframe,
+                    note=None,
+                    note_origin=None,
+                )
+            ):
+                await process_discretionary_bar(
+                    current,
+                    product=product,
+                    candles=window,
+                    broker=broker,
+                    store=store,
+                )
+    # ADR 0146: the window is whole and its due bars ran while still paused (a desk book
+    # takes entries only from its desk, and a live paused book was reconciled and kept
+    # protected above), so a pause caused only by the earlier gap is over. The clear checks
+    # that the evaluation reached the newest due bar; a failed live prepare never does.
+    await _clear_data_gap_only_pause(snapshot, store=store, evaluated_through=due[-1].starts_at)
 
 
 async def _pause_gapped_discretionary(

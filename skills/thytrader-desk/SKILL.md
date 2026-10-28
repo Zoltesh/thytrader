@@ -53,7 +53,8 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   still resting a stray exit waits for the worker to cancel it, since the desk cannot). `desk_book_stop_deferred`
   means the book changed or the write lost a race, and the next read re-checks it. The desk acts on that evidence, not on fault text: a fault left
   on a book whose evidence is final (for example an old read failure or data-gap pause) is
-  cleared by that stop, so it never locks pool cash; a failed venue read leaves the order unknown
+  cleared by that stop (the worker also clears a disproved read fault and a data-gap-only pause
+  on its own, ADR 0149), so it never locks pool cash; a failed venue read leaves the order unknown
   and holds the book. `desk_book_read_deferred` means a book could not be read: its settlement
   waits for the next read and its siblings still settle, but if it is still unreadable when the
   desk state is built, that briefing, wake or score fails.

@@ -4,6 +4,7 @@
 - Date: 2026-10-18
 - Amends: [0104](0104-bounded-newest-candle-wait.md) (the deadline pause),
   [0095](0095-sparse-markets-no-trade-bars-listing-floors.md) (confirmed no-trade bars)
+- Amended by: [0149](0149-disproved-reconcile-faults-and-local-paper-orders.md) (discretionary books)
 - Relates to: [0113](0113-deploy-anchored-window-cache.md), [0115](0115-durable-safety-alerts-and-supervision.md)
 
 ## Context
