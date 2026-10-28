@@ -74,8 +74,9 @@ Alert codes:
   failed, and no futures de-risk or flat-confirmation duty outstanding. A stopped book still
   holding inventory is not proven by a maintenance pass, since its exit upkeep depends on
   decision windows (signal-exit, reference, preview-only closes) the pass cannot all verify: it
-  recovers by advancing its decision cursor or once it is flat, so its alert may stay open
-  longer, never close falsely. That resolves the alert with its own note ("recovered: a later
+  recovers by advancing its decision cursor or once it is flat. A held discretionary or
+  multi-instrument stopped book has no parent-cursor path, so its alert stays open until the book
+  is flat (or resumed): a deliberate trade, open longer rather than ever closed falsely. That resolves the alert with its own note ("recovered: a later
   worker cycle carried out this stopped book's maintenance ...") (2026-10-28); when the decision
   rule resolves it in the same
   cycle, its generic note wins the equal watermark. A broker that returns clears the stopped

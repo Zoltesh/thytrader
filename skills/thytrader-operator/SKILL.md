@@ -752,7 +752,8 @@ missing broker or price context, no deferred flatten) and afterwards it holds no
 no fail-closed mismatch, settled economics, no working entry left by a failed cancel and no
 futures de-risk or flat-confirmation duty (resolution note "recovered: a later worker cycle
 carried out this stopped book's maintenance ..."). A stopped book still holding inventory
-resolves only by its decision cursor or once flat, so its alert can stay open longer. A
+resolves only by its decision cursor or once flat; a held discretionary or multi-instrument
+stopped book has no cursor path, so its alert stays open until it is flat. A
 returning broker clears the stopped book's "Live broker is unavailable" note. A held
 `WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,

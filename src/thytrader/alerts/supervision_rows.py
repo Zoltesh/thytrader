@@ -61,11 +61,11 @@ def verified_stopped_maintenance(
 ) -> bool:
     """A completed maintenance pass proves a worker error on a stopped book recovered.
 
-    A stopped book's decision cursor often never advances (a flat or discretionary book, or a
-    multi-instrument one, whose instrument cursors are not the parent's), so the decision rule
+    A flat stopped book makes no decisions, so its cursor never advances and the decision rule
     alone could leave it open forever. ``maintained`` is the caller's positive evidence: the
     pass was not lease-skipped, deferred or warming, carried out every product's maintenance
-    and left the book fault-free. The book must be stopped before and after the pass, and any
+    and left the book flat and fault-free. A stopped book still holding inventory is not proven
+    this way (ADR 0115). The book must be stopped before and after the pass, and any
     fail-closed mismatch (a supervision pause, a failed read, a missing broker) keeps it open.
     """
     return (
