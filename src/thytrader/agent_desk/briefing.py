@@ -2,12 +2,15 @@
 
 Every harness receives the same ``prompt`` text: instructions, the decision contract and the
 briefing JSON. The fingerprint covers everything but the generation instant, so a wake records
-exactly what the model saw.
+exactly what the model saw. The material fingerprint also leaves out the recent wakes: it changes
+only when something the model can act on changes (a new closed market bar, the desk's cash, caps,
+headroom or fee rates, an open book), so a wake that would read the same picture again can be
+skipped without a model call.
 """
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 import hashlib
 import json
@@ -16,12 +19,21 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 from thytrader.agent_desk.market import MarketRow
-from thytrader.agent_desk.models import DESK_CONTRACT, DeskCaps
+from thytrader.agent_desk.models import DESK_CONTRACT, DeskCaps, WakeOutcome
 
 if TYPE_CHECKING:
-    from thytrader.agent_desk.models import DeskWake
+    from thytrader.agent_desk.models import Desk, DeskWake
 
 _RECENT_WAKES = 8
+_UNSTAMPED = {
+    "generated_at",
+    "fingerprint",
+    "material_fingerprint",
+    "config_fingerprint",
+    "harness",
+    "model",
+    "prompt",
+}
 _THESIS_PREVIEW = 240
 
 
@@ -90,6 +102,11 @@ class DeskBriefing(BaseModel):
     contract: str = DESK_CONTRACT
     generated_at: datetime
     fingerprint: str = ""
+    material_fingerprint: str = ""
+    config_fingerprint: str = ""
+    # The desk's configured harness and model this briefing was built under (not in the prompt).
+    harness: str = ""
+    model: str | None = None
     desk: DeskView
     positions: tuple[PositionView, ...]
     recent_wakes: tuple[WakeView, ...]
@@ -97,17 +114,61 @@ class DeskBriefing(BaseModel):
     prompt: str = ""
 
 
-def finish_briefing(briefing: DeskBriefing) -> DeskBriefing:
-    """Attach the fingerprint and the harness prompt."""
-    body = briefing.model_dump(mode="json", exclude={"generated_at", "fingerprint", "prompt"})
-    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
-    fingerprint = "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
-    stamped = briefing.model_copy(update={"fingerprint": fingerprint})
+def finish_briefing(briefing: DeskBriefing, *, desk: Desk) -> DeskBriefing:
+    """Attach the fingerprints and the harness prompt.
+
+    The material fingerprint covers the briefing without its recent wakes, plus the UTC date
+    (a new trading day is new), the prompt instructions (a new prompt is new), ``desk``'s
+    configuration fingerprint (another harness, model, mandate or caps is new) and when the
+    desk last became due to wake (a resume or a new cadence is new).
+    """
+    body = briefing.model_dump(mode="json", exclude=_UNSTAMPED)
+    configuration = config_fingerprint(desk)
+    material = {key: value for key, value in body.items() if key != "recent_wakes"} | {
+        "utc_date": briefing.generated_at.astimezone(UTC).date().isoformat(),
+        "instructions": _digest({"text": _INSTRUCTIONS, "live": _LIVE, "paper": _PAPER}),
+        "configuration": configuration,
+        # A resume (or a new cadence) restarts the desk; the model hears about it.
+        "due_since": None if desk.due_since is None else desk.due_since.isoformat(),
+    }
+    stamped = briefing.model_copy(
+        update={
+            "fingerprint": _digest(body),
+            "material_fingerprint": _digest(material),
+            "config_fingerprint": configuration,
+            "harness": desk.harness,
+            "model": desk.model,
+        }
+    )
     return stamped.model_copy(update={"prompt": _prompt(stamped)})
 
 
+def config_fingerprint(desk: Desk) -> str:
+    """Who trades the desk and under what instructions: harness, model, mandate, caps, mode."""
+    return _digest(
+        {
+            "harness": desk.harness,
+            "model": desk.model,
+            "mandate": desk.mandate,
+            "caps": desk.caps.model_dump(mode="json"),
+            "mode": desk.mode,
+        }
+    )
+
+
+def _digest(body: dict[str, object]) -> str:
+    """The canonical JSON digest of a briefing body."""
+    canonical = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
 def wake_views(wakes: tuple[DeskWake, ...]) -> tuple[WakeView, ...]:
-    """The newest wakes (given newest first), returned oldest first with short theses."""
+    """The newest answered wakes (given newest first), oldest first with short theses.
+
+    Skipped wakes carry no thesis and are left out; callers read answered wakes only, so
+    skips never crowd real ones out of the window.
+    """
+    answered = [wake for wake in wakes if wake.outcome is not WakeOutcome.SKIPPED]
     views = [
         WakeView(
             at=wake.started_at,
@@ -116,7 +177,7 @@ def wake_views(wakes: tuple[DeskWake, ...]) -> tuple[WakeView, ...]:
             outcome_code=wake.outcome_code,
             thesis=wake.thesis[:_THESIS_PREVIEW],
         )
-        for wake in wakes[:_RECENT_WAKES]
+        for wake in answered[:_RECENT_WAKES]
     ]
     return tuple(reversed(views))
 
@@ -163,6 +224,6 @@ _PAPER = {
 
 def _prompt(briefing: DeskBriefing) -> str:
     """Instructions, contract and the briefing JSON."""
-    body = briefing.model_dump(mode="json", exclude={"prompt"})
+    body = briefing.model_dump(mode="json", exclude=_UNSTAMPED - {"generated_at", "fingerprint"})
     wording = _LIVE if briefing.desk.mode == "live" else _PAPER
     return _INSTRUCTIONS.format(contract=briefing.contract, **wording) + json.dumps(body, indent=1)

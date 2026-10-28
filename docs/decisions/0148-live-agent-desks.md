@@ -60,3 +60,12 @@ over.
   pool; the account's own balance and the policy's account caps still apply.
 - A desk cannot be switched between modes; create a new desk.
 - Promotion is the operator's call. ThyTrader does not move a paper desk live.
+
+## Amendment (2026-10-28): changing a live desk
+
+`PATCH /api/v1/desks/{id}` (`thytrader-desk update`, ADR 0147 amendment) on a live desk needs
+`i_understand_live` (HTTP 428 otherwise) to change who trades (harness, model), what it is told
+(mandate) or its caps: each changes how real money is traded, so it takes the same
+acknowledgement as creating the desk. Its name and cadence change without it. The mode cannot
+change. A failing or stalled live desk raises a critical `DESK_WAKES_FAILING` /
+`DESK_WAKES_STALLED` alert, delivered like any critical alert.

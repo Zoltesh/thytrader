@@ -41,6 +41,21 @@ def record_wake(base_url: str, desk_id: str, payload: dict[str, object]) -> obje
     )
 
 
+def skip_wake(base_url: str, desk_id: str, payload: dict[str, object]) -> object:
+    """Journal a skipped wake if nothing changed since the newest one, else say why not."""
+    return request_mutation_json(
+        method="POST",
+        url=f"{base_url}{_desk(desk_id)}/wakes/skip",
+        payload=payload,
+        timeout=120.0,
+    )
+
+
+def update_desk(base_url: str, desk_id: str, payload: dict[str, object]) -> object:
+    """Change a desk's name, harness, model, cadence, mandate or caps."""
+    return request_mutation_json(method="PATCH", url=f"{base_url}{_desk(desk_id)}", payload=payload)
+
+
 def list_wakes(base_url: str, desk_id: str, *, limit: int) -> object:
     """The newest wakes, newest first."""
     return request_json(method="GET", url=f"{base_url}{_desk(desk_id)}/wakes?limit={limit}")

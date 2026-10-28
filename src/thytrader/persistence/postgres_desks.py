@@ -11,7 +11,7 @@ from sqlalchemy import cast, select, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
-from thytrader.agent_desk.models import Desk, DeskBook, DeskWake
+from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, WakeOutcome
 from thytrader.agent_desk.store import DeskConflictError, DeskStoreUnavailableError
 from thytrader.persistence.schema import desk_books, desk_wakes, desks
 
@@ -105,14 +105,14 @@ class PostgresDeskStore:
         """Journal one wake."""
         await self._write(_insert_wake(wake))
 
-    async def list_wakes(self, desk_id: str, *, limit: int) -> tuple[DeskWake, ...]:
-        """Return the newest wakes of a desk, newest first."""
-        rows = await self._rows(
-            select(desk_wakes.c.wake_json)
-            .where(desk_wakes.c.desk_id == desk_id)
-            .order_by(desk_wakes.c.started_at.desc())
-            .limit(limit)
-        )
+    async def list_wakes(
+        self, desk_id: str, *, limit: int, answered_only: bool = False
+    ) -> tuple[DeskWake, ...]:
+        """Return the newest wakes of a desk, newest first in journal order (UUIDv7 id)."""
+        query = select(desk_wakes.c.wake_json).where(desk_wakes.c.desk_id == desk_id)
+        if answered_only:
+            query = query.where(desk_wakes.c.outcome != WakeOutcome.SKIPPED.value)
+        rows = await self._rows(query.order_by(desk_wakes.c.wake_id.desc()).limit(limit))
         return tuple(_parse(DeskWake, row) for row in rows)
 
     async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:

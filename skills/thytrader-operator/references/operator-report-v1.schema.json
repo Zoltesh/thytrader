@@ -74,7 +74,8 @@
           "enum": [
             "deployment",
             "worker",
-            "fleet"
+            "fleet",
+            "desk"
           ],
           "title": "Scope",
           "type": "string"

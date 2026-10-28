@@ -48,7 +48,7 @@ class AlertItem(_FrozenModel):
     id: UUID
     code: str = Field(min_length=1, max_length=48)
     severity: Literal["info", "warning", "critical"]
-    scope: Literal["deployment", "worker", "fleet"]
+    scope: Literal["deployment", "worker", "fleet", "desk"]
     subject: str = Field(min_length=1, max_length=128)
     deployment_id: UUID | None = None
     product_id: str | None = Field(default=None, max_length=32)
@@ -224,10 +224,12 @@ def _severity(value: str) -> Literal["info", "warning", "critical"]:
     return "info"
 
 
-def _scope(value: str) -> Literal["deployment", "worker", "fleet"]:
+def _scope(value: str) -> Literal["deployment", "worker", "fleet", "desk"]:
     """Narrow a stored scope onto the report literal."""
     if value == "worker":
         return "worker"
     if value == "fleet":
         return "fleet"
+    if value == "desk":
+        return "desk"
     return "deployment"

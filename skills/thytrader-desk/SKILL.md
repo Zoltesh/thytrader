@@ -7,7 +7,8 @@ description: >-
   open, close), and ThyTrader applies it to a fresh discretionary book under the caps and
   journals it. Desks are paper unless created live with --i-understand-live and reserved in the
   risk policy's desk_allocations. Use when the user asks to create, wake, schedule, pause,
-  score or review an agent desk, or to let a model trade. Mutations require --confirm. YOLO
+  update (harness, model, cadence, mandate, caps), score or review an agent desk, or to let a
+  model trade. Mutations require --confirm. YOLO
   never covers this lane. Never arms strategy bots or touches portfolios.
 ---
 
@@ -21,9 +22,9 @@ sleeves). Desks are paper by default; a live desk is described under "Live desks
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v110`, schema revision `0082`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v111`, schema revision `0082`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
-`create`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
+`create`, `update`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 
 ## How a desk works
 
@@ -63,7 +64,9 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
   `max_entries_per_day` 8 (UTC), `daily_loss_fraction` 0.05 of the UTC day-open equity. One open
   book per product. A paused or retired desk journals wakes but never trades.
 - **Every wake is journaled**, including `no_trade`, malformed answers (`invalid`), refusals
-  (`refused` with a code) and harness failures (`error`, `DESK_HARNESS_FAILED`).
+  (`refused` with a code), harness failures (`error`, `DESK_HARNESS_FAILED`) and skipped wakes
+  (`skipped`, `DESK_WAKE_UNCHANGED`: no harness ran because nothing changed; see "Skipped
+  wakes").
 
 ## Commands
 
@@ -80,23 +83,87 @@ uv run thytrader-desk list
 uv run thytrader-desk show DESK_ID                    # desk + every book it funded
 uv run thytrader-desk briefing DESK_ID [--prompt]     # --prompt prints only the prompt text
 uv run thytrader-desk wake DESK_ID [--harness NAME] [--model M] [--command CMD] \
-  [--timeout 600] --confirm
+  [--timeout 600] [--always] --confirm
+uv run thytrader-desk update DESK_ID [--harness NAME] [--model M | --clear-model] \
+  [--cadence-minutes N] [--mandate TEXT] [--name NAME] [--max-open-positions N] \
+  [--max-position-fraction F] [--max-entries-per-day N] [--daily-loss-fraction F] \
+  [--expected-revision N] [--i-understand-live] --confirm
 uv run thytrader-desk record DESK_ID --fingerprint sha256:... --response-file FILE|- \
-  --harness NAME [--model M] --confirm
+  --harness NAME [--model M] --config-fingerprint sha256:... \
+  [--material-fingerprint sha256:...] [--runner-fingerprint sha256:...] --confirm
 uv run thytrader-desk journal DESK_ID [--limit 20]
 uv run thytrader-desk score DESK_ID
-uv run thytrader-desk status DESK_ID active|paused|retired --confirm
+uv run thytrader-desk status DESK_ID active|paused|retired --confirm   # kept in changes, audited; same status: no write
 uv run thytrader-desk schedule DESK_ID [--style systemd|cron] [--command CMD]
 ```
 
-HTTP: `POST|GET /api/v1/desks`, `GET /api/v1/desks/{id}`, `GET .../briefing`,
-`POST|GET .../wakes` (`limit` 1–500), `GET .../score`, `POST .../status`.
+HTTP: `POST|GET /api/v1/desks`, `GET|PATCH /api/v1/desks/{id}`, `GET .../briefing`,
+`POST|GET .../wakes` (`limit` 1–500), `POST .../wakes/skip`, `GET .../score`,
+`POST .../status`.
 
 ## Waking a desk
 
-`wake` takes a per-desk lock (an overlapping wake returns `{"skipped": true, ...}`), reads the
-briefing, runs the harness with the prompt, and posts the answer. Exit 0 means the wake was
-journaled; read `outcome` / `outcome_code` / `detail` for what happened.
+`wake` takes a per-desk lock (an overlapping wake returns `{"skipped": true, ...}` and journals
+nothing), asks ThyTrader whether the wake can be skipped (below; `--always` never asks), then
+reads the briefing, runs the harness with the prompt, and posts the answer with the briefing's
+`fingerprint`, `material_fingerprint` and `config_fingerprint` and the runner's
+`runner_fingerprint` (a digest of the harness name, command template and model). The harness and
+model come from that briefing (its `harness` / `model`, the desk's configuration it was built
+under), so a `desk update` landing mid-wake never runs the old model against the new
+configuration. Exit 0 means the wake was journaled; read `outcome` / `outcome_code` / `detail` for
+what happened. Any failure to set up or run the harness (an unknown harness name
+`DESK_HARNESS_UNKNOWN`, a blank `--command` `DESK_HARNESS_INVALID`, a misquoted one or a binary
+that cannot start `DESK_HARNESS_FAILED`) is journaled as an `error` wake. `config_fingerprint` is
+required on every recorded answer: an `open` (or `no_trade`) answering a briefing whose
+configuration has since changed is journaled `refused` `DESK_CONFIG_CHANGED` and not applied; a
+`close` is still applied, since it only reduces risk. The `material_fingerprint` is kept only if
+the answered briefing is still the desk's current one when the answer is recorded, recent
+answered wakes included (otherwise the wake stores none and the next wake asks the model): an
+answer that missed a refusal, failure or refund journaled while it thought never anchors a skip.
+A live desk takes no `--harness` or `--model` flag (`DESK_LIVE_OVERRIDE_REFUSED`, even one equal
+to the desk's; journaled as an `error` wake, so `DESK_WAKES_FAILING` names it): change who trades
+it with `update ... --i-understand-live`. `--command` is refused too when the live desk's harness
+is built in, judged against the briefing the wake answers (so an update to a built-in harness
+mid-wake refuses the old command), and `schedule --command` refuses to print such a timer; it runs only a live desk whose configured harness is
+custom, under that harness name and the desk's model (ThyTrader cannot see which program a command
+runs, so keep the timer's command in step with the desk's acknowledged harness). The API refuses an
+open or no_trade answer on a live desk that names another harness or model (`refused`
+`DESK_LIVE_IDENTITY_MISMATCH`; an empty model equals none); a close is applied. If the skip request
+itself fails, the wake asks the model anyway.
+Wakes are listed newest first in journal order (the server's UUIDv7 `wake_id`, minted strictly
+increasing under the desk's lock; a recovered open keeps its reservation's id); `started_at` is
+the runner's own clock, must carry a timezone (422 otherwise) and is clamped to the server's now.
+
+### Skipped wakes
+
+The briefing's market rows come from closed hourly candles, so a desk woken every 30 minutes
+would otherwise ask its model about the same hour twice. `POST .../wakes/skip` (body `harness`,
+`model`, `runner_fingerprint`) builds the briefing under the desk's lock and journals a `skipped`
+wake (action and outcome `skipped`, code `DESK_WAKE_UNCHANGED`, no thesis, no model call) only
+when all of these hold; otherwise it returns `skipped: false` with the `reason` and the harness
+runs:
+
+- the newest wake (journal order) was an applied `no_trade` or itself a skip
+  (`DESK_WAKE_RETRY` after an error, invalid answer or refusal; `DESK_WAKE_ACTED` after an
+  applied open or close);
+- the same harness, model and runner fingerprint would answer (`DESK_WAKE_HARNESS_CHANGED`);
+- the desk holds no open book and had no pending open before this read (`DESK_WAKE_HOLDING`): a
+  held book is always shown to the model. A crashed open that any read refunds is journaled
+  `refused` `DESK_OPEN_REFUNDED` (a linked one `DESK_OPEN_RECOVERED`), so it is never skipped
+  past;
+- the newest wake recorded a material fingerprint (`DESK_WAKE_UNANCHORED` otherwise, for
+  example a `record` without `--material-fingerprint`) and it equals the briefing's
+  (`DESK_WAKE_CHANGED`). The `material_fingerprint` covers the briefing without its generation
+  time and recent wakes (market rows, cash, caps, headroom, entry block, fee rates, positions)
+  plus the UTC date, the prompt instructions, the desk's configured harness, model, mandate
+  and caps (`config_fingerprint`) and `due_since` (moved by a resume or a new cadence), so a
+  new day, a new prompt, a resume or a `desk update` always wakes the model;
+- the last answered wake was journaled within the last six hours, by server time
+  (`DESK_WAKE_DUE`).
+
+Skipped wakes never appear in the briefing's `recent_wakes`, which reads answered wakes only, so
+no run of skips crowds earlier theses out. Scheduled wakes need nothing new: the scheduled
+`wake ... --confirm` skips by itself.
 
 Built-in harnesses (`harnesses` prints the exact argv):
 
@@ -119,7 +186,9 @@ token, and Hermes can also act. Prefer `claude` or `pi` for an unattended desk; 
 only on a machine where that access is acceptable.
 
 An agent that should think with its own tools can instead read `briefing`, decide, and `record`
-its answer with the briefing's `fingerprint`.
+its answer with the briefing's `fingerprint` and `config_fingerprint` (and its
+`material_fingerprint` plus a stable `--runner-fingerprint` of its own, so unchanged later skip
+requests by the same runner can skip; skips need the same runner fingerprint).
 
 ## The decision contract
 
@@ -192,11 +261,51 @@ Show it to the user; install it only when they ask.
 
 ## Scoring
 
-`score` reports the desk's equity return since creation, wake counts by outcome, books opened,
+`score` reports the desk's equity return since creation, wake counts by outcome over the newest
+20,000 wakes (`wakes` counts journaled wakes, `answered_wakes` those that ran the model, and
+`wakes_by_outcome.skipped` the rest), books opened,
 settled and settled winners, and two buy-and-hold benchmarks over the same window, each paying the
 account taker fee on entry and exit: `btc_buy_and_hold` (`BTC-<quote>`) and
 `universe_equal_weight`. `beats_btc` / `beats_universe` are `null` while either side is unknown.
 Paper results are evidence, not a promise: judge a desk over weeks and many trades.
+
+## Changing a desk
+
+`update` (HTTP `PATCH /api/v1/desks/{id}`) changes the harness, model (`--clear-model` unsets
+it), cadence, mandate, caps (named caps merge into the current ones) or name, validated like a
+new desk and saved under a new revision; `--expected-revision` refuses (`DESK_CONFLICT`, 409) if
+the desk moved on. The change is recorded on the desk itself in the same write: `changes` keeps
+the newest 20 (`at`, `revision`, and old and new values per field; a mandate by digest and
+length). It is also appended to the audit log as `desk_updated` (with `mode` and
+`live_acknowledged`); that audit write is best effort, the desk's `changes` are not. A new cadence
+also restarts the stall clock (`due_since`). Mode, quote currency, pool, universe and book timeframe are fixed. On a
+live desk, changing the harness, model, mandate or caps needs `--i-understand-live` (HTTP
+`i_understand_live: true`; 428 without it), like creating it; the name and cadence do not.
+`DESK_UPDATE_EMPTY` means nothing would change; `DESK_UPDATE_INVALID` names the bad field. A new
+cadence does not move an installed timer: print a new one with `schedule` and reinstall it.
+Prefer `update` over a `wake --model` override in the timer, so the desk row, the journal and
+the score name the model that actually trades.
+
+## Alerts
+
+The execution worker reads every desk and its newest wakes each cycle and raises durable alerts
+(subject `desk:<desk_id>`, scope `desk`; `thytrader-operator alerts`):
+
+- `DESK_WAKES_FAILING`: the newest 3 wakes (journal order) all failed (`error` or `invalid`),
+  for example an expired harness login or no credits, or were refused `DESK_CONFIG_CHANGED` /
+  `DESK_LIVE_IDENTITY_MISMATCH` (the runner answering is not the desk's, which repeats until
+  you fix the timer or the desk). The alert names the failure codes only
+  (for example `DESK_HARNESS_FAILED, DESK_HARNESS_EXIT`), never the harness output; read the
+  `journal` for the detail.
+- `DESK_WAKES_STALLED`: no wake (a skipped wake counts) for 3 cadences plus 10 minutes since
+  the newest wake's journal time, or since the desk became due to wake (`due_since`: created,
+  resumed with `status ... active`, or given a new cadence). Briefing, score and settlement
+  writes never restart it. Its timer probably stopped.
+
+Both are `critical` for a live desk (delivered like any critical alert) and `warning` for a
+paper desk, and resolve once the desk answers again or is paused or retired. They only record
+and warn; nothing pauses the desk. The worker judges them once per cycle within a 10-second
+budget; a slow or unreadable desk store leaves them unknown (neither raised nor resolved).
 
 ## Limits
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from thytrader.agent_desk.models import WakeOutcome
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
@@ -61,8 +63,14 @@ class DeskStore(Protocol):
         """Journal one wake."""
         ...
 
-    async def list_wakes(self, desk_id: str, *, limit: int) -> tuple[DeskWake, ...]:
-        """Return the newest wakes of a desk, newest first."""
+    async def list_wakes(
+        self, desk_id: str, *, limit: int, answered_only: bool = False
+    ) -> tuple[DeskWake, ...]:
+        """Return the newest wakes of a desk, newest first in journal order.
+
+        Journal order is the server-assigned UUIDv7 ``wake_id`` (the moment ThyTrader journaled
+        the wake), never a caller's ``started_at``. ``answered_only`` leaves out skipped wakes.
+        """
         ...
 
     async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:
@@ -126,10 +134,17 @@ class InMemoryDeskStore:
         """Journal one wake."""
         self.wakes.append(wake)
 
-    async def list_wakes(self, desk_id: str, *, limit: int) -> tuple[DeskWake, ...]:
-        """Return the newest wakes of a desk, newest first."""
-        rows = [wake for wake in self.wakes if wake.desk_id == desk_id]
-        return tuple(sorted(rows, key=lambda wake: wake.started_at, reverse=True)[:limit])
+    async def list_wakes(
+        self, desk_id: str, *, limit: int, answered_only: bool = False
+    ) -> tuple[DeskWake, ...]:
+        """Return the newest wakes of a desk, newest first in journal order."""
+        rows = [
+            wake
+            for wake in self.wakes
+            if wake.desk_id == desk_id
+            and not (answered_only and wake.outcome is WakeOutcome.SKIPPED)
+        ]
+        return tuple(sorted(rows, key=lambda wake: wake.wake_id, reverse=True)[:limit])
 
     async def last_equity_before(self, desk_id: str, before: datetime) -> Decimal | None:
         """The equity of the newest wake started before ``before`` that recorded one."""

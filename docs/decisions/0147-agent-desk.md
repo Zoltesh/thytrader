@@ -113,3 +113,73 @@ wake (including "no trade"), a price read an agent can use, a scheduler, and a d
 - HTTP: `/api/v1/desks` (create, list, show, briefing, wakes, score, status); CLI
   `thytrader-desk`; skill `skills/thytrader-desk`; ops contract v107 advertises
   `agent_desk_contract` `thytrader-agent-desk-v1`.
+
+## Amendment (2026-10-28): skipped wakes, desk updates and desk wake alerts
+
+A week of desks woken every 30 minutes showed three gaps. Nearly half the wakes (461 of 975)
+re-read an hourly bar the desk had already answered, paying for a model call that could not see
+anything new. A harness that kept failing (an expired provider credit) journaled `error` wakes
+for about 18 hours with no alert. And a desk's model could only be switched by a `--model`
+override in its timer, so the desk row, the briefing header and the score named the wrong model.
+
+1. **Skipped wakes.** The briefing gains a `material_fingerprint`: the digest of the briefing
+   without its generation time, fingerprints, prompt and recent wakes (market rows, desk view and
+   positions), plus the UTC date, the prompt instructions and a `config_fingerprint` of the
+   desk's harness, model, mandate, caps and mode. `POST /api/v1/desks/{id}/wakes/skip` builds the
+   briefing under the desk's lock and journals a `skipped` wake (action and outcome `skipped`,
+   `DESK_WAKE_UNCHANGED`, no response, no thesis) only when the newest wake in journal order was
+   an applied `no_trade` or a skip by the same harness, model and runner fingerprint (a digest of
+   the harness name, command template and model), its material fingerprint equals the current
+   one, the desk holds no open book and had no pending open before the read, and the last
+   answered wake was journaled within six hours. Otherwise it returns the reason and
+   `thytrader-desk wake` runs the harness. An error, invalid answer, refusal or applied action is
+   never skipped past; `wake --always` never asks. Skipped wakes stay out of the briefing's recent
+   wakes (read as answered wakes only) and the score adds `answered_wakes`.
+2. **Server time and stale answers.** Wakes are listed in journal order (the server's UUIDv7
+   `wake_id`, minted strictly increasing in the one API process), and recency is the server-set
+   `finished_at`; a runner's `started_at` must carry a timezone and is clamped to now. The runner
+   takes its harness and model from the briefing it answers (which names the desk's configured
+   harness and model), and every recorded answer carries that briefing's required
+   `config_fingerprint`: if the desk's harness, model, mandate or caps changed since, an open or
+   no-trade answer is journaled `refused` `DESK_CONFIG_CHANGED` and not applied, while a close is
+   applied (it only reduces risk). A recorded `material_fingerprint` is kept only if the
+   answered briefing, rebuilt at record time with its answered history, still carries the
+   answered fingerprint, so an answer that missed an event journaled while it thought never
+   anchors a skip (only a `no_trade` is verified; an unreadable history leaves the answer
+   unanchored rather than unrecorded). A live desk takes no per-wake harness or model flag, nor
+   a `--command` when its harness is built in (judged against the answered briefing, journaled
+   as an `error` wake so the failing alert sees it, and refused by `schedule` too) (a custom harness runs by `--command` under the
+   desk's own name), and the API refuses an open or no_trade answer naming another harness or
+   model on a live desk (`DESK_LIVE_IDENTITY_MISMATCH`). A failed skip request falls back to
+   asking the model. Status changes join `changes` in the same write.
+   Any failure to set up or run the harness is journaled as an `error` wake, and a crashed open
+   that a read refunds is journaled `refused` `DESK_OPEN_REFUNDED`. The material fingerprint also
+   covers `due_since`, so a resume between two wakes wakes the model.
+3. **Desk updates.** `PATCH /api/v1/desks/{id}` and `thytrader-desk update` change the harness,
+   model, cadence, mandate, caps (merged) or name under a new revision (optional
+   `expected_revision`), validated like a new desk. The change (old and new values; a mandate by
+   digest) is appended to the desk's `changes` (newest 20) in the same write, so it cannot be lost
+   apart from the change; a `desk_updated` audit event is also written, best effort. Mode, quote,
+   pool, universe and timeframe stay fixed. A live desk's harness, model, mandate or caps need the
+   live acknowledgement (ADR 0148); its name and cadence do not.
+4. **Desk wake alerts** (ADR 0115). In the cycle's timed `fleet_supervision` phase, within a
+   10-second budget, the execution worker reads the desks and their newest wakes:
+   `DESK_WAKES_FAILING` when the newest 3 wakes failed (`error` or `invalid`) or were refused for
+   a configuration or identity mismatch (which repeats until an operator acts), naming the failure
+   codes only (never harness output, which can carry anything), and `DESK_WAKES_STALLED` when no
+   wake (skips count) was journaled for 3 cadences plus 10 minutes since the newest wake or since
+   the desk became due to wake (`due_since`: creation, resume, new cadence; never bookkeeping
+   writes). Scope `desk`, subject `desk:<desk_id>`; critical for a live desk, warning for paper. A
+   paused or retired desk, or a desk no longer listed, resolves its alerts; an unreadable wake
+   list or a timed-out pass proves nothing. The alerts only record and warn.
+
+Rejected: comparing the plain fingerprint (it covers recent wakes, so it changes every wake);
+skipping while a book is held (its mark, stop or fill can change between bars); counting a live
+desk with no open book as live risk for alert-delivery health (it holds no risk; its books count
+once open); cross-checking a recorded material fingerprint against the briefings issued (a skip
+still needs the live picture to match it, and record keeps a recorded fingerprint only when it
+matches the desk at record time); a monotonic journal sequence column (the API is one process and
+mints strictly increasing wake ids under the desk's lock, so no migration is needed); an index on
+`(desk_id, wake_id)` (desk journals are small, and the worker pass is bounded).
+
+Ops contract v111.

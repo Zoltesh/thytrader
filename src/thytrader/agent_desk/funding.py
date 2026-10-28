@@ -13,6 +13,7 @@ pays for a book it does not own, nor owns one unpaid.
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -23,12 +24,11 @@ from thytrader.agent_desk.models import (
     PendingOpen,
     WakeOutcome,
 )
-from thytrader.agent_desk.ports import DeskError, save_desk
+from thytrader.agent_desk.ports import DeskError, journal_id, save_desk
 from thytrader.ids import uuid7
 from thytrader.trading.models import PositionSide
 
 if TYPE_CHECKING:
-    from datetime import datetime
     from decimal import Decimal
 
     from thytrader.agent_desk.models import Desk
@@ -113,12 +113,14 @@ async def resolve_pending(
         return desk, None
     deployment_id = await execution.find_book(pending)
     if deployment_id is None:
+        # Journal the refund with it, so the next wake shows the model its open never placed.
         refunded = await save_desk(
             desk.model_copy(
                 update={"cash": desk.cash + pending.allocated_quote, "pending_open": None}
             ),
             store=store,
             previous=desk,
+            wakes=(_refund_wake(desk, pending),),
         )
         return refunded, None
     linked = (
@@ -147,6 +149,28 @@ def _book(desk_id: str, pending: PendingOpen, deployment_id: str) -> DeskBook:
         allocated_quote=pending.allocated_quote,
         opened_at=pending.reserved_at,
         wake_id=pending.wake_id,
+    )
+
+
+def _refund_wake(desk: Desk, pending: PendingOpen) -> DeskWake:
+    """The journal row for an open that was reserved but never placed, now refunded."""
+    now = datetime.now(UTC)
+    return DeskWake(
+        wake_id=journal_id(now),
+        desk_id=desk.desk_id,
+        started_at=min(pending.reserved_at, now),
+        finished_at=now,
+        harness="thytrader",
+        briefing_fingerprint=pending.briefing_fingerprint,
+        raw_response="",
+        action=DeskAction.OPEN,
+        outcome=WakeOutcome.REFUSED,
+        outcome_code="DESK_OPEN_REFUNDED",
+        detail=(
+            f"An interrupted open on {pending.product_id} was never placed; its "
+            f"{pending.allocated_quote} reservation was refunded."
+        ),
+        thesis=pending.thesis,
     )
 
 

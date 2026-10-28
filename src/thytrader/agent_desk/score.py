@@ -50,6 +50,8 @@ class DeskScore(BaseModel):
     equity_quote: Decimal | None
     return_fraction: Decimal | None
     wakes: int
+    # Wakes that ran the model (every wake but ``skipped`` ones, which ran no harness).
+    answered_wakes: int
     wakes_by_outcome: dict[str, int]
     books_opened: int
     books_settled: int
@@ -97,6 +99,7 @@ async def score_desk(
         equity_quote=equity,
         return_fraction=result,
         wakes=len(wakes),
+        answered_wakes=len(wakes) - outcomes[WakeOutcome.SKIPPED.value],
         wakes_by_outcome=outcomes,
         books_opened=len(books),
         books_settled=len(settled),

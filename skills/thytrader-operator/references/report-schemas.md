@@ -705,8 +705,11 @@ Component `execution_cycle` (on `health` and `runtime`): `CYCLE_WITHIN_BUDGET`,
 ## Safety alerts (ADR 0115)
 
 `alerts` is read-only. `payload.storage` is `available` or `unavailable`. Row `scope` is
-`deployment`, `worker` or `fleet` (`FLEET_ENTRIES_BLOCKED`, subject `fleet:<mode>:<scope>`;
-ADR 0130). `payload.open_alerts`
+`deployment`, `worker`, `fleet` (`FLEET_ENTRIES_BLOCKED`, subject `fleet:<mode>:<scope>`;
+ADR 0130) or `desk` (`DESK_WAKES_FAILING` / `DESK_WAKES_STALLED`, subject `desk:<desk_id>`:
+an active agent desk whose newest 3 wakes failed, or that has not woken for 3 cadences plus
+10 minutes; critical for a live desk, warning for paper; ADR 0147, `thytrader-desk` skill).
+`payload.open_alerts`
 and `payload.resolved_alerts` are durable rows (`code`, `severity`, `subject`, `detail`,
 `occurrences`, `delivery.status`). `delivery_warning` is set when `notify_provider=none`:
 the local feed still works and no webhook destination is invented. Open critical alerts
