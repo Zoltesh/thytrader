@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, ClientOrderLookup
+from thytrader.execution.paper import PaperBroker
 from thytrader.trading.adoption import ADOPTION_EVIDENCE_INCOMPLETE, adoption_evidence_complete
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
@@ -16,6 +17,7 @@ from thytrader.trading.fill_ledger import (
     ingest_fill,
     replay_unapplied_fills,
     unprojected_inventory_products,
+    unsettled_fill_evidence,
 )
 from thytrader.trading.ids import utc_now, uuid7
 from thytrader.trading.models import (
@@ -33,6 +35,8 @@ from thytrader.trading.models import (
 from thytrader.trading.overlay import InstrumentScopedStore, overlay_snapshot
 
 if TYPE_CHECKING:
+    from uuid import UUID
+
     from thytrader.execution.broker import Broker, SubmitResult
     from thytrader.trading.models import DeploymentSnapshot
     from thytrader.trading.store import ExecutionStore
@@ -89,6 +93,12 @@ async def reconcile_open_orders(
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
+    # A paper broker cannot answer for a live order: such a walk reads nothing (None).
+    walked = (
+        None
+        if isinstance(broker, PaperBroker) and snapshot.deployment.mode is not DeploymentMode.PAPER
+        else frozenset(order.id for order in snapshot.orders)
+    )
     for order in tuple(snapshot.orders):
         before = snapshot.deployment
         order_product = order.product_id or product_id or snapshot.deployment.product_id
@@ -119,13 +129,97 @@ async def reconcile_open_orders(
     )
     snapshot = await store.get_deployment(snapshot.deployment.id)
     first_fault = _first_new_fault(first_fault, before=before_children, after=snapshot.deployment)
-    return await _retain_reconcile_supervision(
+    snapshot = await _retain_reconcile_supervision(
         snapshot,
         store=store,
         started_status=started.status,
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
+    if first_fault is None and _read_fault_confirmed(
+        await store.get_accounting_snapshot(snapshot.deployment.id), walked=walked
+    ):
+        return await _clear_confirmed_read_fault(snapshot, store=store)
+    return snapshot
+
+
+READ_FAULT_DETAILS = frozenset(
+    {
+        f"{RECONCILE_UNCONFIRMED_PREFIX}: order read failed.",
+        f"{RECONCILE_UNCONFIRMED_PREFIX}: fill read failed.",
+    }
+)
+"""Faults that only say a venue read did not answer; a later complete walk can disprove them.
+
+"Venue status is unknown" is not one: the venue did answer, and fill ingestion can still mark
+that order filled, so a repeat of that fault would not leave the order ``UNKNOWN``.
+"""
+
+
+def _read_fault_confirmed(snapshot: DeploymentSnapshot, *, walked: frozenset[UUID] | None) -> bool:
+    """Whether a latched read fault is contradicted by the whole book's evidence.
+
+    ``snapshot`` is the accounting snapshot of every product, since the detail is shared and a
+    multi-instrument walk may run through one product's view. ``walked`` is None when the walk
+    could not reach the venue at all (a live book handed the paper broker): nothing is
+    disproved then, even if every order is already terminal. Every order that still needs a
+    venue read must have been visited by this walk (``walked``): a sibling product's order can
+    leave ``UNKNOWN`` through a cancel acknowledgement without any successful read. A failed
+    order or fill read marks its order ``UNKNOWN``, and a repeat of the same failure leaves the
+    detail unchanged, so ``first_fault`` alone cannot prove the walk succeeded. Every order must
+    therefore be out of ``UNKNOWN``: read back, or already terminal and accounted for. Every
+    recorded execution must be covered by applied fills (a cancelled order can report an
+    executed quantity whose fills were never read) and inventory must be projected, so
+    clearing never hides a ledger fault.
+    """
+    if walked is None or snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
+        return False
+    if _unread_orders(snapshot, walked=walked) or unsettled_fill_evidence(snapshot):
+        return False
+    return not unprojected_inventory_products(snapshot)
+
+
+def _unread_orders(snapshot: DeploymentSnapshot, *, walked: frozenset[UUID]) -> bool:
+    """Whether any order in the book still lacks a successful read.
+
+    That is an ``UNKNOWN`` order, one that still needs a venue read but was not visited by this
+    walk, or an attached venue child named by a parent that has no local order row yet.
+    """
+    local = {order.venue_order_id for order in snapshot.orders if order.venue_order_id}
+    return any(
+        order.status is OrderStatus.UNKNOWN
+        or (order.id not in walked and _needs_reconcile(order, snapshot))
+        or (
+            order.attached_child_venue_order_id is not None
+            and order.attached_child_venue_order_id not in local
+        )
+        for order in snapshot.orders
+    )
+
+
+async def _clear_confirmed_read_fault(
+    snapshot: DeploymentSnapshot, *, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Drop a disproved read fault; never resume, unpause or unstop the book.
+
+    The book keeps its status: a paused book stays paused until an operator resumes it, so
+    a transient venue outage can no longer leave a permanent "unconfirmed" detail behind,
+    and it also cannot restart trading on its own.
+    """
+    deployment = snapshot.deployment
+    detail = deployment.mismatch_detail
+    await store.save_deployment(with_runtime(deployment, updated_at=utc_now(), clear_mismatch=True))
+    await record_execution_audit(
+        action="reconcile_read_fault_cleared",
+        outcome=AuditEventOutcome.SUCCESS,
+        detail=(
+            f"deployment_id={deployment.id} status={deployment.status.value}: {detail!r} was "
+            "cleared because every order now reads back from the venue or is terminal and "
+            "accounted for. The status is unchanged; resuming stays manual."
+        ),
+        product_id=deployment.product_id,
+    )
+    return await store.get_deployment(deployment.id)
 
 
 def _fault_status(deployment: Deployment) -> DeploymentStatus:
@@ -224,10 +318,19 @@ async def _reconcile_one_order(
     """Refresh one watched order from REST JSON and apply unseen fills.
 
     An adoption order never went to the venue (ADR 0124), so it is never looked up
-    there. Its evidence is only checked locally, and incomplete evidence is a fault.
+    there. Its evidence is only checked locally, and incomplete evidence is a fault. An order
+    with a venue id held by the paper broker is not read either: the store is its only source
+    of truth, so only its local fill coverage is checked.
     """
     if order.kind is OrderKind.ADOPTION:
         return await _check_adoption_evidence(snapshot, order=order, store=store)
+    if isinstance(broker, PaperBroker) and order.venue_order_id:
+        # The paper broker answers every lookup with OPEN. A paper order's state lives only in
+        # the store (a read would revive a canceled paper exit), and a live order reached with
+        # the paper broker (no live adapter bound) must never take its fabricated answer.
+        if snapshot.deployment.mode is not DeploymentMode.PAPER:
+            return snapshot
+        return await _check_local_fill_coverage(snapshot, order=order, store=store)
     return await _reconcile_venue_order(
         snapshot,
         order=order,
@@ -237,6 +340,22 @@ async def _reconcile_one_order(
         known=known,
         cooldown_bars=cooldown_bars,
     )
+
+
+async def _check_local_fill_coverage(
+    snapshot: DeploymentSnapshot, *, order: Order, store: ExecutionStore
+) -> DeploymentSnapshot:
+    """Fault a paper order whose recorded execution has no applied fill to back it.
+
+    A paper fill is saved after its order in a separate write, so an interrupted submit can
+    leave a filled order without its fill. The paper broker cannot be asked, so the local
+    ledger is checked instead, as a venue read's coverage check would.
+    """
+    if applied_fill_quantity(snapshot, order.id) < order.filled_quantity:
+        return await _record_reconcile_fault(
+            snapshot, store=store, detail=FILLED_WITHOUT_REST_FILLS_DETAIL
+        )
+    return snapshot
 
 
 async def _check_adoption_evidence(

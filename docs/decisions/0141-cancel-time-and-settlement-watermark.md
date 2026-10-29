@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-15
+- Amended by: [0149](0149-disproved-reconcile-faults-and-local-paper-orders.md) (paper orders are never read back)
 - Relates to: [0057](0057-atomic-fill-ledger-and-product-isolation.md),
   [0110](0110-stopped-lifecycle-reconciliation.md)
 

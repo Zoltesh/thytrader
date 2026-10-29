@@ -9,9 +9,12 @@ from thytrader.execution.discretionary import process_discretionary_bar
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.execution_worker.live_sizing import _prepare_live
 from thytrader.execution_worker.supervision import (
+    _MISSING_DECISION_CANDLES,
+    _clear_data_gap_only_pause,
     _cycle_broker,
     _maintain_verified_books,
     _pause_five_minute_live_if_feed_down,
+    _pause_running_for_data_gap,
     _pause_running_for_missing_candles,
     _supervise_warming_window,
 )
@@ -22,8 +25,7 @@ from thytrader.memory.trade_reason_scope import (
     discretionary_trade_reason_scope,
     trade_reason_scope,
 )
-from thytrader.trading.ids import utc_now
-from thytrader.trading.models import DeploymentMode, DeploymentStatus, with_runtime
+from thytrader.trading.models import DeploymentMode, DeploymentStatus
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -200,30 +202,34 @@ async def _process_discretionary(
         quote_reader=quote_reader,
         store=store,
     )
-    if bound is None:
-        return
-    snapshot, broker = bound
-    for candle in due:
-        current = await store.get_deployment(deployment.id)
-        if current.deployment.status is DeploymentStatus.STOPPED:
-            return
-        window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
-        with trade_reason_scope(
-            discretionary_trade_reason_scope(
-                memory_store,
-                policy=risk_policy,
-                timeframe=timeframe,
-                note=None,
-                note_origin=None,
-            )
-        ):
-            await process_discretionary_bar(
-                current,
-                product=product,
-                candles=window,
-                broker=broker,
-                store=store,
-            )
+    if bound is not None:
+        snapshot, broker = bound
+        for candle in due:
+            current = await store.get_deployment(deployment.id)
+            if current.deployment.status is DeploymentStatus.STOPPED:
+                return
+            window = tuple(item for item in candles if item.starts_at <= candle.starts_at)
+            with trade_reason_scope(
+                discretionary_trade_reason_scope(
+                    memory_store,
+                    policy=risk_policy,
+                    timeframe=timeframe,
+                    note=None,
+                    note_origin=None,
+                )
+            ):
+                await process_discretionary_bar(
+                    current,
+                    product=product,
+                    candles=window,
+                    broker=broker,
+                    store=store,
+                )
+    # ADR 0146: the window is whole and its due bars ran while still paused (a desk book
+    # takes entries only from its desk, and a live paused book was reconciled and kept
+    # protected above), so a pause caused only by the earlier gap is over. The clear checks
+    # that the evaluation reached the newest due bar; a failed live prepare never does.
+    await _clear_data_gap_only_pause(snapshot, store=store, evaluated_through=due[-1].starts_at)
 
 
 async def _pause_gapped_discretionary(
@@ -234,14 +240,12 @@ async def _pause_gapped_discretionary(
     candles: Sequence[Candle],
     broker: Broker,
 ) -> None:
-    """Pause a discretionary book on a gapped window, then keep residual protection."""
-    paused = with_runtime(
-        snapshot.deployment,
-        updated_at=utc_now(),
-        status=DeploymentStatus.PAUSED,
-        mismatch_detail="Market-data window is gapped or missing the latest closed bar.",
-    )
-    await store.save_deployment(paused)
+    """Pause a running discretionary book on a gapped window, then keep residual protection.
+
+    Only a running book takes the data-gap detail: overwriting another pause reason (a
+    reconcile fault, say) would let the ADR 0146 clear resume a book it never paused.
+    """
+    await _pause_running_for_data_gap(snapshot, store=store, detail=_MISSING_DECISION_CANDLES)
     await _maintain_discretionary(
         snapshot,
         product=product,
