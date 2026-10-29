@@ -183,9 +183,18 @@ def _parser() -> argparse.ArgumentParser:
     record.add_argument("--harness", required=True, help="Who answered, e.g. claude.")
     record.add_argument("--model", default=None)
     record.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
-    status = commands.add_parser("status", parents=[trailing], help="Pause, resume or retire.")
+    status = commands.add_parser(
+        "status",
+        parents=[trailing],
+        help="Pause, resume or retire (resuming a live desk also needs --i-understand-live).",
+    )
     status.add_argument("desk_id")
     status.add_argument("status", choices=("active", "paused", "retired"))
+    status.add_argument(
+        "--i-understand-live",
+        action="store_true",
+        help="Acknowledge resuming a live desk, which trades real money. YOLO never covers it.",
+    )
     status.add_argument("--confirm", action="store_true", help=_CONFIRM_HELP)
     schedule = commands.add_parser(
         "schedule", parents=[trailing], help="Print a systemd user timer or crontab line."
@@ -299,7 +308,12 @@ def _dispatch(command: str, arguments: argparse.Namespace, base_url: str) -> obj
     if command == "create":
         return create_desk(base_url, _create_payload(arguments))
     if command == "status":
-        return set_desk_status(base_url, arguments.desk_id, arguments.status)
+        return set_desk_status(
+            base_url,
+            arguments.desk_id,
+            arguments.status,
+            i_understand_live=arguments.i_understand_live,
+        )
     if command == "update":
         return update_desk(base_url, arguments.desk_id, _update_payload(arguments))
     if command == "record":

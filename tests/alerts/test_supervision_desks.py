@@ -74,9 +74,11 @@ def _wake(outcome: WakeOutcome, minutes_ago: int) -> DeskWake:
 
 
 def _codes(evidence: SafetyEvidence) -> tuple[list[AlertCode], list[AlertCode]]:
-    """The finding codes and the evaluated codes."""
+    """The finding codes and the evaluated wake codes (a listed desk's row always reads)."""
     findings = [finding.code for finding in evidence.findings]
-    evaluated = [check.code for check in evidence.evaluated]
+    evaluated = [
+        check.code for check in evidence.evaluated if check.code is not AlertCode.DESK_UNREADABLE
+    ]
     return findings, evaluated
 
 
@@ -163,7 +165,10 @@ def test_an_unread_desk_proves_nothing_and_a_removed_desk_resolves() -> None:
     )
     evidence = desk_wake_evidence([_desk()], {"desk-1": None}, now=_NOW, prior_alerts=[prior])
     assert evidence.findings == ()
-    assert evidence.evaluated == (AlertCheck(AlertCode.DESK_WAKES_FAILING, "desk:gone"),)
+    assert evidence.evaluated == (
+        AlertCheck(AlertCode.DESK_UNREADABLE, "desk:desk-1"),
+        AlertCheck(AlertCode.DESK_WAKES_FAILING, "desk:gone"),
+    )
 
 
 def test_bookkeeping_writes_never_hide_a_stopped_timer() -> None:

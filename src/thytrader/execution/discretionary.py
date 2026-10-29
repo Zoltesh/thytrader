@@ -13,6 +13,7 @@ from thytrader.execution.live_protection import (
     _ensure_live_bracket,
     _ensure_take_profit,
 )
+from thytrader.execution.loop import _persist_performance
 from thytrader.execution.mark_context import closed_mark_context
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import reconcile_open_orders
@@ -28,11 +29,14 @@ from thytrader.execution.runtime_ops import (
     entry_executions_unapplied,
 )
 from thytrader.execution.submit import submit_intent
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
+from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.geometry import (
     bracket_error_detail,
     bracket_is_valid,
+    entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_fill_price,
@@ -56,6 +60,8 @@ from thytrader.trading.models import (
 from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from thytrader.execution.broker import Broker
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.execution.paper_fees import PaperFeeSource
@@ -63,6 +69,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.store import RiskPolicyStore
+    from thytrader.trading.models import Deployment
     from thytrader.trading.store import ExecutionStore
 
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
@@ -84,8 +91,38 @@ async def place_discretionary_order(
     """Persist a discretionary intent, submit once, and reconcile timeouts without retry.
 
     A new paper book that omits fee rates takes the account's rates from
-    ``paper_fee_source``; a reused book keeps its stored rates.
+    ``paper_fee_source``; a reused book keeps its stored rates. The admission's risk evidence
+    (peer books' midnight marks, beta) reads ``market_data``, bound for the whole placement.
     """
+    with risk_market_data_scope(market_data):
+        return await _place(
+            store=store,
+            broker=broker,
+            market_data=market_data,
+            request=request,
+            live_allowed=live_allowed,
+            risk_store=risk_store,
+            live_quote_cash=live_quote_cash,
+            live_base_available=live_base_available,
+            memory_store=memory_store,
+            paper_fee_source=paper_fee_source,
+        )
+
+
+async def _place(
+    *,
+    store: ExecutionStore,
+    broker: Broker,
+    market_data: MarketDataService,
+    request: DiscretionaryOrderRequest,
+    live_allowed: bool,
+    risk_store: RiskPolicyStore | None,
+    live_quote_cash: Decimal | None,
+    live_base_available: Decimal | None,
+    memory_store: ExperientialMemoryStore | None,
+    paper_fee_source: PaperFeeSource | None,
+) -> DeploymentSnapshot:
+    """One placement inside the bound risk market data."""
     _require_mode_prerequisites(request, live_allowed=live_allowed)
     existing = await store.get_intent_by_idempotency_key(request.idempotency_key)
     if existing is not None:
@@ -125,6 +162,7 @@ async def place_discretionary_order(
         pending_target_price=sized.take_profit_price,
         last_signal="discretionary",
         clear_mismatch=True,
+        last_evaluated_bar=_placement_cursor(snapshot.deployment, request, mark_candle),
     )
     # No intent or venue submission follows a lost candidate revision. Re-admission
     # must start from fresh evidence, not restore stale cash/status/lifecycle fields.
@@ -203,7 +241,12 @@ async def process_discretionary_bar(
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
     candle = candles[-1]
     deployment = snapshot.deployment
-    if deployment.last_evaluated_bar == candle.starts_at:
+    if (
+        deployment.last_evaluated_bar is not None
+        and candle.starts_at <= deployment.last_evaluated_bar
+    ):
+        # Already evaluated (or older than the placement bar while the feed lags): maintain
+        # protection only; never match history or move the cursor back.
         if deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}:
             return await _ensure_exit_protection(
                 snapshot, candle=candle, product=product, broker=broker, store=store
@@ -216,11 +259,38 @@ async def process_discretionary_bar(
         store=store,
         cooldown_bars=0,
         timeframe=deployment.timeframe or "1h",
+        # Paper: a bar through both the stop and the take-profit exits at the stop (ADR 0083).
+        stop_first=deployment.mode is not DeploymentMode.LIVE,
+        # An order placed after this bar closed never fills against it.
+        bar_closes_at=candle.starts_at
+        + parse_candle_interval(deployment.timeframe or "1h").duration,
     )
     snapshot = await _protect_discretionary(
         snapshot, candle=candle, product=product, broker=broker, store=store
     )
+    if deployment.mode is not DeploymentMode.LIVE:
+        # Paper books keep their high-water mark like strategy books. A live book's equity is
+        # not refreshed from a candle close here, so its drawdown evidence stays unchanged.
+        snapshot = await _persist_performance(
+            snapshot, store=store, mark_price=candle.close, product_id=product.product_id
+        )
     return await _persist_runtime(snapshot, store=store, last_evaluated_bar=candle.starts_at)
+
+
+def _placement_cursor(
+    deployment: Deployment, request: DiscretionaryOrderRequest, mark: Candle
+) -> datetime | None:
+    """Where a never-evaluated book starts: the newest bar closed before the order is placed.
+
+    A resting limit is never matched against a bar that closed before it existed. The mark bar
+    is older than that when admission ran past a bar close, so the newer of the two wins. A book
+    already evaluated, or on another clock, keeps its cursor.
+    """
+    if deployment.last_evaluated_bar is not None or deployment.timeframe != request.timeframe:
+        return None
+    interval = parse_candle_interval(request.timeframe)
+    closed = entry_bar_bucket(utc_now(), request.timeframe) - interval.duration
+    return max(mark.starts_at, closed)
 
 
 @dataclass(frozen=True, slots=True)

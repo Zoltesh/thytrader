@@ -6,6 +6,9 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from pydantic import ValidationError
+
+from thytrader.agent_desk.models import WakeOutcome
 from thytrader.agent_desk.store import DeskConflictError
 from thytrader.ids import uuid7
 
@@ -16,7 +19,7 @@ if TYPE_CHECKING:
     from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, PendingOpen
     from thytrader.agent_desk.store import DeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
-    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot, ExecutionConflictError
 
 
 class DeskError(RuntimeError):
@@ -64,14 +67,36 @@ async def save_desk(
     books: Sequence[DeskBook] = (),
     wakes: Sequence[DeskWake] = (),
 ) -> Desk:
-    """Save under the previous revision (with books and wakes); a lost race is a conflict."""
+    """Save under the previous revision (with books and wakes); a lost race is a conflict.
+
+    Updates are model copies, which skip validation, so every row is validated here: a row
+    that would not read back is refused ``DESK_INVALID`` and never stored.
+    """
     stamped = updated.model_copy(update={"updated_at": datetime.now(UTC)})
+    for row in (stamped, *books, *wakes):
+        try:
+            type(row).model_validate_json(row.model_dump_json())
+        except ValidationError as error:
+            name = type(row).__name__
+            raise DeskError(f"DESK_INVALID: the {name} write fails validation.") from error
     try:
         return await store.save_desk(
             stamped, expected_revision=previous.revision, books=books, wakes=wakes
         )
     except DeskConflictError as error:
         raise DeskError(f"DESK_CONFLICT: {error}") from error
+
+
+def refusal_outcome(error: DeskError | ExecutionConflictError) -> dict[str, object]:
+    """The journal fields of an open refused by the desk or by the execution path."""
+    if isinstance(error, DeskError):
+        code, _, detail = str(error).partition(": ")
+        return {"outcome": WakeOutcome.REFUSED, "outcome_code": code, "detail": detail}
+    return {
+        "outcome": WakeOutcome.REFUSED,
+        "outcome_code": conflict_code(str(error)),
+        "detail": str(error)[:500],
+    }
 
 
 def conflict_code(message: str) -> str:

@@ -104,15 +104,19 @@ async def _match_resting_orders(
     cooldown_bars: int,
     timeframe: str | None = None,
     stop_first: bool = False,
+    bar_closes_at: datetime | None = None,
 ) -> DeploymentSnapshot:
     """Apply paper or local fills for resting limits against the closed candle.
 
     With ``stop_first`` (paper), a resting take-profit is not matched on a candle that also
     trades through the position's stop: the candle cannot show which traded first, so the
     stop exit in position management wins (the same rule as the backtest model, ADR 0083).
+    With ``bar_closes_at``, an order created at or after the bar's close is not matched.
     """
     for order in snapshot.orders:
         if order.status is not OrderStatus.OPEN:
+            continue
+        if bar_closes_at is not None and order.created_at >= bar_closes_at:
             continue
         if stop_first and _stop_preempts_take_profit(snapshot, order=order, candle=candle):
             continue

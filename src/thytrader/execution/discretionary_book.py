@@ -261,6 +261,20 @@ async def _require_book_admission(
         raise ExecutionConflictError(verdict.detail)
 
 
+def desk_committed_for_gate(
+    *, committed: Decimal, allocation: Decimal | None, notional: Decimal
+) -> Decimal:
+    """What a desk entry's reservation check counts besides the order's notional.
+
+    The gate adds the sized notional, so the rest of the book's allocation (its fee headroom
+    and the sizing's rounding remainder) is counted here: together they are exactly the other
+    books plus this allocation.
+    """
+    if allocation is None:
+        return committed
+    return committed + max(allocation - notional, Decimal(0))
+
+
 async def _require_entry_admission(
     risk_store: RiskPolicyStore | None,
     *,
@@ -303,7 +317,11 @@ async def _require_entry_admission(
             notional=notional,
             quantity=quantity,
             desk_id=request.desk_id,
-            desk_committed=request.desk_committed_quote,
+            desk_committed=desk_committed_for_gate(
+                committed=request.desk_committed_quote,
+                allocation=request.desk_allocation_quote,
+                notional=notional,
+            ),
         ),
         snapshots=books,
         live_quote_cash=live_cash,

@@ -5,6 +5,7 @@ The process wires the PostgreSQL store; domain code only sees :class:`DeskStore`
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from thytrader.agent_desk.models import WakeOutcome
@@ -25,6 +26,25 @@ class DeskStoreUnavailableError(RuntimeError):
     """Desk storage could not be read or written; nothing is assumed."""
 
 
+@dataclass(frozen=True, slots=True)
+class UnreadableDesk:
+    """A stored desk row that fails validation, named by its id and whether it says live.
+
+    A row too broken to say its mode counts as live, so its alert is the louder one.
+    """
+
+    desk_id: str
+    live: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DeskScan:
+    """Every stored desk row from one read: the readable desks and the malformed rows."""
+
+    desks: tuple[Desk, ...]
+    unreadable: tuple[UnreadableDesk, ...]
+
+
 class DeskStore(Protocol):
     """Desks, their books and their journaled wakes."""
 
@@ -37,7 +57,14 @@ class DeskStore(Protocol):
         ...
 
     async def list_desks(self) -> tuple[Desk, ...]:
-        """Return every desk, newest first."""
+        """Return every readable desk, newest first; a malformed row is left out.
+
+        One bad row must not hide every other desk: :meth:`scan_desks` names it.
+        """
+        ...
+
+    async def scan_desks(self) -> DeskScan:
+        """Readable desks and malformed rows from one read, so together they are every row."""
         ...
 
     async def save_desk(
@@ -86,6 +113,8 @@ class InMemoryDeskStore:
         self.desks: dict[str, Desk] = {}
         self.books: dict[str, DeskBook] = {}
         self.wakes: list[DeskWake] = []
+        # Tests stand in malformed rows here; this store keeps only validated models.
+        self.unreadable: list[UnreadableDesk] = []
 
     async def create_desk(self, desk: Desk) -> Desk:
         """Insert a new desk."""
@@ -101,6 +130,10 @@ class InMemoryDeskStore:
     async def list_desks(self) -> tuple[Desk, ...]:
         """Return every desk, newest first."""
         return tuple(sorted(self.desks.values(), key=lambda d: d.created_at, reverse=True))
+
+    async def scan_desks(self) -> DeskScan:
+        """The listed desks and the malformed rows a test stood in."""
+        return DeskScan(await self.list_desks(), tuple(self.unreadable))
 
     async def save_desk(
         self,

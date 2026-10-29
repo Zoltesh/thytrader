@@ -61,6 +61,9 @@ class DiscretionaryOrderRequest:
     desk_committed_quote: Decimal = Decimal(0)
     """Quote the desk's other open books already hold; with this order it must fit the desk's
     reservation (ADR 0148)."""
+    desk_allocation_quote: Decimal | None = None
+    """The whole allocation this order's book takes from the desk (fee headroom included); the
+    reservation check counts it, not the order's rounded notional (ADR 0148)."""
     book_id: UUID | None = None
     """Identity for the new book, chosen by the caller so an interrupted placement can be
     found exactly (agent desks reserve it before placing; ADR 0147)."""

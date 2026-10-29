@@ -9,7 +9,11 @@ from decimal import Decimal
 import pytest
 
 from thytrader.agent_desk.models import Desk, DeskAction, DeskWake, WakeOutcome
-from thytrader.agent_desk.store import DeskStoreUnavailableError, InMemoryDeskStore
+from thytrader.agent_desk.store import (
+    DeskStoreUnavailableError,
+    InMemoryDeskStore,
+    UnreadableDesk,
+)
 from thytrader.alerts.models import AlertCode, AlertSeverity
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.store import InMemoryAlertStore
@@ -167,3 +171,29 @@ async def test_a_hanging_desk_store_is_abandoned_within_the_pass_budget(
         timeout=5,
     )
     assert await alerts.open_alerts() == ()
+
+
+async def test_an_unreadable_desk_row_pages_by_its_mode_and_never_hides_the_others() -> None:
+    """A malformed row is named by DESK_UNREADABLE; readable desks are still judged."""
+    desks = InMemoryDeskStore()
+    alerts = AlertService(
+        InMemoryAlertStore(), DisabledNotificationSender(), thresholds=AlertThresholds()
+    )
+    await _live_desk(desks)
+    for minutes in (0, 30, 60):
+        await _add(desks, WakeOutcome.ERROR, _START + timedelta(minutes=minutes))
+    desks.unreadable.extend(
+        [UnreadableDesk(desk_id="broken-live", live=True), UnreadableDesk("broken-paper", False)]
+    )
+    now = _START + timedelta(minutes=61)
+    await supervise_desks(alert_service=alerts, desks=desks, clock=lambda: now)
+    opened = {(row.code, row.subject, row.severity) for row in await alerts.open_alerts()}
+    assert opened == {
+        (AlertCode.DESK_WAKES_FAILING, "desk:desk-live", AlertSeverity.CRITICAL),
+        (AlertCode.DESK_UNREADABLE, "desk:broken-live", AlertSeverity.CRITICAL),
+        (AlertCode.DESK_UNREADABLE, "desk:broken-paper", AlertSeverity.WARNING),
+    }
+    desks.unreadable.clear()
+    later = now + timedelta(minutes=1)
+    await supervise_desks(alert_service=alerts, desks=desks, clock=lambda: later)
+    assert {row.code for row in await alerts.open_alerts()} == {AlertCode.DESK_WAKES_FAILING}

@@ -16,7 +16,10 @@ journals nothing at all. Each is one alert per desk (subject ``desk:<desk_id>``)
 The failing alert names the failure by its code only (for example ``DESK_HARNESS_EXIT``), never
 the harness output, which can carry anything the harness printed.
 
-Both are ``critical`` for a live desk (real money is not being supervised by its model) and
+A third, ``DESK_UNREADABLE``, names a stored desk row that fails validation: the desk list
+leaves it out, so its wakes go unsupervised until it is repaired.
+
+All three are ``critical`` for a live desk (real money is not being supervised by its model) and
 ``warning`` for a paper desk. A paused or retired desk is not expected to wake, so its alerts
 resolve. A desk whose wakes could not be read proves nothing; an open alert on a desk no longer
 listed resolves once the desk list itself was read. Alerts only record and warn: nothing here
@@ -43,6 +46,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from thytrader.agent_desk.models import Desk, DeskWake
+    from thytrader.agent_desk.store import UnreadableDesk
     from thytrader.alerts.models import OperatorAlert
 
 FAILED_WAKES = 3
@@ -83,18 +87,22 @@ def desk_wake_evidence(
     *,
     now: datetime,
     prior_alerts: Sequence[OperatorAlert] = (),
+    unreadable: Sequence[UnreadableDesk] = (),
 ) -> SafetyEvidence:
-    """Findings for failing or stalled active desks and the checks that prove recovery.
+    """Findings for failing, stalled or unreadable desks and the checks that prove recovery.
 
     ``wakes`` maps each desk id to its newest wakes (newest first), or ``None`` when the read
-    failed. ``desks`` must be the complete desk list.
+    failed. ``desks`` must be the complete list of readable desks and ``unreadable`` every
+    stored row that failed validation.
     """
-    findings: list[SupervisionFinding] = []
+    findings: list[SupervisionFinding] = [_unreadable(row) for row in unreadable]
     evaluated: list[AlertCheck] = []
     listed: set[str] = set()
+    broken = {desk_subject(row.desk_id) for row in unreadable}
     for desk in desks:
         subject = desk_subject(desk.desk_id)
         listed.add(subject)
+        evaluated.append(AlertCheck(AlertCode.DESK_UNREADABLE, subject))
         if desk.status is not DeskStatus.ACTIVE:
             evaluated.extend(AlertCheck(code, subject) for code in _CODES)
             continue
@@ -116,9 +124,26 @@ def desk_wake_evidence(
     evaluated.extend(
         AlertCheck(row.code, row.subject)
         for row in prior_alerts
-        if row.code in _CODES and row.is_open and row.subject not in listed
+        if row.is_open
+        and (row.code in _CODES or row.code is AlertCode.DESK_UNREADABLE)
+        and row.subject not in listed | broken
     )
     return SafetyEvidence(tuple(findings), tuple(evaluated))
+
+
+def _unreadable(row: UnreadableDesk) -> SupervisionFinding:
+    """One stored desk row that fails validation."""
+    return SupervisionFinding(
+        code=AlertCode.DESK_UNREADABLE,
+        scope=AlertScope.DESK,
+        subject=desk_subject(row.desk_id),
+        severity=AlertSeverity.CRITICAL if row.live else AlertSeverity.WARNING,
+        detail=(
+            f"{'Live' if row.live else 'Paper'} desk {row.desk_id}: its stored row fails "
+            "validation, so it is left out of the desk list and its wakes are not supervised. "
+            "Repair the row; other desks are unaffected."
+        ),
+    )
 
 
 def _judge(

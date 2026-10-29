@@ -153,7 +153,11 @@ action, the briefing ``material_fingerprint`` / ``config_fingerprint``, ``PATCH
 /api/v1/desks/{id}`` with ``thytrader-desk update``, ``wake --always``, score
 ``answered_wakes`` and the ``DESK_WAKES_FAILING`` / ``DESK_WAKES_STALLED`` alerts with scope
 ``desk``; ADR 0147), or the futures mirror order listing (the ``open_futures_orders`` column
-of Alembic ``0083``, from which reports prove product exclusivity; ADR 0151) change.
+of Alembic ``0083``, from which reports prove product exclusivity; ADR 0151), or desk
+integrity (the ``DESK_UNREADABLE`` alert, desk ``cash`` below zero after a loss past the pool,
+and resuming a live desk with ``i_understand_live`` on ``POST
+/api/v1/desks/{id}/status`` / ``thytrader-desk status --i-understand-live``, HTTP 428 without it;
+ADR 0152) change.
 Concurrency is the deployment's ``research_worker_count`` and is reported by operator health,
 not compiled into this contract.
 """
@@ -183,7 +187,7 @@ from thytrader.strategies.models import MAX_REFERENCE_INSTRUMENTS, IndicatorKind
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-OPS_CONTRACT_ID = "thytrader-ops-contract-v112"
+OPS_CONTRACT_ID = "thytrader-ops-contract-v113"
 # Agent desk modes (ADR 0147, 0148): live needs the acknowledgement and a desk_allocations entry.
 AGENT_DESK_MODES: tuple[str, ...] = ("paper", "live")
 EXPECTED_SCHEMA_REVISION = "0083"

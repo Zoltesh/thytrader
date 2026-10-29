@@ -61,4 +61,7 @@ def order_request(
         fresh_book=True,
         desk_id=desk.desk_id,
         desk_committed_quote=committed,
+        # The reservation holds the whole allocation (fee headroom and sizing rounding
+        # included), not only the order's notional.
+        desk_allocation_quote=allocation,
     )
