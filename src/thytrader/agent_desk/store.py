@@ -37,6 +37,14 @@ class UnreadableDesk:
     live: bool
 
 
+@dataclass(frozen=True, slots=True)
+class DeskScan:
+    """Every stored desk row from one read: the readable desks and the malformed rows."""
+
+    desks: tuple[Desk, ...]
+    unreadable: tuple[UnreadableDesk, ...]
+
+
 class DeskStore(Protocol):
     """Desks, their books and their journaled wakes."""
 
@@ -51,12 +59,12 @@ class DeskStore(Protocol):
     async def list_desks(self) -> tuple[Desk, ...]:
         """Return every readable desk, newest first; a malformed row is left out.
 
-        One bad row must not hide every other desk: :meth:`unreadable_desks` names it.
+        One bad row must not hide every other desk: :meth:`scan_desks` names it.
         """
         ...
 
-    async def unreadable_desks(self) -> tuple[UnreadableDesk, ...]:
-        """The stored desk rows that fail validation (``list_desks`` leaves them out)."""
+    async def scan_desks(self) -> DeskScan:
+        """Readable desks and malformed rows from one read, so together they are every row."""
         ...
 
     async def save_desk(
@@ -123,9 +131,9 @@ class InMemoryDeskStore:
         """Return every desk, newest first."""
         return tuple(sorted(self.desks.values(), key=lambda d: d.created_at, reverse=True))
 
-    async def unreadable_desks(self) -> tuple[UnreadableDesk, ...]:
-        """The malformed rows a test stood in."""
-        return tuple(self.unreadable)
+    async def scan_desks(self) -> DeskScan:
+        """The listed desks and the malformed rows a test stood in."""
+        return DeskScan(await self.list_desks(), tuple(self.unreadable))
 
     async def save_desk(
         self,

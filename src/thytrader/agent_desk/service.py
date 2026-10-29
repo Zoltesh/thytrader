@@ -41,8 +41,8 @@ from thytrader.agent_desk.orders import check_live, order_request
 from thytrader.agent_desk.ports import (
     DeskError,
     DeskExecution,
-    conflict_code,
     journal_id,
+    refusal_outcome,
     save_desk,
 )
 from thytrader.agent_desk.score import DeskScore, score_desk
@@ -346,15 +346,8 @@ async def _record_wake(
         opened = await _apply(
             decision, state=state, store=store, execution=execution, wake=decided, now=moment
         )
-    except DeskError as error:
-        code, _, detail = str(error).partition(": ")
-        outcome = {"outcome": WakeOutcome.REFUSED, "outcome_code": code, "detail": detail}
-    except ExecutionConflictError as error:
-        outcome = {
-            "outcome": WakeOutcome.REFUSED,
-            "outcome_code": conflict_code(str(error)),
-            "detail": str(error)[:500],
-        }
+    except (DeskError, ExecutionConflictError) as error:
+        outcome = refusal_outcome(error)
     else:
         if opened is not None:
             return opened

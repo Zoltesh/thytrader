@@ -159,3 +159,22 @@ def test_the_desk_gate_sees_the_whole_allocation_whatever_the_rounding() -> None
     assert desk_committed_for_gate(
         committed=Decimal(100), allocation=None, notional=Decimal("36.70")
     ) == Decimal(100)
+
+
+async def test_admission_past_a_bar_close_starts_after_the_newest_closed_bar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The mark bar may be older than the placement: the cursor is the last bar closed by then."""
+    market_data = MarketDataService(DemoMarketData())
+    _, mark = await closed_mark_context(market_data, product_id="BTC-USD", timeframe="5m")
+    later = mark.starts_at + timedelta(minutes=15, seconds=1)
+    monkeypatch.setattr(discretionary, "utc_now", lambda: later)
+    limit = (mark.close * Decimal("0.999")).quantize(Decimal("0.01"))
+    snapshot = await place_discretionary_order(
+        store=InMemoryExecutionStore(),
+        broker=PaperBroker(),
+        market_data=market_data,
+        request=_request(entry_kind="post_only_limit", limit_price=str(limit)),
+        live_allowed=False,
+    )
+    assert snapshot.deployment.last_evaluated_bar == mark.starts_at + timedelta(minutes=10)

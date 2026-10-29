@@ -11,9 +11,10 @@ from uuid import uuid4
 import pytest
 
 from tests.agent_desk.test_service import _desk, _Execution, _open, _RefusingExecution, _wake
-from thytrader.agent_desk.models import Desk, WakeOutcome
+from thytrader.agent_desk.models import Desk, DeskWake, WakeOutcome
 from thytrader.agent_desk.ports import DeskError, save_desk
-from thytrader.agent_desk.service import briefing
+from thytrader.agent_desk.service import DeskSpec, briefing, create_desk
+from thytrader.agent_desk.store import DeskStoreUnavailableError, InMemoryDeskStore
 from thytrader.agent_desk.valuation import book_value
 from thytrader.trading.models import (
     DeploymentStatus,
@@ -24,7 +25,6 @@ from thytrader.trading.models import (
 )
 
 if TYPE_CHECKING:
-    from thytrader.agent_desk.store import InMemoryDeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.trading.models import DeploymentSnapshot
 
@@ -148,3 +148,30 @@ async def test_the_reservation_check_carries_the_whole_allocation() -> None:
         Decimal(0),
         books[0].allocated_quote,
     ]
+
+
+class _NoJournalStore(InMemoryDeskStore):
+    """A store whose standalone journal insert fails (a crash after the refund)."""
+
+    async def add_wake(self, wake: DeskWake) -> None:
+        del wake
+        raise DeskStoreUnavailableError("journal down")
+
+
+async def test_a_refusal_is_journaled_in_the_same_write_as_its_refund() -> None:
+    """A refund never lands without the refusal that caused it."""
+    store = _NoJournalStore()
+    desk = await create_desk(
+        store,
+        DeskSpec(
+            name="journal desk",
+            quote_currency="USD",
+            starting_cash=Decimal(10000),
+            products=("BTC-USD", "ETH-USD"),
+        ),
+        now=datetime.now(UTC),
+    )
+    wake = await _wake(store, _RefusingExecution(), desk.desk_id, _open())
+    assert wake.outcome_code == "PAPER_FEES_UNAVAILABLE"
+    assert [row.wake_id for row in await store.list_wakes(desk.desk_id, limit=10)] == [wake.wake_id]
+    assert (await _current(store, desk.desk_id)).cash == Decimal(10000)

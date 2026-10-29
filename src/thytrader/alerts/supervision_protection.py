@@ -75,8 +75,12 @@ def _may_trigger_stop(order: Order) -> bool:
     An unfilled entry also carries its bracket's stop price, but that is metadata for the
     bracket it attaches on fill: the entry itself is never a stop.
     """
-    protective = is_venue_protection(order.kind) or order.parent_order_id is not None
-    return protective and _may_trigger(order)
+    return _is_protection(order) and _may_trigger(order)
+
+
+def _is_protection(order: Order) -> bool:
+    """Venue protection (bracket or stop-limit) or an attached child."""
+    return is_venue_protection(order.kind) or order.parent_order_id is not None
 
 
 def _sticky_trigger_ids(
@@ -131,10 +135,15 @@ def _snapshot_checks(
         for item in previous
         if item.code is AlertCode.STOP_TRIGGERED_UNFILLED and item.subject not in watched
     )
+    # An order that is not protection (an entry carrying its bracket's stop) never was a
+    # triggered stop: its alert clears without waiting for the book's economics.
+    not_protection = {
+        f"{deployment.id}:{order.id}" for order in snapshot.orders if not _is_protection(order)
+    }
     evaluated.extend(
         AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject)
         for subject in terminal_subjects
-        if _trigger_recovery_proved(snapshot, subject, previous)
+        if subject in not_protection or _trigger_recovery_proved(snapshot, subject, previous)
     )
     return tuple(evaluated)
 
@@ -227,6 +236,7 @@ def _cover_evidence_unknown(
         if resolved_product_id(order.product_id, deployment) == product
         and order.status in _STOP_TRIGGER_WATCH_STATUSES
         and order.stop_trigger_price is not None
+        and _is_protection(order)
     )
     if not stops:
         return False

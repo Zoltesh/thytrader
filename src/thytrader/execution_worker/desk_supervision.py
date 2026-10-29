@@ -60,8 +60,9 @@ async def _supervise(
 ) -> None:
     """One evidence pass: read, judge, apply, then log each newly raised alert."""
     observed_at = (utc_now if clock is None else clock)()
-    listed = await desks.list_desks()
-    unreadable = await desks.unreadable_desks()
+    # One read for both, so a row repaired between two reads is never taken for deleted.
+    scan = await desks.scan_desks()
+    listed, unreadable = scan.desks, scan.unreadable
     wakes: dict[str, Sequence[DeskWake] | None] = {}
     for desk in listed:
         try:

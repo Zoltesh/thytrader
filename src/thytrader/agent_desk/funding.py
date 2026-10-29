@@ -24,7 +24,7 @@ from thytrader.agent_desk.models import (
     PendingOpen,
     WakeOutcome,
 )
-from thytrader.agent_desk.ports import DeskError, journal_id, save_desk
+from thytrader.agent_desk.ports import DeskError, journal_id, refusal_outcome, save_desk
 from thytrader.ids import uuid7
 from thytrader.trading.models import ExecutionConflictError, PositionSide
 
@@ -78,14 +78,21 @@ async def open_funded(
     try:
         snapshot = await execution.open_book(replace(request, book_id=UUID(pending.deployment_id)))
     except Exception as error:
-        # A refusal the caller journals needs no second "interrupted open" row after it.
-        refused = isinstance(error, DeskError | ExecutionConflictError)
-        _, linked = await resolve_pending(
-            reserved, store=store, execution=execution, wake=wake, journal_refund=not refused
+        # A refusal is journaled in the refund's own write (never a separate "interrupted open"
+        # row, and never a refund without its journal); anything else still raises.
+        refused = (
+            wake.model_copy(update=refusal_outcome(error))
+            if isinstance(error, DeskError | ExecutionConflictError)
+            else None
         )
-        if linked is None:
+        _, linked = await resolve_pending(
+            reserved, store=store, execution=execution, wake=wake, refusal=refused
+        )
+        if linked is not None:
+            return linked.model_copy(update={"detail": f"placement raised: {error}"[:500]})
+        if refused is None:
             raise
-        return linked.model_copy(update={"detail": f"placement raised: {error}"[:500]})
+        return refused
     applied = wake.model_copy(
         update={"outcome": WakeOutcome.APPLIED, "deployment_id": str(snapshot.deployment.id)}
     )
@@ -105,14 +112,14 @@ async def resolve_pending(
     store: DeskStore,
     execution: DeskExecution,
     wake: DeskWake | None = None,
-    journal_refund: bool = True,
+    refusal: DeskWake | None = None,
 ) -> tuple[Desk, DeskWake | None]:
     """Link the book a reservation created, or refund the reservation when there is none.
 
     Returns the desk and, when a book was linked, its applied wake (``wake`` when the caller
     still holds the decision, else a rebuilt ``DESK_OPEN_RECOVERED`` row unless already
-    journaled). A refund journals a ``DESK_OPEN_REFUNDED`` row unless ``journal_refund`` is
-    false (the caller journals the refusal that caused it).
+    journaled). A refund journals ``refusal`` (the refused open that caused it) in the same
+    write, or else a ``DESK_OPEN_REFUNDED`` row.
     """
     pending = desk.pending_open
     if pending is None:
@@ -126,7 +133,7 @@ async def resolve_pending(
             ),
             store=store,
             previous=desk,
-            wakes=(_refund_wake(desk, pending),) if journal_refund else (),
+            wakes=(refusal or _refund_wake(desk, pending),),
         )
         return refunded, None
     linked = (

@@ -8,6 +8,7 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
+from thytrader.agent_desk.models import WakeOutcome
 from thytrader.agent_desk.store import DeskConflictError
 from thytrader.ids import uuid7
 
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, PendingOpen
     from thytrader.agent_desk.store import DeskStore
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
-    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot, ExecutionConflictError
 
 
 class DeskError(RuntimeError):
@@ -84,6 +85,18 @@ async def save_desk(
         )
     except DeskConflictError as error:
         raise DeskError(f"DESK_CONFLICT: {error}") from error
+
+
+def refusal_outcome(error: DeskError | ExecutionConflictError) -> dict[str, object]:
+    """The journal fields of an open refused by the desk or by the execution path."""
+    if isinstance(error, DeskError):
+        code, _, detail = str(error).partition(": ")
+        return {"outcome": WakeOutcome.REFUSED, "outcome_code": code, "detail": detail}
+    return {
+        "outcome": WakeOutcome.REFUSED,
+        "outcome_code": conflict_code(str(error)),
+        "detail": str(error)[:500],
+    }
 
 
 def conflict_code(message: str) -> str:

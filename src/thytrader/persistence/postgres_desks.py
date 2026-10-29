@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, WakeOutcome
 from thytrader.agent_desk.store import (
     DeskConflictError,
+    DeskScan,
     DeskStoreUnavailableError,
     UnreadableDesk,
 )
@@ -64,30 +65,25 @@ class PostgresDeskStore:
 
     async def list_desks(self) -> tuple[Desk, ...]:
         """Return every readable desk, newest first; a malformed row is left out and logged."""
-        rows = await self._rows(select(desks.c.desk_json).order_by(desks.c.created_at.desc()))
-        listed: list[Desk] = []
-        for row in rows:
-            try:
-                listed.append(_parse(Desk, row))
-            except DeskStoreUnavailableError:
-                _logger.warning("desk_row_unreadable")
-        return tuple(listed)
+        return (await self.scan_desks()).desks
 
-    async def unreadable_desks(self) -> tuple[UnreadableDesk, ...]:
-        """The stored desk rows that fail validation, by id and the mode they declare."""
-        statement = select(desks.c.desk_id, desks.c.desk_json).order_by(desks.c.created_at)
+    async def scan_desks(self) -> DeskScan:
+        """Readable desks (newest first) and malformed rows, from one read of every row."""
+        statement = select(desks.c.desk_id, desks.c.desk_json).order_by(desks.c.created_at.desc())
         try:
             async with self._engine.connect() as connection:
                 rows = (await connection.execute(statement)).all()
         except (SQLAlchemyError, OSError) as error:
             raise DeskStoreUnavailableError(_UNAVAILABLE) from error
+        listed: list[Desk] = []
         unreadable: list[UnreadableDesk] = []
         for desk_id, stored in rows:
             try:
-                Desk.model_validate_json(stored)
+                listed.append(Desk.model_validate_json(stored))
             except ValidationError:
+                _logger.warning("desk_row_unreadable desk_id=%s", desk_id)
                 unreadable.append(UnreadableDesk(desk_id=desk_id, live=_declares_live(stored)))
-        return tuple(unreadable)
+        return DeskScan(tuple(listed), tuple(unreadable))
 
     async def save_desk(
         self,

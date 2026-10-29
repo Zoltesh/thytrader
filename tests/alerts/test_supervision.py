@@ -488,3 +488,102 @@ async def test_a_resting_entry_carrying_its_bracket_stop_is_not_a_triggered_stop
     )
     assert AlertCode.STOP_TRIGGERED_UNFILLED not in {item.code for item in found.findings}
     assert AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject) in found.evaluated
+
+
+@pytest.mark.anyio
+async def test_a_false_entry_stop_alert_clears_while_the_entry_fill_is_still_importing() -> None:
+    """The entry never was protection, so its alert needs no economics proof to clear."""
+    deployment = _deployment(
+        mode=DeploymentMode.LIVE, phase=RuntimePhase.PENDING_ENTRY, timeframe="1h"
+    )
+    created = datetime(2026, 3, 2, 3, 0, tzinfo=UTC)
+    entry = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="entry-2",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        filled_quantity=Decimal("0.005"),
+        price=Decimal("100"),
+        status=OrderStatus.OPEN,
+        created_at=created,
+        updated_at=_NOW,
+        stop_trigger_price=Decimal("95"),
+        take_profit_price=Decimal("120"),
+        product_id="BTC-USD",
+    )
+    snapshot = DeploymentSnapshot(deployment=deployment, orders=(entry,))
+    subject = f"{deployment.id}:{entry.id}"
+    prior = OperatorAlert(
+        id=uuid4(),
+        code=AlertCode.STOP_TRIGGERED_UNFILLED,
+        scope=AlertScope.DEPLOYMENT,
+        subject=subject,
+        severity=AlertSeverity.CRITICAL,
+        detail="old",
+        deployment_id=deployment.id,
+        product_id="BTC-USD",
+        first_seen_at=created,
+        last_seen_at=created,
+        occurrences=1,
+    )
+    found = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(snapshot),
+        closed_candles=_no_candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+        prior_alerts=(prior,),
+    )
+    assert AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject) in found.evaluated
+
+
+@pytest.mark.anyio
+async def test_an_entry_carrying_bracket_metadata_never_holds_cover_recovery() -> None:
+    """A flat book's old cover alert recovers though a new entry rests with its bracket stop."""
+    deployment = _deployment(
+        mode=DeploymentMode.LIVE, phase=RuntimePhase.PENDING_ENTRY, timeframe="1h"
+    )
+    entry = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="entry-3",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        status=OrderStatus.OPEN,
+        created_at=_NOW - timedelta(hours=1),
+        updated_at=_NOW,
+        stop_trigger_price=Decimal("95"),
+        take_profit_price=Decimal("120"),
+        product_id="BTC-USD",
+    )
+    subject = f"{deployment.id}:BTC-USD"
+    prior = OperatorAlert(
+        id=uuid4(),
+        code=AlertCode.STOP_UNCOVERED,
+        scope=AlertScope.DEPLOYMENT,
+        subject=subject,
+        severity=AlertSeverity.CRITICAL,
+        detail="old",
+        deployment_id=deployment.id,
+        product_id="BTC-USD",
+        first_seen_at=_NOW - timedelta(hours=2),
+        last_seen_at=_NOW - timedelta(hours=2),
+        occurrences=1,
+    )
+    found = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(DeploymentSnapshot(deployment=deployment, orders=(entry,))),
+        closed_candles=_no_candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+        prior_alerts=(prior,),
+    )
+    assert AlertCheck(AlertCode.STOP_UNCOVERED, subject) in found.evaluated

@@ -29,12 +29,14 @@ from thytrader.execution.runtime_ops import (
     entry_executions_unapplied,
 )
 from thytrader.execution.submit import submit_intent
+from thytrader.market_data.models import parse_candle_interval
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
 from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.geometry import (
     bracket_error_detail,
     bracket_is_valid,
+    entry_bar_bucket,
     entry_order_side,
     exit_order_side,
     paper_stop_fill_price,
@@ -58,6 +60,8 @@ from thytrader.trading.models import (
 from thytrader.trading.sizing import quantize_to_increment
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from thytrader.execution.broker import Broker
     from thytrader.execution.discretionary_request import DiscretionaryOrderRequest
     from thytrader.execution.paper_fees import PaperFeeSource
@@ -65,6 +69,7 @@ if TYPE_CHECKING:
     from thytrader.market_data.service import MarketDataService
     from thytrader.memory.store import ExperientialMemoryStore
     from thytrader.risk.store import RiskPolicyStore
+    from thytrader.trading.models import Deployment
     from thytrader.trading.store import ExecutionStore
 
 _IN_MARKET = {RuntimePhase.OPEN, RuntimePhase.PENDING_ENTRY, RuntimePhase.PENDING_EXIT}
@@ -157,14 +162,7 @@ async def _place(
         pending_target_price=sized.take_profit_price,
         last_signal="discretionary",
         clear_mismatch=True,
-        # A book never evaluated starts from the mark bar (on its own clock): a resting limit
-        # is never matched against a bar that closed before it was placed.
-        last_evaluated_bar=(
-            mark_candle.starts_at
-            if snapshot.deployment.last_evaluated_bar is None
-            and snapshot.deployment.timeframe == request.timeframe
-            else None
-        ),
+        last_evaluated_bar=_placement_cursor(snapshot.deployment, request, mark_candle),
     )
     # No intent or venue submission follows a lost candidate revision. Re-admission
     # must start from fresh evidence, not restore stale cash/status/lifecycle fields.
@@ -266,6 +264,22 @@ async def process_discretionary_bar(
         snapshot, store=store, mark_price=candle.close, product_id=product.product_id
     )
     return await _persist_runtime(snapshot, store=store, last_evaluated_bar=candle.starts_at)
+
+
+def _placement_cursor(
+    deployment: Deployment, request: DiscretionaryOrderRequest, mark: Candle
+) -> datetime | None:
+    """Where a never-evaluated book starts: the newest bar closed before the order is placed.
+
+    A resting limit is never matched against a bar that closed before it existed. The mark bar
+    is older than that when admission ran past a bar close, so the newer of the two wins. A book
+    already evaluated, or on another clock, keeps its cursor.
+    """
+    if deployment.last_evaluated_bar is not None or deployment.timeframe != request.timeframe:
+        return None
+    interval = parse_candle_interval(request.timeframe)
+    closed = entry_bar_bucket(utc_now(), request.timeframe) - interval.duration
+    return max(mark.starts_at, closed)
 
 
 @dataclass(frozen=True, slots=True)

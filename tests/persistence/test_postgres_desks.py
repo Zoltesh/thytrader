@@ -151,7 +151,9 @@ async def test_a_malformed_desk_row_is_left_out_of_the_list_and_named() -> None:
         listed = {desk.desk_id for desk in await store.list_desks()}
         assert good.desk_id in listed
         assert broken_id not in listed
-        assert UnreadableDesk(desk_id=broken_id, live=True) in await store.unreadable_desks()
+        scan = await store.scan_desks()
+        assert UnreadableDesk(desk_id=broken_id, live=True) in scan.unreadable
+        assert good.desk_id in {desk.desk_id for desk in scan.desks}
         async with engine.begin() as connection:
             await connection.execute(desks_table.delete().where(desks_table.c.desk_id == broken_id))
     finally:
