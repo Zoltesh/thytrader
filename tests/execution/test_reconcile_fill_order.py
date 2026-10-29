@@ -376,3 +376,128 @@ async def test_each_order_is_listed_once_per_pass() -> None:
     )
 
     assert sorted(venue.listings) == ["venue-child", "venue-entry"]
+
+
+class _LaggingVenue(_FlakyVenue):
+    """A venue whose listing for some orders is empty until it has been asked a few times."""
+
+    def __init__(
+        self,
+        fills: dict[str, tuple[Fill, ...]],
+        states: dict[str, SubmitResult],
+        *,
+        empty_reads: dict[str, int],
+    ) -> None:
+        super().__init__(fills, states)
+        self.empty_reads = dict(empty_reads)
+
+    async def list_fills(self, *, product_id: str, order_id: str | None = None) -> tuple[Fill, ...]:
+        remaining = self.empty_reads.get(order_id or "", 0)
+        if remaining > 0:
+            self.empty_reads[order_id or ""] = remaining - 1
+            self.listings.append(order_id or "")
+            return ()
+        return await super().list_fills(product_id=product_id, order_id=order_id)
+
+
+def _bracketed_states(child_filled: str) -> dict[str, SubmitResult]:
+    return {
+        "venue-entry": replace(
+            _filled("venue-entry", "1"), attached_child_venue_order_id="venue-child"
+        ),
+        "venue-child": SubmitResult(
+            status=OrderStatus.OPEN,
+            venue_order_id="venue-child",
+            filled_quantity=Decimal(child_filled),
+        ),
+    }
+
+
+async def test_an_empty_parent_listing_holds_the_childs_exit() -> None:
+    """A parent listing that is still empty while the child sold holds the child: no phantom."""
+    store = _NewestFirstStore()
+    deployment, parent, child = await _pending_live_book(store)
+    venue = _LaggingVenue(
+        fills={
+            "venue-entry": (_remote(parent, name="f-entry", quantity="1", price="100", minutes=1),),
+            "venue-child": (_remote(child, name="f-tp", quantity="0.3", price="120", minutes=30),),
+        },
+        states=_bracketed_states("0.3"),
+        empty_reads={"venue-entry": 2},
+    )
+
+    held = await reconcile_open_orders(
+        await store.get_deployment(deployment.id), broker=venue, store=store
+    )
+
+    assert held.position is None
+    assert all(fill.order_id != child.id for fill in held.fills)
+    recovered = await reconcile_open_orders(held, broker=venue, store=store)
+    assert recovered.position is not None
+    assert recovered.position.side is PositionSide.LONG
+    assert recovered.position.quantity == Decimal("0.7")
+
+
+async def test_a_read_reporting_new_executions_relists_within_the_pass() -> None:
+    """A parent whose read reports a fill the earlier listing lacked is re-listed and applied."""
+    store = _NewestFirstStore()
+    deployment, parent, child = await _pending_live_book(store)
+    venue = _LaggingVenue(
+        fills={
+            "venue-entry": (_remote(parent, name="f-entry", quantity="1", price="100", minutes=1),),
+            "venue-child": (_remote(child, name="f-tp", quantity="0.3", price="120", minutes=30),),
+        },
+        states=_bracketed_states("0.3"),
+        empty_reads={"venue-entry": 1},
+    )
+
+    result = await reconcile_open_orders(
+        await store.get_deployment(deployment.id), broker=venue, store=store
+    )
+
+    assert result.position is not None
+    assert result.position.quantity == Decimal("0.7")
+    assert result.deployment.mismatch_detail is None
+
+
+async def test_a_child_found_by_the_read_waits_for_its_unread_parent() -> None:
+    """A child first revealed by its parent's read is held while the parent's fills are unread."""
+    store = _NewestFirstStore()
+    deployment, parent, child = await _pending_live_book(store)
+    store.orders.pop(child.id)
+    venue = _FlakyVenue(
+        fills={
+            "venue-entry": (_remote(parent, name="f-entry", quantity="1", price="100", minutes=1),),
+            "venue-child": (_remote(child, name="f-tp", quantity="0.3", price="120", minutes=30),),
+        },
+        states=_bracketed_states("0.3"),
+        unreadable=frozenset({"venue-entry"}),
+    )
+
+    held = await reconcile_open_orders(
+        await store.get_deployment(deployment.id), broker=venue, store=store
+    )
+
+    assert held.position is None
+    assert held.fills == ()
+
+
+async def test_replayed_fills_put_a_parent_before_its_child_on_a_tie() -> None:
+    """Stored unapplied fills with the same execution time replay parent first."""
+    store = _NewestFirstStore()
+    deployment, parent, child = await _pending_live_book(store)
+    entry_fill = _remote(parent, name="f-entry", quantity="1", price="100", minutes=1)
+    exit_fill = replace(
+        _remote(child, name="f-tp", quantity="0.3", price="120", minutes=1),
+        id=UUID(int=1),
+    )
+    await store.save_fill(replace(entry_fill, id=UUID(int=2)))
+    await store.save_fill(exit_fill)
+    venue = _Venue(fills={}, states=_bracketed_states("0.3"))
+
+    result = await reconcile_open_orders(
+        await store.get_deployment(deployment.id), broker=venue, store=store
+    )
+
+    assert result.position is not None
+    assert result.position.quantity == Decimal("0.7")

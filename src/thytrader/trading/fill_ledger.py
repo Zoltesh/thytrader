@@ -599,9 +599,10 @@ async def replay_unapplied_fills(
     """
     current = snapshot
     # Stores load fills newest first; economics must apply in execution order.
+    children = {order.id for order in current.orders if order.parent_order_id is not None}
     pending = sorted(
         (fill for fill in current.fills if fill.economics_applied_at is None),
-        key=lambda fill: (fill.filled_at, fill.id),
+        key=lambda fill: (fill.filled_at, fill.order_id in children, fill.id),
     )
     for fill in pending:
         order = next((item for item in current.orders if item.id == fill.order_id), None)

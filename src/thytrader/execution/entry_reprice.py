@@ -14,6 +14,7 @@ from thytrader.execution.attached import remaining_quantity
 from thytrader.execution.breaker_pause import _bar_observation, _pause_for_breaker
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.decision_scope import note_entry_skip
+from thytrader.execution.entry import _sizing_atr
 from thytrader.execution.entry_admission import _entry_verdict
 from thytrader.execution.entry_sizing import (
     _attaches_bracket,
@@ -29,7 +30,6 @@ from thytrader.execution.runtime_ops import (
     _flatten_pending,
     _pause,
 )
-from thytrader.execution.signals import latest_atr
 from thytrader.execution.submit import order_left_nothing_working, submit_intent
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.models import RiskDecision, compiled_default_risk_policy, pauses_risk_increasing
@@ -181,8 +181,10 @@ async def _reprice_entry(
         return await _abandon_reprice(
             snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
         )
-    atr = latest_atr(strategy, candles)
-    if atr is None:
+    # The first entry's prerequisites, including a futures book's binding, margin and
+    # funding evidence, also gate its replacement.
+    atr = _sizing_atr(snapshot, strategy=strategy, candles=candles, product_id=product.product_id)
+    if not isinstance(atr, Decimal):
         return await _abandon_reprice(
             snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
         )
@@ -244,6 +246,7 @@ async def _reprice_entry(
     if (
         side is PositionSide.SHORT
         and snapshot.deployment.mode is DeploymentMode.LIVE
+        and not is_futures_product_id(product.product_id)
         and (live_base_available is None or live_base_available < remaining_qty)
     ):
         return await _pause(

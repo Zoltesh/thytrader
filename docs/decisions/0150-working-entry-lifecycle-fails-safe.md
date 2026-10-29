@@ -58,10 +58,16 @@ fills put a book into a state nothing recovers from, or into a wrong one:
   (keeping any existing pause) before any maintenance; it never runs on the paper broker.
 - **Fills project in execution order.** Before reconcile reads each order, it lists every watched
   order's fills and applies the unseen ones together by fill time (a parent's before its
-  child's on a tie); the walk reuses those listings. While a parent's fills cannot be listed,
-  its attached children's fills are held for that pass (their listing reads as failed), so a
-  child's exit never projects against unknown entry economics. Unapplied stored fills replay
-  by fill time. An exit fill larger than the
+  child's on a tie); the walk reuses those listings, re-listing an order whose read reports
+  more executed than its listing shows. A parent whose fills cannot be listed, or whose
+  listing covers less than the venue reports executed or less than its attached children
+  sold, holds those children's fills for the pass (their listing reads as failed), including
+  a child first revealed by the parent's read, so a child's exit never projects against
+  unknown entry economics. Unapplied stored fills replay by fill time, a parent's before its
+  child's on a tie.
+- **A reprice needs the first entry's prerequisites** (a futures book's binding, margin and
+  funding evidence); without them it is abandoned. A live futures short reprice does not need
+  spot base inventory. An exit fill larger than the
   open position still applies its exact cash, flattens the book and pauses it (a stopped book
   stays stopped) with `Exit fill exceeds the open position; the residual inventory is
   unmanaged.` instead of dropping the residual.

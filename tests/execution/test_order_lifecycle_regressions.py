@@ -499,6 +499,12 @@ async def test_a_futures_reprice_sizes_with_its_fee_evidence(
         return EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE
 
     monkeypatch.setattr(entry_reprice, "_size_entry_or_add", _capture)
+    # The futures prerequisites (binding, margin, funding) are covered elsewhere; here they hold.
+    def _atr(*args: object, **kwargs: object) -> Decimal:
+        del args, kwargs
+        return Decimal("1")
+
+    monkeypatch.setattr(entry_reprice, "_sizing_atr", _atr)
     store = InMemoryExecutionStore()
     strategy = _always_entry_strategy(on_unfilled_entry="reprice")
     snapshot = await _running_snapshot(store, strategy)
@@ -607,3 +613,24 @@ async def test_a_discretionary_entry_awaiting_its_fills_keeps_the_pending_levels
     assert watched.deployment.phase is RuntimePhase.PENDING_ENTRY
     assert watched.deployment.pending_stop_price == Decimal("90")
     assert watched.deployment.pending_target_price == Decimal("120")
+
+
+async def test_a_reprice_without_its_entry_prerequisites_is_abandoned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A replacement needs the first entry's prerequisites (futures funding evidence, say)."""
+    broker = _ScriptedPaper()
+    store, strategy, current, warmup = await _rested(broker)
+    original = current.orders[0].id
+
+    def _blocked(*args: object, **kwargs: object) -> tuple[str, str]:
+        del args, kwargs
+        return ("FUNDING_HISTORY_MISSING", "No current funding evidence.")
+
+    monkeypatch.setattr(entry_reprice, "_sizing_atr", _blocked)
+    current = await _expire(store, current, strategy=strategy, warmup=warmup, broker=broker)
+
+    assert [order.id for order in current.orders] == [original]
+    assert _working(current) == []
+    assert current.deployment.phase is RuntimePhase.FLAT
+    assert current.deployment.mismatch_detail is None
