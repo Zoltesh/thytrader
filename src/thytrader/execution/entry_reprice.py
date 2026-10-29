@@ -14,23 +14,26 @@ from thytrader.execution.attached import remaining_quantity
 from thytrader.execution.breaker_pause import _bar_observation, _pause_for_breaker
 from thytrader.execution.broker import BrokerError
 from thytrader.execution.decision_scope import note_entry_skip
+from thytrader.execution.entry import _sizing_atr
 from thytrader.execution.entry_admission import _entry_verdict
 from thytrader.execution.entry_sizing import (
+    _attaches_bracket,
     _await_maker_limit,
     _signal_intent_key,
     _size_entry_or_add,
     _with_pending_levels,
 )
+from thytrader.execution.reconcile import ingest_order_fills
 from thytrader.execution.runtime_ops import (
     _active_entry,
     _cancel_one_order,
     _flatten_pending,
     _pause,
 )
-from thytrader.execution.signals import latest_atr
-from thytrader.execution.submit import submit_intent
+from thytrader.execution.submit import order_left_nothing_working, submit_intent
+from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.models import RiskDecision, compiled_default_risk_policy, pauses_risk_increasing
-from thytrader.strategies.models import atr_trailing_stop
+from thytrader.trading.fill_ledger import applied_fill_quantity
 from thytrader.trading.geometry import EntrySkipReason
 from thytrader.trading.ids import utc_now
 from thytrader.trading.lifecycle import can_reprice_risk_up
@@ -57,6 +60,11 @@ if TYPE_CHECKING:
     from thytrader.trading.store import ExecutionStore
 
 
+CANCEL_RACE_FILLS_PENDING_DETAIL = (
+    "Cancelled entry reported executions that are not readable yet; reconcile before resuming."
+)
+
+
 async def _manage_working_entry(
     snapshot: DeploymentSnapshot,
     *,
@@ -76,8 +84,8 @@ async def _manage_working_entry(
     deployment = snapshot.deployment
     waited = deployment.pending_entry_bars + 1
     open_entry = _active_entry(snapshot)
-    has_position = snapshot.position is not None
     if open_entry is None:
+        has_position = snapshot.position is not None
         if has_position:
             cleared = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=0)
             await store.save_deployment(cleared)
@@ -93,8 +101,8 @@ async def _manage_working_entry(
         waited_state = with_runtime(deployment, updated_at=utc_now(), pending_entry_bars=waited)
         await store.save_deployment(waited_state)
         return await store.get_deployment(deployment.id)
-    if strategy.execution.on_unfilled_entry == "reprice" and not can_reprice_risk_up(deployment):
-        return snapshot
+    # An expired entry is cancelled even when the book may not reprice (paused, latched,
+    # disarmed): left resting it could still fill after entries were blocked.
     snapshot = await _cancel_one_order(open_entry, broker=broker, store=store)
     remaining = _active_entry(snapshot)
     if remaining is not None and remaining.status is not OrderStatus.CANCELED:
@@ -103,6 +111,14 @@ async def _manage_working_entry(
             store=store,
             detail="Unfilled entry could not be canceled before retrying.",
         )
+    # The cancel can report executions that raced it. They are applied before deciding to
+    # abandon or replace: abandoning first would clear the stop their position needs.
+    snapshot, prior, settled = await _apply_cancel_race_fills(
+        snapshot, order=open_entry, broker=broker, store=store, product_id=product.product_id
+    )
+    if not settled:
+        return await _pause(snapshot, store=store, detail=CANCEL_RACE_FILLS_PENDING_DETAIL)
+    has_position = snapshot.position is not None
     if strategy.execution.on_unfilled_entry == "reprice" and can_reprice_risk_up(
         snapshot.deployment
     ):
@@ -115,7 +131,7 @@ async def _manage_working_entry(
             product=product,
             broker=broker,
             store=store,
-            prior=open_entry,
+            prior=prior,
             marks=marks,
             live_base_available=live_base_available,
             phase=phase,
@@ -151,29 +167,27 @@ async def _reprice_entry(
 ) -> DeploymentSnapshot:
     """Submit a replacement post-only entry at remaining qty after sizing and risk re-admission."""
     remaining_qty = remaining_quantity(prior)
-    if remaining_qty <= 0 or not can_reprice_risk_up(snapshot.deployment):
-        return snapshot
     is_pyramid = phase is RuntimePhase.OPEN or snapshot.position is not None
+    if remaining_qty <= 0 or not can_reprice_risk_up(snapshot.deployment):
+        # Nothing is left to rest (the cancel found it filled) or the book may not take risk.
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
     try:
         entry_price = await _await_maker_limit(
             broker, product_id=product.product_id, mark=candle.close, side=prior.side
         )
     except BrokerError:
-        if is_pyramid:
-            abandoned = with_runtime(
-                snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0
-            )
-            await store.save_deployment(abandoned)
-            return await store.get_deployment(snapshot.deployment.id)
-        return await _pause(
-            snapshot,
-            store=store,
-            detail="Maker entry price is unavailable for repricing.",
-            phase=RuntimePhase.FLAT,
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
         )
-    atr = latest_atr(strategy, candles)
-    if atr is None:
-        return snapshot
+    # The first entry's prerequisites, including a futures book's binding, margin and
+    # funding evidence, also gate its replacement.
+    atr = _sizing_atr(snapshot, strategy=strategy, candles=candles, product_id=product.product_id)
+    if not isinstance(atr, Decimal):
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
     side = PositionSide(strategy.entry.side)
     sized = _size_entry_or_add(
         snapshot,
@@ -183,12 +197,20 @@ async def _reprice_entry(
         atr=atr,
         side=side,
         is_pyramid_add=is_pyramid,
-        # Preserve legacy reprice sizing when the strategy has not enabled the new guard.
-        fee_profile=fee_profile if strategy.entry.economic_guard is not None else None,
+        # Preserve legacy reprice sizing when the strategy has not enabled the new guard;
+        # a futures entry always sizes with its fee evidence, as its first entry does.
+        fee_profile=(
+            fee_profile
+            if strategy.entry.economic_guard is not None
+            or is_futures_product_id(product.product_id)
+            else None
+        ),
     )
     if isinstance(sized, EntrySkipReason):
         note_entry_skip(sized)
-        return snapshot
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
     stop_price, target_price = _legal_reprice_geometry(
         side=side,
         entry_price=entry_price,
@@ -218,12 +240,13 @@ async def _reprice_entry(
             return await _pause_for_breaker(
                 snapshot, store=store, portfolio=portfolio, verdict=admitted
             )
-        return await _abandon_denied_reprice(
+        return await _abandon_reprice(
             snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
         )
     if (
         side is PositionSide.SHORT
         and snapshot.deployment.mode is DeploymentMode.LIVE
+        and not is_futures_product_id(product.product_id)
         and (live_base_available is None or live_base_available < remaining_qty)
     ):
         return await _pause(
@@ -235,6 +258,7 @@ async def _reprice_entry(
         )
     return await _submit_repriced_entry(
         snapshot,
+        strategy=strategy,
         broker=broker,
         store=store,
         product=product,
@@ -246,40 +270,46 @@ async def _reprice_entry(
         target_price=target_price,
         is_pyramid=is_pyramid,
         phase=phase,
-        attach=(
-            not is_pyramid
-            and target_price is not None
-            and atr_trailing_stop(strategy.exits) is None
+        attach=not is_pyramid
+        and _attaches_bracket(
+            snapshot.deployment,
+            strategy=strategy,
+            target_price=target_price,
+            product_id=product.product_id,
         ),
     )
 
 
-async def _abandon_denied_reprice(
+async def _abandon_reprice(
     snapshot: DeploymentSnapshot,
     *,
     store: ExecutionStore,
     strategy: StrategyDefinition,
     is_pyramid: bool,
 ) -> DeploymentSnapshot:
-    """Give up a reprice the risk gate denied without pausing, as an unfilled cancel would.
+    """Give up a reprice without pausing, as an unfilled cancel would.
 
     The working entry is already cancelled. Leaving the book pending entry with nothing
-    working would read as a split lifecycle and pause it, but a non-breaker denial (for
-    example the BTC-beta cap, ADR 0125) only skips this entry. A pyramid add keeps its
-    position and stops waiting; a flat book returns to flat with the entry cooldown.
+    working would read as a split lifecycle and pause it, but a reprice that cannot go
+    ahead (no maker price or ATR, a sizing skip, a non-breaker denial such as the BTC-beta
+    cap of ADR 0125, or a replacement the venue rejected) only skips this entry. A pyramid
+    add keeps its position and stops waiting; a flat book returns to flat with the entry
+    cooldown. The latest row is reloaded so the write carries the current revision.
     """
+    latest = await store.get_deployment(snapshot.deployment.id)
     if is_pyramid:
-        abandoned = with_runtime(snapshot.deployment, updated_at=utc_now(), pending_entry_bars=0)
+        abandoned = with_runtime(latest.deployment, updated_at=utc_now(), pending_entry_bars=0)
         await store.save_deployment(abandoned)
         return await store.get_deployment(snapshot.deployment.id)
     return await _flatten_pending(
-        snapshot, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
+        latest, store=store, cooldown_bars=max(strategy.entry.cooldown_bars, 1)
     )
 
 
 async def _submit_repriced_entry(
     snapshot: DeploymentSnapshot,
     *,
+    strategy: StrategyDefinition,
     broker: Broker,
     store: ExecutionStore,
     product: MarketProduct,
@@ -322,9 +352,50 @@ async def _submit_repriced_entry(
             store=store,
             detail="Repriced entry submit is unconfirmed.",
         )
-    pending = with_runtime(reset, updated_at=utc_now(), phase=phase, pending_entry_bars=0)
+    if order_left_nothing_working(order):
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
+    if order.status is OrderStatus.FILLED:
+        # The create path can report a fill at once; apply it now so the phase follows the
+        # position instead of a pending entry with nothing working.
+        await ingest_order_fills(
+            await store.get_deployment(snapshot.deployment.id),
+            order=order,
+            broker=broker,
+            store=store,
+            product_id=product.product_id,
+        )
+    # Build on the saved row: ``reset`` carries the revision before its own save.
+    latest = await store.get_deployment(snapshot.deployment.id)
+    pending = with_runtime(
+        latest.deployment,
+        updated_at=utc_now(),
+        phase=RuntimePhase.OPEN if latest.position is not None else phase,
+        pending_entry_bars=0,
+    )
     await store.save_deployment(pending)
     return await store.get_deployment(snapshot.deployment.id)
+
+
+async def _apply_cancel_race_fills(
+    snapshot: DeploymentSnapshot,
+    *,
+    order: Order,
+    broker: Broker,
+    store: ExecutionStore,
+    product_id: str,
+) -> tuple[DeploymentSnapshot, Order, bool]:
+    """Apply executions the cancel reported; ``False`` while some are not readable yet."""
+    current = next((item for item in snapshot.orders if item.id == order.id), order)
+    if current.filled_quantity <= applied_fill_quantity(snapshot, current.id):
+        return snapshot, current, True
+    await ingest_order_fills(
+        snapshot, order=current, broker=broker, store=store, product_id=product_id
+    )
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    current = next((item for item in snapshot.orders if item.id == order.id), current)
+    return snapshot, current, current.filled_quantity <= applied_fill_quantity(snapshot, current.id)
 
 
 def _legal_reprice_geometry(

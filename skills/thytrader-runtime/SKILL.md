@@ -510,6 +510,25 @@ resumes put them in each sleeve's outcome `message`.
   operator `risk` report's `payload.start_safeguards` lists both flags explicitly (all `false`
   means every start check only warns). Never turn one on without the user.
 
+## Working entries (paper and live)
+
+An entry rests as a post-only maker limit for up to `execution.max_entry_wait_bars`; then it is
+always cancelled, and `on_unfilled_entry: reprice` rests a replacement for the remaining quantity
+when the bot may still take risk ([ADR 0150](../../docs/decisions/0150-working-entry-lifecycle-fails-safe.md)).
+A venue-attached take-profit/stop child is protection, never a working entry. A reprice that
+cannot go ahead (no maker price, no ATR, a sizing skip, a non-breaker denial, or a replacement
+the venue rejected or cancelled at once) returns the bot to flat with its entry cooldown (a
+pyramid add keeps its position), without a pause; a breaker denial still pauses. A missing maker price when a signal matches skips that bar
+(`decisions` outcome `entry_blocked`, code `MAKER_PRICE_UNAVAILABLE`); do not resume or
+restart for it. A pause with `Cancelled entry reported executions that are not readable yet;
+reconcile before resuming.` keeps the pending stop: wait for reconcile to import the fills
+(the position then appears with its protection) before resuming. Reconcile applies new fills in
+execution order across the bot's orders. A pause with `Exit fill exceeds the
+open position; the residual inventory is unmanaged.` means the venue sold or bought more than
+the book held: compare the venue's balance and fills with the book before any resume, and never
+resume it just to clear the detail. A live discretionary book with no live broker pauses with
+`Live broker is unavailable.` like a strategy book.
+
 ## Signal exits (paper and live)
 
 A strategy whose snapshot declares `exits.signal_exit` ([ADR 0093](../../docs/decisions/0093-signal-based-exits.md))

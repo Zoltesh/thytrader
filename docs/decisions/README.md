@@ -155,6 +155,7 @@ Architecture decision records (ADRs) capture choices that materially shape ThyTr
 | [0147](0147-agent-desk.md) | Agent desks: a paper pool, universe and caps that an external model harness (Claude Code, Pi, Codex, Hermes or any command) wakes on a cadence; one JSON decision per wake applied to a fresh discretionary paper book under the caps, every wake journaled, scored against BTC and universe buy-and-hold | Accepted |
 | [0148](0148-live-agent-desks.md) | Live agent desks: `mode: live` needs the live acknowledgement; the risk policy reserves a live desk's capital in `desk_allocations` (members while allocations are in force, each order bounded); live desks are long only and every desk book is valued by its own fills | Accepted |
 | [0149](0149-disproved-reconcile-faults-and-local-paper-orders.md) | A reconcile read fault (`order read failed`, `fill read failed`) clears itself once no order in the book is unknown and its ledger is complete, without resuming; paper orders are never read back from the paper broker; desk (discretionary) books clear ADR 0146 data-gap pauses | Accepted |
+| [0150](0150-working-entry-lifecycle-fails-safe.md) | The working-entry lifecycle fails safe: attached children are never working entries, expired entries are always cancelled, a reprice that cannot go ahead abandons instead of pausing, a missing maker price skips the bar, live discretionary books never fall back to the paper broker, fills project in execution order and an over-closing fill pauses, and pyramid adds count on every store | Accepted |
 
 ## Status values
 

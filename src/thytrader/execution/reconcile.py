@@ -10,9 +10,11 @@ from thytrader.audit_events import AuditEventOutcome
 from thytrader.execution.audit_scope import record_execution_audit
 from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, ClientOrderLookup
 from thytrader.execution.paper import PaperBroker
+from thytrader.execution.reconcile_fill_order import apply_new_fills_in_execution_order
 from thytrader.trading.adoption import ADOPTION_EVIDENCE_INCOMPLETE, adoption_evidence_complete
 from thytrader.trading.fill_ledger import (
     applied_fill_quantity,
+    creation_order,
     fill_economics_complete,
     ingest_fill,
     replay_unapplied_fills,
@@ -84,6 +86,15 @@ async def reconcile_open_orders(
         snapshot = await _record_reconcile_fault(
             snapshot, store=store, detail="Applied fills contain unprojected inventory."
         )
+    unread = snapshot
+    snapshot, broker, applied = await apply_new_fills_in_execution_order(
+        snapshot,
+        broker=broker,
+        store=store,
+        product_id=product_id,
+        cooldown_bars=cooldown_bars,
+        watched=lambda order: _needs_reconcile(order, unread),
+    )
     known = {fill.venue_fill_id for fill in snapshot.fills}
     first_fault = _first_new_fault(None, before=started, after=snapshot.deployment)
     snapshot = await _retain_reconcile_supervision(
@@ -97,9 +108,18 @@ async def reconcile_open_orders(
     walked = (
         None
         if isinstance(broker, PaperBroker) and snapshot.deployment.mode is not DeploymentMode.PAPER
-        else frozenset(order.id for order in snapshot.orders)
+        else frozenset(order.id for order in unread.orders)
     )
-    for order in tuple(snapshot.orders):
+    # New fills were applied above in execution order. The walk still reads every order that
+    # was watched before them (their GET refreshes status and adopts attached children),
+    # parents before their attached children.
+    for listed in sorted(unread.orders, key=creation_order):
+        # An order whose fills were applied above is read from its current row, so the read
+        # keeps that progress.
+        order = next(
+            (item for item in snapshot.orders if item.id == listed.id and item.id in applied),
+            listed,
+        )
         before = snapshot.deployment
         order_product = order.product_id or product_id or snapshot.deployment.product_id
         scoped = overlay_snapshot(snapshot, order_product)
@@ -111,6 +131,7 @@ async def reconcile_open_orders(
             product_id=order_product,
             known=known,
             cooldown_bars=cooldown_bars,
+            read=order.id in applied,
         )
         snapshot = await store.get_deployment(snapshot.deployment.id)
         first_fault = _first_new_fault(first_fault, before=before, after=snapshot.deployment)
@@ -314,8 +335,11 @@ async def _reconcile_one_order(
     product_id: str,
     known: set[str],
     cooldown_bars: int,
+    read: bool = False,
 ) -> DeploymentSnapshot:
     """Refresh one watched order from REST JSON and apply unseen fills.
+
+    ``read`` reads the order even when its fills already cover it (they were just applied).
 
     An adoption order never went to the venue (ADR 0124), so it is never looked up
     there. Its evidence is only checked locally, and incomplete evidence is a fault. An order
@@ -339,6 +363,7 @@ async def _reconcile_one_order(
         product_id=product_id,
         known=known,
         cooldown_bars=cooldown_bars,
+        read=read,
     )
 
 
@@ -378,9 +403,10 @@ async def _reconcile_venue_order(
     product_id: str,
     known: set[str],
     cooldown_bars: int,
+    read: bool = False,
 ) -> DeploymentSnapshot:
     """Read one watched venue order and apply its unseen fills."""
-    if not _needs_reconcile(order, snapshot):
+    if not read and not _needs_reconcile(order, snapshot):
         return snapshot
     try:
         if not order.venue_order_id and isinstance(broker, ClientOrderLookup):

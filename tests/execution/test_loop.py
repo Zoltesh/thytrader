@@ -767,7 +767,11 @@ async def test_paused_book_does_not_place_a_new_entry() -> None:
 
 @pytest.mark.anyio
 async def test_paused_unfilled_entry_does_not_reprice() -> None:
-    """F10: a paused book must not replace a working remainder."""
+    """F10: a paused book must not replace a working remainder.
+
+    The expired entry is still cancelled (ADR 0150): left resting, it could fill after the
+    pause blocked entries.
+    """
     store = InMemoryExecutionStore()
     strategy = _always_entry_strategy(on_unfilled_entry="reprice")
     snapshot = await _running_snapshot(store, strategy)
@@ -816,8 +820,9 @@ async def test_paused_unfilled_entry_does_not_reprice() -> None:
     }
     open_entries = [order for order in current.orders if order.status is OrderStatus.OPEN]
     assert replacement_ids == set()
-    assert len(open_entries) == 1
-    assert open_entries[0].id == original_id
+    assert open_entries == []
+    original = next(order for order in current.orders if order.id == original_id)
+    assert original.status is OrderStatus.CANCELED
     assert current.deployment.status is DeploymentStatus.PAUSED
 
 

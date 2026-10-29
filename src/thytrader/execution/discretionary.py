@@ -25,6 +25,7 @@ from thytrader.execution.runtime_ops import (
     _pause,
     _persist_runtime,
     apply_fill,
+    entry_executions_unapplied,
 )
 from thytrader.execution.submit import submit_intent
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
@@ -391,6 +392,10 @@ async def _watch_pending_entry(
     """Count wait bars; pause when the entry is unconfirmed; do not reprice."""
     open_entry = _active_entry(snapshot)
     if open_entry is None:
+        if entry_executions_unapplied(snapshot):
+            # The entry filled but its fills are not applied yet; reconcile opens the position
+            # with the pending stop and target, so they are kept.
+            return snapshot
         return await _flatten_pending(snapshot, store=store, cooldown_bars=0)
     if open_entry.status is not OrderStatus.OPEN or open_entry.venue_order_id is None:
         return await _pause(

@@ -215,6 +215,17 @@ async def submit_intent(
     return submitted
 
 
+def order_left_nothing_working(order: Order) -> bool:
+    """Whether a create ended with no order working and nothing filled.
+
+    A definitive rejection, or a post-only order the venue cancelled at once because it
+    would have crossed (Coinbase reports it CANCELED on the read that follows the create).
+    """
+    return order.status is OrderStatus.REJECTED or (
+        order.status is OrderStatus.CANCELED and order.filled_quantity == 0
+    )
+
+
 async def _require_price_free_reduction(
     store: ExecutionStore,
     deployment_id: UUID,
