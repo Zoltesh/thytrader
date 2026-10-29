@@ -499,6 +499,7 @@ async def test_a_futures_reprice_sizes_with_its_fee_evidence(
         return EntrySkipReason.ECONOMICS_FEE_UNAVAILABLE
 
     monkeypatch.setattr(entry_reprice, "_size_entry_or_add", _capture)
+
     # The futures prerequisites (binding, margin, funding) are covered elsewhere; here they hold.
     def _atr(*args: object, **kwargs: object) -> Decimal:
         del args, kwargs
