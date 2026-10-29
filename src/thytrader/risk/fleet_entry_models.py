@@ -84,6 +84,7 @@ EVIDENCE_REASON_CODES: frozenset[str] = frozenset(
         RiskReasonCode.BREAKER_MARK_MISSING.value,
         RiskReasonCode.BTC_BETA_UNAVAILABLE.value,
         RiskReasonCode.FUTURES_COLLATERAL_UNKNOWN.value,
+        RiskReasonCode.FUNDING_HISTORY_MISSING.value,
         RiskReasonCode.VENUE_BALANCE_UNKNOWN.value,
         RiskReasonCode.FUTURES_MARGIN_UNKNOWN.value,
         RiskReasonCode.PORTFOLIO_LIMITS_UNAVAILABLE.value,

@@ -233,6 +233,8 @@ def _live_futures_checks(scope: _Scope) -> tuple[FleetEntryCheck, ...]:
             in {
                 RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
                 RiskReasonCode.FUTURES_BUYING_POWER_SHORT,
+                RiskReasonCode.FUTURES_EXPOSURE_EXCEEDED,
+                RiskReasonCode.FUTURES_FUNDING_RATE_EXCEEDED,
             }
             else "policy"
             if verdict.reason_code

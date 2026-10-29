@@ -95,3 +95,51 @@ async def test_mismatch_never_authorizes_replacement_protection(
     venue.net = Decimal(2)
     with live_futures_account_scope(await venue.read_account(frozenset())):
         assert not futures_decisions_deferred(paused)
+
+
+@pytest.mark.anyio
+async def test_a_definitively_rejected_reduction_is_retried_under_a_new_attempt_key() -> None:
+    """A rejection adds no fill, so the fill-keyed identity alone would never be sent again."""
+    venue = FakeVenue()
+    store = InMemoryExecutionStore()
+    snapshot = await open_live_book(store, venue)
+    await store.save_position(None, deployment_id=snapshot.deployment.id)
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    venue.rejected_closes = 1
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        for _ in range(4):
+            venue.advance()
+            snapshot = await enforce_position_check(
+                snapshot,
+                account=await venue.read_account(frozenset()),
+                broker=venue.broker(),
+                store=store,
+                now=venue.now,
+            )
+    assert venue.rejected_closes == 0
+    assert venue.net == Decimal(0)
+    keys = sorted(intent.idempotency_key or "" for intent in snapshot.intents)
+    assert any(key.endswith(":1") for key in keys)
+
+
+@pytest.mark.anyio
+async def test_reduction_attempts_stop_after_the_bound() -> None:
+    """Repeated definitive rejections stop after three attempts; the pause and alert remain."""
+    venue = FakeVenue()
+    store = InMemoryExecutionStore()
+    snapshot = await open_live_book(store, venue)
+    await store.save_position(None, deployment_id=snapshot.deployment.id)
+    snapshot = await store.get_deployment(snapshot.deployment.id)
+    venue.rejected_closes = 10
+    with live_futures_runtime_scope(FuturesLiveRuntime(venue)):
+        for _ in range(6):
+            venue.advance()
+            snapshot = await enforce_position_check(
+                snapshot,
+                account=await venue.read_account(frozenset()),
+                broker=venue.broker(),
+                store=store,
+                now=venue.now,
+            )
+    assert venue.rejected_closes == 7
+    assert snapshot.deployment.status is DeploymentStatus.PAUSED

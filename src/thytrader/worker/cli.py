@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 
     from thytrader.config import Settings
     from thytrader.exchanges.protocols import FuturesAccountReader, SpotBalanceReader
+    from thytrader.execution.futures_sources import FuturesOrdersReader
     from thytrader.portfolio.models import Portfolio
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,9 @@ class _ReloadingPortfolioFetcher:
 
 
 class _ReloadingFuturesReader:
-    """Hold the GET-only CFM and spot-listing readers; credential reloads rebuild them.
+    """Hold the GET-only CFM, spot-listing and futures order-listing readers.
+
+    Credential reloads rebuild them.
 
     The spot listing gives the mirror the USDC and USD balances that CFM draws on as
     collateral (ADR 0127 §10).
@@ -85,6 +88,10 @@ class _ReloadingFuturesReader:
 
     def spot(self) -> SpotBalanceReader | None:
         """Return the spot-listing reader for this cycle, or ``None`` without credentials."""
+        return self._spot
+
+    def orders(self) -> FuturesOrdersReader | None:
+        """Return the futures order-listing reader (the same GET-only account client)."""
         return self._spot
 
 
@@ -116,6 +123,7 @@ async def run() -> None:
             reader=futures_reader.current,
             store=PostgresFuturesAccountStore(engine),
             spot_reader=futures_reader.spot,
+            orders_reader=futures_reader.orders,
         )
     )
 
@@ -149,8 +157,8 @@ async def _idle(stop_requested: asyncio.Event) -> None:
 
 def _build_futures_readers(
     settings: Settings,
-) -> tuple[FuturesAccountReader | None, SpotBalanceReader | None]:
-    """Build the GET-only CFM reader and the spot listing when credentials exist."""
+) -> tuple[FuturesAccountReader | None, CoinbaseAccount | None]:
+    """Build the GET-only CFM reader and the account listings when credentials exist."""
     if settings.coinbase_api_key_name is None or settings.coinbase_api_private_key is None:
         return None, None
     client = RESTClient(

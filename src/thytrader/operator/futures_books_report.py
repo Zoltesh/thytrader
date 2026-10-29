@@ -11,8 +11,9 @@ never added to a USDC or USDT amount; ``null`` is unknown, never zero.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, DecimalException, InvalidOperation
+from functools import partial
 from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
@@ -20,7 +21,12 @@ from thytrader import __version__
 from thytrader.decimal_text import canonical_decimal
 from thytrader.exchanges.futures_models import SHARED_COLLATERAL_NOTE
 from thytrader.execution.book_marks import last_bar_marks
-from thytrader.execution.futures_visibility import read_visibility_account, visibility_scope
+from thytrader.execution.futures_paper import latest_settled_rate, margin_stale
+from thytrader.execution.futures_visibility import (
+    read_visibility_account,
+    reread_live_futures_books,
+    visibility_scope,
+)
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.operator.futures_books_live import (
     LiveFuturesBookPayload,
@@ -205,6 +211,7 @@ async def futures_book_payload(
     account: FuturesLiveAccount | None = None,
     account_observation: FuturesAccountObservation | None = None,
     books: Sequence[DeploymentSnapshot] = (),
+    margin_max_age: timedelta | None = None,
 ) -> FuturesBookPayload:
     """Read the binding, mark and margin rates of one futures book and project it.
 
@@ -235,6 +242,7 @@ async def futures_book_payload(
         venue_price = account.marks.get(snapshot.deployment.product_id)
         if venue_price is not None:
             priced = (venue_price, account.venue.observed_at)
+    stale = margin_stale(None if observation is None else observation[1], margin_max_age, moment)
     projected = book_payload(
         snapshot,
         binding=binding,
@@ -243,6 +251,7 @@ async def futures_book_payload(
         mark=priced,
         policy=policy,
         now=now or datetime.now(UTC),
+        margin_is_stale=stale,
     )
     if snapshot.deployment.mode is not DeploymentMode.LIVE:
         return projected
@@ -266,6 +275,14 @@ async def futures_book_payload(
         books=books or (snapshot,),
         price=venue_price,
         now=moment,
+        margin_is_stale=stale,
+        funding_rate=(
+            await latest_settled_rate(observations, snapshot.deployment.product_id, moment)
+            if observations is not None
+            and binding is not None
+            and binding.contract.kind == "perpetual_future"
+            else None
+        ),
     )
     return projected.model_copy(
         update={
@@ -291,6 +308,7 @@ def book_payload(
     mark: tuple[Decimal, datetime] | None,
     policy: RiskPolicyDefinition | None,
     now: datetime,
+    margin_is_stale: bool = False,
 ) -> FuturesBookPayload:
     """Project one futures book onto exact USD strings (pure)."""
     deployment = snapshot.deployment
@@ -379,7 +397,9 @@ def book_payload(
         futures_derisk_pending=deployment.futures_derisk_pending,
         futures_flat_confirmation_after=deployment.futures_flat_confirmation_after,
         daily_loss_latched=deployment.daily_loss_latched,
-        entry_blocks=_entry_blocks(binding, long_rate, short_rate, overdue, policy),
+        entry_blocks=_entry_blocks(
+            binding, long_rate, short_rate, overdue, policy, stale=margin_is_stale
+        ),
         unknown=unknown,
     )
 
@@ -393,6 +413,7 @@ async def build_futures_books_report(
     policy: RiskPolicyDefinition | None,
     now: datetime | None = None,
     futures_account: FuturesAccountSnapshotStore | None = None,
+    margin_max_age: timedelta | None = None,
 ) -> FuturesBooksReport:
     """List persisted futures books with book economics and separately scoped venue facts.
 
@@ -415,7 +436,10 @@ async def build_futures_books_report(
     if live_books:
         try:
             account, account_observation = await read_visibility_account(
-                futures_account, observations, live_books
+                futures_account,
+                observations,
+                live_books,
+                partial(reread_live_futures_books, execution),
             )
         except Exception:  # noqa: BLE001 - unavailable mirror evidence stays unknown.
             account = None
@@ -430,6 +454,7 @@ async def build_futures_books_report(
                 now=generated_at,
                 account=account,
                 account_observation=account_observation,
+                margin_max_age=margin_max_age,
                 books=live_books,
             )
             for snapshot in snapshots
@@ -555,12 +580,14 @@ def _entry_blocks(
     short_rate: Decimal | None,
     overdue: datetime | None,
     policy: RiskPolicyDefinition | None,
+    *,
+    stale: bool = False,
 ) -> tuple[EntryBlock, ...]:
     """Evidence reason codes the worker would deny the next entry with (ADR 0129 §4-5)."""
     blocks: list[EntryBlock] = []
     if binding is None:
         blocks.append("FUTURES_CONTRACT_UNBOUND")
-    if long_rate is None or short_rate is None:
+    if long_rate is None or short_rate is None or stale:
         blocks.append("FUTURES_MARGIN_UNKNOWN")
     if overdue is not None:
         blocks.append("FUNDING_HISTORY_MISSING")

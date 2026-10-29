@@ -81,7 +81,9 @@ the book with `PROTECTIVE_SUBMIT_REJECTED:` and backs off like a rejected spot e
 de-risk keeps that detail; `futures_derisk_pending` stays set). Check the venue position
 (`futures-books`, I9) first. A running/paused book recovers with `resume`, which sends a fresh
 attempt; a STOPPED book being flattened refuses `resume`, so reissue `stop --flatten` after the
-backoff instead.
+backoff instead. A fill-proven excess reduction (I9) that the venue rejects, or cancels unfilled,
+is retried on the next checks under a new attempt identity, at most three attempts per fill
+(ADR 0151); the mismatch pause and its `FUTURES_POSITION_MISMATCH` alert stay until resolved.
 Attached entry brackets remain disabled in the adapter. The worker composes the runtime for
 live futures books since P2-7 wiring (product exclusivity and position checks apply); a live
 futures book without a futures broker pauses with `Live broker is unavailable: no futures broker

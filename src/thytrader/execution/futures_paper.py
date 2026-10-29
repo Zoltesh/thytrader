@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
     from uuid import UUID
 
+    from thytrader.config import Settings
     from thytrader.market_data.futures_observations import (
         FundingRateRecord,
         FuturesInstrumentObservation,
@@ -64,6 +65,7 @@ _logger = logging.getLogger(__name__)
 _HOUR = timedelta(hours=1)
 _LATEST_RATE_WINDOW = timedelta(days=1)
 _TICK = timedelta(microseconds=1)
+_MARK_TIMEFRAME = "1h"
 
 
 class FuturesObservationReader(Protocol):
@@ -88,6 +90,8 @@ class FuturesRuntime:
 
     contracts: FuturesContractStore
     observations: FuturesObservationReader
+    margin_max_age: timedelta | None = None
+    """Entries wait while the catalog margin rates were last seen longer ago than this."""
 
 
 _RUNTIME: ContextVar[FuturesRuntime | None] = ContextVar("futures_runtime", default=None)
@@ -147,7 +151,7 @@ async def prepare_futures_book(
         snapshot, overdue = await _settle_funding(
             snapshot, runtime=runtime, store=store, market_data=market_data, now=moment
         )
-        latest_rate = await _latest_settled_rate(runtime, deployment.product_id, moment)
+        latest_rate = await latest_settled_rate(runtime.observations, deployment.product_id, moment)
     return (
         FuturesBookState(
             deployment_id=deployment.id,
@@ -156,6 +160,7 @@ async def prepare_futures_book(
             binding=binding,
             margin=margin,
             margin_observed_at=observed_at,
+            margin_stale=margin_stale(observed_at, runtime.margin_max_age, moment),
             funding_overdue=overdue,
             latest_funding_rate=latest_rate,
         ),
@@ -163,12 +168,12 @@ async def prepare_futures_book(
     )
 
 
-async def _latest_settled_rate(
-    runtime: FuturesRuntime, product_id: str, now: datetime
+async def latest_settled_rate(
+    observations: FuturesObservationReader, product_id: str, now: datetime
 ) -> Decimal | None:
     """The newest settled hourly rate within the last day, or None when unknown."""
     try:
-        records = await runtime.observations.funding_rates(
+        records = await observations.funding_rates(
             product_id=product_id, starts_at=now - _LATEST_RATE_WINDOW, ends_at=now + _HOUR
         )
     except Exception:  # noqa: BLE001 - unreadable history leaves the rate unknown.
@@ -234,6 +239,17 @@ async def _margin_terms(
     )
 
 
+def margin_rate_max_age(settings: Settings) -> timedelta | None:
+    """The configured catalog margin-rate age bound; ``None`` when it is turned off (0)."""
+    seconds = settings.futures_margin_rate_max_age_seconds
+    return None if seconds == 0 else timedelta(seconds=seconds)
+
+
+def margin_stale(seen_at: datetime | None, max_age: timedelta | None, now: datetime) -> bool:
+    """Whether the catalog margin rates were last seen longer ago than the bound allows."""
+    return max_age is not None and seen_at is not None and now - seen_at > max_age
+
+
 def _rate(raw: str | None) -> Decimal | None:
     """A positive margin rate, or None when unlisted or malformed."""
     if raw is None:
@@ -265,10 +281,7 @@ async def _settle_funding(
     except Exception:  # noqa: BLE001 - unreadable history is missing, never zero.
         records = ()
     settled = {record.funding_time: record.rate for record in records if record.settled}
-    timeframe = snapshot.deployment.timeframe
-    marks = (
-        {} if timeframe is None else await _hour_marks(market_data, product_id, timeframe, due, now)
-    )
+    marks = await _hour_marks(market_data, product_id, due, now)
     flows: list[FundingCashFlow] = []
     overdue = None
     for hour in due:
@@ -355,13 +368,17 @@ async def _apply(
 async def _hour_marks(
     market_data: MarketDataService,
     product_id: str,
-    timeframe: str,
     hours: Sequence[datetime],
     now: datetime,
 ) -> dict[datetime, Decimal]:
-    """The close of the closed decision bar containing each funding hour."""
-    interval = parse_candle_interval(timeframe)
-    starts = {hour: entry_bar_bucket(hour - _TICK, timeframe) for hour in hours}
+    """The close of the hourly bar ending at each funding hour (ADR 0151).
+
+    Funding settles hourly, so its mark runs on an hourly clock whatever the book's own
+    timeframe: a 4h or 1d bar containing the hour closes hours after the funding grace, which
+    left every such book permanently "funding overdue".
+    """
+    interval = parse_candle_interval(_MARK_TIMEFRAME)
+    starts = {hour: entry_bar_bucket(hour - _TICK, _MARK_TIMEFRAME) for hour in hours}
     closed = {hour: start for hour, start in starts.items() if start + interval.duration <= now}
     if not closed:
         return {}

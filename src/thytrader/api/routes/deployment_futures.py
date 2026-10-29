@@ -8,6 +8,7 @@ new entries are denied, all in USD. A spot bot is a 404.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Annotated
 from uuid import UUID
 
@@ -19,11 +20,16 @@ from thytrader.api.dependencies import (
     get_futures_start,
     get_optional_decision_journal_store,
     get_risk_policy_store,
+    get_runtime_state,
 )
 from thytrader.exchanges.futures_models import FuturesAccountSnapshotStore
 from thytrader.execution.decision_store import DecisionJournalStore
+from thytrader.execution.futures_paper import margin_rate_max_age
 from thytrader.execution.futures_start import FuturesStart
-from thytrader.execution.futures_visibility import read_visibility_account
+from thytrader.execution.futures_visibility import (
+    read_visibility_account,
+    reread_live_futures_books,
+)
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.operator.futures_books_report import (
     FuturesBookPayload,
@@ -31,6 +37,7 @@ from thytrader.operator.futures_books_report import (
     futures_book_payload,
 )
 from thytrader.risk.store import RiskPolicyStore
+from thytrader.runtime import RuntimeState
 from thytrader.trading.models import DeploymentMode, ExecutionStoreError
 from thytrader.trading.store import ExecutionStore
 
@@ -47,6 +54,7 @@ async def get_deployment_futures(
     futures_account: Annotated[
         FuturesAccountSnapshotStore | None, Depends(get_futures_account_store)
     ],
+    runtime: Annotated[RuntimeState, Depends(get_runtime_state)],
 ) -> FuturesBookPayload:
     """Return the futures view of one futures bot; 404 for a spot or unknown bot."""
     try:
@@ -78,6 +86,7 @@ async def get_deployment_futures(
                 futures_account,
                 None if futures_start is None else futures_start.observations,
                 books,
+                partial(reread_live_futures_books, store),
             )
         except Exception:  # noqa: BLE001 - read-only evidence failures stay unknown.
             account = None
@@ -90,4 +99,5 @@ async def get_deployment_futures(
         account=account,
         account_observation=account_observation,
         books=books,
+        margin_max_age=margin_rate_max_age(runtime.settings),
     )

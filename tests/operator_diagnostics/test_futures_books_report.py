@@ -21,6 +21,7 @@ from tests.execution.test_paper_futures_books import (
     _filled_book,
     _observation,
     _policy,
+    _record,
 )
 from thytrader.market_data.futures_observations import (
     FundingRateRecord,
@@ -274,9 +275,10 @@ class _Latest:
     async def funding_rates(
         self, *, product_id: str | None, starts_at: datetime, ends_at: datetime
     ) -> tuple[FundingRateRecord, ...]:
-        """The report never reads funding rates."""
-        del product_id, starts_at, ends_at
-        raise AssertionError("not read")
+        """One settled hour before the report time, the rate a live perp's admission reads."""
+        del product_id
+        hour = _AT - timedelta(hours=1)
+        return tuple(r for r in (_record(hour, "0.0001"),) if starts_at <= r.funding_time < ends_at)
 
 
 @pytest.mark.anyio
@@ -391,3 +393,25 @@ async def test_the_async_view_reads_the_binding_and_survives_a_failing_catalog()
     assert book.contracts == "100"
     assert book.unknown == ("mark", "margin_rates")
     assert book.entry_blocks == ("FUTURES_MARGIN_UNKNOWN",)
+
+
+@pytest.mark.anyio
+async def test_the_view_applies_executions_margin_rate_age_bound() -> None:
+    """Rates last seen twelve hours ago deny entries in the view as execution denies them."""
+    snapshot = _snapshot(side=PositionSide.SHORT, cash="150")
+    contracts = InMemoryFuturesContractStore()
+    await contracts.bind_contract(_binding(snapshot.deployment.id))
+    views = [
+        await futures_book_payload(
+            snapshot,
+            journal=None,
+            contracts=contracts,
+            observations=_Latest(),
+            policy=_policy(),
+            now=_AT + timedelta(hours=12),
+            margin_max_age=bound,
+        )
+        for bound in (timedelta(hours=1), None)
+    ]
+    assert "FUTURES_MARGIN_UNKNOWN" in views[0].entry_blocks
+    assert "FUTURES_MARGIN_UNKNOWN" not in views[1].entry_blocks

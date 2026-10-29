@@ -70,7 +70,7 @@ Prefer the CLI. HTTP is the same contract on loopback.
 | Data catalog | `uv run thytrader-operator data-catalog` | `GET /api/v1/operator/data-catalog` |
 | All watched tails | `uv run thytrader-operator data-health` | `GET /api/v1/operator/data-health` |
 | Products | `uv run thytrader-operator products [--kind spot\|future\|all]` | `GET /api/v1/operator/products[?kind=future\|all]` (default `spot` is the enabled spot catalog, unchanged; `future` lists the read-only Coinbase CFM futures contracts instead, `all` lists both; futures rows are `orderable: false`; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
-| Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting, the same cycle's spot USDC/USD `spot_collateral`; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
+| Futures account (read-only) | `uv run thytrader-operator futures-account` | `GET /api/v1/operator/futures-account` (latest CFM mirror snapshot the worker records every 60 s with GET-only reads: `enablement`, `read_failures`, USD balance summary, positions in contracts, margin window and setting, the same cycle's spot USDC/USD `spot_collateral`; the cycle also stores the futures open-order listing (product and client order id only) that API and operator reports prove product exclusivity from, and a failed listing shows as `futures_open_orders:<reason>` in `read_failures`; `orderable: false`; never summed with spot USDC; [ADR 0127](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Futures account history (read-only) | `uv run thytrader-operator futures-account --history --since 2026-10-12T19:00:00Z [--until 2026-10-12T22:00:00Z]` | `GET /api/v1/operator/futures-account/history?since=…[&until=…]` (`futures_account_history`: every mirror snapshot in `[since, until)`, oldest first, at most 2880 rows; `gaps`, `margin_window_changes`; for supervising a manual futures trade; [ADR 0127 §10](../../docs/decisions/0127-cfm-futures-account-mirror.md)) |
 | Futures books (read-only; live starts disabled) | `uv run thytrader-operator futures-books` | `GET /api/v1/operator/futures-books` (every paper futures book: bound contract, side and contracts, mark, USD equity, notional, leverage, overnight initial/maintenance margin, liquidation buffer vs the policy minimum, liquidation price, funding ledger, `entry_blocks` and `unknown` evidence, plus the `futures.paper_capital_usd` envelope; one bot: `GET /api/v1/deployments/{id}/futures`; [ADR 0129](../../docs/decisions/0129-paper-futures-books-and-shared-collateral-risk.md)) |
 | Futures funding history | `uv run thytrader-operator funding [--product-id BIP-20DEC30-CDE] [--hours 1..720]` | `GET /api/v1/operator/funding` (read-only Coinbase CFM perp funding recorded by the market-data worker every 5 minutes; poller health, per-contract coverage, gaps and conflicts; `--product-id` adds every stored hour; futures cannot be ordered; [ADR 0126](../../docs/decisions/0126-futures-instrument-catalog-read-only.md)) |
@@ -360,7 +360,7 @@ asked to restart. Field details: [report schemas](references/report-schemas.md).
 ## Workflow
 
 1. Verify CLI help and run `health` first. The CLI compares the API's whole ops contract with
-   this checkout's (`thytrader-ops-contract-v111`, schema revision `0082`) and exits on any
+   this checkout's (`thytrader-ops-contract-v112`, schema revision `0083`) and exits on any
    mismatch; read `payload.ops_contract` for the advertised capabilities. Ones this lane relies
    on: `backtest_engine` `thytrader-backtest` (one model, ADR 0083); `strategy_model`
    (`mutable_root`, `auto_snapshot`, `hard_delete`); `spot_quote_currencies` `USD`/`USDC`/`USDT`;
@@ -688,10 +688,12 @@ of a successful observation or permission to trade.
   not required for protection alerts. Recovery requires known recovered margin or verified
   flat managed books with no pending duty. Unset ratio does not invent a warning threshold.
 - `FUTURES_POSITION_MISMATCH` (critical, `deployment:<id>`): a persisted I9 mismatch pause.
-  Only a valid fresh venue/book match clears the alert; it never resumes the book.
+  Only a valid fresh venue/book match clears the alert; it never resumes the book. One
+  mismatch stays one alert (it is keyed by its recorded book, ADR 0151).
 - `FUTURES_EXTERNAL_ON_MANAGED_PRODUCT` (critical, `product:<id>`): the injected source
   proves an external nonterminal order on a managed product. A complete fresh order read
-  and valid matching position clear it. Client-id prefixes never establish ownership.
+  and valid matching position clear it; so does the product's last live book settling (the
+  product is no longer managed). Client-id prefixes never establish ownership.
 
 - `FUTURES_ORPHAN_ORDER` (warning, `orphan:<audit-event-id>`): an existing confirmed
   `futures_orphan_order_cancelled` audit event, replayed with its original timestamp for
@@ -955,8 +957,10 @@ never added to USDC or USDT amounts; `null` is unknown, never zero.
   unreachable); `funding_total`, `funding_hours`, `recent_funding[]` (newest 24 hours; negative
   `amount` was paid) and `funding_overdue_since`; `daily_loss_latched`.
 - `entry_blocks` lists what denies the book's next entry now: `FUTURES_CONTRACT_UNBOUND`,
-  `FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING` (a held funding hour still unapplied 75
-  minutes after it), `FUTURES_POLICY_UNSET`. Gate caps (leverage, buffer, exposure, funding rate)
+  `FUTURES_MARGIN_UNKNOWN` (also while the catalog margin rates were last seen longer ago than
+  `THYTRADER_FUTURES_MARGIN_RATE_MAX_AGE_SECONDS`, default 3600, 0 off), `FUNDING_HISTORY_MISSING`
+  (a held funding hour still unapplied 75 minutes after it, or, for a live book, no known
+  settled funding rate), `FUTURES_POLICY_UNSET`. Gate caps (leverage, buffer, exposure, funding rate)
   are judged per entry and show in `decisions`. `unknown` names unreadable evidence (`binding`,
   `mark`, `margin_rates`, `funding`, `policy`); dependent figures are `null`. Protective and
   liquidation exits are never blocked.

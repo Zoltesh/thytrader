@@ -155,6 +155,18 @@ def spot_collateral_from(balances: Iterable[ExchangeBalance]) -> SpotCollateralB
 
 
 @dataclass(frozen=True, slots=True)
+class FuturesOpenOrderRef:
+    """One nonterminal CFM futures order: its product and client order id, nothing else.
+
+    Ownership is decided by the reader against the managed books' exact ids; this record
+    never claims an order is managed or external.
+    """
+
+    product_id: str
+    client_order_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class FuturesAccountObservation:
     """One mirror cycle: every read's result or its failure, never a guess.
 
@@ -162,6 +174,8 @@ class FuturesAccountObservation:
     venue reported none. ``read_failures`` names each failed read as
     ``<operation>:<reason>`` with no venue text. ``spot_balances`` is ``None`` when the
     spot account read failed or was not attempted (unknown, never zero).
+    ``open_orders`` is the complete nonterminal futures order listing of the same cycle,
+    ``None`` when that read failed, was not attempted or predates it (unknown, never empty).
     """
 
     observed_at: datetime
@@ -172,6 +186,7 @@ class FuturesAccountObservation:
     margin_window: FuturesMarginWindow | None
     read_failures: tuple[str, ...]
     spot_balances: SpotCollateralBalances | None = None
+    open_orders: tuple[FuturesOpenOrderRef, ...] | None = None
 
 
 class FuturesAccountReadError(RuntimeError):

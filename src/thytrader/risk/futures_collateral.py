@@ -39,6 +39,7 @@ from thytrader.exchanges.futures_models import (
 from thytrader.market_data.products import is_spot_product_id, quote_currency
 from thytrader.risk.gate_common import _deny
 from thytrader.risk.models import RiskReasonCode
+from thytrader.trading.ids import utc_now
 from thytrader.trading.models import DeploymentMode
 
 if TYPE_CHECKING:
@@ -114,13 +115,23 @@ async def load_futures_collateral(
         return _evidence(
             FuturesCollateralState.UNKNOWN, None, "Futures account storage could not be read."
         )
-    return classify_futures_collateral(latest, as_of=as_of)
+    # A row the mirror wrote after ``as_of`` was taken is not future-dated (ADR 0115): judge
+    # that at a time taken after the read, never earlier than ``as_of``.
+    return classify_futures_collateral(latest, as_of=as_of, read_at=max(as_of, utc_now()))
 
 
 def classify_futures_collateral(
-    latest: FuturesAccountObservation | None, *, as_of: datetime
+    latest: FuturesAccountObservation | None,
+    *,
+    as_of: datetime,
+    read_at: datetime | None = None,
 ) -> FuturesCollateralEvidence:
-    """Classify one snapshot (pure; ADR 0129 §2 table)."""
+    """Classify one snapshot (pure; ADR 0129 §2 table).
+
+    A receipt stamped after ``read_at`` (default ``as_of``) is future-dated and unknown. Flat
+    is idle only when initial margin and the open-order hold are both known zeros; a missing
+    amount with no position is unknown, never idle.
+    """
     if latest is None:
         return _evidence(FuturesCollateralState.ABSENT, None, "No futures snapshot exists.")
     if latest.enablement is FuturesEnablement.NOT_ENABLED:
@@ -132,11 +143,12 @@ def classify_futures_collateral(
         or balance is None
         or positions is None
         or as_of - latest.observed_at > MIRROR_STALE_AFTER
+        or latest.observed_at > (as_of if read_at is None else read_at)
     ):
         return _evidence(
             FuturesCollateralState.UNKNOWN,
             latest,
-            "The futures snapshot is stale or a balance or position read failed.",
+            "The futures snapshot is stale, future-dated, or a balance or position read failed.",
         )
     margin = balance.initial_margin
     hold = balance.total_open_orders_hold_amount
@@ -149,6 +161,13 @@ def classify_futures_collateral(
             latest,
             f"CFM futures hold {len(positions)} position(s), initial margin "
             f"{_text(margin)} USD and open-order hold {_text(hold)} USD.",
+        )
+    if margin is None or hold is None:
+        return _evidence(
+            FuturesCollateralState.UNKNOWN,
+            latest,
+            "CFM futures hold no position, but initial margin or the open-order hold is "
+            "unknown; unknown is not zero.",
         )
     return _evidence(FuturesCollateralState.IDLE, latest, "CFM futures are flat.")
 

@@ -143,6 +143,23 @@ def test_classification_table() -> None:
     )
 
 
+def test_unknown_margin_or_hold_on_a_flat_account_is_not_idle() -> None:
+    """Idle needs both amounts known to be zero; a missing amount is unknown, not zero."""
+    idle = _live_account_idle()
+    assert idle.balance is not None
+    for field in ("initial_margin", "total_open_orders_hold_amount"):
+        missing = replace(idle, balance=replace(idle.balance, **{field: None}))
+        assert _state(missing) is FuturesCollateralState.UNKNOWN
+
+
+def test_a_future_dated_receipt_is_unknown_unless_written_after_as_of() -> None:
+    """A receipt from after the read is skewed; one written after ``as_of`` but read is fine."""
+    ahead = replace(_live_account_idle(), observed_at=_NOW + timedelta(seconds=5))
+    assert _state(ahead) is FuturesCollateralState.UNKNOWN
+    read_later = classify_futures_collateral(ahead, as_of=_NOW, read_at=_NOW + timedelta(seconds=6))
+    assert read_later.state is FuturesCollateralState.IDLE
+
+
 def _evidence(latest: FuturesAccountObservation | None) -> FuturesCollateralEvidence:
     """Classified evidence at the fixed clock."""
     return classify_futures_collateral(latest, as_of=_NOW)

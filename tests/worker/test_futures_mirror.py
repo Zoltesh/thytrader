@@ -23,9 +23,10 @@ from thytrader.exchanges.futures_models import (
     FuturesAccountObservation,
     FuturesAccountStoreUnavailableError,
     FuturesEnablement,
+    FuturesOpenOrderRef,
     SpotCollateralBalances,
 )
-from thytrader.exchanges.models import ExchangeBalance
+from thytrader.exchanges.models import ExchangeBalance, ExchangeOpenOrder
 from thytrader.exchanges.read_errors import (
     ExchangeReadError,
     ExchangeReadFailure,
@@ -253,3 +254,48 @@ def test_worker_builds_no_readers_without_credentials() -> None:
     """Demo mode has neither the CFM reader nor the spot listing, so nothing is mirrored."""
     readers = _ReloadingFuturesReader(Settings(_env_file=None))
     assert (readers.current(), readers.spot()) == (None, None)
+
+
+class _Orders:
+    """A futures order listing double: rows, or a failed read."""
+
+    def __init__(self, rows: tuple[ExchangeOpenOrder, ...] | None) -> None:
+        """``None`` fails the read like an unavailable venue."""
+        self.rows = rows
+
+    async def list_futures_open_orders(self) -> tuple[ExchangeOpenOrder, ...]:
+        """Return the rows or raise a redacted read error."""
+        if self.rows is None:
+            raise ExchangeReadError(
+                ExchangeReadFailure(
+                    kind=ExchangeReadFailureKind.HTTP,
+                    operation=ExchangeReadOperation.FUTURES_OPEN_ORDERS,
+                    http_status=503,
+                )
+            )
+        return self.rows
+
+
+def test_the_futures_order_listing_is_recorded_and_failures_stay_unknown() -> None:
+    """Product exclusivity evidence is mirrored; a failed or unclassifiable read is unknown."""
+    rows = (
+        ExchangeOpenOrder(venue_order_id="v1", product_id="BIP-20DEC30-CDE", client_order_id="c1"),
+    )
+    listed = asyncio.run(
+        observe_futures_account(CoinbaseCfmAccount(_Transport()), _NOW, None, _Orders(rows))
+    )
+    assert listed.open_orders == (FuturesOpenOrderRef("BIP-20DEC30-CDE", "c1"),)
+    assert listed.read_failures == ()
+    failed = asyncio.run(
+        observe_futures_account(CoinbaseCfmAccount(_Transport()), _NOW, None, _Orders(None))
+    )
+    assert failed.open_orders is None
+    assert failed.read_failures == ("futures_open_orders:http_503",)
+    spot_row = (ExchangeOpenOrder(venue_order_id="v2", product_id="BTC-USD"),)
+    unclassified = asyncio.run(
+        observe_futures_account(CoinbaseCfmAccount(_Transport()), _NOW, None, _Orders(spot_row))
+    )
+    assert unclassified.open_orders is None
+    assert unclassified.read_failures == ("futures_open_orders:unclassified",)
+    absent = asyncio.run(observe_futures_account(CoinbaseCfmAccount(_Transport()), _NOW))
+    assert absent.open_orders is None

@@ -452,17 +452,9 @@ def _futures_entry_block(
     state = current_futures_book(snapshot.deployment.id)
     if state is None:
         return ("FUTURES_CONTRACT_UNBOUND", "The paper futures book state is not loaded.")
-    blocked = state.entry_block()
-    if blocked is not None:
-        return blocked
-    if snapshot.deployment.mode is DeploymentMode.LIVE and (
-        state.latest_funding_rate is None or not state.latest_funding_rate.is_finite()
-    ):
-        return (
-            "FUNDING_HISTORY_MISSING",
-            "The live futures book needs a known settled funding rate.",
-        )
-    return None
+    if snapshot.deployment.mode is DeploymentMode.LIVE:
+        return state.live_entry_block()
+    return state.entry_block()
 
 
 def _document_open_book_count(snapshot: DeploymentSnapshot) -> int:

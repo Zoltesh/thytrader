@@ -15,6 +15,7 @@ from thytrader.risk.futures_live import LIVE_EVIDENCE_MAX_AGE, FuturesVenueEvide
 from thytrader.trading.ids import utc_now
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
 
     from thytrader.exchanges.futures_models import (
@@ -58,6 +59,38 @@ async def catalog_observation(
         return await observations.latest_instrument(product_id)
 
     return await shared_read(("futures_catalog", str(id(observations)), product_id), read)
+
+
+class _ListedOrder(Protocol):
+    """The two fields product exclusivity reads from a venue or mirrored order row."""
+
+    @property
+    def product_id(self) -> str | None:
+        """The order's product, ``None`` when the venue row did not name one."""
+        ...
+
+    @property
+    def client_order_id(self) -> str | None:
+        """The order's client id, ``None`` when the venue row did not carry one."""
+        ...
+
+
+def external_order_products(
+    orders: Iterable[_ListedOrder], managed: frozenset[tuple[str, str]]
+) -> frozenset[str] | None:
+    """Products with an order no managed book owns by exact (product, client id) match.
+
+    An unclassifiable row (no product, or not a futures product) makes the answer unknown.
+    """
+    products: set[str] = set()
+    for order in orders:
+        if order.product_id is None or not is_futures_product_id(order.product_id):
+            return None
+        # Product ids compare canonically (upper case), as the classification above does.
+        product = order.product_id.upper()
+        if order.client_order_id is None or (product, order.client_order_id) not in managed:
+            products.add(product)
+    return frozenset(products)
 
 
 class CatalogContractSizes:
@@ -144,13 +177,7 @@ class RecordedFuturesSource:
             orders = await self.orders.list_futures_open_orders()
         except RuntimeError, ValueError, TypeError, OSError:
             return None
-        products: set[str] = set()
-        for order in orders:
-            if order.product_id is None or not is_futures_product_id(order.product_id):
-                return None
-            if (order.product_id, order.client_order_id) not in managed:
-                products.add(order.product_id)
-        return frozenset(products)
+        return external_order_products(orders, managed)
 
     async def _killswitch(self) -> tuple[bool | None, datetime | None]:
         """The mirror's killswitch facts and when they were observed; unknown is (None, None).
@@ -186,23 +213,30 @@ class RecordedFuturesSource:
         self, products: frozenset[str]
     ) -> tuple[dict[str, Decimal], dict[str, MaintenanceWindow]]:
         """Load exact current sizes and recorded maintenance intervals without a fallback."""
-        sizes: dict[str, Decimal] = {}
-        maintenance: dict[str, MaintenanceWindow] = {}
-        source = CatalogContractSizes(self.observations)
-        for product in products:
-            size = await source.contract_size(product)
-            if size is None:
-                continue
-            sizes[product] = size
-            latest = await catalog_observation(self.observations, product)
-            if latest is None:
-                continue
-            row = latest[0]
-            if row.maintenance_starts_at is not None and row.maintenance_ends_at is not None:
-                maintenance[product] = MaintenanceWindow(
-                    starts_at=row.maintenance_starts_at, ends_at=row.maintenance_ends_at
-                )
-        return sizes, maintenance
+        return await catalog_facts(self.observations, products)
+
+
+async def catalog_facts(
+    observations: FuturesObservationReader, products: frozenset[str]
+) -> tuple[dict[str, Decimal], dict[str, MaintenanceWindow]]:
+    """Exact contract sizes and recorded maintenance windows, shared by the worker and mirror."""
+    sizes: dict[str, Decimal] = {}
+    maintenance: dict[str, MaintenanceWindow] = {}
+    source = CatalogContractSizes(observations)
+    for product in products:
+        size = await source.contract_size(product)
+        if size is None:
+            continue
+        sizes[product] = size
+        latest = await catalog_observation(observations, product)
+        if latest is None:
+            continue
+        row = latest[0]
+        if row.maintenance_starts_at is not None and row.maintenance_ends_at is not None:
+            maintenance[product] = MaintenanceWindow(
+                starts_at=row.maintenance_starts_at, ends_at=row.maintenance_ends_at
+            )
+    return sizes, maintenance
 
 
 def _nonnegative(value: Decimal | None) -> Decimal | None:

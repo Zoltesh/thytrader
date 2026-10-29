@@ -206,8 +206,10 @@ Coinbase counts the USDC spot balance as CFM futures collateral, so futures trad
 the account use the same money live spot bots trade. The gate reads the futures mirror
 (`thytrader-operator futures-account`) for every new **live** USD/USDC spot entry:
 
-- futures flat, or no futures (state `idle` / `absent`): nothing changes;
-- a stale or failed futures read (`unknown`): entries are denied `FUTURES_COLLATERAL_UNKNOWN`;
+- futures flat with zero initial margin and zero open-order hold, or no futures (state `idle` /
+  `absent`): nothing changes;
+- a stale, future-dated or failed futures read, or a flat account whose initial margin or
+  open-order hold is missing (`unknown`): entries are denied `FUTURES_COLLATERAL_UNKNOWN`;
 - futures positions, initial margin or an open-order hold (`in_use`): entries are denied
   `FUTURES_COLLATERAL_IN_USE`, unless the policy sets
   `--futures-live-spot-collateral-reserve-quote R` (policy quote). Then R must be at least the
@@ -283,12 +285,16 @@ Portfolio sleeves cannot start futures books (no per-contract fee). Paper setup 
 Each cycle the book reads the overnight margin rates (never intraday), sizes whole contracts
 within the lower of the strategy's and the policy's `max_leverage` and the policy's liquidation
 buffer (0.5 while unset), and pays maker/taker plus the per-contract fee on every fill. Funding is charged hourly while a position is held
-(longs pay positive rates) at the close of the bar containing the hour, once per hour. New
+(longs pay positive rates) at the close of the hourly bar ending at the hour (whatever the
+book's timeframe), once per hour. New
 entries are denied, never paused, while evidence is unknown: `FUTURES_CONTRACT_UNBOUND`,
-`FUTURES_MARGIN_UNKNOWN`, `FUNDING_HISTORY_MISSING` (a settled hour still missing 75 minutes
+`FUTURES_MARGIN_UNKNOWN` (also while the catalog margin rates were last seen longer ago than
+`THYTRADER_FUTURES_MARGIN_RATE_MAX_AGE_SECONDS`, default 3600, 0 off; exits keep the last rates),
+`FUNDING_HISTORY_MISSING` (a settled hour still missing 75 minutes
 later; it is retried every cycle, never zero-filled), `FUTURES_LEVERAGE_EXCEEDED`,
 `FUTURES_LIQUIDATION_BUFFER`. A closed bar whose adverse extreme leaves equity below
-maintenance sends a `liquidation`-purpose marketable exit before the stop. Futures books are
+maintenance sends a `liquidation`-purpose marketable exit before the stop, and a resting
+take-profit does not fill on that bar. Futures books are
 their own breaker scope (`CFM-USD`: daily loss against the futures envelope, per-strategy
 drawdown); a latched futures daily-loss breaker denies paper USD/USDC spot entries and a latched
 paper USD/USDC breaker denies futures entries (`SHARED_COLLATERAL_BREAKER`, naming the latched

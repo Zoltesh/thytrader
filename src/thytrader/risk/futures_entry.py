@@ -257,13 +257,37 @@ def _policy_caps_verdict(
     capital: Decimal,
 ) -> RiskVerdict | None:
     """Per-order contracts, gross futures exposure and the funding-rate cap (§5)."""
-    futures = policy.futures
     state = current_futures_book()
-    if futures is None or state is None or state.binding is None:
+    if state is None:
+        return None
+    return futures_caps_verdict(
+        policy,
+        mode=mode,
+        state=state,
+        notional=proposed.notional,
+        quantity=proposed.quantity,
+        snapshots=snapshots,
+        capital=capital,
+    )
+
+
+def futures_caps_verdict(
+    policy: RiskPolicyDefinition,
+    *,
+    mode: DeploymentMode,
+    state: FuturesBookState,
+    notional: Decimal,
+    quantity: Decimal | None,
+    snapshots: Sequence[DeploymentSnapshot],
+    capital: Decimal,
+) -> RiskVerdict | None:
+    """The §5 caps for one book's loaded state; the gate and the fleet probe share these."""
+    futures = policy.futures
+    if futures is None or state.binding is None:
         return None
     contract_size = Decimal(state.binding.contract.contract_size)
-    if futures.max_order_contracts is not None and proposed.quantity is not None:
-        contracts = proposed.quantity / contract_size
+    if futures.max_order_contracts is not None and quantity is not None:
+        contracts = quantity / contract_size
         if contracts > futures.max_order_contracts:
             return _deny(
                 RiskReasonCode.FUTURES_ORDER_CONTRACTS_EXCEEDED,
@@ -280,10 +304,10 @@ def _policy_caps_verdict(
             start=Decimal(0),
         )
         cap = capital * Decimal(futures.max_exposure_fraction)
-        if existing + abs(proposed.notional) > cap:
+        if existing + abs(notional) > cap:
             return _deny(
                 RiskReasonCode.FUTURES_EXPOSURE_EXCEEDED,
-                f"Gross futures notional {existing + abs(proposed.notional)} USD would exceed "
+                f"Gross futures notional {existing + abs(notional)} USD would exceed "
                 f"{cap} USD ({futures.max_exposure_fraction} x futures capital {capital} USD).",
             )
     return _funding_rate_verdict(futures.max_hourly_funding_rate_abs, state)

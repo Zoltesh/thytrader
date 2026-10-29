@@ -26,6 +26,7 @@ from thytrader.trading.models import (
     DeploymentMode,
     FundingCashFlow,
     OrderSide,
+    PositionSide,
     resolved_product_id,
 )
 
@@ -34,8 +35,9 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from thytrader.evaluation.futures_spec import InstrumentContract
+    from thytrader.market_data.models import Candle
     from thytrader.trading.futures_sizing import FuturesMarginTerms, FuturesSide
-    from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.models import DeploymentSnapshot, Position
 
 FUNDING_SETTLE_GRACE = timedelta(minutes=15)
 """How long after a funding hour's settlement (the next hour) a missing rate is overdue."""
@@ -96,7 +98,8 @@ class FuturesBookState:
     ``funding_overdue`` is the first funding hour whose settled rate or mark is still
     missing after :data:`FUNDING_SETTLE_GRACE`; while set, new entries are denied.
     ``latest_funding_rate`` is the newest settled hourly rate of a perp (None when unknown),
-    which the policy's funding-rate cap reads.
+    which the policy's funding-rate cap reads. ``margin_stale`` marks margin rates last seen
+    longer ago than the runtime's bound; it denies entries only, never exits or protection.
     """
 
     deployment_id: UUID
@@ -107,6 +110,7 @@ class FuturesBookState:
     margin_observed_at: datetime | None = None
     funding_overdue: datetime | None = None
     latest_funding_rate: Decimal | None = None
+    margin_stale: bool = False
 
     def entry_block(self) -> tuple[str, str] | None:
         """The reason code and detail that deny a new entry, or None when known."""
@@ -120,11 +124,39 @@ class FuturesBookState:
                 "FUTURES_MARGIN_UNKNOWN",
                 "The catalog lists no overnight margin rates for the contract.",
             )
+        if self.margin_stale:
+            seen = (
+                "unknown"
+                if self.margin_observed_at is None
+                else self.margin_observed_at.isoformat().replace("+00:00", "Z")
+            )
+            return (
+                "FUTURES_MARGIN_UNKNOWN",
+                f"The catalog margin rates were last seen at {seen}, older than the configured "
+                "bound; entries wait for a fresh catalog read.",
+            )
         if self.funding_overdue is not None:
             hour = self.funding_overdue.isoformat().replace("+00:00", "Z")
             return (
                 "FUNDING_HISTORY_MISSING",
                 f"No settled funding rate or mark for {hour}; entries wait until it is applied.",
+            )
+        return None
+
+    def live_entry_block(self) -> tuple[str, str] | None:
+        """``entry_block``, plus a known settled funding rate, which every live entry needs.
+
+        Execution and the read-only fleet probe share this, so fleet health never reports a
+        live book admissible while its entries are denied for a missing funding rate.
+        """
+        blocked = self.entry_block()
+        if blocked is not None:
+            return blocked
+        rate = self.latest_funding_rate
+        if rate is None or not rate.is_finite():
+            return (
+                "FUNDING_HISTORY_MISSING",
+                "The live futures book needs a known settled funding rate.",
             )
         return None
 
@@ -281,3 +313,26 @@ def liquidation_due(
     signed = -quantity if side == "short" else quantity
     equity = cash + signed * adverse_price
     return equity < terms.maintenance(quantity, adverse_price, side)
+
+
+def paper_liquidation_hit(
+    snapshot: DeploymentSnapshot, *, position: Position | None, candle: Candle
+) -> bool:
+    """Whether this candle liquidates the paper futures position (adverse extreme).
+
+    The bar loop liquidates before the stop and before a resting take-profit may fill, since
+    the candle cannot show which traded first and liquidation is the venue's own exit.
+    """
+    if snapshot.deployment.mode is not DeploymentMode.PAPER or position is None:
+        return False
+    state = current_futures_book(snapshot.deployment.id)
+    if state is None or state.margin is None:
+        return False
+    short = position.side is PositionSide.SHORT
+    return liquidation_due(
+        state.margin,
+        cash=snapshot.deployment.cash,
+        quantity=position.quantity,
+        side="short" if short else "long",
+        adverse_price=candle.high if short else candle.low,
+    )

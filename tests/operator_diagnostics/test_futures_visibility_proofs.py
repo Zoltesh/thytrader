@@ -287,8 +287,13 @@ def _probe_inputs() -> tuple[DeploymentSnapshot, RiskPolicyDefinition, FuturesVe
     return book, policy, venue
 
 
-def _probe(book: DeploymentSnapshot, price: Decimal | None) -> LiveFuturesProbe:
-    """A probe bound to the synthetic perpetual at ``price``."""
+def _probe(
+    book: DeploymentSnapshot,
+    price: Decimal | None,
+    *,
+    funding_rate: Decimal | None = Decimal("0.0001"),
+) -> LiveFuturesProbe:
+    """A probe bound to the synthetic perpetual at ``price``, with a settled funding rate."""
     return LiveFuturesProbe(
         FuturesBookState(
             deployment_id=book.deployment.id,
@@ -296,6 +301,7 @@ def _probe(book: DeploymentSnapshot, price: Decimal | None) -> LiveFuturesProbe:
             side="long",
             binding=BoundFuturesContract(book.deployment.id, _CONTRACT, Decimal("0.1"), _AT),
             margin=_MARGIN,
+            latest_funding_rate=funding_rate,
         ),
         price,
     )

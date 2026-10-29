@@ -22,7 +22,7 @@ sleeves). Desks are paper by default; a live desk is described under "Live desks
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v111`, schema revision `0082`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v112`, schema revision `0083`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
 `create`, `update`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 

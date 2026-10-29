@@ -118,12 +118,24 @@ def live_entry_blocks(
     books: Sequence[DeploymentSnapshot],
     price: Decimal | None,
     now: datetime,
+    funding_rate: Decimal | None = None,
+    margin_is_stale: bool = False,
 ) -> tuple[str, ...]:
-    """Run actual P2-3 admission for minimum whole-contract probes in both directions."""
+    """Run actual P2-3 admission for minimum whole-contract probes in both directions.
+
+    ``funding_rate`` is the newest settled rate execution would load for a perp, and
+    ``margin_is_stale`` execution's margin-rate age verdict.
+    """
     if policy is None:
         return ("FUTURES_POLICY_UNKNOWN",)
     probe = visibility_probe(
-        snapshot, binding=binding, observation=observation, price=price, now=now
+        snapshot,
+        binding=binding,
+        observation=observation,
+        price=price,
+        now=now,
+        latest_funding_rate=funding_rate,
+        margin_stale=margin_is_stale,
     )
     verdicts = live_probe_verdicts(
         policy,

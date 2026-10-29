@@ -13,9 +13,11 @@ unreadable, and a failed β or futures-account read makes that check ``unknown``
 from __future__ import annotations
 
 from contextlib import nullcontext
+from functools import partial
 from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_paper import load_futures_legs
+from thytrader.execution.futures_visibility import reread_live_futures_books
 from thytrader.execution.futures_visibility_fleet import load_live_futures_probes
 from thytrader.execution.inventory_marks import inventory_marks
 from thytrader.market_data.instrument_ids import is_futures_product_id
@@ -98,6 +100,7 @@ async def load_fleet_entry_health(
                 inhibited=None if inhibition is None else inhibition.get(mode.value),
                 futures_runtime=futures_runtime,
                 clock=judge,
+                execution=store,
             )
             for mode, scope in fleet_entry_scopes(deployments)
         ]
@@ -148,6 +151,7 @@ async def _scope_evidence(
     inhibited: bool | None,
     futures_runtime: FuturesRuntime | None = None,
     clock: Callable[[], datetime] | None = None,
+    execution: ExecutionStore | None = None,
 ) -> FleetScopeEvidence:
     """β, futures legs and the collateral state, read as entry admission reads them.
 
@@ -178,7 +182,14 @@ async def _scope_evidence(
     venue, probes, judged = (None, {}, None)
     if mode is DeploymentMode.LIVE and scope == FUTURES_SCOPE:
         venue, probes, judged = await load_live_futures_probes(
-            snapshots, store=futures_account, runtime=futures_runtime, now=as_of, clock=clock
+            snapshots,
+            store=futures_account,
+            runtime=futures_runtime,
+            now=as_of,
+            clock=clock,
+            reload_books=(
+                None if execution is None else partial(reread_live_futures_books, execution)
+            ),
         )
     return FleetScopeEvidence(
         live_futures_venue=venue,

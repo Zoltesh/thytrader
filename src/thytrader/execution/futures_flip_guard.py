@@ -15,7 +15,7 @@ from thytrader.trading.futures_repair import (
     excess_quantity,
     managed_signed_base,
 )
-from thytrader.trading.models import IntentPurpose, OrderKind, OrderSide
+from thytrader.trading.models import IntentPurpose, OrderKind, OrderSide, OrderStatus
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -53,7 +53,11 @@ async def reduce_proven_excess(
     signed, quantity = proof
     # This stable identity survives a crash before POST and after POST before the ack.
     last_fill = max(snapshot.fills, key=lambda item: (item.filled_at, str(item.id)))
-    key = f"{EXCESS_REDUCTION_PREFIX}{snapshot.deployment.id}:{last_fill.id}"
+    key = _attempt_key(
+        snapshot, f"{EXCESS_REDUCTION_PREFIX}{snapshot.deployment.id}:{last_fill.id}"
+    )
+    if key is None:
+        return snapshot
     await submit_intent(
         store=store,
         broker=broker,
@@ -71,6 +75,37 @@ async def reduce_proven_excess(
     return await reconcile_open_orders(
         await store.get_deployment(snapshot.deployment.id), broker=broker, store=store
     )
+
+
+MAX_REDUCTION_ATTEMPTS = 3
+_UNFILLED_ENDS = frozenset({OrderStatus.REJECTED, OrderStatus.CANCELED})
+"""Reduction attempts per fill identity; the pause and its critical alert stay after these."""
+
+
+def _attempt_key(snapshot: DeploymentSnapshot, base: str) -> str | None:
+    """The next attempt's identity, or ``None`` while no attempt may be sent.
+
+    Nothing is active here. An earlier attempt for this fill identity may be retried only if
+    it ended without a fill: a definitive rejection, an unfilled cancel, or an intent that
+    never reached its order. A filled attempt whose fills are not applied yet waits, and the
+    attempts stop at ``MAX_REDUCTION_ATTEMPTS``. The first attempt keeps the plain identity,
+    so a crash replay still finds it; later attempts append their number.
+    """
+    attempts = {
+        intent.id
+        for intent in snapshot.intents
+        if intent.idempotency_key == base or (intent.idempotency_key or "").startswith(f"{base}:")
+    }
+    if any(
+        order.status not in _UNFILLED_ENDS
+        or any(fill.order_id == order.id for fill in snapshot.fills)
+        for order in snapshot.orders
+        if order.intent_id in attempts
+    ):
+        return None
+    if len(attempts) >= MAX_REDUCTION_ATTEMPTS:
+        return None
+    return base if not attempts else f"{base}:{len(attempts)}"
 
 
 def _proof(

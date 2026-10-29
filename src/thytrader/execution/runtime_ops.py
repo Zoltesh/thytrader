@@ -28,6 +28,7 @@ from thytrader.trading.fill_ledger import (
     ingest_fill,
     unprojected_inventory_products,
 )
+from thytrader.trading.futures_book import paper_liquidation_hit
 from thytrader.trading.geometry import paper_stop_hit
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
@@ -133,7 +134,11 @@ async def _match_resting_orders(
 def _stop_preempts_take_profit(
     snapshot: DeploymentSnapshot, *, order: Order, candle: Candle
 ) -> bool:
-    """Return whether this resting take-profit must yield to a stop the candle also hit."""
+    """Return whether this resting take-profit must yield to a stop or paper liquidation.
+
+    Both exits run in position management after matching; a candle that reaches either
+    cannot show that the take-profit traded first.
+    """
     intent = next((item for item in snapshot.intents if item.id == order.intent_id), None)
     if intent is None or intent.purpose is not IntentPurpose.TAKE_PROFIT:
         return False
@@ -142,7 +147,9 @@ def _stop_preempts_take_profit(
         return False
     if order.product_id and position.product_id and order.product_id != position.product_id:
         return False
-    return paper_stop_hit(side=position.side, candle=candle, stop_price=position.stop_price)
+    return paper_stop_hit(
+        side=position.side, candle=candle, stop_price=position.stop_price
+    ) or paper_liquidation_hit(snapshot, position=position, candle=candle)
 
 
 async def apply_fill(

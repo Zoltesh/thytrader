@@ -166,6 +166,16 @@ def futures_decisions_deferred(snapshot: DeploymentSnapshot) -> bool:
     return False
 
 
+def managed_order_ids(portfolio: Sequence[DeploymentSnapshot]) -> frozenset[tuple[str, str]]:
+    """Every live book's exact (product, client order id) pairs, product upper case."""
+    return frozenset(
+        ((order.product_id or book.deployment.product_id).upper(), order.client_order_id)
+        for book in portfolio
+        if book.deployment.mode is DeploymentMode.LIVE
+        for order in book.orders
+    )
+
+
 async def prepare_live_futures_book(
     snapshot: DeploymentSnapshot, *, portfolio: Sequence[DeploymentSnapshot]
 ) -> FuturesLiveAccount | None:
@@ -178,12 +188,7 @@ async def prepare_live_futures_book(
         or not managed_live_futures(snapshot)
     ):
         return None
-    managed = frozenset(
-        (order.product_id or book.deployment.product_id, order.client_order_id)
-        for book in portfolio
-        if book.deployment.mode is DeploymentMode.LIVE
-        for order in book.orders
-    )
+    managed = managed_order_ids(portfolio)
 
     async def read() -> FuturesLiveAccount:
         """Read this credential generation's account with complete managed identities."""
