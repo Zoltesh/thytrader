@@ -248,7 +248,9 @@ async def _deployment_summaries(
     summaries: list[DeploymentSummary] = []
     for item in deployments:
         summary_row = await _summary_or_none(diagnostics, item.id)
-        snapshot = summary_as_snapshot(summary_row) if summary_row else None
+        snapshot = await _accounting_or_none(diagnostics, item.id) or (
+            summary_as_snapshot(summary_row) if summary_row else None
+        )
         marks = (
             await last_bar_marks(diagnostics.decision_store, snapshot)
             if diagnostics.decision_store is not None and snapshot is not None
@@ -266,6 +268,21 @@ async def _deployment_summaries(
             )
         )
     return tuple(summaries)
+
+
+async def _accounting_or_none(
+    diagnostics: OperatorDiagnostics, deployment_id: UUID
+) -> DeploymentSnapshot | None:
+    """One book's full snapshot in one repeatable read, so a settled flat book reads flat.
+
+    A bounded summary omits historical orders and fills and never certifies accounting, which
+    made every book read ``open_unverified``. The accounting read is one coherent observation
+    (ADR 0153); when it fails the book keeps its summary projection and stays unverified.
+    """
+    try:
+        return await diagnostics.execution.get_accounting_snapshot(deployment_id)
+    except ExecutionStoreError:
+        return None
 
 
 async def _summary_or_none(

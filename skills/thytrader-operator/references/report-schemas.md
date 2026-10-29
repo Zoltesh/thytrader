@@ -250,7 +250,9 @@ deployments add `books[]`: `product_id`, `phase`, `side` (`null` when flat),
 `protection_status` (`flat` \| `covered` \| `unprotected` \| `unknown`), `position_state`
 (`flat` \| `entering` \| `open_protected` \| `open_unprotected` \| `open_unverified` \|
 `exiting`), and `exit_in_flight` (boolean). Each deployment row carries the worst book's
-`position_state` and `exit_in_flight` (`null` only when its books could not be read). `phase`
+`position_state` and `exit_in_flight` (`null` only when its books could not be read). The
+`runtime` report derives them from each book's full accounting read (ADR 0153); if that read fails, rows use
+the bounded summary and a book without certified accounting reads `open_unverified`. `phase`
 stays the raw worker state; `pending_exit` includes resting TP/SL protection, which is
 `open_protected` (ADR 0097). No quantities. Do not
 treat the deployment-level `product_id` as the only open book

@@ -13,6 +13,7 @@ from thytrader.execution.paper import PaperBroker
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.memory.recording import maybe_record_submitted_intent
 from thytrader.trading.ids import utc_now, uuid7
+from thytrader.trading.lease_fence import LeaseTakenError
 from thytrader.trading.models import (
     DeploymentMode,
     ExecutionConflictError,
@@ -99,8 +100,8 @@ async def submit_intent(
     )
     try:
         await store.save_intent(intent)
-    except ExecutionConflictError:
-        existing = await _existing_order_for_key(store, idempotency_key)
+    except ExecutionConflictError as conflict:
+        existing = await _existing_order_for_key(store, idempotency_key, conflict)
         if existing is not None:
             return existing
         raise
@@ -258,10 +259,13 @@ async def _require_price_free_reduction(
 
 
 async def _existing_order_for_key(
-    store: ExecutionStore, idempotency_key: str | None
+    store: ExecutionStore, idempotency_key: str | None, conflict: ExecutionConflictError
 ) -> Order | None:
-    """Return the venue order already recorded for a stable intent identity."""
-    if not idempotency_key:
+    """Return the venue order already recorded for a stable intent identity.
+
+    A lease refusal is never a duplicate: another worker now owns the book (ADR 0153).
+    """
+    if not idempotency_key or isinstance(conflict, LeaseTakenError):
         return None
     existing = await store.get_intent_by_idempotency_key(idempotency_key)
     if existing is None:
