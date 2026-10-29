@@ -63,6 +63,9 @@ futures_account_snapshots = Table(
     Column("spot_usdc_hold", _AMOUNT, nullable=True),
     Column("spot_usd_available", _AMOUNT, nullable=True),
     Column("spot_usd_hold", _AMOUNT, nullable=True),
+    # The same cycle's futures open-order listing (Alembic 0083, ADR 0151) as canonical JSON
+    # [[product_id, client_order_id|null], ...]. NULL: unknown (read failed or older row).
+    Column("open_futures_orders", Text(), nullable=True),
     CheckConstraint(
         "enablement IN ('enabled', 'not_enabled', 'unknown')",
         name="ck_futures_account_snapshots_enablement",

@@ -25,8 +25,15 @@ def visibility_probe(
     observation: FuturesInstrumentObservation | None,
     price: Decimal | None,
     now: datetime,
+    latest_funding_rate: Decimal | None = None,
+    margin_stale: bool = False,
 ) -> LiveFuturesProbe:
-    """Use the same binding, rates and overdue-hour rules as execution, with no writes."""
+    """Use the same binding, rates and overdue-hour rules as execution, with no writes.
+
+    ``latest_funding_rate`` is the newest settled hourly rate execution would load; without
+    it a live perp's probe is denied exactly as its entries are. ``margin_stale`` carries
+    execution's catalog-age bound the same way.
+    """
     long_rate = _rate(None if observation is None else observation.overnight_long_margin_rate)
     short_rate = _rate(None if observation is None else observation.overnight_short_margin_rate)
     margin = None
@@ -53,6 +60,8 @@ def visibility_probe(
             binding=binding,
             margin=margin,
             funding_overdue=due[0] if due and funding_overdue(due[0], now) else None,
+            latest_funding_rate=latest_funding_rate,
+            margin_stale=margin_stale,
         ),
         price=price,
     )

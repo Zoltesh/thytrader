@@ -123,7 +123,8 @@ async def _account(
         return await mirror_live_account(
             bound_futures_account_store(),
             None if runtime is None else runtime.observations,
-            books,
+            # Ownership needs every live futures book, retired ones included.
+            snapshots,
         ), False
     except Exception as error:  # noqa: BLE001 - isolate malformed/unavailable account evidence.
         _logger.warning("futures_account_observation_failed type=%s", type(error).__name__)

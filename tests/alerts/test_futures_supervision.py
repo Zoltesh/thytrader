@@ -12,9 +12,9 @@ from tests.execution.futures_live_fixture import FakeVenue
 from tests.execution.test_paper_futures_books import _policy
 from tests.operator_diagnostics.test_futures_books_report import _AT, _snapshot
 from thytrader.alerts import supervision_futures
-from thytrader.alerts.models import AlertCode, AlertSeverity
+from thytrader.alerts.models import AlertCheck, AlertCode, AlertSeverity
 from thytrader.alerts.store import InMemoryAlertStore
-from thytrader.trading.models import DeploymentMode, PositionSide
+from thytrader.trading.models import DeploymentMode, DeploymentStatus, PositionSide
 
 pytestmark = pytest.mark.anyio
 
@@ -177,3 +177,47 @@ async def test_paper_has_no_live_safety_findings() -> None:
         (book,), account=None, policy=_policy(), now=_AT + timedelta(hours=1)
     )
     assert not evidence.findings
+
+
+async def test_external_order_alert_resolves_once_the_products_last_book_is_settled() -> None:
+    """A stopped, settled book no longer manages its product, so the I3 alert recovers."""
+    book = _snapshot(side=PositionSide.LONG, cash="0")
+    book = replace(
+        book,
+        position=None,
+        positions=(),
+        orders=(),
+        deployment=replace(
+            book.deployment, mode=DeploymentMode.LIVE, status=DeploymentStatus.STOPPED
+        ),
+    )
+    evidence = supervision_futures.futures_safety_evidence(
+        (book,), account=None, policy=_policy(), now=_AT
+    )
+    assert AlertCheck(
+        AlertCode.FUTURES_EXTERNAL_ON_MANAGED_PRODUCT, f"product:{book.deployment.product_id}"
+    ) in set(evidence.evaluated)
+    assert not evidence.findings
+
+
+async def test_a_settled_books_mismatch_alert_resolves() -> None:
+    """A stopped, settled book's position-mismatch alert is evaluated, so it recovers."""
+    book = _snapshot(side=PositionSide.LONG, cash="0")
+    book = replace(
+        book,
+        position=None,
+        positions=(),
+        orders=(),
+        deployment=replace(
+            book.deployment,
+            mode=DeploymentMode.LIVE,
+            status=DeploymentStatus.STOPPED,
+            mismatch_detail="FUTURES_POSITION_MISMATCH: synthetic",
+        ),
+    )
+    evidence = supervision_futures.futures_safety_evidence(
+        (book,), account=None, policy=_policy(), now=_AT
+    )
+    assert AlertCheck(
+        AlertCode.FUTURES_POSITION_MISMATCH, f"deployment:{book.deployment.id}"
+    ) in set(evidence.evaluated)

@@ -21,6 +21,8 @@ x-backend-environment: &backend-environment
   THYTRADER_ALERT_DECISION_MISSED_BARS: ${THYTRADER_ALERT_DECISION_MISSED_BARS:-2}
   # Send attempts per alert page before delivery is given up.
   THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS: ${THYTRADER_ALERT_DELIVERY_MAX_ATTEMPTS:-5}
+  # Oldest catalog margin-rate sighting a futures entry may be sized on (ADR 0151); 0 is off.
+  THYTRADER_FUTURES_MARGIN_RATE_MAX_AGE_SECONDS: ${THYTRADER_FUTURES_MARGIN_RATE_MAX_AGE_SECONDS:-3600}
 
 services:
   postgres:

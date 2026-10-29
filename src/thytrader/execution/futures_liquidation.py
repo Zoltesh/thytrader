@@ -13,8 +13,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from thytrader.execution.exits import _marketable_exit
-from thytrader.trading.futures_book import current_futures_book, liquidation_due
-from thytrader.trading.models import DeploymentMode, IntentPurpose, PositionSide
+from thytrader.trading.futures_book import paper_liquidation_hit
+from thytrader.trading.models import IntentPurpose, PositionSide
 
 if TYPE_CHECKING:
     from thytrader.execution.broker import Broker
@@ -35,21 +35,9 @@ async def paper_liquidation_if_due(
     position: Position,
 ) -> DeploymentSnapshot | None:
     """Liquidate a paper futures book whose adverse-extreme equity is below maintenance."""
-    if snapshot.deployment.mode is not DeploymentMode.PAPER:
+    if not paper_liquidation_hit(snapshot, position=position, candle=candle):
         return None
-    state = current_futures_book(snapshot.deployment.id)
-    if state is None or state.margin is None:
-        return None
-    short = position.side is PositionSide.SHORT
-    adverse = candle.high if short else candle.low
-    if not liquidation_due(
-        state.margin,
-        cash=snapshot.deployment.cash,
-        quantity=position.quantity,
-        side="short" if short else "long",
-        adverse_price=adverse,
-    ):
-        return None
+    adverse = candle.high if position.side is PositionSide.SHORT else candle.low
     return await _marketable_exit(
         snapshot,
         strategy=strategy,

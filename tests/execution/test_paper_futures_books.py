@@ -8,6 +8,7 @@ from decimal import Decimal
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
+from uuid import uuid4
 
 import pytest
 
@@ -21,6 +22,7 @@ from thytrader.execution.futures_paper import (
 )
 from thytrader.execution.loop import process_closed_bar
 from thytrader.execution.paper import PaperBroker
+from thytrader.execution.runtime_ops import _stop_preempts_take_profit
 from thytrader.market_data.futures_observations import (
     FundingRateRecord,
     FuturesInstrumentObservation,
@@ -45,6 +47,7 @@ from thytrader.trading.models import (
     DeploymentMode,
     DeploymentStatus,
     IntentPurpose,
+    OrderSide,
     OrderStatus,
     RuntimePhase,
 )
@@ -253,6 +256,7 @@ async def test_unknown_margin_or_overdue_funding_rests_no_entry() -> None:
         _state(snapshot, margin=None),
         _state(snapshot, funding_overdue=_START),
         _state(snapshot, binding=None),
+        _state(snapshot, margin_stale=True),
     ):
         with futures_book_scope(state):
             result = await process_closed_bar(
@@ -444,6 +448,32 @@ async def test_funding_is_applied_once_per_held_hour_at_the_bar_close() -> None:
 
 
 @pytest.mark.anyio
+async def test_a_four_hour_book_marks_funding_on_the_hourly_clock() -> None:
+    """A 4h bar holding the funding hour closes after the grace; the hourly close does not."""
+    store = InMemoryExecutionStore()
+    filled = await _filled_book(store)
+    filled = replace(filled, deployment=replace(filled.deployment, timeframe="4h"))
+    contracts = InMemoryFuturesContractStore()
+    await contracts.bind_contract(_binding(filled))
+    hours = tuple(_START + timedelta(hours=offset) for offset in (31, 32, 33))
+    runtime = FuturesRuntime(
+        contracts=contracts,
+        observations=_Observations(tuple(_record(hour, "0.0001") for hour in hours)),
+    )
+    with futures_runtime_scope(runtime):
+        state, charged = await prepare_futures_book(
+            filled,
+            strategy=_strategy(),
+            store=store,
+            market_data=cast("MarketDataService", _MarketData()),
+            now=_START + timedelta(hours=34, minutes=30),
+        )
+    assert state is not None
+    assert state.funding_overdue is None
+    assert [flow.funding_time for flow in charged.funding] == list(hours)
+
+
+@pytest.mark.anyio
 async def test_a_missing_settled_hour_past_the_grace_blocks_entries() -> None:
     """No rate for hour 31 long after it settled: nothing is charged and entries wait."""
     store = InMemoryExecutionStore()
@@ -465,6 +495,38 @@ async def test_a_missing_settled_hour_past_the_grace_blocks_entries() -> None:
     assert blocked is not None
     assert blocked[0] == "FUNDING_HISTORY_MISSING"
     assert after.deployment.cash == filled.deployment.cash
+
+
+@pytest.mark.anyio
+async def test_margin_rates_older_than_the_bound_deny_entries_but_keep_the_margin() -> None:
+    """Rates last seen 33 hours ago fail a one-hour bound: entries wait, exits keep margin."""
+    store = InMemoryExecutionStore()
+    filled = await _filled_book(store)
+    contracts = InMemoryFuturesContractStore()
+    await contracts.bind_contract(_binding(filled))
+    now = _START + timedelta(hours=33, minutes=5)
+    states = []
+    for bound in (timedelta(hours=1), None):
+        runtime = FuturesRuntime(
+            contracts=contracts, observations=_Observations(()), margin_max_age=bound
+        )
+        with futures_runtime_scope(runtime):
+            state, _after = await prepare_futures_book(
+                filled,
+                strategy=_strategy(),
+                store=store,
+                market_data=cast("MarketDataService", _MarketData()),
+                now=now,
+            )
+        assert state is not None
+        assert state.margin is not None
+        states.append(state)
+    stale, unbounded = states
+    assert stale.margin_stale
+    blocked = stale.entry_block()
+    assert blocked is not None
+    assert blocked[0] == "FUTURES_MARGIN_UNKNOWN"
+    assert not unbounded.margin_stale
 
 
 @pytest.mark.anyio
@@ -494,6 +556,42 @@ async def test_the_closed_bar_loop_liquidates_before_the_protective_stop() -> No
     purposes = {intent.purpose for intent in after.intents}
     assert IntentPurpose.LIQUIDATION in purposes
     assert IntentPurpose.STOP not in purposes
+
+
+@pytest.mark.anyio
+async def test_a_resting_take_profit_yields_to_paper_liquidation_on_the_same_bar() -> None:
+    """A bar that liquidates the book never fills its take-profit first, even above the stop."""
+    store = InMemoryExecutionStore()
+    filled = await _filled_book(store)
+    position = filled.position
+    assert position is not None
+    position = replace(position, stop_price=Decimal("0.5"))
+    intent = replace(filled.intents[0], id=uuid4(), purpose=IntentPurpose.TAKE_PROFIT)
+    order = replace(
+        filled.orders[0],
+        id=uuid4(),
+        intent_id=intent.id,
+        status=OrderStatus.OPEN,
+        side=OrderSide.SELL,
+    )
+    book = replace(
+        filled,
+        position=position,
+        positions=(position,),
+        intents=(*filled.intents, intent),
+        orders=(*filled.orders, order),
+    )
+    crash = Candle(
+        starts_at=_START + timedelta(hours=31),
+        open=Decimal(130),
+        high=Decimal(500),
+        low=Decimal(1),
+        close=Decimal(2),
+        volume=Decimal(10),
+    )
+    with futures_book_scope(_state(book)):
+        assert _stop_preempts_take_profit(book, order=order, candle=crash)
+    assert not _stop_preempts_take_profit(book, order=order, candle=crash)
 
 
 @pytest.mark.anyio

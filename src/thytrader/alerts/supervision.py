@@ -94,7 +94,7 @@ async def gather_safety_findings(
         evaluated.update(
             AlertCheck(row.code, row.subject)
             for row in prior_alerts
-            if row.subject.split(":", 1)[0] not in listed and row.scope is AlertScope.DEPLOYMENT
+            if _alert_book(row) not in listed and row.scope is AlertScope.DEPLOYMENT
         )
     for row in deployments:
         read = await _snapshot_or_none(snapshots, row.id)
@@ -104,9 +104,7 @@ async def gather_safety_findings(
         deployment = snapshot.deployment
         if deployment.revision < row.revision:
             continue
-        previous = tuple(
-            alert for alert in prior_alerts if alert.subject.split(":", 1)[0] == str(row.id)
-        )
+        previous = tuple(alert for alert in prior_alerts if _alert_book(alert) == str(row.id))
         for finding in (*_row_findings(deployment), *_known_unresolved_findings(read)):
             _keep(ordered, finding)
         evaluated.update(AlertCheck(code, str(row.id)) for code in _ROW_CHECKS)
@@ -197,6 +195,17 @@ async def _trigger_consumed_orders(
         if crossed:
             consumed[order.id] = crossed[-1].close
     return consumed
+
+
+def _alert_book(alert: OperatorAlert) -> str:
+    """The book an alert belongs to: its recorded deployment, else its subject's first part.
+
+    Futures supervision names a book ``deployment:<id>``; reading only the subject would treat
+    that alert as an unlisted book's and resolve it every cycle (it would then reopen as new).
+    """
+    if alert.deployment_id is not None:
+        return str(alert.deployment_id)
+    return alert.subject.split(":", 1)[0]
 
 
 async def _snapshot_or_none(

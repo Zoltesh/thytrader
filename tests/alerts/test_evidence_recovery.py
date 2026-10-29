@@ -354,3 +354,27 @@ async def test_only_verified_cursor_advancement_on_same_snapshot_can_recover_err
     elif case == "held":
         after = replace(after, mismatch_detail="WORKER_CONSECUTIVE_FAILURES: held")
     assert verified_worker_recovery(before, after) is (case == "advance")
+
+
+async def test_futures_mismatch_alert_is_not_resolved_by_generic_supervision() -> None:
+    """A ``deployment:<id>`` futures alert belongs to its listed book, not to an unlisted one."""
+    store = InMemoryAlertStore()
+    book = _deployment(mode=DeploymentMode.LIVE)
+    await store.record(
+        SupervisionFinding(
+            code=AlertCode.FUTURES_POSITION_MISMATCH,
+            scope=AlertScope.DEPLOYMENT,
+            subject=f"deployment:{book.id}",
+            severity=AlertSeverity.CRITICAL,
+            detail="FUTURES_POSITION_MISMATCH: venue and ledger differ",
+            deployment_id=book.id,
+            product_id=book.product_id,
+        ),
+        now=_NOW,
+    )
+    await _gather_and_apply(
+        store, (book,), _Snapshots((DeploymentSnapshot(deployment=book),)), authoritative=True
+    )
+    assert {row.code for row in await store.list_open_alerts()} == {
+        AlertCode.FUTURES_POSITION_MISMATCH
+    }

@@ -22,6 +22,7 @@ from thytrader.exchanges.futures_models import (
     FuturesEnablement,
     FuturesMarginMeasure,
     FuturesMarginWindow,
+    FuturesOpenOrderRef,
     FuturesPosition,
     FuturesPositionSide,
     SpotCollateralBalances,
@@ -94,6 +95,7 @@ class PostgresFuturesAccountStore:
             amount = None if balance is None else getattr(balance, name)
             values[name] = None if amount is None else format(amount, "f")
         values.update(_spot_values(observation.spot_balances))
+        values["open_futures_orders"] = _orders_json(observation.open_orders)
         try:
             async with self._engine.begin() as connection:
                 await connection.execute(insert(futures_account_snapshots).values(**values))
@@ -206,6 +208,36 @@ def _spot_balances(row: Row[tuple[object, ...]]) -> SpotCollateralBalances | Non
     )
 
 
+def _orders_json(orders: tuple[FuturesOpenOrderRef, ...] | None) -> str | None:
+    """Serialize the cycle's order listing; ``None`` stays unknown, never an empty list."""
+    if orders is None:
+        return None
+    rows = sorted(
+        ([order.product_id, order.client_order_id] for order in orders),
+        key=lambda row: (row[0], row[1] or ""),
+    )
+    return json.dumps(rows, separators=(",", ":"))
+
+
+def _orders_from_json(raw: object) -> tuple[FuturesOpenOrderRef, ...] | None:
+    """Rebuild a stored order listing; corruption fails closed."""
+    if raw is None:
+        return None
+    try:
+        rows = json.loads(str(raw))
+    except ValueError as error:
+        raise FuturesAccountStoreUnavailableError("A stored order listing is corrupt.") from error
+    if not isinstance(rows, list) or not all(
+        isinstance(row, list)
+        and len(row) == 2
+        and isinstance(row[0], str)
+        and (row[1] is None or isinstance(row[1], str))
+        for row in rows
+    ):
+        raise FuturesAccountStoreUnavailableError("A stored order listing is corrupt.")
+    return tuple(FuturesOpenOrderRef(product_id=row[0], client_order_id=row[1]) for row in rows)
+
+
 def _position_values(snapshot_id: object, position: FuturesPosition) -> dict[str, object]:
     """Map one position to its child row."""
     return {
@@ -302,6 +334,7 @@ def _observation(
         margin_window=window,
         read_failures=tuple(failures),
         spot_balances=_spot_balances(row),
+        open_orders=_orders_from_json(row.open_futures_orders),
     )
 
 

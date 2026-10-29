@@ -146,6 +146,9 @@ class Settings(BaseSettings):
     alert_decision_missed_bars: int = Field(default=2, ge=1, le=100)
     alert_delivery_max_attempts: int = Field(default=5, ge=1, le=100)
     alert_entry_block_grace_seconds: int = Field(default=300, ge=0, le=3600)
+    # Oldest catalog margin-rate sighting a futures entry may be sized on (ADR 0151); 0 turns
+    # the bound off. Entries only: exits, protection and liquidation never read it.
+    futures_margin_rate_max_age_seconds: int = Field(default=3600, ge=0, le=604800)
     trust_boundary_enabled: bool = True
     installation_token: SecretStr | None = None
     credentials_dir: Path = Path(".thytrader-credentials")

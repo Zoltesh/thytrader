@@ -103,7 +103,13 @@ no position and so no mark: its probe runs every check that needs no price (fund
 opt-in, binding, occupancy, venue evidence, drift, external orders, contracts, venue state,
 known balances, buying power above zero, the quote, a declared reserve, and the reserve
 against the margin already held) and leaves only comparing a positive buying power and the
-projected reserve against the entry's own margin to the real entry, which is sized at its own price. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh
+projected reserve against the entry's own margin to the real entry, which is sized at its own price. Every
+probe also needs the live book's newest settled funding rate (`FUNDING_HISTORY_MISSING`, an
+evidence block) and runs the policy's futures caps for one contract: order contracts, gross
+exposure already over its cap and the funding-rate cap (`FUTURES_EXPOSURE_EXCEEDED` and
+`FUTURES_FUNDING_RATE_EXCEEDED` are capacity, not alerted). Product exclusivity in the API and
+operator comes from the CFM mirror's own futures order listing (ADR 0151): a mirror row whose
+listing failed (`futures_open_orders:<reason>` in its read failures) leaves it unknown. `FUTURES_COLLATERAL_UNKNOWN` with "A fresh
 positive mark is required" therefore means a book holding inventory (a position, or fills not
 yet projected or settled) has no fresh venue mark.
 

@@ -13,7 +13,11 @@ import signal
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
-from thytrader.execution.futures_paper import FuturesRuntime, futures_runtime_scope
+from thytrader.execution.futures_paper import (
+    FuturesRuntime,
+    futures_runtime_scope,
+    margin_rate_max_age,
+)
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.futures_venue import coinbase_futures_extension
 from thytrader.execution_worker.service import run_execution_worker
@@ -115,6 +119,7 @@ async def run() -> None:
         futures_runtime = FuturesRuntime(
             contracts=PostgresFuturesContractStore(engine),
             observations=futures_observations,
+            margin_max_age=margin_rate_max_age(settings),
         )
         with (
             risk_futures_account_scope(futures_accounts),

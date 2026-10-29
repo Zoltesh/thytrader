@@ -6,8 +6,17 @@ from decimal import DecimalException, Inexact, localcontext
 from typing import TYPE_CHECKING
 
 from thytrader.execution.futures_cancel import _owned_order
-from thytrader.execution.futures_live import FuturesLiveAccount, managed_live_futures
-from thytrader.execution.futures_sources import CatalogContractSizes, _nonnegative, _positions
+from thytrader.execution.futures_live import (
+    FuturesLiveAccount,
+    managed_live_futures,
+    managed_order_ids,
+)
+from thytrader.execution.futures_sources import (
+    _nonnegative,
+    _positions,
+    catalog_facts,
+    external_order_products,
+)
 from thytrader.execution.futures_venue_check import PositionComparison, compare_position
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.risk.futures_live import FuturesVenueEvidence
@@ -16,7 +25,7 @@ from thytrader.trading.futures_repair import managed_signed_base
 from thytrader.trading.models import DeploymentMode, resolved_product_id, snapshot_positions
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
     from datetime import datetime
     from decimal import Decimal
 
@@ -25,7 +34,11 @@ if TYPE_CHECKING:
         FuturesAccountSnapshotStore,
     )
     from thytrader.execution.futures_paper import FuturesObservationReader
+    from thytrader.market_data.instruments import MaintenanceWindow
     from thytrader.trading.models import DeploymentSnapshot
+    from thytrader.trading.store import ExecutionStore
+
+    type BookReloader = Callable[[], Awaitable[Sequence[DeploymentSnapshot]]]
 
 
 def visible_position_comparison(
@@ -126,13 +139,16 @@ async def mirror_live_account(
     store: FuturesAccountSnapshotStore | None,
     observations: FuturesObservationReader | None,
     books: Sequence[DeploymentSnapshot],
+    reload_books: BookReloader | None = None,
 ) -> FuturesLiveAccount | None:
     """Reuse durable reads; missing order coverage remains unknown, never an empty listing.
 
     This function has no exchange client or mutation capability. Receipt timestamps are
     copied unchanged from the mirror. Catalog failure only invalidates contract comparison.
+    Product exclusivity comes from the receipt's own order listing, matched exactly against
+    the books' client order ids (ADR 0151); a receipt without a listing leaves it unknown.
     """
-    account, _ = await read_visibility_account(store, observations, books)
+    account, _ = await read_visibility_account(store, observations, books, reload_books)
     return account
 
 
@@ -140,29 +156,67 @@ async def read_visibility_account(
     store: FuturesAccountSnapshotStore | None,
     observations: FuturesObservationReader | None,
     books: Sequence[DeploymentSnapshot],
+    reload_books: BookReloader | None = None,
 ) -> tuple[FuturesLiveAccount | None, FuturesAccountObservation | None]:
-    """Load exactly one receipt so funding counters and account metrics share provenance."""
+    """Load exactly one receipt so funding counters and account metrics share provenance.
+
+    ``books`` were usually read before the receipt, so an order placed in between is listed
+    but not yet owned. When the listing holds an unmatched order and ``reload_books`` is
+    given, ownership is re-read once after the receipt; an order still unmatched is external.
+    """
     if store is None:
         return None, None
     latest = await store.latest()
     if latest is None:
         return None, None
-    sizes = {}
-    if observations is not None:
-        source = CatalogContractSizes(observations)
-        for product in {book.deployment.product_id for book in books}:
-            size = await source.contract_size(product)
-            if size is not None:
-                sizes[product] = size
-    return observation_live_account(latest, sizes), latest
+    sizes, maintenance = (
+        ({}, {})
+        if observations is None
+        else await catalog_facts(
+            observations, frozenset(book.deployment.product_id for book in books)
+        )
+    )
+    external = await _external_products(latest, books, reload_books)
+    return observation_live_account(latest, sizes, external, maintenance), latest
+
+
+async def _external_products(
+    latest: FuturesAccountObservation,
+    books: Sequence[DeploymentSnapshot],
+    reload_books: BookReloader | None,
+) -> frozenset[str] | None:
+    """Exact-id exclusivity from the receipt's listing; unknown without one."""
+    if latest.open_orders is None:
+        return None
+    external = external_order_products(latest.open_orders, managed_order_ids(books))
+    if external and reload_books is not None:
+        external = external_order_products(
+            latest.open_orders, managed_order_ids(await reload_books())
+        )
+    return external
+
+
+async def reread_live_futures_books(store: ExecutionStore) -> tuple[DeploymentSnapshot, ...]:
+    """Every live futures book's current accounting snapshot (a ``BookReloader`` source)."""
+    return tuple(
+        [
+            await store.get_accounting_snapshot(row.id)
+            for row in await store.list_deployments()
+            if row.mode is DeploymentMode.LIVE and is_futures_product_id(row.product_id)
+        ]
+    )
 
 
 def observation_live_account(
     latest: FuturesAccountObservation,
     sizes: Mapping[str, Decimal],
     external_order_products: frozenset[str] | None = None,
+    maintenance: Mapping[str, MaintenanceWindow] | None = None,
 ) -> FuturesLiveAccount:
-    """Project exactly one mirror receipt; callers supply separately proved order coverage."""
+    """Project exactly one mirror receipt; callers supply separately proved order coverage.
+
+    ``maintenance`` carries the catalog's recorded windows, as the worker's live read does.
+    """
     positions, marks = _positions(latest.positions)
     balance = latest.balance
     window = latest.margin_window
@@ -189,7 +243,7 @@ def observation_live_account(
             positions=positions,
             external_order_products=external_order_products,
             killswitch_enabled=killswitch,
-            maintenance={},
+            maintenance=dict(maintenance or {}),
             contract_sizes=sizes,
         ),
         marks=marks,

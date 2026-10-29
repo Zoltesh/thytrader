@@ -72,6 +72,9 @@ def futures_safety_evidence(
     A durable de-risk duty is itself positive evidence even if the newest venue read
     fails. Unknown margin cannot clear a prior low-margin condition. Paper never enters
     the live account scope. A threshold of zero on a held account is unknown, not safe.
+    A product whose every live book is settled is no longer managed, so an external order
+    there no longer occupies a managed product and its alert resolves; a settled book's
+    position-mismatch alert resolves too.
     """
     live = tuple(
         book
@@ -159,6 +162,18 @@ def futures_safety_evidence(
         evidence = _book_evidence(book, account, now, books)
         findings.extend(evidence.findings)
         evaluated.extend(evidence.evaluated)
+    managed = {book.deployment.product_id for book in books}
+    evaluated.extend(
+        AlertCheck(AlertCode.FUTURES_EXTERNAL_ON_MANAGED_PRODUCT, f"product:{product}")
+        for product in sorted({book.deployment.product_id for book in live} - managed)
+    )
+    # A retired book (stopped, settled, its flat confirmation discharged) no longer holds a
+    # position the venue could contradict, so its mismatch alert resolves.
+    evaluated.extend(
+        AlertCheck(AlertCode.FUTURES_POSITION_MISMATCH, f"deployment:{book.deployment.id}")
+        for book in live
+        if visibility_scope(book) is False
+    )
     return SafetyEvidence(tuple(findings), tuple(evaluated))
 
 

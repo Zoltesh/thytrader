@@ -14,7 +14,7 @@ import pytest
 
 from tests.exchanges.test_coinbase_cfm import _transport
 from thytrader.exchanges.coinbase_cfm import CoinbaseCfmAccount
-from thytrader.exchanges.futures_models import SpotCollateralBalances
+from thytrader.exchanges.futures_models import FuturesOpenOrderRef, SpotCollateralBalances
 from thytrader.exchanges.rest_transport import CoinbaseHttpStatusError
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
@@ -154,5 +154,31 @@ def test_history_returns_the_window_oldest_first_with_positions() -> None:
             since=start - timedelta(hours=2), until=start - timedelta(hours=1), limit=10
         )
         assert empty == ()
+
+    _run(body)
+
+
+def test_open_order_listing_round_trips_and_unknown_stays_unknown() -> None:
+    """The cycle's futures order listing reloads exactly; no listing reloads as unknown."""
+
+    async def body(engine: AsyncEngine) -> None:
+        """Record a populated, an empty and an absent listing, then read their window back."""
+        store = PostgresFuturesAccountStore(engine)
+        start = _unique_instant() + timedelta(days=5, hours=1)
+        observed = await observe_futures_account(CoinbaseCfmAccount(_transport()), start)
+        listed = replace(
+            observed,
+            open_orders=(
+                FuturesOpenOrderRef("BIP-20DEC30-CDE", None),
+                FuturesOpenOrderRef("BIP-20DEC30-CDE", "client-a"),
+            ),
+        )
+        empty = replace(observed, observed_at=start + timedelta(minutes=1), open_orders=())
+        unknown = replace(observed, observed_at=start + timedelta(minutes=2))
+        for cycle in (listed, empty, unknown):
+            await store.record(cycle)
+        rows = await store.history(since=start, until=start + timedelta(minutes=3), limit=10)
+        assert rows == (listed, empty, unknown)
+        assert rows[2].open_orders is None
 
     _run(body)

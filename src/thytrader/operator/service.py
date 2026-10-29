@@ -11,7 +11,7 @@ from thytrader import __version__
 from thytrader.config import Settings
 from thytrader.credentials.service import credentials_are_configured
 from thytrader.exchanges.fee_suggestions import suggest_research_fee_rates
-from thytrader.execution.futures_paper import FuturesRuntime
+from thytrader.execution.futures_paper import FuturesRuntime, margin_rate_max_age
 from thytrader.memory.recording import compose_trade_reasons
 from thytrader.memory.service import storage_label
 from thytrader.memory.store import DisabledExperientialMemoryStore, ExperientialMemoryStore
@@ -371,7 +371,11 @@ class OperatorDiagnostics:
             futures_account=self.futures_account_store,
             futures_runtime=None
             if stores is None
-            else FuturesRuntime(stores.contracts, stores.observations),
+            else FuturesRuntime(
+                stores.contracts,
+                stores.observations,
+                margin_max_age=margin_rate_max_age(self.settings),
+            ),
         )
 
     async def fleet_health(self) -> FleetHealthReport:
@@ -424,6 +428,7 @@ class OperatorDiagnostics:
             observations=None if stores is None else stores.observations,
             policy=await effective_policy_or_none(self.risk_policies),
             futures_account=self.futures_account_store,
+            margin_max_age=margin_rate_max_age(self.settings),
         )
 
     async def products(self, kind: ProductsKind = "spot") -> ProductsReport:
