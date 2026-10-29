@@ -123,14 +123,33 @@ def _runtime_for_admitted_entry(
         phase=RuntimePhase.PENDING_ENTRY,
         pending_entry_bars=0,
     )
-    attach = (
-        sized.target_price is not None
-        and atr_trailing_stop(strategy.exits) is None
-        and not (
-            deployment.mode is DeploymentMode.LIVE and is_futures_product_id(deployment.product_id)
-        )
+    attach = _attaches_bracket(
+        deployment,
+        strategy=strategy,
+        target_price=sized.target_price,
+        product_id=deployment.product_id,
     )
     return pending, attach
+
+
+def _attaches_bracket(
+    deployment: Deployment,
+    *,
+    strategy: StrategyDefinition,
+    target_price: Decimal | None,
+    product_id: str,
+) -> bool:
+    """Whether a new (non-pyramid) entry carries a venue-attached TP/SL bracket.
+
+    It needs a take-profit and no ATR trail; a live futures entry never attaches, because
+    the futures adapter cannot verify an attached bracket and refuses the order. A first
+    entry and its reprice share this one rule.
+    """
+    return (
+        target_price is not None
+        and atr_trailing_stop(strategy.exits) is None
+        and not (deployment.mode is DeploymentMode.LIVE and is_futures_product_id(product_id))
+    )
 
 
 def _with_pending_levels(

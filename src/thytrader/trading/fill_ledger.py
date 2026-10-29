@@ -198,9 +198,32 @@ def fill_projection_deployment(
     )
 
 
+OVER_CLOSING_FILL_DETAIL = (
+    "Exit fill exceeds the open position; the residual inventory is unmanaged."
+)
+
+
+def creation_order(order: Order) -> tuple[datetime, bool, UUID]:
+    """Sort key placing older orders first and a parent before its attached child.
+
+    A child recorded from the parent's create response shares the parent's creation time, so
+    the tie is broken on parentage rather than on the id.
+    """
+    return order.created_at, order.parent_order_id is not None, order.id
+
+
 def prior_fills_for_order(snapshot: DeploymentSnapshot, order_id: UUID) -> int:
-    """Count fills already recorded for one order (including unapplied evidence)."""
-    return sum(1 for fill in snapshot.fills if fill.order_id == order_id)
+    """Count fills whose economics were already applied for one order.
+
+    Unapplied evidence is not counted: the Postgres store inserts the fill being applied
+    before it projects, so counting recorded rows would see that fill itself and a pyramid
+    add would never count toward the add limit.
+    """
+    return sum(
+        1
+        for fill in snapshot.fills
+        if fill.order_id == order_id and fill.economics_applied_at is not None
+    )
 
 
 def project_fill_economics(
@@ -456,6 +479,20 @@ def _project_exit(
         cooldown_bars_remaining=max(cooldown_bars, 0),
         clear_pending_levels=True,
     )
+    if position is not None and fill.quantity > position.quantity:
+        # The fill closes more than the book holds, so the excess is inventory no position
+        # describes. Cash stays exact; the book pauses (a stopped one stays stopped) for an
+        # operator instead of silently dropping the residual.
+        updated = with_runtime(
+            updated,
+            updated_at=now,
+            status=(
+                DeploymentStatus.STOPPED
+                if deployment.status is DeploymentStatus.STOPPED
+                else DeploymentStatus.PAUSED
+            ),
+            mismatch_detail=OVER_CLOSING_FILL_DETAIL,
+        )
     positions = tuple(
         item
         for item in snapshot.positions
@@ -561,7 +598,11 @@ async def replay_unapplied_fills(
     reports it as ``ADOPTION_EVIDENCE_INCOMPLETE`` instead.
     """
     current = snapshot
-    pending = tuple(fill for fill in current.fills if fill.economics_applied_at is None)
+    # Stores load fills newest first; economics must apply in execution order.
+    pending = sorted(
+        (fill for fill in current.fills if fill.economics_applied_at is None),
+        key=lambda fill: (fill.filled_at, fill.id),
+    )
     for fill in pending:
         order = next((item for item in current.orders if item.id == fill.order_id), None)
         if order is None or order.kind is OrderKind.ADOPTION:

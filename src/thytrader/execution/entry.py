@@ -36,7 +36,7 @@ from thytrader.execution.entry_sizing import (
 from thytrader.execution.freshness import entry_prerequisites, signal_still_valid
 from thytrader.execution.runtime_ops import _active_entry, _flatten_pending, _pause
 from thytrader.execution.signals import evaluate_latest_entry_evidence, latest_atr
-from thytrader.execution.submit import submit_intent
+from thytrader.execution.submit import order_left_nothing_working, submit_intent
 from thytrader.market_data.instrument_ids import is_futures_product_id
 from thytrader.market_data.models import parse_candle_interval
 from thytrader.risk.models import RiskDecision, RiskReasonCode, RiskVerdict, pauses_risk_increasing
@@ -329,8 +329,10 @@ async def _submit_sized_entry(
             broker, product_id=product.product_id, mark=candle.close, side=open_side
         )
     except BrokerError:
+        # A transient empty book or failed book read skips this bar, journaled; a pause
+        # here had no path that clears it, so one blip stopped the book for good.
         note_entry_block("MAKER_PRICE_UNAVAILABLE", "Maker entry price is unavailable.")
-        return await _pause(snapshot, store=store, detail="Maker entry price is unavailable.")
+        return snapshot
     sized = _size_entry_or_add(
         snapshot,
         strategy=strategy,
@@ -408,7 +410,7 @@ async def _submit_sized_entry(
     snapshot = await store.get_deployment(snapshot.deployment.id)
     if order.status is OrderStatus.UNKNOWN:
         return await _pause(snapshot, store=store, detail="Entry submit is unconfirmed.")
-    if order.status is OrderStatus.REJECTED:
+    if order_left_nothing_working(order):
         if is_pyramid_add:
             restored = with_runtime(
                 snapshot.deployment,

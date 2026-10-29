@@ -369,7 +369,8 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
 
     Without any ENTRY intent the fallback considers only orders whose intent is unknown,
     so a working exit on a book opened by adoption (ADR 0124) is never managed as an
-    entry.
+    entry. An attached take-profit/stop child shares its parent's ENTRY intent but is
+    protection, never an entry: only a parentless maker or marketable order qualifies.
     """
     known = {intent.id for intent in snapshot.intents}
     entry_ids = {intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY}
@@ -378,7 +379,7 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
             (
                 order
                 for order in snapshot.orders
-                if order.intent_id in entry_ids and order.status in _ACTIVE
+                if order.intent_id in entry_ids and _is_working_entry_order(order)
             ),
             None,
         )
@@ -386,9 +387,16 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
         (
             order
             for order in snapshot.orders
-            if order.status in _ACTIVE
-            and order.kind in {OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE}
-            and order.intent_id not in known
+            if _is_working_entry_order(order) and order.intent_id not in known
         ),
         None,
+    )
+
+
+def _is_working_entry_order(order: Order) -> bool:
+    """An active, parentless maker or marketable order; protection kinds never qualify."""
+    return (
+        order.status in _ACTIVE
+        and order.parent_order_id is None
+        and order.kind in {OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE}
     )

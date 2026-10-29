@@ -122,6 +122,11 @@ async def _process_discretionary(
 ) -> None:
     """Reconcile and protect a discretionary book without strategy signal evaluation."""
     deployment = snapshot.deployment
+    if deployment.mode is DeploymentMode.LIVE and live_broker is None:
+        # No branch below may fall back to the paper broker for a live book: paper
+        # matching would book simulated fills on it. Pause (keeping any other pause) instead.
+        await _pause_running_for_missing_candles(snapshot, store=store, live_broker=None)
+        return
     timeframe = deployment.timeframe or "1h"
     try:
         product, candles, expected_last = await _closed_window_for(
