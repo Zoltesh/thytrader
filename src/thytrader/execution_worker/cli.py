@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import signal
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from thytrader.alerts.service import AlertService
 from thytrader.alerts.supervision_inputs import AlertThresholds
 from thytrader.credentials.worker_runtime import WorkerCredentialRuntime
@@ -18,6 +20,7 @@ from thytrader.execution.futures_paper import (
     futures_runtime_scope,
     margin_rate_max_age,
 )
+from thytrader.execution.leases import worker_lease_holder
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution_worker.futures_venue import coinbase_futures_extension
 from thytrader.execution_worker.service import run_execution_worker
@@ -35,6 +38,7 @@ from thytrader.persistence.postgres_execution_cycles import PostgresExecutionCyc
 from thytrader.persistence.postgres_futures import PostgresFuturesObservationStore
 from thytrader.persistence.postgres_futures_account import PostgresFuturesAccountStore
 from thytrader.persistence.postgres_futures_books import PostgresFuturesContractStore
+from thytrader.persistence.postgres_lease_fence import release_worker_leases
 from thytrader.persistence.postgres_memory import PostgresExperientialMemoryStore
 from thytrader.persistence.postgres_portfolios import PostgresPortfolioStore
 from thytrader.persistence.postgres_risk import PostgresRiskPolicyStore
@@ -45,6 +49,7 @@ from thytrader.persistence.query_timing import instrument_engine
 from thytrader.replay.capture import FileCapture, capture_scope
 from thytrader.risk.futures_collateral import risk_futures_account_scope
 from thytrader.settings_yaml import SettingsStore
+from thytrader.trading.ids import utc_now
 
 _logger = logging.getLogger(__name__)
 
@@ -163,6 +168,9 @@ async def run() -> None:
                 credential_runtime.run_until_stopped(stop_requested),
                 alert_service.run_deliveries(stop_requested),
             )
+        # A clean stop hands this process's leases to its successor at once (ADR 0153).
+        with contextlib.suppress(SQLAlchemyError, OSError):
+            await release_worker_leases(engine, holder=worker_lease_holder(), now=utc_now())
         _logger.info("execution_worker_stopped")
     finally:
         _set_readiness(settings.execution_worker_readiness_file, False)

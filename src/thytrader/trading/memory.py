@@ -16,6 +16,7 @@ from thytrader.trading.fill_ledger import (
 )
 from thytrader.trading.geometry import base_currency
 from thytrader.trading.ids import utc_now
+from thytrader.trading.lease_fence import require_lease_holder
 from thytrader.trading.ledger import (
     MAX_POSITION_FEE_FILLS,
     LedgerFill,
@@ -510,10 +511,18 @@ class InMemoryExecutionStore:
                 raise ExecutionStoreError("Entry deployment was not found.")
             async with gate.hold():
                 gate.raise_if_inhibited(deployment.mode.value, action="entry")
-                self.intents[intent.id] = intent
+                self._insert_leased_intent(intent)
         else:
-            self.intents[intent.id] = intent
+            self._insert_leased_intent(intent)
         return intent
+
+    def _insert_leased_intent(self, intent: OrderIntent) -> None:
+        """Check the fenced lease holder and insert with no await between (ADR 0153)."""
+        current = self.deployments.get(intent.deployment_id)
+        require_lease_holder(
+            intent.deployment_id, None if current is None else current.worker_lease_holder
+        )
+        self.intents[intent.id] = intent
 
     async def read_entry_inhibition(self) -> dict[str, bool]:
         """Return the bound latch, or both modes clear when no latch is bound."""

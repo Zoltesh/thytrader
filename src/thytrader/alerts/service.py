@@ -19,6 +19,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import timedelta
 import logging
+from time import monotonic
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from uuid import uuid5
 
@@ -131,9 +132,16 @@ class AlertService:
         return application
 
     async def dispatch_pending(self, *, now: datetime) -> None:
-        """Retry open alerts independently of market evidence and signal evaluation."""
+        """Retry open alerts independently of market evidence and signal evaluation.
+
+        Each claim is stamped at its own send. One batch timestamp would let a late item's
+        claim lease be already expired when it is sent (each send may take up to 15s), so a
+        second dispatcher could claim and send it again.
+        """
+        started = monotonic()
         for alert in await self._store.list_open_alerts():
-            await self.deliver(alert, now=now)
+            elapsed = timedelta(seconds=monotonic() - started)
+            await self.deliver(alert, now=now + elapsed)
 
     async def run_deliveries(self, stop_requested: asyncio.Event) -> None:
         """Poll delivery in its own worker task; provider faults never delay safety cycles."""

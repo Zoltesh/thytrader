@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from datetime import timedelta
 import os
+import socket
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from thytrader.trading.ids import utc_now
+from thytrader.trading.lease_fence import lease_fence
 from thytrader.trading.models import (
     Deployment,
     DeploymentSnapshot,
@@ -35,10 +38,15 @@ if TYPE_CHECKING:
 
 WORKER_LEASE_TTL_SECONDS = 45
 
+# Containers all run the worker as PID 1, so the PID alone named every worker the same holder
+# and two overlapping workers shared each lease. The host name and a per-process token keep
+# holders distinct.
+_PROCESS_TOKEN = uuid4().hex[:12]
+
 
 def worker_lease_holder() -> str:
-    """Return a stable holder identity for this execution-worker process."""
-    return f"execution-worker:{os.getpid()}"
+    """Return a holder identity unique to this execution-worker process."""
+    return f"execution-worker:{socket.gethostname()[:64]}:{os.getpid()}:{_PROCESS_TOKEN}"
 
 
 class RevisionFencedStore:
@@ -50,11 +58,19 @@ class RevisionFencedStore:
     because that method is not on the protocol.
     """
 
-    def __init__(self, inner: ExecutionStore, deployment_id: UUID, expected_revision: int) -> None:
-        """Bind the inner store to one leased deployment and its loaded revision."""
+    def __init__(
+        self,
+        inner: ExecutionStore,
+        deployment_id: UUID,
+        expected_revision: int,
+        *,
+        holder: str | None = None,
+    ) -> None:
+        """Bind the inner store to one leased deployment, its loaded revision and lease holder."""
         self._inner = inner
         self._deployment_id = deployment_id
         self._expected_revision = expected_revision
+        self._holder = holder or worker_lease_holder()
 
     async def get_twin_link(self, deployment_id: UUID) -> DeploymentTwinLink | None:
         """Forward comparison metadata without runtime overlays or revision writes."""
@@ -195,8 +211,17 @@ class RevisionFencedStore:
         )
 
     async def save_intent(self, intent: OrderIntent) -> OrderIntent:
-        """Insert one order intent before venue submission."""
-        return await self._inner.save_intent(intent)
+        """Insert one order intent before venue submission, only while this worker holds the book.
+
+        Revision fencing guards deployment writes, but a venue submission is not a deployment
+        write. The store checks the lease holder in the transaction that inserts the intent, so
+        a pass that outlived its lease cannot record a submission for a book another worker has
+        taken (ADR 0153).
+        """
+        if intent.deployment_id != self._deployment_id:
+            return await self._inner.save_intent(intent)
+        with lease_fence(self._deployment_id, self._holder):
+            return await self._inner.save_intent(intent)
 
     async def save_order(self, order: Order) -> Order:
         """Insert or replace one venue-visible order snapshot."""

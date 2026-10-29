@@ -408,7 +408,6 @@ async def _evaluate_lockstep_bar(
     peer_marks = await _portfolio_marks(
         market_data,
         portfolio=portfolio,
-        fallback_timeframe=strategy.timeframe,
         current_product_id=covered[0],
         current_close=marks[covered[0]],
     )

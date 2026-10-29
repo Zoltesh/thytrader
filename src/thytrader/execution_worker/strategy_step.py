@@ -404,7 +404,6 @@ async def _evaluate_strategy_due_bars(
         marks = await _portfolio_marks(
             market_data,
             portfolio=portfolio,
-            fallback_timeframe=strategy.timeframe,
             current_product_id=product.product_id,
             current_close=candle.close,
         )

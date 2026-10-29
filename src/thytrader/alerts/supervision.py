@@ -64,6 +64,9 @@ if TYPE_CHECKING:
         DeploymentSnapshot,
     )
 
+    # One book's closed-candle window: product, clock and the deploy anchor it starts from.
+    type _WindowKey = tuple[str, str, datetime]
+
 _logger = logging.getLogger(__name__)
 
 
@@ -90,6 +93,7 @@ async def gather_safety_findings(
     ordered: dict[tuple[str, str], SupervisionFinding] = {}
     evaluated: set[AlertCheck] = set()
     candle_cache: dict[tuple[str, str], tuple[Candle, ...]] = {}
+    anchored: dict[_WindowKey, tuple[Candle, ...]] = {}
     listed = {str(item.id) for item in deployments}
     if inventory_authoritative:
         evaluated.update(
@@ -125,7 +129,7 @@ async def gather_safety_findings(
         if _unexplained_missing_positions(snapshot):
             continue
         triggered = await _trigger_consumed_orders(
-            deployment, snapshot, closed_candles, candle_cache
+            deployment, snapshot, closed_candles, candle_cache, anchored
         )
         sticky = _sticky_trigger_ids(deployment, snapshot, previous)
         trigger_ids = frozenset(triggered) | sticky
@@ -167,6 +171,7 @@ async def _trigger_consumed_orders(
     snapshot: DeploymentSnapshot,
     closed_candles: ClosedCandleReader,
     candle_cache: dict[tuple[str, str], tuple[Candle, ...]],
+    anchored: dict[_WindowKey, tuple[Candle, ...]],
 ) -> dict[UUID, Decimal]:
     """Map each protective order whose stop trigger traded to the latest close.
 
@@ -186,7 +191,7 @@ async def _trigger_consumed_orders(
             continue
         product_id = resolved_product_id(order.product_id, deployment)
         candles = await _candles_for(
-            closed_candles, candle_cache, product_id, timeframe, deployment.created_at
+            closed_candles, candle_cache, anchored, product_id, timeframe, deployment.created_at
         )
         crossed = tuple(
             candle
@@ -229,14 +234,20 @@ async def _snapshot_or_none(
 async def _candles_for(
     closed_candles: ClosedCandleReader,
     candle_cache: dict[tuple[str, str], tuple[Candle, ...]],
+    anchored: dict[_WindowKey, tuple[Candle, ...]],
     product_id: str,
     timeframe: str,
     deploy_anchor: datetime,
 ) -> tuple[Candle, ...]:
-    """Read cached closed candles for one product clock; empty on failure."""
-    key = (product_id, timeframe)
-    if key in candle_cache:
-        return candle_cache[key]
+    """Read one book's deploy-anchored window once per pass; empty on failure.
+
+    Windows are cached per anchor: a newer book's later-anchored window would hide an older
+    book's earlier stop crossing. The per-clock cache keeps the first window read for the
+    protection freshness checks, which only need the latest closed bar.
+    """
+    key = (product_id, timeframe, deploy_anchor)
+    if key in anchored:
+        return anchored[key]
     try:
         candles = await closed_candles(product_id, timeframe, deploy_anchor)
     except Exception as error:  # noqa: BLE001 - best-effort supervision evidence only.
@@ -247,5 +258,6 @@ async def _candles_for(
             type(error).__name__,
         )
         candles = ()
-    candle_cache[key] = candles
+    anchored[key] = candles
+    candle_cache.setdefault((product_id, timeframe), candles)
     return candles

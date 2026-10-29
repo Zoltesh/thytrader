@@ -448,8 +448,8 @@ def test_runtime_ledger_uses_each_open_books_journaled_mark(
         assert ledger["total_return_fraction"] is None
     report = world.client.get(f"/api/v1/operator/runtime?deployment_id={bot}").json()
     (row,) = report["payload"]["deployments"]
-    # Operator runtime is a bounded summary, not a retained-economics completeness proof.
-    assert row["ledger_mark_complete"] is False
+    # Operator runtime reads each book's full accounting (ADR 0153): complete only with every mark.
+    assert row["ledger_mark_complete"] is (coverage == "complete")
 
 
 def test_runtime_marks_fail_closed_when_the_journal_is_unavailable(

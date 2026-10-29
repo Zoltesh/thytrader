@@ -55,6 +55,7 @@ from thytrader.trading.protection import (
     book_protection_evidence,
     deployment_position_state,
     protection_evidence_response,
+    working_order_count,
 )
 from thytrader.trading.protection_models import PositionState
 
@@ -248,7 +249,9 @@ async def _deployment_summaries(
     summaries: list[DeploymentSummary] = []
     for item in deployments:
         summary_row = await _summary_or_none(diagnostics, item.id)
-        snapshot = summary_as_snapshot(summary_row) if summary_row else None
+        snapshot = await _accounting_or_none(diagnostics, item.id) or (
+            summary_as_snapshot(summary_row) if summary_row else None
+        )
         marks = (
             await last_bar_marks(diagnostics.decision_store, snapshot)
             if diagnostics.decision_store is not None and snapshot is not None
@@ -266,6 +269,29 @@ async def _deployment_summaries(
             )
         )
     return tuple(summaries)
+
+
+async def _accounting_or_none(
+    diagnostics: OperatorDiagnostics, deployment_id: UUID
+) -> DeploymentSnapshot | None:
+    """One book's full snapshot in one repeatable read, so a settled flat book reads flat.
+
+    A bounded summary omits historical orders and fills and never certifies accounting, which
+    made every book read ``open_unverified``. The accounting read is one coherent observation
+    (ADR 0153); when it fails, or reads flat beside a working order, the book keeps its summary
+    projection and stays unverified.
+    """
+    try:
+        snapshot = await diagnostics.execution.get_accounting_snapshot(deployment_id)
+    except ExecutionStoreError:
+        return None
+    # A flat reading with an order still in the reconcile watch set (a bracket sibling whose
+    # read failed, a working order no phase shows) is not proved flat.
+    if deployment_position_state(snapshot) is PositionState.FLAT and working_order_count(
+        snapshot.orders
+    ):
+        return None
+    return snapshot
 
 
 async def _summary_or_none(

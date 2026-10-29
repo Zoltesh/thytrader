@@ -51,6 +51,7 @@ from thytrader.persistence.postgres_execution_statements import (
 from thytrader.persistence.postgres_fleet_admission import refuse_postgres_entry
 from thytrader.persistence.postgres_futures_funding import apply_funding
 from thytrader.persistence.postgres_inventory_lock import lock_entry_base
+from thytrader.persistence.postgres_lease_fence import require_intent_lease
 from thytrader.persistence.schema import (
     deployment_twin_links,
     deployments,
@@ -552,6 +553,7 @@ class PostgresExecutionStore:
                     # Shared base lock first (ADR 0124): no entry lands mid-adoption.
                     await lock_entry_base(connection, intent, mode=mode)
                     await refuse_postgres_entry(connection, mode=mode, action="entry")
+                await require_intent_lease(connection, intent)
                 await connection.execute(statement)
         except ExecutionConflictError:
             raise

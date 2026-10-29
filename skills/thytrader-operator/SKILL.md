@@ -203,9 +203,12 @@ product-tagged orders/fills, `book_totals`). The singular HTTP `position` field 
 compatibility-only.
 
 Unprojected applied fills and unsettled executions report `unknown` / `open_unverified`, not
-`flat`, even after restart or clearing a mismatch. Bounded summaries omit retained fill economics:
+`flat`, even after restart or clearing a mismatch. The `runtime` report reads each book's full
+accounting snapshot in one coherent read, so a settled flat book reads `flat`
+([ADR 0153](../../docs/decisions/0153-worker-robustness-marks-leases-claims-runtime-state.md)).
+When that read fails it falls back to bounded summaries, which omit retained fill economics:
 absent positions are unverified and aggregate `ledger_mark_complete` is false, not a flatness
-certificate. Full `performance` reports set `ACCOUNTING_UNRESOLVED` and null dependent PnL/equity/
+certificate. HTTP deployment summaries always use the bounded projection. Full `performance` reports set `ACCOUNTING_UNRESOLVED` and null dependent PnL/equity/
 exposure when economics are unresolved; known recorded fill statistics remain population evidence.
 Use `thytrader-runtime show UUID` (`detail=full`) for retained orders/fills, and `readiness` /
 `venue-reconciliation` for completeness. A prior qualified opening or prior profits do not repair
@@ -759,7 +762,11 @@ stopped book has no cursor path, so its alert stays open until it is flat. A
 returning broker clears the stopped book's "Live broker is unavailable" note. A held
 `WORKER_CONSECUTIVE_FAILURES` pause keeps its alert open until an operator clears the pause. A supervision entry pause is lease/revision fenced and never auto-resumed;
 reconciliation and risk-reducing processing continue. A fresh lease is timing evidence,
-not proof that reconciliation/protection succeeded. Implausibly future leases mean unknown
+not proof that reconciliation/protection succeeded. Each worker process holds leases under its
+own identity, and a pass refuses to record an order for a book another worker has taken
+(ADR 0153). A cleanly stopped worker releases its leases; after a crash the new worker takes
+each book once the old lease expires (one TTL plus up to one cycle), so its first cycles may
+skip some books. Implausibly future leases mean unknown
 age/possible clock skew, not verified freshness. Counts and health use all open alerts,
 even when the displayed feed is bounded; consult partial-result warnings for truncation.
 
