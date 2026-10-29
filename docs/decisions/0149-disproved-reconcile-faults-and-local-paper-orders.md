@@ -55,7 +55,10 @@ a gap never resumed.
   due bars ran on a whole window (paper books evaluate them while paused; a paused live book is
   reconciled and kept protected first). The ADR 0146 rules are unchanged: only the exact
   decision-window detail, no lifecycle command, no breaker latch, and the evaluation must have
-  reached the newest due bar. A gapped window now pauses only a running discretionary book, as
+  reached the newest due bar. A paused live discretionary book is maintained on the newest bar
+  only (its venue bracket protects it; there is no paper matching to replay), so its catch-up bars
+  are not evaluated one by one before it resumes. A gapped window now pauses only a running
+  discretionary book, as
   on the strategy path: before, it overwrote any pause reason (a reconcile fault, say) with the
   data-gap detail, which the clear would then have resumed.
 

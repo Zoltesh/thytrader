@@ -428,3 +428,33 @@ async def test_an_unimported_sibling_child_keeps_the_fault() -> None:
     assert full.deployment.mismatch_detail == _READ_FAILED
     actions = [event.action for event in await audit.list_recent(limit=50)]
     assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_live_book_reached_with_the_paper_broker_never_clears_even_when_settled() -> None:
+    """No venue contact disproves nothing, even when every order is terminal and settled."""
+    store, deployment_id = await _book(canceled_at=_WHEN, settled_at=_WHEN)
+    deployment, _orders, actions = await _reconcile(store, deployment_id, PaperBroker())
+    assert deployment.mismatch_detail == _READ_FAILED
+    assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_live_book_reached_with_the_paper_broker_records_no_paper_ledger_fault() -> None:
+    """The paper fill-coverage check is for paper books; a live order is left alone."""
+    store, deployment_id = await _book(order_status=OrderStatus.FILLED)
+    order = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(order, filled_quantity=order.quantity))
+    deployment, _orders, _actions = await _reconcile(store, deployment_id, PaperBroker())
+    assert deployment.mismatch_detail == _READ_FAILED
+
+
+@pytest.mark.anyio
+async def test_a_walked_execution_without_fills_keeps_the_fault() -> None:
+    """A settled cancel reporting an executed quantity with no applied fill holds the fault."""
+    store, deployment_id = await _book(canceled_at=_WHEN, settled_at=_WHEN)
+    order = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(order, filled_quantity=Decimal("0.5")))
+    deployment, _orders, actions = await _reconcile(store, deployment_id, _NoReadBroker())
+    assert deployment.mismatch_detail == _READ_FAILED
+    assert "reconcile_read_fault_cleared" not in actions

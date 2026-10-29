@@ -93,9 +93,9 @@ async def reconcile_open_orders(
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
-    # A paper broker cannot answer for a live order, so nothing it "reads" counts as walked.
+    # A paper broker cannot answer for a live order: such a walk reads nothing (None).
     walked = (
-        frozenset()
+        None
         if isinstance(broker, PaperBroker) and snapshot.deployment.mode is not DeploymentMode.PAPER
         else frozenset(order.id for order in snapshot.orders)
     )
@@ -156,11 +156,13 @@ that order filled, so a repeat of that fault would not leave the order ``UNKNOWN
 """
 
 
-def _read_fault_confirmed(snapshot: DeploymentSnapshot, *, walked: frozenset[UUID]) -> bool:
+def _read_fault_confirmed(snapshot: DeploymentSnapshot, *, walked: frozenset[UUID] | None) -> bool:
     """Whether a latched read fault is contradicted by the whole book's evidence.
 
     ``snapshot`` is the accounting snapshot of every product, since the detail is shared and a
-    multi-instrument walk may run through one product's view. Every order that still needs a
+    multi-instrument walk may run through one product's view. ``walked`` is None when the walk
+    could not reach the venue at all (a live book handed the paper broker): nothing is
+    disproved then, even if every order is already terminal. Every order that still needs a
     venue read must have been visited by this walk (``walked``): a sibling product's order can
     leave ``UNKNOWN`` through a cancel acknowledgement without any successful read. A failed
     order or fill read marks its order ``UNKNOWN``, and a repeat of the same failure leaves the
@@ -170,7 +172,7 @@ def _read_fault_confirmed(snapshot: DeploymentSnapshot, *, walked: frozenset[UUI
     executed quantity whose fills were never read) and inventory must be projected, so
     clearing never hides a ledger fault.
     """
-    if snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
+    if walked is None or snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
         return False
     if _unread_orders(snapshot, walked=walked) or unsettled_fill_evidence(snapshot):
         return False
