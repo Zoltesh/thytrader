@@ -29,11 +29,12 @@ a gap never resumed.
 - **Disproved read faults clear, without resuming.** At the end of a reconcile walk that recorded
   no new fault, a book whose detail is `…: order read failed.` or `…: fill read failed.` has it
   cleared when, across the whole book (every product's orders, read from the accounting snapshot
-  because a multi-instrument walk may run through one product's view), no order is `UNKNOWN` (each
-  read back this walk, or already terminal and accounted for), every recorded execution is
-  covered by applied fills (a cancelled order can report an executed quantity whose fills were
-  never read) and no applied inventory is unprojected. Both failures mark their order `UNKNOWN`, so a
-  repeat never counts as success. `…: venue status is unknown.` is not cleared: the venue answered,
+  because a multi-instrument walk may run through one product's view), no order is `UNKNOWN`,
+  every order that still needs a venue read was visited by this walk (a sibling product's order
+  can leave `UNKNOWN` through a cancel acknowledgement without any successful read; it waits for
+  a walk that reads it), every recorded execution is covered by applied fills (a cancelled order
+  can report an executed quantity whose fills were never read) and no applied inventory is
+  unprojected. Both failures mark their order `UNKNOWN`, so a repeat never counts as success. `…: venue status is unknown.` is not cleared: the venue answered,
   and fill ingestion can still mark that order filled while its status stays unknown. The status is
   unchanged: a paused book stays paused until the operator resumes it, a stopped book stays
   stopped. Audit `reconcile_read_fault_cleared` records the old detail. Every other detail

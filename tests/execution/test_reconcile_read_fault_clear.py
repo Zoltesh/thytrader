@@ -12,7 +12,7 @@ import pytest
 from tests.execution.test_reconcile import _FillsBroker, _LookupBroker
 from thytrader.audit_events import InMemoryAuditEventStore
 from thytrader.execution.audit_scope import execution_audit_scope
-from thytrader.execution.broker import BrokerError, SubmitResult
+from thytrader.execution.broker import CANCEL_PENDING_REASON, BrokerError, SubmitResult
 from thytrader.execution.paper import PaperBroker
 from thytrader.execution.reconcile import reconcile_open_orders
 from thytrader.trading.ids import uuid7
@@ -333,6 +333,51 @@ async def test_a_sibling_execution_without_fills_keeps_the_fault() -> None:
             product_id="ETH-USD",
         )
     full = await store.get_deployment(deployment_id)
+    assert full.deployment.mismatch_detail == _FILL_READ_FAILED
+    actions = [event.action for event in await audit.list_recent(limit=50)]
+    assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_sibling_order_left_unread_by_a_cancel_keeps_the_fault() -> None:
+    """A cancel acknowledgement moves a sibling out of UNKNOWN without a read; that is no proof.
+
+    The sibling's fill read failed, then its cancel came back accepted but pending (OPEN), so
+    it is no longer UNKNOWN and reports no execution, yet no read of it ever succeeded. A walk
+    through another product's view must not clear the shared fault.
+    """
+    store, deployment_id = await _book(detail=_FILL_READ_FAILED)
+    btc = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(
+        replace(btc, status=OrderStatus.OPEN, reject_reason=CANCEL_PENDING_REASON)
+    )
+    eth = _order(deployment_id, OrderStatus.UNKNOWN, canceled_at=None, settled_at=None)
+    await store.save_order(
+        replace(
+            eth,
+            id=uuid7(_WHEN + timedelta(seconds=1)),
+            client_order_id="exit-eth",
+            venue_order_id="venue-exit-eth",
+            product_id="ETH-USD",
+        )
+    )
+    broker = _LookupBroker(
+        SubmitResult(status=OrderStatus.CANCELED, venue_order_id="venue-exit-eth")
+    )
+    audit = InMemoryAuditEventStore()
+    with execution_audit_scope(audit):
+        scoped = InstrumentScopedStore(store, "ETH-USD")
+        await reconcile_open_orders(
+            await scoped.get_deployment(deployment_id),
+            broker=broker,
+            store=scoped,
+            product_id="ETH-USD",
+        )
+    full = await store.get_deployment(deployment_id)
+    assert {order.product_id: order.status for order in full.orders} == {
+        "BTC-USD": OrderStatus.OPEN,
+        "ETH-USD": OrderStatus.CANCELED,
+    }
     assert full.deployment.mismatch_detail == _FILL_READ_FAILED
     actions = [event.action for event in await audit.list_recent(limit=50)]
     assert "reconcile_read_fault_cleared" not in actions
