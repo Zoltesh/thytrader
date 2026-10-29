@@ -18,6 +18,10 @@ from thytrader.trading.models import (
     DeploymentSnapshot,
     DeploymentStatus,
     ExecutionStoreError,
+    Order,
+    OrderKind,
+    OrderSide,
+    OrderStatus,
     RuntimePhase,
 )
 
@@ -85,4 +89,27 @@ async def test_a_failed_full_read_never_guesses_flat() -> None:
     """A failed batch read falls back to the summary, which stays unverified."""
     store = _Store(fail=True)
     book = await _book(store, phase=RuntimePhase.FLAT)
+    assert await _state(store, book.id) == "open_unverified"
+
+
+async def test_a_flat_book_with_a_working_order_is_not_certified() -> None:
+    """A bracket sibling still open after its leg closed the book keeps the book unverified."""
+    store = _Store()
+    book = await _book(store, phase=RuntimePhase.FLAT)
+    await store.save_order(
+        Order(
+            id=uuid4(),
+            deployment_id=book.id,
+            intent_id=uuid4(),
+            client_order_id="sibling-stop",
+            side=OrderSide.SELL,
+            kind=OrderKind.STOP_LIMIT,
+            quantity=Decimal("10"),
+            status=OrderStatus.UNKNOWN,
+            created_at=_NOW,
+            updated_at=_NOW,
+            stop_trigger_price=Decimal("0.1"),
+            product_id="DOGE-USD",
+        )
+    )
     assert await _state(store, book.id) == "open_unverified"

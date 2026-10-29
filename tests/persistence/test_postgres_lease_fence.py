@@ -127,6 +127,8 @@ async def test_a_clean_stop_releases_leases_to_the_successor() -> None:
         assert await store.acquire_worker_lease(other.id, holder="peer", now=_NOW, ttl=_TTL)
         later = _NOW + timedelta(seconds=1)
         await release_worker_leases(engine, holder="old", now=later)
+        released = (await store.get_deployment(book.id)).deployment
+        assert released.worker_lease_holder is None
         assert await store.acquire_worker_lease(book.id, holder="new", now=later, ttl=_TTL)
         assert await store.acquire_worker_lease(other.id, holder="new", now=later, ttl=_TTL) is None
     finally:

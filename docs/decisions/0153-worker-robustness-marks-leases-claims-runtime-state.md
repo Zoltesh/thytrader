@@ -46,13 +46,15 @@ A review of the execution worker and its supervision found five robustness gaps:
   with no other holder, does not refuse: only another worker taking the book does. The
   refusal is a `LeaseTakenError`, never read as an idempotent duplicate of an earlier keyed
   order.
-- **A clean stop releases its leases.** A worker that stops cleanly expires every lease it
+- **A clean stop releases its leases.** A worker that stops cleanly clears every lease it
   holds, so its successor maintains each book on its first visit instead of waiting out the
   TTL.
 - **Runtime state from one coherent read.** The `runtime` report reads each book's full
   accounting snapshot, one repeatable-read observation per book, for position state,
-  protection and the ledger flag. A settled flat book reads `flat`. When that read fails, the
-  row falls back to the bounded summary and stays `open_unverified`.
+  protection and the ledger flag. A settled flat book reads `flat`. When that read fails, or
+  reads flat while an order is still in the reconcile watch set (a bracket sibling whose read
+  failed, a working order no phase shows), the row falls back to the bounded summary and stays
+  `open_unverified`.
 
 ## Consequences
 
@@ -65,6 +67,10 @@ A review of the execution worker and its supervision found five robustness gaps:
   remains: a takeover that commits after the intent but before its order row is saved (a single
   database round trip) sees an intent with no order. Two workers never run together in the
   Compose deployment, so this is defense in depth.
+- The fence covers order intents only. A stale pass can still cancel a resting order, or save
+  a pending phase, before its replacement intent is refused; the successor sees the result on
+  its next visit, and the refusal surfaces as a worker book failure. Fencing every write would
+  need a lease check in each store transaction.
 - Each fenced intent insert costs one locked read of the deployment row.
 - The `runtime` report reads each book's full history once per report, one book at a time,
   as the worker does every cycle.

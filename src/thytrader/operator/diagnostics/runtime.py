@@ -55,6 +55,7 @@ from thytrader.trading.protection import (
     book_protection_evidence,
     deployment_position_state,
     protection_evidence_response,
+    working_order_count,
 )
 from thytrader.trading.protection_models import PositionState
 
@@ -277,12 +278,20 @@ async def _accounting_or_none(
 
     A bounded summary omits historical orders and fills and never certifies accounting, which
     made every book read ``open_unverified``. The accounting read is one coherent observation
-    (ADR 0153); when it fails the book keeps its summary projection and stays unverified.
+    (ADR 0153); when it fails, or reads flat beside a working order, the book keeps its summary
+    projection and stays unverified.
     """
     try:
-        return await diagnostics.execution.get_accounting_snapshot(deployment_id)
+        snapshot = await diagnostics.execution.get_accounting_snapshot(deployment_id)
     except ExecutionStoreError:
         return None
+    # A flat reading with an order still in the reconcile watch set (a bracket sibling whose
+    # read failed, a working order no phase shows) is not proved flat.
+    if deployment_position_state(snapshot) is PositionState.FLAT and working_order_count(
+        snapshot.orders
+    ):
+        return None
+    return snapshot
 
 
 async def _summary_or_none(

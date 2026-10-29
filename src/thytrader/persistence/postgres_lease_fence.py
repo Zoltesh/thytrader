@@ -34,7 +34,7 @@ async def require_intent_lease(connection: AsyncConnection, intent: OrderIntent)
 
 
 async def release_worker_leases(engine: AsyncEngine, *, holder: str, now: datetime) -> None:
-    """Expire every lease this worker holds once it has stopped, so a successor need not wait.
+    """Free every lease this worker holds once it has stopped, so a successor need not wait.
 
     Holders are unique per process, so without a release a replacement worker waits out each
     lease's TTL before it may maintain the book. Only a cleanly stopped worker calls this: no
@@ -45,5 +45,5 @@ async def release_worker_leases(engine: AsyncEngine, *, holder: str, now: dateti
             deployments.update()
             .where(deployments.c.worker_lease_holder == holder)
             .where(deployments.c.worker_lease_expires_at > now)
-            .values(worker_lease_expires_at=now)
+            .values(worker_lease_holder=None, worker_lease_expires_at=now)
         )
