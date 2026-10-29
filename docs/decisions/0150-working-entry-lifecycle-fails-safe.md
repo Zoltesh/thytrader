@@ -77,6 +77,13 @@ fills put a book into a state nothing recovers from, or into a wrong one:
 - Pyramid caps now bind on PostgreSQL. A book whose stored `add_count` undercounted keeps its
   stored value; later adds count from there.
 
+- Reconcile now lists a book's watched orders' fills before reading each order, so the broker
+  request order changed. Replay packages captured before this change fail closed on that order
+  (ADR 0137); the synthetic replay fixtures were regenerated.
+- A discretionary pending entry whose entry reports executions not yet applied keeps its
+  pending stop and target instead of returning to flat, so the late fills open a protected
+  position.
+
 ## Alternatives considered
 
 - Auto-clearing the maker-price pause on the next good read: rejected, because paused live

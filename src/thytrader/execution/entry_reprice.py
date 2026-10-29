@@ -167,9 +167,12 @@ async def _reprice_entry(
 ) -> DeploymentSnapshot:
     """Submit a replacement post-only entry at remaining qty after sizing and risk re-admission."""
     remaining_qty = remaining_quantity(prior)
-    if remaining_qty <= 0 or not can_reprice_risk_up(snapshot.deployment):
-        return snapshot
     is_pyramid = phase is RuntimePhase.OPEN or snapshot.position is not None
+    if remaining_qty <= 0 or not can_reprice_risk_up(snapshot.deployment):
+        # Nothing is left to rest (the cancel found it filled) or the book may not take risk.
+        return await _abandon_reprice(
+            snapshot, store=store, strategy=strategy, is_pyramid=is_pyramid
+        )
     try:
         entry_price = await _await_maker_limit(
             broker, product_id=product.product_id, mark=candle.close, side=prior.side

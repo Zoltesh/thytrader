@@ -23,7 +23,11 @@ from thytrader.execution.exit_guards import (
     rejection_detail,
 )
 from thytrader.execution.reconcile import import_attached_children, reconcile_open_orders
-from thytrader.trading.fill_ledger import ingest_fill, unprojected_inventory_products
+from thytrader.trading.fill_ledger import (
+    applied_fill_quantity,
+    ingest_fill,
+    unprojected_inventory_products,
+)
 from thytrader.trading.geometry import paper_stop_hit
 from thytrader.trading.ids import utc_now
 from thytrader.trading.models import (
@@ -390,6 +394,20 @@ def _active_entry(snapshot: DeploymentSnapshot) -> Order | None:
             if _is_working_entry_order(order) and order.intent_id not in known
         ),
         None,
+    )
+
+
+def entry_executions_unapplied(snapshot: DeploymentSnapshot) -> bool:
+    """Whether an entry order reports executions whose fills are not applied yet.
+
+    The book's pending stop and target belong to those fills: a pending entry must not be
+    flattened (which clears them) until reconcile has applied them.
+    """
+    return any(
+        order.parent_order_id is None
+        and order.kind in {OrderKind.POST_ONLY_LIMIT, OrderKind.MARKETABLE}
+        and order.filled_quantity > applied_fill_quantity(snapshot, order.id)
+        for order in snapshot.orders
     )
 
 

@@ -19,6 +19,7 @@ from tests.execution.test_loop import _always_entry_strategy, _candles, _product
 from thytrader.exchanges.fees import FeeProfile
 from thytrader.execution import entry_reprice
 from thytrader.execution.broker import BrokerError, SubmitResult
+from thytrader.execution.discretionary import _watch_pending_entry
 from thytrader.execution.entry_reprice import CANCEL_RACE_FILLS_PENDING_DETAIL
 from thytrader.execution.entry_sizing import _attaches_bracket
 from thytrader.execution.leases import RevisionFencedStore
@@ -32,6 +33,7 @@ from thytrader.trading.ids import utc_now
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import (
     Deployment,
+    DeploymentKind,
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
@@ -538,3 +540,70 @@ async def test_a_futures_reprice_sizes_with_its_fee_evidence(
     )
 
     assert seen == [fees]
+
+
+async def test_an_entry_the_cancel_found_filled_is_not_rested_again() -> None:
+    """A cancel that finds the whole entry filled applies it and rests no replacement."""
+    broker = _RacingPaper()
+    store, strategy, current, warmup = await _rested(broker)
+    original = current.orders[0]
+    broker.cancel_filled = original.quantity
+
+    current = await _expire(store, current, strategy=strategy, warmup=warmup, broker=broker)
+
+    entries = [order for order in current.orders if order.kind is OrderKind.POST_ONLY_LIMIT]
+    assert [order.id for order in entries if order.side is OrderSide.BUY] == [original.id]
+    assert current.position is not None
+    assert current.position.quantity == original.quantity
+    assert current.deployment.mismatch_detail is None
+
+
+async def test_a_discretionary_entry_awaiting_its_fills_keeps_the_pending_levels() -> None:
+    """A filled discretionary entry whose fills are not applied yet is not flattened."""
+    store = InMemoryExecutionStore()
+    deployment = replace(
+        _deployment_stub(),
+        kind=DeploymentKind.DISCRETIONARY,
+        mode=DeploymentMode.LIVE,
+        timeframe="1h",
+        phase=RuntimePhase.PENDING_ENTRY,
+        pending_stop_price=Decimal("90"),
+        pending_target_price=Decimal("120"),
+    )
+    await store.create_deployment(deployment)
+    now = utc_now()
+    parent = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="desk-entry",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("1"),
+        price=Decimal("100"),
+        status=OrderStatus.FILLED,
+        filled_quantity=Decimal("1"),
+        created_at=now,
+        updated_at=now,
+        venue_order_id="desk-entry",
+        product_id="BTC-USD",
+    )
+    child = replace(
+        parent,
+        id=uuid4(),
+        client_order_id="desk-entry:child",
+        side=OrderSide.SELL,
+        kind=OrderKind.TRIGGER_BRACKET,
+        status=OrderStatus.OPEN,
+        filled_quantity=Decimal("0"),
+        venue_order_id="desk-child",
+        parent_order_id=parent.id,
+    )
+    await store.save_order(parent)
+    await store.save_order(child)
+
+    watched = await _watch_pending_entry(await store.get_deployment(deployment.id), store=store)
+
+    assert watched.deployment.phase is RuntimePhase.PENDING_ENTRY
+    assert watched.deployment.pending_stop_price == Decimal("90")
+    assert watched.deployment.pending_target_price == Decimal("120")
