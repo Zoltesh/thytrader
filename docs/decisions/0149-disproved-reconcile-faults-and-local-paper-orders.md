@@ -32,7 +32,8 @@ a gap never resumed.
   because a multi-instrument walk may run through one product's view), no order is `UNKNOWN`,
   every order that still needs a venue read was visited by this walk (a sibling product's order
   can leave `UNKNOWN` through a cancel acknowledgement without any successful read; it waits for
-  a walk that reads it), every recorded execution is covered by applied fills (a cancelled order
+  a walk that reads it), every attached venue child a parent names has a local order row,
+  every recorded execution is covered by applied fills (a cancelled order
   can report an executed quantity whose fills were never read) and no applied inventory is
   unprojected. Both failures mark their order `UNKNOWN`, so a repeat never counts as success. `…: venue status is unknown.` is not cleared: the venue answered,
   and fill ingestion can still mark that order filled while its status stays unknown. The status is
@@ -46,7 +47,8 @@ a gap never resumed.
   order, so an interrupted submit can leave a filled order without its fill), and faults
   `Filled order has no REST fills.` otherwise, as a venue read would. The rule keys on the paper
   broker, not on the book's mode, so a replayed tape or a test venue still reads a paper-mode
-  book. Paper canceled orders stay unsettled in the ADR 0141 sense, which no paper consumer
+  book. A live book reached with the paper broker (no live adapter bound) is never read through
+  it either, and nothing in such a walk counts as read, so its fault cannot clear. Paper canceled orders stay unsettled in the ADR 0141 sense, which no paper consumer
   reads. A paper order without a venue id (an interrupted submit) is still looked up as before
   and pauses fail-closed.
 - **Desk books clear data-gap pauses.** A discretionary book applies the ADR 0146 clear after its

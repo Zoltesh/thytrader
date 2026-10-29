@@ -93,7 +93,12 @@ async def reconcile_open_orders(
         started_detail=started.mismatch_detail,
         first_fault=first_fault,
     )
-    walked = frozenset(order.id for order in snapshot.orders)
+    # A paper broker cannot answer for a live order, so nothing it "reads" counts as walked.
+    walked = (
+        frozenset()
+        if isinstance(broker, PaperBroker) and snapshot.deployment.mode is not DeploymentMode.PAPER
+        else frozenset(order.id for order in snapshot.orders)
+    )
     for order in tuple(snapshot.orders):
         before = snapshot.deployment
         order_product = order.product_id or product_id or snapshot.deployment.product_id
@@ -167,15 +172,27 @@ def _read_fault_confirmed(snapshot: DeploymentSnapshot, *, walked: frozenset[UUI
     """
     if snapshot.deployment.mismatch_detail not in READ_FAULT_DETAILS:
         return False
-    if any(
-        order.status is OrderStatus.UNKNOWN
-        or (order.id not in walked and _needs_reconcile(order, snapshot))
-        for order in snapshot.orders
-    ):
-        return False
-    if unsettled_fill_evidence(snapshot):
+    if _unread_orders(snapshot, walked=walked) or unsettled_fill_evidence(snapshot):
         return False
     return not unprojected_inventory_products(snapshot)
+
+
+def _unread_orders(snapshot: DeploymentSnapshot, *, walked: frozenset[UUID]) -> bool:
+    """Whether any order in the book still lacks a successful read.
+
+    That is an ``UNKNOWN`` order, one that still needs a venue read but was not visited by this
+    walk, or an attached venue child named by a parent that has no local order row yet.
+    """
+    local = {order.venue_order_id for order in snapshot.orders if order.venue_order_id}
+    return any(
+        order.status is OrderStatus.UNKNOWN
+        or (order.id not in walked and _needs_reconcile(order, snapshot))
+        or (
+            order.attached_child_venue_order_id is not None
+            and order.attached_child_venue_order_id not in local
+        )
+        for order in snapshot.orders
+    )
 
 
 async def _clear_confirmed_read_fault(
@@ -306,9 +323,11 @@ async def _reconcile_one_order(
     if order.kind is OrderKind.ADOPTION:
         return await _check_adoption_evidence(snapshot, order=order, store=store)
     if isinstance(broker, PaperBroker) and order.venue_order_id:
-        # A paper order's state lives only in the store; the paper broker answers every
-        # lookup with OPEN, so a read would revive a canceled paper exit (a take-profit
-        # cancelled by its stop's marketable exit would rest again).
+        # The paper broker answers every lookup with OPEN. A paper order's state lives only in
+        # the store (a read would revive a canceled paper exit), and a live order reached with
+        # the paper broker (no live adapter bound) must never take its fabricated answer.
+        if snapshot.deployment.mode is not DeploymentMode.PAPER:
+            return snapshot
         return await _check_local_fill_coverage(snapshot, order=order, store=store)
     return await _reconcile_venue_order(
         snapshot,

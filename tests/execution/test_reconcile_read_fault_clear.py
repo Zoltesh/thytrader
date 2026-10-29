@@ -381,3 +381,50 @@ async def test_a_sibling_order_left_unread_by_a_cancel_keeps_the_fault() -> None
     assert full.deployment.mismatch_detail == _FILL_READ_FAILED
     actions = [event.action for event in await audit.list_recent(limit=50)]
     assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_a_live_book_reached_with_the_paper_broker_is_never_cleared_or_rewritten() -> None:
+    """Without a live adapter the cycle may hand a live book the paper broker; ignore it."""
+    store, deployment_id = await _book(order_status=OrderStatus.OPEN)
+    order = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(order, reject_reason=CANCEL_PENDING_REASON))
+    deployment, orders, actions = await _reconcile(store, deployment_id, PaperBroker())
+    assert orders[0].status is OrderStatus.OPEN
+    assert orders[0].reject_reason == CANCEL_PENDING_REASON
+    assert deployment.mismatch_detail == _READ_FAILED
+    assert "reconcile_read_fault_cleared" not in actions
+
+
+@pytest.mark.anyio
+async def test_an_unimported_sibling_child_keeps_the_fault() -> None:
+    """A parent naming a venue child with no local row has an unobserved order."""
+    store, deployment_id = await _book(canceled_at=_WHEN, settled_at=_WHEN)
+    btc = (await store.get_deployment(deployment_id)).orders[0]
+    await store.save_order(replace(btc, attached_child_venue_order_id="venue-child-btc"))
+    eth = _order(deployment_id, OrderStatus.UNKNOWN, canceled_at=None, settled_at=None)
+    await store.save_order(
+        replace(
+            eth,
+            id=uuid7(_WHEN + timedelta(seconds=1)),
+            client_order_id="exit-eth",
+            venue_order_id="venue-exit-eth",
+            product_id="ETH-USD",
+        )
+    )
+    broker = _LookupBroker(
+        SubmitResult(status=OrderStatus.CANCELED, venue_order_id="venue-exit-eth")
+    )
+    audit = InMemoryAuditEventStore()
+    with execution_audit_scope(audit):
+        scoped = InstrumentScopedStore(store, "ETH-USD")
+        await reconcile_open_orders(
+            await scoped.get_deployment(deployment_id),
+            broker=broker,
+            store=scoped,
+            product_id="ETH-USD",
+        )
+    full = await store.get_deployment(deployment_id)
+    assert full.deployment.mismatch_detail == _READ_FAILED
+    actions = [event.action for event in await audit.list_recent(limit=50)]
+    assert "reconcile_read_fault_cleared" not in actions
