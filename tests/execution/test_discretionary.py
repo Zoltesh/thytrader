@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -34,6 +34,9 @@ from thytrader.trading.models import (
     OrderStatus,
     RuntimePhase,
 )
+
+# Bars after the placement bar, which is the newest bar closed when the order was placed.
+_AFTER_PLACEMENT = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 def _product() -> MarketProduct:
@@ -383,7 +386,7 @@ async def test_paper_stop_fires_marketable_exit_on_closed_bar() -> None:
     )
     position = snapshot.position
     assert position is not None
-    start = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    start = _AFTER_PLACEMENT
     crash = Candle(
         starts_at=start,
         open=position.entry_price,
@@ -468,7 +471,7 @@ async def test_paper_short_sells_to_open_and_buys_to_cover() -> None:
     assert position is not None
     assert position.side.value == "short"
     assert any(order.side is OrderSide.SELL for order in snapshot.orders)
-    start = datetime(2026, 9, 15, 12, tzinfo=UTC)
+    start = _AFTER_PLACEMENT
     spike = Candle(
         starts_at=start,
         open=position.entry_price,
@@ -576,7 +579,7 @@ async def test_reused_paper_book_rejects_different_fee_rates() -> None:
     position = snapshot.position
     assert position is not None
     crash = Candle(
-        starts_at=datetime(2026, 9, 15, 12, tzinfo=UTC),
+        starts_at=_AFTER_PLACEMENT,
         open=position.entry_price,
         high=position.entry_price,
         low=position.stop_price - Decimal("1"),

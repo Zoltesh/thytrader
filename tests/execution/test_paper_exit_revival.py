@@ -18,7 +18,8 @@ from thytrader.market_data.service import MarketDataService
 from thytrader.trading.memory import InMemoryExecutionStore
 from thytrader.trading.models import OrderKind, OrderSide, OrderStatus, RuntimePhase
 
-_START = datetime(2026, 9, 15, 12, tzinfo=UTC)
+# Bars after the placement bar, which is the newest bar closed when the order was placed.
+_START = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 def _bar(minutes: int, *, low: str, close: str) -> Candle:

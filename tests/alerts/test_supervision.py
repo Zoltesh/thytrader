@@ -26,7 +26,9 @@ from thytrader.trading.models import (
     DeploymentMode,
     DeploymentSnapshot,
     DeploymentStatus,
+    IntentPurpose,
     Order,
+    OrderIntent,
     OrderKind,
     OrderSide,
     OrderStatus,
@@ -424,6 +426,21 @@ async def test_implausibly_future_lease_is_unknown_not_verified_freshness() -> N
     assert "clock skew" in lease.detail
 
 
+def _entry_intent(order: Order) -> OrderIntent:
+    """The ENTRY intent an entry order was placed under."""
+    return OrderIntent(
+        id=order.intent_id,
+        deployment_id=order.deployment_id,
+        client_order_id=order.client_order_id,
+        purpose=IntentPurpose.ENTRY,
+        side=order.side,
+        kind=order.kind,
+        quantity=order.quantity,
+        created_at=order.created_at,
+        candle_starts_at=order.created_at,
+    )
+
+
 @pytest.mark.anyio
 async def test_a_resting_entry_carrying_its_bracket_stop_is_not_a_triggered_stop() -> None:
     """An unfilled entry's stop is bracket metadata, not protection; an old alert clears."""
@@ -447,7 +464,9 @@ async def test_a_resting_entry_carrying_its_bracket_stop_is_not_a_triggered_stop
         take_profit_price=Decimal("120"),
         product_id="BTC-USD",
     )
-    snapshot = DeploymentSnapshot(deployment=deployment, orders=(entry,))
+    snapshot = DeploymentSnapshot(
+        deployment=deployment, orders=(entry,), intents=(_entry_intent(entry),)
+    )
     subject = f"{deployment.id}:{entry.id}"
 
     async def candles(
@@ -514,7 +533,9 @@ async def test_a_false_entry_stop_alert_clears_while_the_entry_fill_is_still_imp
         take_profit_price=Decimal("120"),
         product_id="BTC-USD",
     )
-    snapshot = DeploymentSnapshot(deployment=deployment, orders=(entry,))
+    snapshot = DeploymentSnapshot(
+        deployment=deployment, orders=(entry,), intents=(_entry_intent(entry),)
+    )
     subject = f"{deployment.id}:{entry.id}"
     prior = OperatorAlert(
         id=uuid4(),
@@ -579,7 +600,11 @@ async def test_an_entry_carrying_bracket_metadata_never_holds_cover_recovery() -
     )
     found = await gather_safety_findings(
         deployments=(deployment,),
-        snapshots=_Snapshots(DeploymentSnapshot(deployment=deployment, orders=(entry,))),
+        snapshots=_Snapshots(
+            DeploymentSnapshot(
+                deployment=deployment, orders=(entry,), intents=(_entry_intent(entry),)
+            )
+        ),
         closed_candles=_no_candles,
         now=_NOW,
         thresholds=_THRESHOLDS,

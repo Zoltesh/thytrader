@@ -23,11 +23,11 @@ from thytrader.trading.models import (
     TERMINAL_READ_UNCONFIRMED_REASON,
     Deployment,
     DeploymentMode,
+    IntentPurpose,
     OrderSide,
     OrderStatus,
     PositionSide,
     RuntimePhase,
-    is_venue_protection,
     resolved_product_id,
     snapshot_positions,
 )
@@ -68,19 +68,28 @@ def _may_trigger(order: Order) -> bool:
     )
 
 
-def _may_trigger_stop(order: Order) -> bool:
-    """Whether the order is working protection whose stop trigger can be consumed.
+def _may_trigger_stop(order: Order, entries: frozenset[UUID]) -> bool:
+    """Whether a working order's stop trigger can be consumed: anything but an entry.
 
-    Only venue protection (bracket or stop-limit) and attached children protect a position.
-    An unfilled entry also carries its bracket's stop price, but that is metadata for the
-    bracket it attaches on fill: the entry itself is never a stop.
+    An unfilled entry carries its bracket's stop price, but that is metadata for the bracket
+    it attaches on fill: the entry itself is never a stop.
     """
-    return _is_protection(order) and _may_trigger(order)
+    return order.id not in entries and _may_trigger(order)
 
 
-def _is_protection(order: Order) -> bool:
-    """Venue protection (bracket or stop-limit) or an attached child."""
-    return is_venue_protection(order.kind) or order.parent_order_id is not None
+def _entry_order_ids(snapshot: DeploymentSnapshot) -> frozenset[UUID]:
+    """Parentless orders whose intent is an entry; an order of unknown intent is not one.
+
+    An attached child shares its parent's entry intent but is protection.
+    """
+    entry_intents = {
+        intent.id for intent in snapshot.intents if intent.purpose is IntentPurpose.ENTRY
+    }
+    return frozenset(
+        order.id
+        for order in snapshot.orders
+        if order.parent_order_id is None and order.intent_id in entry_intents
+    )
 
 
 def _sticky_trigger_ids(
@@ -88,10 +97,11 @@ def _sticky_trigger_ids(
 ) -> frozenset[UUID]:
     """Keep previously observed trigger failures until orders leave the watch set."""
     prior = {item.subject for item in previous if item.code is AlertCode.STOP_TRIGGERED_UNFILLED}
+    entries = _entry_order_ids(snapshot)
     return frozenset(
         order.id
         for order in snapshot.orders
-        if _may_trigger_stop(order)
+        if _may_trigger_stop(order, entries)
         and order.filled_quantity < order.quantity
         and f"{deployment.id}:{order.id}" in prior
     )
@@ -123,10 +133,11 @@ def _snapshot_checks(
             for code in (AlertCode.STOP_UNCOVERED, AlertCode.STOP_COVERAGE_UNKNOWN)
             if not uncertain
         )
+    entries = _entry_order_ids(snapshot)
     watched = {
         f"{deployment.id}:{order.id}"
         for order in snapshot.orders
-        if _may_trigger_stop(order) and order.filled_quantity < order.quantity
+        if _may_trigger_stop(order, entries) and order.filled_quantity < order.quantity
     }
     # A still-unfilled triggered stop cannot recover on price rebound or missing candles.
     terminal_subjects = {f"{deployment.id}:{order.id}" for order in snapshot.orders} - watched
@@ -135,11 +146,9 @@ def _snapshot_checks(
         for item in previous
         if item.code is AlertCode.STOP_TRIGGERED_UNFILLED and item.subject not in watched
     )
-    # An order that is not protection (an entry carrying its bracket's stop) never was a
-    # triggered stop: its alert clears without waiting for the book's economics.
-    not_protection = {
-        f"{deployment.id}:{order.id}" for order in snapshot.orders if not _is_protection(order)
-    }
+    # An entry (carrying its bracket's stop) never was a triggered stop: its alert clears
+    # without waiting for the book's economics.
+    not_protection = {f"{deployment.id}:{order_id}" for order_id in entries}
     evaluated.extend(
         AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject)
         for subject in terminal_subjects
@@ -236,7 +245,7 @@ def _cover_evidence_unknown(
         if resolved_product_id(order.product_id, deployment) == product
         and order.status in _STOP_TRIGGER_WATCH_STATUSES
         and order.stop_trigger_price is not None
-        and _is_protection(order)
+        and order.id not in _entry_order_ids(snapshot)
     )
     if not stops:
         return False

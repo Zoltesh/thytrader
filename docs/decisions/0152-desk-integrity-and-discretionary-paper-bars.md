@@ -52,11 +52,13 @@ better than the strategy engine would score the same trades:
   `DESK_OPEN_REFUNDED`.
 - A desk book's value is unknown while any of its orders reports more executed quantity than
   its recorded fills.
-- Only venue protection (bracket, stop-limit) and attached children can raise
-  `STOP_TRIGGERED_UNFILLED` or count as stops in cover evidence; an open triggered-stop alert on
+- An entry (a parentless order placed under an entry intent) never raises
+  `STOP_TRIGGERED_UNFILLED` or counts as a stop in cover evidence; an open triggered-stop alert on
   any other order resolves without waiting for the book's economics.
 - Paper discretionary bars use the stop-first rule of ADR 0083, a fresh book's evaluation
-  cursor starts at the newest bar closed when it was placed (never older than its mark bar), and
+  cursor starts at the newest bar closed when it was placed (never older than its mark bar), a
+  bar at or before the cursor is maintenance only (no matching, no cursor rewind), an order is
+  never matched against a bar that closed before it was created, and
   each paper bar refreshes performance (equity, high-water mark, day-open) like a strategy bar;
   live discretionary performance is left as it was.
 

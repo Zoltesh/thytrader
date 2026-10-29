@@ -241,7 +241,12 @@ async def process_discretionary_bar(
     broker = bind_paper_broker_fees(broker, snapshot.deployment)
     candle = candles[-1]
     deployment = snapshot.deployment
-    if deployment.last_evaluated_bar == candle.starts_at:
+    if (
+        deployment.last_evaluated_bar is not None
+        and candle.starts_at <= deployment.last_evaluated_bar
+    ):
+        # Already evaluated (or older than the placement bar while the feed lags): maintain
+        # protection only; never match history or move the cursor back.
         if deployment.phase in {RuntimePhase.OPEN, RuntimePhase.PENDING_EXIT}:
             return await _ensure_exit_protection(
                 snapshot, candle=candle, product=product, broker=broker, store=store
@@ -256,6 +261,9 @@ async def process_discretionary_bar(
         timeframe=deployment.timeframe or "1h",
         # Paper: a bar through both the stop and the take-profit exits at the stop (ADR 0083).
         stop_first=deployment.mode is not DeploymentMode.LIVE,
+        # An order placed after this bar closed never fills against it.
+        bar_closes_at=candle.starts_at
+        + parse_candle_interval(deployment.timeframe or "1h").duration,
     )
     snapshot = await _protect_discretionary(
         snapshot, candle=candle, product=product, broker=broker, store=store
