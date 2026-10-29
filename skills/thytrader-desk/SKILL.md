@@ -22,7 +22,7 @@ sleeves). Desks are paper by default; a live desk is described under "Live desks
 
 HTTP-only against the loopback API (base URL and installation Bearer auth: [shared
 rules](../README.md#shared-rules-every-lane)). Every command checks the ops contract first
-(`thytrader-ops-contract-v112`, schema revision `0083`); on a mismatch, rebuild the image. Desk
+(`thytrader-ops-contract-v113`, schema revision `0083`); on a mismatch, rebuild the image. Desk
 briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in the ops contract).
 `create`, `update`, `wake`, `record` and `status` need `--confirm`; YOLO never skips it.
 
@@ -33,7 +33,11 @@ briefings and decisions are `thytrader-agent-desk-v1` (`agent_desk_contract` in 
 - **One trade, one book.** An `open` funds a **new** discretionary book (origin `agent`) with
   `size_fraction × equity` from the pool. The order notional is 98% of the allocation, so the book
   can pay fees. When the book is flat and stopped, its final cash returns to the pool at the next
-  briefing, wake or score (settlement).
+  briefing, wake or score (settlement). A book that lost more than its allocation (a paper short
+  through a gap) returns a negative amount, so pool `cash` can go below zero; such a desk funds
+  nothing (`DESK_CASH_SHORT`) but reads, briefs and scores normally. A book's value is unknown
+  (it does not settle, and equity is unknown) while an order reports more executed than its
+  recorded fills.
   A closed book that still rests a stray exit order (for example a take-profit left after its
   stop filled) is flattened by the desk itself once its evidence is final (fills applied and
   netting to zero, accounting complete, live cancels settled, every venue child imported): the
@@ -94,7 +98,7 @@ uv run thytrader-desk record DESK_ID --fingerprint sha256:... --response-file FI
   [--material-fingerprint sha256:...] [--runner-fingerprint sha256:...] --confirm
 uv run thytrader-desk journal DESK_ID [--limit 20]
 uv run thytrader-desk score DESK_ID
-uv run thytrader-desk status DESK_ID active|paused|retired --confirm   # kept in changes, audited; same status: no write
+uv run thytrader-desk status DESK_ID active|paused|retired [--i-understand-live] --confirm   # kept in changes, audited; same status: no write
 uv run thytrader-desk schedule DESK_ID [--style systemd|cron] [--command CMD]
 ```
 
@@ -151,7 +155,8 @@ runs:
 - the desk holds no open book and had no pending open before this read (`DESK_WAKE_HOLDING`): a
   held book is always shown to the model. A crashed open that any read refunds is journaled
   `refused` `DESK_OPEN_REFUNDED` (a linked one `DESK_OPEN_RECOVERED`), so it is never skipped
-  past;
+  past. An open refused while placing (a risk or venue refusal) is refunded silently: its own
+  `refused` wake is the only row;
 - the newest wake recorded a material fingerprint (`DESK_WAKE_UNANCHORED` otherwise, for
   example a `record` without `--material-fingerprint`) and it equals the briefing's
   (`DESK_WAKE_CHANGED`). The `material_fingerprint` covers the briefing without its generation
@@ -250,7 +255,12 @@ order is keyed on the briefing fingerprint, and an answer whose order already ex
 open links exactly that book (`DESK_OPEN_RECOVERED`) or refunds the reservation.
 `show`, `journal` and `score` work as on paper; `mode` is on the desk and in the briefing, and the
 model's prompt says it is trading real money. Pause a live desk with `status DESK_ID paused
---confirm`; its open books keep their venue stops and targets.
+--confirm`; its open books keep their venue stops and targets. Resuming it (`status DESK_ID active`,
+also from `retired`) trades real money again, so it needs `--i-understand-live` (HTTP
+`i_understand_live: true`; 428 `live_acknowledgement_required` without it); pausing and retiring
+never do. The reservation check counts the book's whole allocation (fee headroom and the order's
+rounding included) against the desk's `desk_allocations` reservation, not only the order's
+notional.
 
 ## Scheduling
 
@@ -303,8 +313,13 @@ The execution worker reads every desk and its newest wakes each cycle and raises
   resumed with `status ... active`, or given a new cadence). Briefing, score and settlement
   writes never restart it. Its timer probably stopped.
 
-Both are `critical` for a live desk (delivered like any critical alert) and `warning` for a
-paper desk, and resolve once the desk answers again or is paused or retired. They only record
+- `DESK_UNREADABLE`: a stored desk row fails validation. The desk list (`list`, the worker's
+  pass) leaves it out so every other desk keeps working, `show` on it fails, and its wakes are
+  not supervised until the row is repaired. It resolves once the row reads again (or is gone).
+
+All three are `critical` for a live desk (delivered like any critical alert; a row too broken to
+say its mode counts as live) and `warning` for a paper desk. The wake alerts resolve once the
+desk answers again or is paused or retired. They only record
 and warn; nothing pauses the desk. The worker judges them once per cycle within a 10-second
 budget; a slow or unreadable desk store leaves them unknown (neither raised nor resolved).
 

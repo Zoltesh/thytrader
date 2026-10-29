@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Protocol
 from uuid import UUID
 
+from pydantic import ValidationError
+
 from thytrader.agent_desk.store import DeskConflictError
 from thytrader.ids import uuid7
 
@@ -64,8 +66,18 @@ async def save_desk(
     books: Sequence[DeskBook] = (),
     wakes: Sequence[DeskWake] = (),
 ) -> Desk:
-    """Save under the previous revision (with books and wakes); a lost race is a conflict."""
+    """Save under the previous revision (with books and wakes); a lost race is a conflict.
+
+    Updates are model copies, which skip validation, so every row is validated here: a row
+    that would not read back is refused ``DESK_INVALID`` and never stored.
+    """
     stamped = updated.model_copy(update={"updated_at": datetime.now(UTC)})
+    for row in (stamped, *books, *wakes):
+        try:
+            type(row).model_validate_json(row.model_dump_json())
+        except ValidationError as error:
+            name = type(row).__name__
+            raise DeskError(f"DESK_INVALID: the {name} write fails validation.") from error
     try:
         return await store.save_desk(
             stamped, expected_revision=previous.revision, books=books, wakes=wakes

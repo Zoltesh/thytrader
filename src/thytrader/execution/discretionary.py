@@ -13,6 +13,7 @@ from thytrader.execution.live_protection import (
     _ensure_live_bracket,
     _ensure_take_profit,
 )
+from thytrader.execution.loop import _persist_performance
 from thytrader.execution.mark_context import closed_mark_context
 from thytrader.execution.paper import bind_paper_broker_fees
 from thytrader.execution.reconcile import reconcile_open_orders
@@ -29,6 +30,7 @@ from thytrader.execution.runtime_ops import (
 )
 from thytrader.execution.submit import submit_intent
 from thytrader.memory.trade_reason_scope import discretionary_trade_reason_scope, trade_reason_scope
+from thytrader.risk.accounting_evidence import risk_market_data_scope
 from thytrader.risk.store import load_effective_policy
 from thytrader.trading.geometry import (
     bracket_error_detail,
@@ -84,8 +86,38 @@ async def place_discretionary_order(
     """Persist a discretionary intent, submit once, and reconcile timeouts without retry.
 
     A new paper book that omits fee rates takes the account's rates from
-    ``paper_fee_source``; a reused book keeps its stored rates.
+    ``paper_fee_source``; a reused book keeps its stored rates. The admission's risk evidence
+    (peer books' midnight marks, beta) reads ``market_data``, bound for the whole placement.
     """
+    with risk_market_data_scope(market_data):
+        return await _place(
+            store=store,
+            broker=broker,
+            market_data=market_data,
+            request=request,
+            live_allowed=live_allowed,
+            risk_store=risk_store,
+            live_quote_cash=live_quote_cash,
+            live_base_available=live_base_available,
+            memory_store=memory_store,
+            paper_fee_source=paper_fee_source,
+        )
+
+
+async def _place(
+    *,
+    store: ExecutionStore,
+    broker: Broker,
+    market_data: MarketDataService,
+    request: DiscretionaryOrderRequest,
+    live_allowed: bool,
+    risk_store: RiskPolicyStore | None,
+    live_quote_cash: Decimal | None,
+    live_base_available: Decimal | None,
+    memory_store: ExperientialMemoryStore | None,
+    paper_fee_source: PaperFeeSource | None,
+) -> DeploymentSnapshot:
+    """One placement inside the bound risk market data."""
     _require_mode_prerequisites(request, live_allowed=live_allowed)
     existing = await store.get_intent_by_idempotency_key(request.idempotency_key)
     if existing is not None:
@@ -125,6 +157,14 @@ async def place_discretionary_order(
         pending_target_price=sized.take_profit_price,
         last_signal="discretionary",
         clear_mismatch=True,
+        # A book never evaluated starts from the mark bar (on its own clock): a resting limit
+        # is never matched against a bar that closed before it was placed.
+        last_evaluated_bar=(
+            mark_candle.starts_at
+            if snapshot.deployment.last_evaluated_bar is None
+            and snapshot.deployment.timeframe == request.timeframe
+            else None
+        ),
     )
     # No intent or venue submission follows a lost candidate revision. Re-admission
     # must start from fresh evidence, not restore stale cash/status/lifecycle fields.
@@ -216,9 +256,14 @@ async def process_discretionary_bar(
         store=store,
         cooldown_bars=0,
         timeframe=deployment.timeframe or "1h",
+        # Paper: a bar through both the stop and the take-profit exits at the stop (ADR 0083).
+        stop_first=deployment.mode is not DeploymentMode.LIVE,
     )
     snapshot = await _protect_discretionary(
         snapshot, candle=candle, product=product, broker=broker, store=store
+    )
+    snapshot = await _persist_performance(
+        snapshot, store=store, mark_price=candle.close, product_id=product.product_id
     )
     return await _persist_runtime(snapshot, store=store, last_evaluated_bar=candle.starts_at)
 

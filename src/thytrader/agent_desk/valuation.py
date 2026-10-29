@@ -34,7 +34,13 @@ def net_quantity(snapshot: DeploymentSnapshot) -> Decimal | None:
 def book_value(
     book: DeskBook, snapshot: DeploymentSnapshot, mark: Decimal | None
 ) -> Decimal | None:
-    """The book's worth to the desk; None while held inventory has no mark or fills are unknown."""
+    """The book's worth to the desk; None while held inventory has no mark or fills are unknown.
+
+    An order that executed more than its recorded fills (a fill not imported yet) could still
+    move cash, so the value is unknown until the fills arrive.
+    """
+    if _executions_unrecorded(snapshot):
+        return None
     sides = {order.id: order.side for order in snapshot.orders}
     value = book.allocated_quote
     quantity = Decimal(0)
@@ -55,6 +61,16 @@ def book_value(
     if mark is None:
         return None
     return value + quantity * mark
+
+
+def _executions_unrecorded(snapshot: DeploymentSnapshot) -> bool:
+    """Whether any order reports more executed quantity than its recorded fills."""
+    recorded: dict[object, Decimal] = {}
+    for fill in snapshot.fills:
+        recorded[fill.order_id] = recorded.get(fill.order_id, Decimal(0)) + fill.quantity
+    return any(
+        order.filled_quantity > recorded.get(order.id, Decimal(0)) for order in snapshot.orders
+    )
 
 
 def position_view(

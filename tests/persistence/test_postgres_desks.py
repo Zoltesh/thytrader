@@ -18,11 +18,12 @@ from thytrader.agent_desk.models import (
     DeskWake,
     WakeOutcome,
 )
-from thytrader.agent_desk.store import DeskConflictError
+from thytrader.agent_desk.store import DeskConflictError, UnreadableDesk
 from thytrader.ids import uuid7
 from thytrader.persistence.database import create_engine, dispose
 from thytrader.persistence.postgres_desks import PostgresDeskStore
 from thytrader.persistence.postgres_execution import PostgresExecutionStore
+from thytrader.persistence.schema import desks as desks_table
 
 _TEST_DATABASE_URL = os.getenv("THYTRADER_TEST_DATABASE_URL")
 
@@ -111,5 +112,47 @@ async def test_postgres_desk_round_trip() -> None:
         assert latest is not None
         await store.save_desk(latest, expected_revision=latest.revision, wakes=(third,))
         assert (await store.list_wakes(desk.desk_id, limit=1))[0] == third
+    finally:
+        await dispose(engine)
+
+
+@pytest.mark.anyio
+async def test_a_malformed_desk_row_is_left_out_of_the_list_and_named() -> None:
+    """One bad row never fails the listing of every other desk; it is reported by its mode."""
+    if _TEST_DATABASE_URL is None:
+        raise AssertionError("PostgreSQL integration URL was not configured.")
+    engine = create_engine(SecretStr(_TEST_DATABASE_URL))
+    try:
+        store = PostgresDeskStore(engine)
+        now = datetime.now(UTC)
+        good = await store.create_desk(
+            Desk(
+                desk_id=str(uuid7(now)),
+                name="readable desk",
+                quote_currency="USD",
+                starting_cash=Decimal(100),
+                cash=Decimal(-5),
+                products=("BTC-USD",),
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        broken_id = str(uuid7(now))
+        async with engine.begin() as connection:
+            await connection.execute(
+                desks_table.insert().values(
+                    desk_id=broken_id,
+                    revision=1,
+                    created_at=now,
+                    updated_at=now,
+                    desk_json='{"mode": "live", "name": ""}',
+                )
+            )
+        listed = {desk.desk_id for desk in await store.list_desks()}
+        assert good.desk_id in listed
+        assert broken_id not in listed
+        assert UnreadableDesk(desk_id=broken_id, live=True) in await store.unreadable_desks()
+        async with engine.begin() as connection:
+            await connection.execute(desks_table.delete().where(desks_table.c.desk_id == broken_id))
     finally:
         await dispose(engine)

@@ -104,7 +104,9 @@ class Desk(_Frozen):
 
     ``due_since`` is when the desk last became due to wake (created, resumed, or given a new
     cadence); wake supervision counts a stall from it, never from bookkeeping writes.
-    ``changes`` keeps the newest :data:`MAX_CHANGES` configuration changes.
+    ``changes`` keeps the newest :data:`MAX_CHANGES` configuration changes. ``cash`` goes below
+    zero only when a settled book lost more than its allocation (a paper short through a gap);
+    the desk then funds nothing (``DESK_CASH_SHORT``) and its row stays readable.
     """
 
     desk_id: str
@@ -113,7 +115,7 @@ class Desk(_Frozen):
     live_acknowledged_at: datetime | None = None
     quote_currency: str = Field(pattern=r"^(USD|USDC|USDT)$")
     starting_cash: Decimal = Field(gt=0)
-    cash: Decimal = Field(ge=0)
+    cash: Decimal
     products: tuple[str, ...] = Field(min_length=1, max_length=MAX_PRODUCTS)
     timeframe: str = "5m"
     cadence_minutes: int = Field(default=30, ge=5, le=1440)

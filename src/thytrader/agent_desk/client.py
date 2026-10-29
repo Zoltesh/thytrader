@@ -66,12 +66,15 @@ def desk_score(base_url: str, desk_id: str) -> object:
     return request_json(method="GET", url=f"{base_url}{_desk(desk_id)}/score", timeout=120.0)
 
 
-def set_desk_status(base_url: str, desk_id: str, status: str) -> object:
-    """Pause, resume or retire a desk."""
+def set_desk_status(
+    base_url: str, desk_id: str, status: str, *, i_understand_live: bool = False
+) -> object:
+    """Pause, resume or retire a desk; resuming a live desk needs ``i_understand_live``."""
+    payload: dict[str, object] = {"status": status}
+    if i_understand_live:
+        payload["i_understand_live"] = True
     return request_mutation_json(
-        method="POST",
-        url=f"{base_url}{_desk(desk_id)}/status",
-        payload={"status": status},
+        method="POST", url=f"{base_url}{_desk(desk_id)}/status", payload=payload
     )
 
 

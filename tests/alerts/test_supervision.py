@@ -8,7 +8,13 @@ from uuid import uuid4
 
 import pytest
 
-from thytrader.alerts.models import AlertCode
+from thytrader.alerts.models import (
+    AlertCheck,
+    AlertCode,
+    AlertScope,
+    AlertSeverity,
+    OperatorAlert,
+)
 from thytrader.alerts.supervision import gather_safety_findings
 from thytrader.alerts.supervision_deadlines import SETTLING_GRACE_SECONDS
 from thytrader.alerts.supervision_inputs import AlertThresholds
@@ -416,3 +422,69 @@ async def test_implausibly_future_lease_is_unknown_not_verified_freshness() -> N
     lease = next(row for row in evidence.findings if row.code is AlertCode.WORKER_LEASE_STALE)
     assert "lease age is unknown" in lease.detail
     assert "clock skew" in lease.detail
+
+
+@pytest.mark.anyio
+async def test_a_resting_entry_carrying_its_bracket_stop_is_not_a_triggered_stop() -> None:
+    """An unfilled entry's stop is bracket metadata, not protection; an old alert clears."""
+    deployment = _deployment(
+        mode=DeploymentMode.LIVE, phase=RuntimePhase.PENDING_ENTRY, timeframe="1h"
+    )
+    created = datetime(2026, 3, 2, 3, 0, tzinfo=UTC)
+    entry = Order(
+        id=uuid4(),
+        deployment_id=deployment.id,
+        intent_id=uuid4(),
+        client_order_id="entry-1",
+        side=OrderSide.BUY,
+        kind=OrderKind.POST_ONLY_LIMIT,
+        quantity=Decimal("0.01"),
+        price=Decimal("100"),
+        status=OrderStatus.OPEN,
+        created_at=created,
+        updated_at=_NOW,
+        stop_trigger_price=Decimal("95"),
+        take_profit_price=Decimal("120"),
+        product_id="BTC-USD",
+    )
+    snapshot = DeploymentSnapshot(deployment=deployment, orders=(entry,))
+    subject = f"{deployment.id}:{entry.id}"
+
+    async def candles(
+        product_id: str, timeframe: str, deploy_anchor: datetime
+    ) -> tuple[Candle, ...]:
+        del product_id, timeframe, deploy_anchor
+        return tuple(
+            _candle(
+                start=created + timedelta(hours=hour),
+                low=Decimal("101"),
+                high=Decimal("102"),
+                close=Decimal("101"),
+            )
+            for hour in range(3)
+        )
+
+    prior = OperatorAlert(
+        id=uuid4(),
+        code=AlertCode.STOP_TRIGGERED_UNFILLED,
+        scope=AlertScope.DEPLOYMENT,
+        subject=subject,
+        severity=AlertSeverity.CRITICAL,
+        detail="old",
+        deployment_id=deployment.id,
+        product_id="BTC-USD",
+        first_seen_at=created,
+        last_seen_at=created,
+        occurrences=1,
+    )
+    found = await gather_safety_findings(
+        deployments=(deployment,),
+        snapshots=_Snapshots(snapshot),
+        closed_candles=candles,
+        now=_NOW,
+        thresholds=_THRESHOLDS,
+        worker_interval_seconds=30,
+        prior_alerts=(prior,),
+    )
+    assert AlertCode.STOP_TRIGGERED_UNFILLED not in {item.code for item in found.findings}
+    assert AlertCheck(AlertCode.STOP_TRIGGERED_UNFILLED, subject) in found.evaluated

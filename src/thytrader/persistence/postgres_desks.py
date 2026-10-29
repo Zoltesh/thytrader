@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from decimal import Decimal
+import json
+import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -12,7 +14,11 @@ from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from thytrader.agent_desk.models import Desk, DeskBook, DeskWake, WakeOutcome
-from thytrader.agent_desk.store import DeskConflictError, DeskStoreUnavailableError
+from thytrader.agent_desk.store import (
+    DeskConflictError,
+    DeskStoreUnavailableError,
+    UnreadableDesk,
+)
 from thytrader.persistence.schema import desk_books, desk_wakes, desks
 
 if TYPE_CHECKING:
@@ -23,6 +29,7 @@ if TYPE_CHECKING:
     from sqlalchemy.sql import Executable
 
 _UNAVAILABLE = "Agent desk storage is unavailable."
+_logger = logging.getLogger(__name__)
 
 
 class PostgresDeskStore:
@@ -56,9 +63,31 @@ class PostgresDeskStore:
         return _parse(Desk, rows[0]) if rows else None
 
     async def list_desks(self) -> tuple[Desk, ...]:
-        """Return every desk, newest first."""
+        """Return every readable desk, newest first; a malformed row is left out and logged."""
         rows = await self._rows(select(desks.c.desk_json).order_by(desks.c.created_at.desc()))
-        return tuple(_parse(Desk, row) for row in rows)
+        listed: list[Desk] = []
+        for row in rows:
+            try:
+                listed.append(_parse(Desk, row))
+            except DeskStoreUnavailableError:
+                _logger.warning("desk_row_unreadable")
+        return tuple(listed)
+
+    async def unreadable_desks(self) -> tuple[UnreadableDesk, ...]:
+        """The stored desk rows that fail validation, by id and the mode they declare."""
+        statement = select(desks.c.desk_id, desks.c.desk_json).order_by(desks.c.created_at)
+        try:
+            async with self._engine.connect() as connection:
+                rows = (await connection.execute(statement)).all()
+        except (SQLAlchemyError, OSError) as error:
+            raise DeskStoreUnavailableError(_UNAVAILABLE) from error
+        unreadable: list[UnreadableDesk] = []
+        for desk_id, stored in rows:
+            try:
+                Desk.model_validate_json(stored)
+            except ValidationError:
+                unreadable.append(UnreadableDesk(desk_id=desk_id, live=_declares_live(stored)))
+        return tuple(unreadable)
 
     async def save_desk(
         self,
@@ -175,6 +204,15 @@ def _upsert_book(book: DeskBook) -> Executable:
             set_={"settled_at": book.settled_at, "book_json": values["book_json"]},
         )
     )
+
+
+def _declares_live(stored: str) -> bool:
+    """Whether a malformed desk row says it is live; a row too broken to say counts as live."""
+    try:
+        document = json.loads(stored)
+    except ValueError:
+        return True
+    return not isinstance(document, dict) or document.get("mode") != "paper"
 
 
 def _parse[T: (Desk, DeskBook, DeskWake)](model: type[T], stored: str) -> T:

@@ -50,7 +50,10 @@ class AlertCode(StrEnum):
     error or unparseable answer); ``DESK_WAKES_STALLED`` is an active desk that has not woken
     for several cadences (its timer stopped). Both are critical for a live desk and a warning
     for a paper one, and resolve on the first complete read that finds the desk answering
-    (or no longer active) again (ADR 0147).
+    (or no longer active) again (ADR 0147). ``DESK_UNREADABLE`` is a stored desk row that
+    fails validation: the desk list leaves it out (so one bad row never hides the others) and
+    nothing supervises its wakes until it is repaired. It is critical when the row says live
+    (or cannot say) and a warning for a paper row, and resolves once the row reads again.
     """
 
     BOOK_PAUSED_MISMATCH = "BOOK_PAUSED_MISMATCH"
@@ -71,6 +74,7 @@ class AlertCode(StrEnum):
     FUTURES_ORPHAN_ORDER = "FUTURES_ORPHAN_ORDER"
     DESK_WAKES_FAILING = "DESK_WAKES_FAILING"
     DESK_WAKES_STALLED = "DESK_WAKES_STALLED"
+    DESK_UNREADABLE = "DESK_UNREADABLE"
 
 
 #: Delivery outcome values persisted on alert rows. ``skipped`` means the

@@ -8,7 +8,7 @@ caps here, whatever the model said; a refusal is journaled with its code.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, time
 from decimal import ROUND_DOWN, Decimal
 import logging
@@ -500,14 +500,6 @@ async def _apply(
         fingerprint=wake.briefing_fingerprint,
         allocation=allocation,
         committed=sum((book.allocated_quote for book, _ in state.open_books), Decimal(0)),
-    )
-    # The reservation must hold the whole new allocation (its fee headroom included), not only
-    # the order's notional, so the gate sees committed + headroom + notional.
-    request = replace(
-        request,
-        desk_committed_quote=request.desk_committed_quote
-        + allocation
-        - (request.quote_notional or allocation),
     )
     return await open_funded(
         state.desk,

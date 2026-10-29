@@ -172,6 +172,14 @@ class StatusBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     status: DeskStatus
+    i_understand_live: StrictBool = Field(
+        default=False,
+        description=(
+            "Required true to resume a paused or retired live desk (HTTP 428 "
+            "live_acknowledgement_required otherwise; ADR 0148). Pausing or retiring never "
+            "needs it."
+        ),
+    )
 
 
 class DeskDetail(BaseModel):
@@ -415,6 +423,11 @@ async def post_status(
                 raise HTTPException(status_code=404, detail=f"DESK_NOT_FOUND: no desk {desk_id}.")
             if desk.status is body.status:
                 return desk
+            if body.status is DeskStatus.ACTIVE:
+                # A resumed live desk trades real money again: the same acknowledgement as create.
+                require_live_acknowledgement(
+                    DeploymentMode(desk.mode), acknowledged=body.i_understand_live
+                )
             now = datetime.now(UTC)
             record = DeskChange(
                 at=now,
@@ -439,6 +452,7 @@ async def post_status(
         audit,
         "desk_status_changed",
         f"desk_id={desk_id} mode={saved.mode} revision={saved.revision} "
+        f"live_acknowledged={body.i_understand_live} "
         f"status: {desk.status.value} -> {saved.status.value}",
     )
     return saved

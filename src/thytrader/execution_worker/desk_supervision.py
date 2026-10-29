@@ -1,9 +1,10 @@
 """Agent desk wake supervision of the execution worker cycle (ADR 0147, 0115).
 
 Once per cycle the worker reads every desk and its newest wakes and raises, refreshes or
-resolves the ``DESK_WAKES_FAILING`` and ``DESK_WAKES_STALLED`` alerts in the durable alert
-feed. Desks are woken by the operator's own timers, outside ThyTrader's processes, so this is
-the only place a dead harness or a stopped timer becomes visible. It never changes a desk. The
+resolves the ``DESK_WAKES_FAILING``, ``DESK_WAKES_STALLED`` and ``DESK_UNREADABLE`` alerts in
+the durable alert feed. Desks are woken by the operator's own timers, outside ThyTrader's
+processes, so this is the only place a dead harness, a stopped timer or a desk row that no
+longer reads becomes visible. It never changes a desk. The
 pass runs in the cycle's timed ``fleet_supervision`` phase and gives up after
 :data:`PASS_SECONDS`, treating its evidence as unknown, so a slow desk store cannot hold the
 cycle's book supervision.
@@ -60,6 +61,7 @@ async def _supervise(
     """One evidence pass: read, judge, apply, then log each newly raised alert."""
     observed_at = (utc_now if clock is None else clock)()
     listed = await desks.list_desks()
+    unreadable = await desks.unreadable_desks()
     wakes: dict[str, Sequence[DeskWake] | None] = {}
     for desk in listed:
         try:
@@ -67,7 +69,9 @@ async def _supervise(
         except DeskStoreUnavailableError:
             wakes[desk.desk_id] = None
     previous = await alert_service.open_alerts()
-    evidence = desk_wake_evidence(listed, wakes, now=observed_at, prior_alerts=previous)
+    evidence = desk_wake_evidence(
+        listed, wakes, now=observed_at, prior_alerts=previous, unreadable=unreadable
+    )
     application = await alert_service.apply(
         evidence.findings, now=observed_at, evaluated=evidence.evaluated, dispatch=False
     )

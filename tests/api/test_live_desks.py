@@ -209,3 +209,24 @@ def test_a_live_desk_refuses_a_no_trade_or_open_from_another_model_over_http() -
         ("refused", "DESK_LIVE_IDENTITY_MISMATCH"),
         ("refused", "DESK_LIVE_IDENTITY_MISMATCH"),
     ]
+
+
+def test_resuming_a_live_desk_needs_the_live_acknowledgement() -> None:
+    """Pausing never needs it; a resume without i_understand_live is a 428 and changes nothing."""
+    risk = InMemoryRiskPolicyStore()
+    with _live_client(risk, _LiveFillBroker()) as client:
+        desk_id = client.post("/api/v1/desks", json={**_DESK, "i_understand_live": True}).json()[
+            "desk_id"
+        ]
+        paused = client.post(f"/api/v1/desks/{desk_id}/status", json={"status": "paused"})
+        refused = client.post(f"/api/v1/desks/{desk_id}/status", json={"status": "active"})
+        still = client.get(f"/api/v1/desks/{desk_id}").json()
+        resumed = client.post(
+            f"/api/v1/desks/{desk_id}/status",
+            json={"status": "active", "i_understand_live": True},
+        )
+    assert paused.status_code == 200, paused.text
+    assert refused.status_code == 428
+    assert still["desk"]["status"] == "paused"
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["status"] == "active"

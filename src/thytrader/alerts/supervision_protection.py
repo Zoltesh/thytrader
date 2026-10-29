@@ -27,6 +27,7 @@ from thytrader.trading.models import (
     OrderStatus,
     PositionSide,
     RuntimePhase,
+    is_venue_protection,
     resolved_product_id,
     snapshot_positions,
 )
@@ -67,6 +68,17 @@ def _may_trigger(order: Order) -> bool:
     )
 
 
+def _may_trigger_stop(order: Order) -> bool:
+    """Whether the order is working protection whose stop trigger can be consumed.
+
+    Only venue protection (bracket or stop-limit) and attached children protect a position.
+    An unfilled entry also carries its bracket's stop price, but that is metadata for the
+    bracket it attaches on fill: the entry itself is never a stop.
+    """
+    protective = is_venue_protection(order.kind) or order.parent_order_id is not None
+    return protective and _may_trigger(order)
+
+
 def _sticky_trigger_ids(
     deployment: Deployment, snapshot: DeploymentSnapshot, previous: Sequence[OperatorAlert]
 ) -> frozenset[UUID]:
@@ -75,7 +87,7 @@ def _sticky_trigger_ids(
     return frozenset(
         order.id
         for order in snapshot.orders
-        if _may_trigger(order)
+        if _may_trigger_stop(order)
         and order.filled_quantity < order.quantity
         and f"{deployment.id}:{order.id}" in prior
     )
@@ -110,7 +122,7 @@ def _snapshot_checks(
     watched = {
         f"{deployment.id}:{order.id}"
         for order in snapshot.orders
-        if _may_trigger(order) and order.filled_quantity < order.quantity
+        if _may_trigger_stop(order) and order.filled_quantity < order.quantity
     }
     # A still-unfilled triggered stop cannot recover on price rebound or missing candles.
     terminal_subjects = {f"{deployment.id}:{order.id}" for order in snapshot.orders} - watched
