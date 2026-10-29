@@ -260,9 +260,12 @@ async def process_discretionary_bar(
     snapshot = await _protect_discretionary(
         snapshot, candle=candle, product=product, broker=broker, store=store
     )
-    snapshot = await _persist_performance(
-        snapshot, store=store, mark_price=candle.close, product_id=product.product_id
-    )
+    if deployment.mode is not DeploymentMode.LIVE:
+        # Paper books keep their high-water mark like strategy books. A live book's equity is
+        # not refreshed from a candle close here, so its drawdown evidence stays unchanged.
+        snapshot = await _persist_performance(
+            snapshot, store=store, mark_price=candle.close, product_id=product.product_id
+        )
     return await _persist_runtime(snapshot, store=store, last_evaluated_bar=candle.starts_at)
 
 

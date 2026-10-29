@@ -155,8 +155,8 @@ runs:
 - the desk holds no open book and had no pending open before this read (`DESK_WAKE_HOLDING`): a
   held book is always shown to the model. A crashed open that any read refunds is journaled
   `refused` `DESK_OPEN_REFUNDED` (a linked one `DESK_OPEN_RECOVERED`), so it is never skipped
-  past. An open refused while placing (a risk or venue refusal) is refunded silently: its own
-  `refused` wake is the only row;
+  past. An open refused while placing (a risk or venue refusal) journals its own
+  `refused` wake in the same write as the refund, and that is the only row;
 - the newest wake recorded a material fingerprint (`DESK_WAKE_UNANCHORED` otherwise, for
   example a `record` without `--material-fingerprint`) and it equals the briefing's
   (`DESK_WAKE_CHANGED`). The `material_fingerprint` covers the briefing without its generation

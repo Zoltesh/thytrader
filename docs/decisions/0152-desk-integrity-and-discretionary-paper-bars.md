@@ -40,22 +40,25 @@ better than the strategy engine would score the same trades:
 - Every revisioned desk save validates the desk row, books and wakes it writes and refuses
   `DESK_INVALID` before storing anything.
 - The desk list leaves out a stored row that fails validation, so one bad row never hides the
-  others. The store names such rows, and the worker raises `DESK_UNREADABLE` (scope `desk`,
+  others. One scan of every row yields both the readable desks and the malformed rows, and the worker raises `DESK_UNREADABLE` (scope `desk`,
   critical when the row says live or cannot say, warning for paper) until the row reads again.
 - Resuming a live desk (`status active`) needs `i_understand_live` (HTTP 428 without it).
   Pausing and retiring reduce risk and never need it.
 - Discretionary placement binds the risk market-data scope for the whole placement.
 - A desk order carries its whole allocation; the reservation check counts the other books plus
   that allocation, whatever the sizing rounds.
-- An open refused while placing is refunded without a second journal row; an interruption the
-  caller cannot journal still journals `DESK_OPEN_REFUNDED`.
+- An open refused while placing journals its refusal in the refund's own write (one row, never a
+  refund without its journal); an interruption with no refusal still journals
+  `DESK_OPEN_REFUNDED`.
 - A desk book's value is unknown while any of its orders reports more executed quantity than
   its recorded fills.
 - Only venue protection (bracket, stop-limit) and attached children can raise
-  `STOP_TRIGGERED_UNFILLED`; an open alert on any other order resolves.
+  `STOP_TRIGGERED_UNFILLED` or count as stops in cover evidence; an open triggered-stop alert on
+  any other order resolves without waiting for the book's economics.
 - Paper discretionary bars use the stop-first rule of ADR 0083, a fresh book's evaluation
-  cursor starts at the mark bar it was placed on, and each bar refreshes performance (equity,
-  high-water mark, day-open) like a strategy bar.
+  cursor starts at the newest bar closed when it was placed (never older than its mark bar), and
+  each paper bar refreshes performance (equity, high-water mark, day-open) like a strategy bar;
+  live discretionary performance is left as it was.
 
 ## Consequences
 
